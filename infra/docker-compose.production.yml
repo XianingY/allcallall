@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    command: 
+      - --default-authentication-plugin=mysql_native_password
+      - --max_connections=1000
+      - --slow_query_log=1
+      - --long_query_time=2
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: allcallall_db
+      MYSQL_USER: allcallall
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    restart: unless-stopped
+    networks:
+      - allcallall-network
+
+  redis:
+    image: redis:7.2-alpine
+    command: 
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --save
+      - "60"
+      - "1"
+      - --loglevel
+      - warning
+      - --maxclients
+      - "10000"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    restart: unless-stopped
+    networks:
+      - allcallall-network
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      DB_DSN: "allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local"
+      REDIS_ADDR: "redis:6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DB: "0"
+      JWT_SECRET: ${JWT_SECRET}
+      HTTP_PORT: "8080"
+      CONFIG_PATH: /app/configs/config.yaml
+    ports:
+      # 仅暴露给 Cloudflare Tunnel（不对公网直接开放）
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ../backend/configs:/app/configs:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+        labels: "service=backend"
+    restart: unless-stopped
+    networks:
+      - allcallall-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  allcallall-network:
+    driver: bridge

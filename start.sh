@@ -11,10 +11,10 @@ echo "🚀 Starting AllCallAll Project..."
 export GOPROXY=https://goproxy.cn,direct
 echo "✅ Go proxy set to: $GOPROXY"
 
-# 进入 infra 目录并启动服务
+# 进入 infra 目录并启动数据库服务
 cd "$(dirname "$0")/infra"
-echo "📦 Starting Docker services (MySQL, Redis, Backend)..."
-docker-compose up -d
+echo "📦 Starting Docker services (MySQL, Redis)..."
+docker-compose up -d mysql redis
 
 echo ""
 echo "⏳ Waiting for services to be healthy..."
@@ -29,11 +29,15 @@ echo "✅ AllCallAll is starting!"
 echo ""
 echo "📝 Useful commands:"
 echo "  - View logs:        docker-compose logs -f"
-echo "  - View backend logs: docker-compose logs -f backend"
+echo "  - View MySQL logs:  docker-compose logs -f mysql"
+echo "  - View Redis logs:  docker-compose logs -f redis"
 echo "  - Stop services:    docker-compose down"
 echo "  - Service status:   docker-compose ps"
 echo ""
-echo "🌐 Services:"
-echo "  - Backend API: http://localhost:8080"
-echo "  - Health check: http://localhost:8080/ping"
+echo "🌐 Database Services:"
+echo "  - MySQL: localhost:3306"
+echo "  - Redis: localhost:6379"
+echo ""
+echo "💡 To start backend server:"
+echo "  cd backend && go run cmd/server/main.go"
 echo ""

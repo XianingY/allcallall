@@ -1,0 +1,72 @@
+# Cloudflare Tunnel 配置文件 (AllCallAll)
+# 
+# 使用方法: sudo cp cloudflared-config.yml /etc/cloudflared/config.yml
+# 
+# 隧道凭证文件需从 Cloudflare Dashboard 获取，保存为:
+# /etc/cloudflared/credentials.json
+#
+# 启动服务: sudo systemctl start cloudflared
+
+# 隧道标识符（从 Cloudflare Dashboard 获取）
+tunnel: allcallall-tunnel
+
+# 凭证文件路径
+credentials-file: /etc/cloudflared/credentials.json
+
+# 日志设置
+loglevel: info
+transport:
+  http:
+    dialDualStack: true
+
+# 处理健康检查流量
+metrics: 0.0.0.0:16010
+healthcheck:
+  uri: http://127.0.0.1:8080/health
+  interval: 30s
+
+# 入站规则定义
+ingress:
+  # 后端 API 服务 (HTTP/HTTPS)
+  - hostname: api.allcallall.example.com
+    service: http://127.0.0.1:8080
+    tlsSkipVerify: false
+    
+    # 自定义头部
+    originRequest:
+      httpHostHeader: api.allcallall.example.com
+      originServerName: api.allcallall.example.com
+  
+  # WebSocket 信令服务
+  - hostname: api.allcallall.example.com
+    path: /ws*
+    service: http://127.0.0.1:8080
+    
+    originRequest:
+      httpHostHeader: api.allcallall.example.com
+      websocketOriginHeader: true
+  
+  # 健康检查端点
+  - hostname: api.allcallall.example.com
+    path: /health*
+    service: http://127.0.0.1:8080
+  
+  # 防护措施：404 响应所有其他请求
+  - service: http_status:404
+
+# 出站连接配置
+originRequest:
+  # 连接超时
+  connectTimeout: 30s
+  
+  # TLS 版本
+  tlsVersion: "1.2"
+  
+  # 禁用 TLS 验证（仅在必要时）
+  tlsSkipVerify: false
+  
+  # 保留原始 Host 头
+  preserveHostHeader: true
+  
+  # 禁用 chunked 编码以兼容某些客户端
+  disableChunkedEncoding: false

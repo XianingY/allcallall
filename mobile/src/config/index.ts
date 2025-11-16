@@ -1,7 +1,7 @@
 import { Platform } from "react-native";
 import * as Device from "expo-device";
 
-const LAN_IP = "192.168.1.30";
+const LAN_IP = "192.168.1.36";
 const LAN_HTTP = `http://${LAN_IP}:8080`;
 const LAN_WS = `ws://${LAN_IP}:8080`;
 

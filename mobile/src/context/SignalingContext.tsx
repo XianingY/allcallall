@@ -17,7 +17,7 @@ import {
   RTCPeerConnection,
   RTCIceCandidate,
   RTCSessionDescription,
-  mediaDevices
+  mediaDevices as webrtcMediaDevices
 } from "react-native-webrtc";
 
 import { SignalingClient, SignalMessage } from "../api/signaling";
@@ -56,7 +56,10 @@ const SignalingContext = createContext<SignalingContextValue | undefined>(
 
 const STUN_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" }
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun3.l.google.com:19302" },
+  { urls: "stun:stun4.l.google.com:19302" }
 ];
 
 const isSessionDescriptionPayload = (
@@ -102,28 +105,40 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [session]);
 
   const ensureAudioPermission = useCallback(async () => {
+    console.log("[ensureAudioPermission] Platform:", Platform.OS);
+    
     if (Platform.OS === "android") {
-      const permissions: string[] = [
-        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO
-      ];
+      try {
+        const permissions: string[] = [
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO
+        ];
 
-      if (Platform.Version >= 31) {
-        permissions.push(PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT);
+        if (Platform.Version >= 31) {
+          permissions.push(PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT);
+        }
+
+        // 部分厂商在仅采集音频时也会检查摄像头权限，提前申请避免崩溃
+        permissions.push(PermissionsAndroid.PERMISSIONS.CAMERA);
+
+        console.log("[ensureAudioPermission] Requesting permissions:", permissions);
+        
+        // 直接请求权限，不使用超时（真机上应该正常工作）
+        const result = await PermissionsAndroid.requestMultiple(permissions as any);
+        console.log("[ensureAudioPermission] Permission result:", result);
+
+        const allGranted = permissions.every(
+          (permission) => result[permission] === PermissionsAndroid.RESULTS.GRANTED
+        );
+        
+        console.log("[ensureAudioPermission] All permissions granted:", allGranted);
+        return allGranted;
+      } catch (error) {
+        console.error("[ensureAudioPermission] Permission request error:", error);
+        Alert.alert("权限错误", `无法获取权限: ${error instanceof Error ? error.message : String(error)}`);
+        return false;
       }
-
-      // 部分厂商在仅采集音频时也会检查摄像头权限，提前申请避免崩溃
-      permissions.push(PermissionsAndroid.PERMISSIONS.CAMERA);
-
-      const result = await PermissionsAndroid.requestMultiple(permissions, {
-        title: "语音通话权限",
-        message: "AllCallAll 需要访问麦克风 / 蓝牙设备以进行语音通话",
-        buttonPositive: "允许"
-      });
-
-      return permissions.every(
-        (permission) => result[permission] === PermissionsAndroid.RESULTS.GRANTED
-      );
     }
+    console.log("[ensureAudioPermission] iOS platform, returning true");
     return true;
   }, []);
 
@@ -160,22 +175,28 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const sendMessage = useCallback((message: SignalMessage) => {
     const client = signalingRef.current;
+    console.log("[sendMessage] Attempting to send message:", message.type, "to:", message.to);
+    
     if (!client) {
-      console.warn("No active signaling client, message dropped", message);
+      console.warn("[sendMessage] No active signaling client, message dropped", message);
       if (message.type !== "ice.candidate") {
-        Alert.alert("Connection issue", "Signaling service not connected.");
+        Alert.alert("连接问题", "信令服务未连接。");
       }
       return;
     }
+    
     try {
+      console.log("[sendMessage] Sending message via client.send()...");
       const sent = client.send(message);
       if (!sent) {
-        console.debug("Signaling message queued until connection recovers", message.type);
+        console.debug("[sendMessage] Signaling message queued until connection recovers", message.type);
+      } else {
+        console.log("[sendMessage] Message sent successfully");
       }
     } catch (error) {
-      console.error("Failed to send signaling message", error);
+      console.error("[sendMessage] Failed to send signaling message", error);
       if (message.type !== "ice.candidate") {
-        Alert.alert("Connection issue", "Unable to send signaling message.");
+        Alert.alert("连接问题", "无法发送信令消息。");
       }
     }
   }, []);
@@ -291,31 +312,41 @@ const createPeerConnection = useCallback(() => {
     signalingRef.current = client;
     client.connect();
 
-    const handleOpen = () => setConnectionReady(true);
+    const handleOpen = () => {
+      console.log("[SignalingContext] Signaling connection opened");
+      setConnectionReady(true);
+    };
     const handleClose = () => {
+      console.warn("[SignalingContext] Signaling connection closed");
       setConnectionReady(false);
       resetCallState();
     };
 
     const handleMessage = async (message: SignalMessage) => {
+      console.log("[SignalingContext] Received message:", message.type, "from:", message.from);
       switch (message.type) {
         case "call.invite.ack":
+          console.log("[SignalingContext] Received call.invite.ack, callId:", message.call_id, "pendingTarget:", pendingTarget.current);
           if (pendingTarget.current) {
             const newSession: CallSession = {
               callId: message.call_id ?? "",
               peerEmail: pendingTarget.current,
               direction: "outgoing"
             };
+            console.log("[SignalingContext] Creating new session:", newSession);
             sessionRef.current = newSession;
             setSession(newSession);
             setStatus("connecting");
             if (newSession.callId) {
+              console.log("[SignalingContext] Flushing pending local candidates");
               flushPendingLocalCandidates(
                 newSession.callId,
                 newSession.peerEmail
               );
             }
             pendingTarget.current = null;
+          } else {
+            console.warn("[SignalingContext] Received call.invite.ack but no pending target");
           }
           break;
         case "call.invite":
@@ -419,35 +450,74 @@ const createPeerConnection = useCallback(() => {
 
   const startCall = useCallback(
     async (email: string) => {
-      if (!user || status !== "idle") {
+      console.log("[startCall] Starting call to:", email, "Current status:", status);
+      
+      if (!user) {
+        console.warn("[startCall] No user logged in");
+        Alert.alert("错误", "请先登录");
         return;
       }
-
-      const hasPermission = await ensureAudioPermission();
-      if (!hasPermission) {
-        Alert.alert("需要麦克风权限", "请在系统设置中授予麦克风或蓝牙权限。");
+      
+      if (status !== "idle") {
+        console.warn("[startCall] Call already in progress. Current status:", status);
+        Alert.alert("提示", "已有通话在进行中，请先结束该通话");
         return;
       }
 
       try {
+        console.log("[startCall] Requesting audio permissions...");
+        const hasPermission = await ensureAudioPermission();
+        if (!hasPermission) {
+          console.warn("[startCall] Audio permission denied");
+          Alert.alert("需要麦克风权限", "请在系统设置中授予麦克风或蓝牙权限。");
+          return;
+        }
+        console.log("[startCall] Audio permission granted");
+
+        console.log("[startCall] Resetting peer resources...");
         resetPeerResources();
-        const stream = await mediaDevices.getUserMedia({
+        
+        console.log("[startCall] Requesting media stream...");
+        console.log("[startCall] webrtcMediaDevices:", webrtcMediaDevices ? "available" : "null");
+        
+        if (!webrtcMediaDevices) {
+          throw new Error("WebRTC mediaDevices not available. Please use 'expo run:android' to build a native app.");
+        }
+        
+        console.log("[startCall] Requesting getUserMedia with audio only...");
+        const stream = await webrtcMediaDevices.getUserMedia({
           audio: true,
           video: false
         });
+        console.log("[startCall] Media stream obtained:", stream.getTracks().length, "tracks");
+        stream.getTracks().forEach((track) => {
+          console.log("[startCall] Track obtained - Kind:", track.kind, "Enabled:", track.enabled);
+        });
         setLocalStream(stream);
 
+        console.log("[startCall] Creating peer connection...");
         const pc = createPeerConnection();
-        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+        stream.getTracks().forEach((track) => {
+          console.log("[startCall] Adding track:", track.kind);
+          pc.addTrack(track, stream);
+        });
 
+        console.log("[startCall] Creating offer...");
         const offer = await pc.createOffer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: false
         });
+        console.log("[startCall] Offer created, SDP length:", offer.sdp?.length);
+        
+        console.log("[startCall] Setting local description...");
         await pc.setLocalDescription(offer);
+        console.log("[startCall] Local description set");
 
         pendingTarget.current = email;
         setStatus("connecting");
+        console.log("[startCall] Status changed to 'connecting'");
+        
+        console.log("[startCall] Sending call.invite message...");
         sendMessage({
           type: "call.invite",
           to: email,
@@ -456,9 +526,13 @@ const createPeerConnection = useCallback(() => {
             type: offer.type
           }
         });
+        console.log("[startCall] call.invite message sent");
       } catch (error) {
-        console.error("startCall error", error);
-        Alert.alert("无法发起通话", "请确认麦克风未被占用或已授权。");
+        console.error("[startCall] Error occurred:", error);
+        console.error("[startCall] Error name:", (error as Error)?.name);
+        console.error("[startCall] Error message:", (error as Error)?.message);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        Alert.alert("无法发起通话", `错误: ${errorMsg}\n请确认麦克风未被占用或已授权。`);
         resetPeerResources();
         setStatus("idle");
       }
@@ -478,9 +552,21 @@ const createPeerConnection = useCallback(() => {
     }
 
     try {
-      const stream = await mediaDevices.getUserMedia({
+      console.log("[acceptCall] Requesting media stream...");
+      console.log("[acceptCall] webrtcMediaDevices:", webrtcMediaDevices ? "available" : "null");
+      
+      if (!webrtcMediaDevices) {
+        throw new Error("WebRTC mediaDevices not available. Please use 'expo run:android' to build a native app.");
+      }
+      
+      console.log("[acceptCall] Requesting getUserMedia with audio only...");
+      const stream = await webrtcMediaDevices.getUserMedia({
         audio: true,
         video: false
+      });
+      console.log("[acceptCall] Media stream obtained:", stream.getTracks().length, "tracks");
+      stream.getTracks().forEach((track) => {
+        console.log("[acceptCall] Track obtained - Kind:", track.kind, "Enabled:", track.enabled);
       });
       setLocalStream(stream);
 

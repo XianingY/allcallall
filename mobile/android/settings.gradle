@@ -1,4 +1,11 @@
 pluginManagement {
+  repositories {
+    maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+    maven { url 'https://maven.aliyun.com/repository/google' }
+    maven { url 'https://maven.aliyun.com/repository/central' }
+    gradlePluginPortal()
+  }
+  
   def version = providers.exec {
     commandLine("node", "-e", "console.log(require('react-native/package.json').version);")
   }.standardOutput.asText.get().trim()
@@ -44,9 +51,17 @@ if (getRNMinorVersion() >= 75) {
   }
 }
 
-rootProject.name = 'AllCall'
+rootProject.name = 'AllCallAll'
 
 dependencyResolutionManagement {
+  repositories {
+    maven { url 'https://maven.aliyun.com/repository/google' }
+    maven { url 'https://maven.aliyun.com/repository/central' }
+    maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+    google()
+    mavenCentral()
+  }
+  
   versionCatalogs {
     reactAndroidLibs {
       from(files(new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim(), "../gradle/libs.versions.toml")))

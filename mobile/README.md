@@ -1,4 +1,4 @@
-# AllCall Mobile App (Android Focus)
+# AllCallAll Mobile App (Android Focus)
 
 React Native (Expo) prototype that pairs with the Go backend to deliver email-first calling.
 
