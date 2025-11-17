@@ -23,6 +23,18 @@ redis:
   password: ""
   db: 0
 
+mail:
+  # SMTP 邮件配置
+  # SMTP mail configuration
+  host: "smtp.gmail.com"
+  port: 587
+  username: "allcallall.official@gmail.com"
+  password: "${MAIL_PASSWORD}"  # 从环境变量读取应用专用密码
+  from: "noreply@allcallall.com"
+  from_name: "AllCallAll"
+  max_retries: 3
+  retry_delay_seconds: 5
+
 jwt:
   # JWT 签发密钥 (部署时务必替换)
   # JWT signing secret (replace in production)

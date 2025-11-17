@@ -10,6 +10,7 @@ import (
 // RouteDependencies bundles handlers and middleware.
 type RouteDependencies struct {
 	AuthHandler      *handlers.AuthHandler
+	EmailHandler     *handlers.EmailHandler
 	UserHandler      *handlers.UserHandler
 	SignalingHandler *handlers.SignalingHandler
 	AuthMiddleware   gin.HandlerFunc
@@ -22,6 +23,9 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 
 	authGroup := api.Group("/auth")
 	deps.AuthHandler.RegisterRoutes(authGroup)
+
+	emailGroup := api.Group("")
+	deps.EmailHandler.RegisterRoutes(emailGroup)
 
 	protected := api.Group("/")
 	protected.Use(deps.AuthMiddleware)

@@ -18,6 +18,7 @@ import (
 	"github.com/allcallall/backend/internal/database"
 	"github.com/allcallall/backend/internal/handlers"
 	"github.com/allcallall/backend/internal/logger"
+	"github.com/allcallall/backend/internal/mail"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/presence"
 	"github.com/allcallall/backend/internal/server"
@@ -59,7 +60,7 @@ func main() {
 	defer sqlDB.Close()
 	appLogger.Info().Msg("mysql connection established")
 
-	if err := db.AutoMigrate(&models.User{}, &models.Contact{}); err != nil {
+	if err := db.AutoMigrate(&models.User{}, &models.Contact{}, &models.EmailVerificationCode{}, &models.EmailSendLog{}); err != nil {
 		appLogger.Fatal().Err(err).Msg("auto migrate failed")
 	}
 
@@ -81,6 +82,23 @@ func main() {
 	contactRepo := contact.NewRepository(db)
 	contactSvc := contact.NewService(contactRepo, userSvc)
 
+	// 初始化邮件服务
+	// Initialize mail service
+	mailPassword := os.Getenv("MAIL_PASSWORD")
+	if mailPassword == "" {
+		mailPassword = cfg.Mail.Password
+	}
+	mailSvc := mail.NewService(mail.Config{
+		Host:             cfg.Mail.Host,
+		Port:             cfg.Mail.Port,
+		Username:         cfg.Mail.Username,
+		Password:         mailPassword,
+		From:             cfg.Mail.From,
+		FromName:         cfg.Mail.FromName,
+		MaxRetries:       cfg.Mail.MaxRetries,
+		RetryDelaySecond: cfg.Mail.RetryDelaySecond,
+	}, appLogger)
+
 	jwtManager, err := auth.NewManager(auth.Config{
 		Secret:          cfg.JWT.Secret,
 		Issuer:          cfg.JWT.Issuer,
@@ -92,6 +110,7 @@ func main() {
 	}
 
 	authHandler := handlers.NewAuthHandler(appLogger, userSvc, jwtManager)
+	emailHandler := handlers.NewEmailHandler(appLogger, mail.NewVerificationCodeService(db, mailSvc))
 	presenceManager := presence.NewManager(redisClient, appLogger, userSvc)
 
 	userHandler := handlers.NewUserHandler(appLogger, userSvc, presenceManager, contactSvc)
@@ -119,6 +138,7 @@ func main() {
 
 	server.RegisterRoutes(engine, server.RouteDependencies{
 		AuthHandler:      authHandler,
+		EmailHandler:     emailHandler,
 		UserHandler:      userHandler,
 		SignalingHandler: signalingHandler,
 		AuthMiddleware:   auth.Middleware(jwtManager),

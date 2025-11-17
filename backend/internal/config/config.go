@@ -26,6 +26,7 @@ type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Database DatabaseConfig `yaml:"database"`
 	Redis    RedisConfig    `yaml:"redis"`
+	Mail     Mail           `yaml:"mail"`
 	JWT      JWTConfig      `yaml:"jwt"`
 	WebRTC   WebRTCConfig   `yaml:"webrtc"`
 	Logging  LoggingConfig  `yaml:"logging"`
