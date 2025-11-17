@@ -119,10 +119,6 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"
-        
-        // Pass Metro dev server address as build config
-        buildConfigField "String", "METRO_DEV_SERVER_HOST", '"192.168.1.30"'
-        buildConfigField "int", "METRO_DEV_SERVER_PORT", '8081'
     }
     signingConfigs {
         debug {

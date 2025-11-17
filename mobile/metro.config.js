@@ -15,7 +15,7 @@ function getLocalIP() {
       }
     }
   }
-  return '192.168.1.30'; // 降级方案
+  return 'localhost'; // 降级方案
 }
 
 const lanIP = getLocalIP();
@@ -45,7 +45,7 @@ config.resolver = {
 console.log(`\n📱 Metro开发服务器配置：`);
 console.log(`   LAN IP: ${lanIP}`);
 console.log(`   Metro URL: http://${lanIP}:8081`);
-console.log(`   API URL: http://192.168.1.30:8080`);
+console.log(`   API URL: http://${lanIP}:8080`);
 console.log(`   ✅ 支持USB连接和Wi-Fi连接两种模式\n`);
 
 module.exports = config;
