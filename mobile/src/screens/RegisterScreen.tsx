@@ -17,9 +17,12 @@ import { RootStackParamList } from "../navigation/AppNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Register">;
 
-const RegisterScreen: React.FC<Props> = ({ navigation }) => {
+const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
   const { register } = useAuthContext();
-  const [email, setEmail] = useState("");
+  // 如果来自邮箱验证页面，会有预填的 email
+  const { email: prefilledEmail } = route.params || {};
+  
+  const [email, setEmail] = useState(prefilledEmail || "");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -31,6 +34,14 @@ const RegisterScreen: React.FC<Props> = ({ navigation }) => {
         Alert.alert("错误", "请输入邮箱");
         return;
       }
+
+      // 基础邮箱格式验证
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        Alert.alert("错误", "请输入有效的邮箱地址");
+        return;
+      }
+
       if (!password.trim()) {
         Alert.alert("错误", "请输入密码");
         return;
@@ -44,21 +55,27 @@ const RegisterScreen: React.FC<Props> = ({ navigation }) => {
         return;
       }
 
-      setLoading(true);
-      await register(email.trim(), password, displayName.trim());
+      // 判断是否已验证邮箱
+      if (prefilledEmail) {
+        // 邮箱已验证，直接调用注册
+        setLoading(true);
+        await register(email.trim().toLowerCase(), password, displayName.trim());
+        // 注册成功后会自动跳转到主屏幕
+      } else {
+        // 邮箱未验证，先跳转到验证页面
+        navigation.navigate("EmailVerification", {
+          email: email.trim().toLowerCase(),
+          onVerified: async () => {
+            // 验证完成后的回调
+          }
+        });
+      }
     } catch (error) {
       console.error("Register error:", error);
-      // 更详细的错误信息
       if (error instanceof Error) {
-        Alert.alert(
-          "注册失败",
-          error.message || "请检查输入信息"
-        );
+        Alert.alert("错误", error.message || "请检查输入信息");
       } else {
-        Alert.alert(
-          "注册失败",
-          "请检查输入信息"
-        );
+        Alert.alert("错误", "请检查输入信息");
       }
     } finally {
       setLoading(false);
@@ -82,6 +99,7 @@ const RegisterScreen: React.FC<Props> = ({ navigation }) => {
           autoCapitalize="words"
           value={displayName}
           onChangeText={setDisplayName}
+          editable={!loading}
         />
         <TextField
           label="邮箱 / Email"
@@ -89,12 +107,14 @@ const RegisterScreen: React.FC<Props> = ({ navigation }) => {
           keyboardType="email-address"
           value={email}
           onChangeText={setEmail}
+          editable={!loading && !prefilledEmail}  // 邮箱已验证时禁用编辑
         />
         <TextField
           label="密码 / Password"
           secureTextEntry
           value={password}
           onChangeText={setPassword}
+          editable={!loading}
         />
         <PrimaryButton
           title={loading ? "注册中..." : "注册 / Register"}
@@ -104,6 +124,7 @@ const RegisterScreen: React.FC<Props> = ({ navigation }) => {
         <TouchableOpacity
           onPress={() => navigation.pop()}
           style={styles.linkButton}
+          disabled={loading}
         >
           <Text style={styles.linkText}>已有账号？登录 / Already have one?</Text>
         </TouchableOpacity>

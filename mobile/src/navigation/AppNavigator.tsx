@@ -5,11 +5,13 @@ import { ActivityIndicator, View } from "react-native";
 import { useAuthContext } from "../context/AuthContext";
 import LoginScreen from "../screens/LoginScreen";
 import RegisterScreen from "../screens/RegisterScreen";
+import EmailVerificationScreen from "../screens/EmailVerificationScreen";
 import ContactsScreen from "../screens/ContactsScreen";
 
 export type RootStackParamList = {
   Login: undefined;
-  Register: undefined;
+  Register: { email?: string };
+  EmailVerification: { email?: string; onVerified?: () => void };
   Contacts: undefined;
 };
 
@@ -46,13 +48,18 @@ const AppNavigator: React.FC = () => {
         <>
           <Stack.Screen
             name="Login"
-            component= {LoginScreen}
+            component={LoginScreen}
             options={{ title: "AllCallAll 登录 / Login" }}
           />
           <Stack.Screen
             name="Register"
             component={RegisterScreen}
             options={{ title: "AllCallAll 注册 / Register" }}
+          />
+          <Stack.Screen
+            name="EmailVerification"
+            component={EmailVerificationScreen}
+            options={{ title: "邮箱验证 / Email Verification" }}
           />
         </>
       )}

@@ -16,12 +16,8 @@ import TextField from "../components/TextField";
 import PrimaryButton from "../components/PrimaryButton";
 import VerificationCodeInput from "../components/VerificationCodeInput";
 import { sendVerificationCode, verifyCode } from "../api/email";
-
-// 假设你已有这个类型定义，如果没有可以用 any
-type RootStackParamList = {
-  EmailVerification: { email?: string; onVerified?: () => void };
-  [key: string]: any;
-};
+import { RootStackParamList } from "../navigation/AppNavigator";
+import { useAuthContext } from "../context/AuthContext";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EmailVerification">;
 
@@ -31,6 +27,9 @@ type Props = NativeStackScreenProps<RootStackParamList, "EmailVerification">;
  */
 const EmailVerificationScreen: React.FC<Props> = ({ navigation, route }) => {
   const { email: initialEmail, onVerified } = route.params || {};
+  const { register } = useAuthContext();
+
+  // ... 现有代码 ...
 
   // UI 状态
   const [step, setStep] = useState<"input" | "verify">("input");
@@ -100,10 +99,13 @@ const EmailVerificationScreen: React.FC<Props> = ({ navigation, route }) => {
 
       Alert.alert("成功", "邮箱验证完成");
 
-      // 调用回调函数或返回上一屏
+      // 如果是从注册流程来的，需要调用 onVerified 回调并完成注册
       if (onVerified) {
-        onVerified();
+        // 从注册流程来，第二步是提供注册信息
+        // 帮割 email 地址，让用户冒充其他信息
+        navigation.navigate("Register", { email: email.trim().toLowerCase() });
       } else {
+        // 单纯邮箱验证流程，正常返回
         navigation.goBack();
       }
     } catch (error) {
