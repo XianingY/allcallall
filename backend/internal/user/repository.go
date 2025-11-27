@@ -81,3 +81,11 @@ func (r *Repository) UpdateLastSeen(ctx context.Context, userID uint64, t *time.
 		Where("id = ?", userID).
 		Update("last_seen", t).Error
 }
+
+// UpdatePassword 更新用户密码
+// UpdatePassword updates user password hash.
+func (r *Repository) UpdatePassword(ctx context.Context, userID uint64, passwordHash string) error {
+	return r.db.WithContext(ctx).Model(&models.User{}).
+		Where("id = ?", userID).
+		Update("password_hash", passwordHash).Error
+}

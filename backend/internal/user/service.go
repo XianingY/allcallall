@@ -117,3 +117,43 @@ func (s *Service) GetByEmail(ctx context.Context, email string) (*models.User, e
 func (s *Service) UpdateLastSeen(ctx context.Context, userID uint64, t *time.Time) error {
 	return s.repo.UpdateLastSeen(ctx, userID, t)
 }
+
+// ChangePasswordInput 密码修改输入
+// ChangePasswordInput represents password change parameters.
+type ChangePasswordInput struct {
+	OldPassword     string
+	NewPassword     string
+	ConfirmPassword string
+}
+
+// ChangePassword 修改用户密码
+// ChangePassword updates user password after verifying old password.
+func (s *Service) ChangePassword(ctx context.Context, userID uint64, in ChangePasswordInput) error {
+	// 获取用户信息
+	user, err := s.repo.FindByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	// 验证旧密码
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(in.OldPassword)); err != nil {
+		return ErrInvalidCredentials
+	}
+
+	// 验证新密码的完整性（包括与旧密码的比较）
+	if err := ValidatePasswordChange(in.OldPassword, in.NewPassword, in.ConfirmPassword); err != nil {
+		return err
+	}
+
+	// 生成新的密码哈希
+	newHash, err := bcrypt.GenerateFromPassword([]byte(in.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	// 更新数据库
+	return s.repo.UpdatePassword(ctx, userID, string(newHash))
+}

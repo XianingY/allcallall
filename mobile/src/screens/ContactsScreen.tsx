@@ -9,6 +9,7 @@ import {
   Modal,
   TouchableOpacity
 } from "react-native";
+import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { useAuthContext } from "../context/AuthContext";
 import {
@@ -25,8 +26,11 @@ import TextField from "../components/TextField";
 import PresenceBadge from "../components/PresenceBadge";
 import CallOverlay from "../components/CallOverlay";
 import { useSignaling } from "../context/SignalingContext";
+import { RootStackParamList } from "../navigation/AppNavigator";
 
-const ContactsScreen: React.FC = () => {
+type Props = NativeStackScreenProps<RootStackParamList, "Contacts">;
+
+const ContactsScreen: React.FC<Props> = ({ navigation }) => {
   const { user, token, logout } = useAuthContext();
   const { startCall, connectionReady } = useSignaling();
 
@@ -176,9 +180,17 @@ const ContactsScreen: React.FC = () => {
           <Text style={styles.greeting}>你好, {user?.display_name || ""}</Text>
           <Text style={styles.subtitle}>{user?.email}</Text>
         </View>
-        <TouchableOpacity style={styles.logoutButton} onPress={logout}>
-          <Text style={styles.logoutText}>退出登录</Text>
-        </TouchableOpacity>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity
+            style={styles.changePasswordButton}
+            onPress={() => navigation.navigate("ChangePassword")}
+          >
+            <Text style={styles.changePasswordText}>改密码</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.logoutButton} onPress={logout}>
+            <Text style={styles.logoutText}>退出登录</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.presenceCard}>
@@ -274,6 +286,20 @@ const styles = StyleSheet.create({
   subtitle: {
     marginTop: 4,
     color: "#6b7280"
+  },
+  headerButtons: {
+    gap: 8
+  },
+  changePasswordButton: {
+    backgroundColor: "#3b82f6",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10
+  },
+  changePasswordText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 12
   },
   logoutButton: {
     backgroundColor: "#e5e7eb",

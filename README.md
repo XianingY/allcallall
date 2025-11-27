@@ -101,7 +101,7 @@ cat configs/config.yaml | grep -A5 mail:
 # 应该显示：
 #   host: smtp.qq.com
 #   port: 587
-#   username: 1569297330@qq.com
+#   username: xxxx@qq.com
 ```
 
 #### 启动后端服务
@@ -421,7 +421,7 @@ echo $MAIL_PASSWORD
 # 测试邮件发送端点
 curl -X POST http://localhost:8080/api/v1/email/send-verification-code \
   -H "Content-Type: application/json" \
-  -d '{"email":"byzaantios@gmail.com"}'
+  -d '{"email":"test.user@example.com"}'
 
 # 预期响应: {"message":"verification code sent successfully"}
 ```
@@ -562,7 +562,7 @@ cat configs/config.yaml | grep -A5 mail:
 # Should show:
 #   host: smtp.qq.com
 #   port: 587
-#   username: 1569297330@qq.com
+#   username: xxxx@qq.com
 
 # 4. Set configuration file path
 export CONFIG_PATH=./configs/config.yaml
@@ -876,7 +876,7 @@ echo $MAIL_PASSWORD
 # Test email sending endpoint
 curl -X POST http://localhost:8080/api/v1/email/send-verification-code \
   -H "Content-Type: application/json" \
-  -d '{"email":"byzaantios@gmail.com"}'
+  -d '{"email":"test.user@example.com"}'
 
 # Expected response: {"message":"verification code sent successfully"}
 ```

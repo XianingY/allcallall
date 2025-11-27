@@ -81,8 +81,8 @@ mobile/
 
 ### 设备和模拟器
 - **Android 设备**: API 31+ 或 Android 模拟器
-- **权限**: 麦克风权限（必需用于通话）、摄像头权限（未来视频功能）
-- **测试邮箱**: byzaantios@gmail.com（接收验证码用）
+- **权限**: 麦克风权限（必须用于通话）、摄像头权限（未来视频功能）
+- **测试邮箱**: test.user@example.com（接收验证码用）
 
 ### 后端服务
 - 后端 Go 服务运行在 `localhost:8080`（通过 ADB 转发）
@@ -384,7 +384,7 @@ cat backend/configs/config.yaml | grep -A5 mail:
 # 应显示：
 #   host: smtp.qq.com
 #   port: 587
-#   username: 1569297330@qq.com
+#   username: xxxx@qq.com
 
 # 2. 验证环境变量
 echo $MAIL_PASSWORD
@@ -392,7 +392,7 @@ echo $MAIL_PASSWORD
 # 3. 测试邮件发送端点
 curl -X POST http://localhost:8080/api/v1/email/send-verification-code \
   -H "Content-Type: application/json" \
-  -d '{"email":"byzaantios@gmail.com"}'
+  -d '{"email":"test.user@example.com"}'
 
 # 期望响应: {"message":"verification code sent successfully"}
 

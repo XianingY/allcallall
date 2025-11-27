@@ -54,3 +54,19 @@ export const fetchPresence = async (token: string, emails: string[]) => {
   );
   return response.data.presence;
 };
+
+export interface ChangePasswordRequest {
+  old_password: string;
+  new_password: string;
+  confirm_password: string;
+}
+
+export interface ChangePasswordResponse {
+  message: string;
+}
+
+export const changePassword = async (token: string, data: ChangePasswordRequest) => {
+  const api = createApiClient(token);
+  const response = await api.post<ChangePasswordResponse>("/users/change-password", data);
+  return response.data;
+};

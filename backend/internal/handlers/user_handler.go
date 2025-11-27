@@ -40,6 +40,7 @@ func (h *UserHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/me", h.handleMe)
 	rg.GET("/search", h.handleSearch)
 	rg.GET("/presence", h.handlePresence)
+	rg.POST("/change-password", h.handleChangePassword)
 
 	contactsGroup := rg.Group("/contacts")
 	contactsGroup.GET("", h.handleListContacts)
@@ -229,4 +230,57 @@ func (h *UserHandler) handleRemoveContact(c *gin.Context) {
 	}
 
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
+}
+
+type changePasswordRequest struct {
+	OldPassword     string `json:"old_password" binding:"required"`
+	NewPassword     string `json:"new_password" binding:"required"`
+	ConfirmPassword string `json:"confirm_password" binding:"required"`
+}
+
+func (h *UserHandler) handleChangePassword(c *gin.Context) {
+	claims, err := auth.GetClaimsFromContext(c)
+	if err != nil {
+		JSONError(c, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req changePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	err = h.users.ChangePassword(c.Request.Context(), claims.UserID, user.ChangePasswordInput{
+		OldPassword:     req.OldPassword,
+		NewPassword:     req.NewPassword,
+		ConfirmPassword: req.ConfirmPassword,
+	})
+
+	if err != nil {
+		switch err {
+		case user.ErrInvalidCredentials:
+			JSONError(c, http.StatusUnauthorized, "invalid old password")
+		case user.ErrPasswordTooShort:
+			JSONError(c, http.StatusBadRequest, "password must be at least 8 characters")
+		case user.ErrPasswordTooLong:
+			JSONError(c, http.StatusBadRequest, "password must be at most 128 characters")
+		case user.ErrPasswordWeak:
+			JSONError(c, http.StatusBadRequest, "password must contain both letters and numbers")
+		case user.ErrSpecialCharacters:
+			JSONError(c, http.StatusBadRequest, "password cannot contain special characters")
+		case user.ErrPasswordMismatch:
+			JSONError(c, http.StatusBadRequest, "new password and confirm password do not match")
+		case user.ErrPasswordUnchanged:
+			JSONError(c, http.StatusBadRequest, "new password must be different from old password")
+		case user.ErrNotFound:
+			JSONError(c, http.StatusNotFound, "user not found")
+		default:
+			h.logger.Error().Err(err).Msg("change password failed")
+			JSONError(c, http.StatusInternalServerError, "failed to change password")
+		}
+		return
+	}
+
+	JSONSuccess(c, http.StatusOK, gin.H{"message": "password changed successfully"})
 }

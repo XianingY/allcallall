@@ -7,12 +7,14 @@ import LoginScreen from "../screens/LoginScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import EmailVerificationScreen from "../screens/EmailVerificationScreen";
 import ContactsScreen from "../screens/ContactsScreen";
+import ChangePasswordScreen from "../screens/ChangePasswordScreen";
 
 export type RootStackParamList = {
   Login: undefined;
   Register: { email?: string };
   EmailVerification: { email?: string; onVerified?: () => void };
   Contacts: undefined;
+  ChangePassword: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -39,11 +41,18 @@ const AppNavigator: React.FC = () => {
   return (
     <Stack.Navigator>
       {token ? (
-        <Stack.Screen
-          name="Contacts"
-          component={ContactsScreen}
-          options={{ headerShown: false }}
-        />
+        <>
+          <Stack.Screen
+            name="Contacts"
+            component={ContactsScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="ChangePassword"
+            component={ChangePasswordScreen}
+            options={{ title: "修改密码 / Change Password" }}
+          />
+        </>
       ) : (
         <>
           <Stack.Screen
