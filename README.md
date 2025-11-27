@@ -20,24 +20,29 @@
 
 ### 🛠 技术栈
 
-### 后端
+#### 后端
 - **语言**: Go 1.22+
 - **框架**: Gin（HTTP）、Gorilla WebSocket
 - **数据库**: MySQL 8.0
 - **缓存**: Redis 7.2
 - **WebRTC**: Pion v4.0.0
 - **认证**: JWT (golang-jwt)
+- **邮件**: SMTP (QQ邮箱 smtp.qq.com:587)
 
-### 移动端
+#### 移动端
 - **框架**: React Native 0.74+
-- **开发**: Expo 51.0+
+- **开发**: Expo 51.0+（Expo Development Client）
 - **语言**: TypeScript
 - **UI**: React Navigation
-- **WebRTC**: react-native-webrtc
+- **WebRTC**: react-native-webrtc 124.0.0
+- **HTTP**: Axios
+- **状态管理**: React Context API
 
-### 基础设施
+#### 基础设施
 - **容器化**: Docker & Docker Compose
-- **服务代理**: Cloudflare Tunnel
+- **构建**: Metro Bundler、Expo CLI
+- **调试**: ADB (Android Debug Bridge)
+- **服务代理**: Cloudflare Tunnel（可选）
 
 ### 🚀 快速开始
 
@@ -80,6 +85,27 @@ docker-compose -f infra/docker-compose.yml ps
 
 ### 启动后端服务
 
+#### 前置步骤：配置邮件服务（QQ邮箱）
+
+```bash
+cd backend
+
+# 1. 复制环境变量示例文件
+cp .env.example .env
+
+# 2. 编辑 .env，填入 QQ 邮箱授权码
+# MAIL_PASSWORD=ghziacfauihwfiha  (示例值)
+
+# 3. 验证后端配置文件中的邮件设置
+cat configs/config.yaml | grep -A5 mail:
+# 应该显示：
+#   host: smtp.qq.com
+#   port: 587
+#   username: 1569297330@qq.com
+```
+
+#### 启动后端服务
+
 ```bash
 cd backend
 
@@ -88,40 +114,55 @@ export CONFIG_PATH=./configs/config.yaml
 
 # 运行后端服务（监听 0.0.0.0:8080）
 go run cmd/server/main.go
+
+# 验证后端是否运行
+curl http://localhost:8080/health
 ```
 
 ### 启动移动应用
 
-#### 方式 1: USB 连接调试（推荐开发）
+#### 推荐方式：Expo Development Client + ADB 反向转发（最稳定）
 
 ```bash
 cd mobile
 
-# 构建并安装自定义开发客户端
-npm run android
+# 使用自动化脚本启动（推荐）
+bash scripts/dev-client-debug.sh
 
-# 在另一个终端启动 Metro 开发服务器
-npm run start
+# 或手动步骤：
+# 1. 配置 ADB 反向转发
+adb reverse tcp:8080 tcp:8080
+adb reverse tcp:8081 tcp:8081
+
+# 2. 启动 Metro 开发服务器
+npm run start:dev-client
+
+# 3. 在真机上扫描二维码或输入 Metro 显示的 URL
 ```
 
-#### 方式 2: Wi-Fi 无线调试
+#### 方式 2: Wi-Fi 无线调试（LAN 模式 - 可选）
 
 ```bash
 cd mobile
 
 # 启动 Metro 服务器（LAN 模式）
+npm run start:dev-client:lan
+
+# 或使用传统 Expo Go
 npm run start:lan
 
 # 在真机摇一摇菜单中选择 'Change Bundle URL'，输入显示的 LAN 地址
 ```
 
-#### 方式 3: Cloudflare Tunnel（跨网络）
+#### 方式 3: 构建自定义开发客户端 APK
 
 ```bash
 cd mobile
 
-# 启动 Tunnel 模式
-npm run start:tunnel
+# 首次或需要更新客户端时运行
+npm run android
+
+# 这会构建并安装 Expo Development Client
 ```
 
 ### 📁 目录结构
@@ -186,23 +227,34 @@ npm run start
 
 ### 网络配置
 
-网络配置由三个部分统一管理：
+当前配置使用 **ADB 反向转发方案**（推荐）：
 
-1. **metro.config.js** - 动态获取本机 LAN IP
-2. **src/config/index.ts** - 根据运行平台选择 API 地址
-3. **后端配置** - 通过环境变量和 config.yaml 管理
+```bash
+# 自动配置（使用脚本）
+bash scripts/dev-client-debug.sh
+
+# 手动配置
+adb reverse tcp:8080 tcp:8080  # 后端 API 服务
+adb reverse tcp:8081 tcp:8081  # Metro 开发服务器
+```
+
+前端应用配置（自动使用 localhost）：
 
 ```typescript
 // src/config/index.ts
-const LAN_IP = "192.168.1.36";  // 开发机 IP
-const isPhysicalAndroid = Platform.OS === "android" && Device.isDevice;
-
-const API_HOST = isPhysicalAndroid
-  ? `http://${LAN_IP}:8080`       // 真机使用 LAN IP
-  : Platform.OS === "android"
-  ? "http://10.0.2.2:8080"        // 模拟器使用特殊地址
-  : "http://localhost:8080";      // 开发机使用本地地址
+const API_HOST = "http://localhost:8080";  // 通过 ADB 转发
+const WS_HOST = "ws://localhost:8080";      // WebSocket 也通过转发
 ```
+
+**为什么使用 ADB 反向转发？**
+- ✅ 比直接使用 LAN IP 更稳定可靠
+- ✅ 与本地开发环境一致
+- ✅ 支持多设备同时调试
+- ✅ 网络更稳定，延迟更低
+
+**可选：LAN 模式（Wi-Fi 调试）**
+- 开发机 IP：192.168.31.217
+- 使用场景：需要无线自由移动的开发测试
 
 ### 常用开发命令
 
@@ -267,35 +319,82 @@ GET    /api/v1/ws                - WebSocket 连接
 
 ### 真机无法连接到开发服务器
 
-**问题**: `AxiosError: Network Error`
+**问题**: `AxiosError: Network Error` 或 `Network timeout`
 
 **解决方案**:
-1. 确认开发机和真机在同一局域网
-2. 检查 `src/config/index.ts` 中的 LAN_IP 与开发机 IP 是否一致
-3. 运行 `ipconfig getifaddr en0` 检查本机 IP
-4. 清除应用数据：`adb shell pm clear com.allcallall.mobile`
-5. 重新启动应用
 
-### Metro 编译失败
+1. **检查 ADB 反向转发配置**
+   ```bash
+   adb reverse --list
+   # 应该显示：
+   # tcp:8080 tcp:8080
+   # tcp:8081 tcp:8081
+   
+   # 如果缺少，重新配置
+   adb reverse tcp:8080 tcp:8080
+   adb reverse tcp:8081 tcp:8081
+   ```
 
-**问题**: `Unable to resolve module`
+2. **验证后端服务是否运行**
+   ```bash
+   curl http://localhost:8080/health
+   ```
+
+3. **检查前端配置**
+   ```bash
+   cat mobile/src/config/index.ts
+   # 应该显示 API_HOST = "http://localhost:8080"
+   ```
+
+4. **清除应用数据并重新启动**
+   ```bash
+   adb shell pm clear com.allcallall.mobile
+   # 在真机上重新扫描 Metro 二维码
+   ```
+
+5. **运行完整启动脚本**
+   ```bash
+   bash mobile/scripts/dev-client-debug.sh
+   ```
+
+### Metro 编译失败或虚拟入口点 404 错误
+
+**问题**: `Unable to resolve module ./.expo/.virtual-metro-entry` 或编译失败
 
 **解决方案**:
-```bash
-# 清理缓存
-rm -rf node_modules/.cache /tmp/metro-*
-rm -rf .expo
 
-# 重新安装依赖
-npm install
+1. **使用自动化脚本**（推荐 - 自动处理虚拟入口点）
+   ```bash
+   bash mobile/scripts/dev-client-debug.sh
+   ```
 
-# 启动 Metro
-npm run start
-```
+2. **手动清理和重启**
+   ```bash
+   # 清理缓存
+   rm -rf mobile/node_modules/.cache /tmp/metro-*
+   
+   # 保护虚拟入口点文件（不要删除）
+   ls -la mobile/.expo/.virtual-metro-entry.js
+   
+   # 如果虚拟入口点文件丢失，重建它
+   mkdir -p mobile/.expo
+   cat > mobile/.expo/.virtual-metro-entry.js << 'EOF'
+import { registerRootComponent } from 'expo';
+import App from '../App';
+registerRootComponent(App);
+EOF
+   
+   # 重新安装依赖和启动
+   cd mobile
+   npm install
+   npm run start:dev-client
+   ```
 
-### 后端服务无法启动
+⚠️ **关键提示**: `.virtual-metro-entry.js` 是 Metro 必需的虚拟入口点文件，**绝不能删除**。运行脚本会自动保护它。
 
-**问题**: `failed to connect mysql`
+### 后端服务无法启动或邮件无法发送
+
+**问题 1**: `failed to connect mysql`
 
 **解决方案**:
 ```bash
@@ -307,6 +406,24 @@ mysql -u allcallall -p allcallall_db -h localhost
 
 # 验证 Redis 连接
 redis-cli ping
+```
+
+**问题 2**: 邮件无法发送或验证码无法接收
+
+**解决方案**:
+```bash
+# 检查 QQ 邮箱 SMTP 配置
+cat backend/configs/config.yaml | grep -A5 mail:
+
+# 验证环境变量
+echo $MAIL_PASSWORD
+
+# 测试邮件发送端点
+curl -X POST http://localhost:8080/api/v1/email/send-verification-code \
+  -H "Content-Type: application/json" \
+  -d '{"email":"byzaantios@gmail.com"}'
+
+# 预期响应: {"message":"verification code sent successfully"}
 ```
 
 ### 📚 开发指南
@@ -356,7 +473,8 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 - 🎤 **Real-time Audio/Video Calls** - Peer-to-peer audio calls based on Pion WebRTC
 - 👥 **Contact Management** - Add, search, and manage contacts
 - 🟢 **Online Status** - Real-time user presence and last seen information
-- 🔐 **User Authentication** - JWT token authentication and session management
+- 🔐 **User Authentication** - JWT token authentication and session management via email
+- 📧 **Email Verification** - Secure user registration with QQ SMTP email verification
 - 📱 **Cross-Platform** - Native Android support, iOS in development
 - 🚀 **High Performance** - Redis caching, connection pooling, async WebSocket signaling
 - 🔄 **Auto Reconnection** - Automatic reconnection on network failure
@@ -370,17 +488,22 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 - **Cache**: Redis 7.2
 - **WebRTC**: Pion v4.0.0
 - **Authentication**: JWT (golang-jwt)
+- **Email**: SMTP (QQ Mail smtp.qq.com:587)
 
 #### Mobile
 - **Framework**: React Native 0.74+
-- **Development**: Expo 51.0+
+- **Development**: Expo 51.0+ (Expo Development Client)
 - **Language**: TypeScript
 - **UI**: React Navigation
-- **WebRTC**: react-native-webrtc
+- **WebRTC**: react-native-webrtc 124.0.0
+- **HTTP**: Axios
+- **State Management**: React Context API
 
 #### Infrastructure
 - **Containerization**: Docker & Docker Compose
-- **Service Proxy**: Cloudflare Tunnel
+- **Build**: Metro Bundler, Expo CLI
+- **Debug**: ADB (Android Debug Bridge)
+- **Service Proxy**: Cloudflare Tunnel (Optional)
 
 ### 🚀 Getting Started
 
@@ -423,48 +546,78 @@ docker-compose -f infra/docker-compose.yml ps
 
 #### Start Backend Service
 
+**Prerequisite: Configure email service (QQ Mail)**
+
 ```bash
 cd backend
 
-# Set configuration file path
+# 1. Copy environment variable example file
+cp .env.example .env
+
+# 2. Edit .env and fill in QQ Mail authorization code
+# MAIL_PASSWORD=ghziacfauihwfiha  (example)
+
+# 3. Verify backend mail config in config.yaml
+cat configs/config.yaml | grep -A5 mail:
+# Should show:
+#   host: smtp.qq.com
+#   port: 587
+#   username: 1569297330@qq.com
+
+# 4. Set configuration file path
 export CONFIG_PATH=./configs/config.yaml
 
-# Run backend service (listening on 0.0.0.0:8080)
+# 5. Run backend service (listening on 0.0.0.0:8080)
 go run cmd/server/main.go
+
+# 6. Verify backend is running
+curl http://localhost:8080/health
 ```
 
 #### Start Mobile Application
 
-##### Method 1: USB Connection Debugging (Recommended for Development)
+**Recommended: Expo Development Client + ADB Reverse Forwarding (Most Stable)**
 
 ```bash
 cd mobile
 
-# Build and install custom development client
-npm run android
+# Using automated script (Recommended)
+bash scripts/dev-client-debug.sh
 
-# In another terminal, start the Metro development server
-npm run start
+# Or manual steps:
+# 1. Configure ADB reverse port forwarding
+adb reverse tcp:8080 tcp:8080
+adb reverse tcp:8081 tcp:8081
+
+# 2. Start Metro development server
+npm run start:dev-client
+
+# 3. Scan QR code on physical device or enter the URL shown by Metro
 ```
 
-##### Method 2: Wireless Debugging over Wi-Fi
+##### Method 2: Wireless Debugging over Wi-Fi (LAN Mode - Optional)
 
 ```bash
 cd mobile
 
 # Start Metro server (LAN mode)
+npm run start:dev-client:lan
+
+# Or use traditional Expo Go
 npm run start:lan
 
 # In the app, shake the device and select 'Change Bundle URL', enter the displayed LAN address
 ```
 
-##### Method 3: Cloudflare Tunnel (Cross-network)
+##### Method 3: Build Custom Development Client APK
 
 ```bash
 cd mobile
 
-# Start Tunnel mode
-npm run start:tunnel
+# Run when first installing or updating the client
+npm run android
+
+# This builds and installs the Expo Development Client
 ```
 
 ### 📁 Directory Structure
@@ -529,23 +682,34 @@ npm run start
 
 #### Network Configuration
 
-Network configuration is managed by three components:
+Current configuration uses **ADB Reverse Forwarding** (Recommended):
 
-1. **metro.config.js** - Dynamically obtains the local LAN IP
-2. **src/config/index.ts** - Selects API address based on runtime platform
-3. **Backend configuration** - Managed via environment variables and config.yaml
+```bash
+# Automatic configuration (using script)
+bash scripts/dev-client-debug.sh
+
+# Manual configuration
+adb reverse tcp:8080 tcp:8080  # Backend API service
+adb reverse tcp:8081 tcp:8081  # Metro development server
+```
+
+Frontend app configuration (automatically uses localhost):
 
 ```typescript
 // src/config/index.ts
-const LAN_IP = "192.168.1.36";  // Development machine IP
-const isPhysicalAndroid = Platform.OS === "android" && Device.isDevice;
-
-const API_HOST = isPhysicalAndroid
-  ? `http://${LAN_IP}:8080`       // Physical device uses LAN IP
-  : Platform.OS === "android"
-  ? "http://10.0.2.2:8080"        // Emulator uses special address
-  : "http://localhost:8080";      // Development machine uses localhost
+const API_HOST = "http://localhost:8080";  // Forwarded by ADB
+const WS_HOST = "ws://localhost:8080";      // WebSocket also forwarded
 ```
+
+**Why use ADB reverse forwarding?**
+- ✅ More stable and reliable than direct LAN IP
+- ✅ Consistent with local development environment
+- ✅ Supports debugging multiple devices simultaneously
+- ✅ More stable network, lower latency
+
+**Optional: LAN Mode (Wi-Fi Debugging)**
+- Development Machine IP: 192.168.31.217
+- Use Case: Development testing that requires wireless mobility
 
 #### Common Development Commands
 
@@ -610,35 +774,82 @@ GET    /api/v1/ws                - WebSocket connection
 
 #### Physical Device Cannot Connect to Development Server
 
-**Issue**: `AxiosError: Network Error`
+**Issue**: `AxiosError: Network Error` or `Network timeout`
 
 **Solution**:
-1. Ensure the development machine and physical device are on the same LAN
-2. Check that the LAN_IP in `src/config/index.ts` matches your machine's IP
-3. Run `ipconfig getifaddr en0` to check your machine's IP
-4. Clear app data: `adb shell pm clear com.allcallall.mobile`
-5. Restart the app
 
-#### Metro Compilation Failed
+1. **Check ADB reverse port forwarding configuration**
+   ```bash
+   adb reverse --list
+   # Should show:
+   # tcp:8080 tcp:8080
+   # tcp:8081 tcp:8081
+   
+   # If missing, reconfigure
+   adb reverse tcp:8080 tcp:8080
+   adb reverse tcp:8081 tcp:8081
+   ```
 
-**Issue**: `Unable to resolve module`
+2. **Verify backend service is running**
+   ```bash
+   curl http://localhost:8080/health
+   ```
+
+3. **Check frontend configuration**
+   ```bash
+   cat mobile/src/config/index.ts
+   # Should show API_HOST = "http://localhost:8080"
+   ```
+
+4. **Clear app data and restart**
+   ```bash
+   adb shell pm clear com.allcallall.mobile
+   # Scan Metro QR code again on physical device
+   ```
+
+5. **Run complete startup script**
+   ```bash
+   bash mobile/scripts/dev-client-debug.sh
+   ```
+
+#### Metro Compilation Failed or Virtual Entry Point 404 Error
+
+**Issue**: `Unable to resolve module ./.expo/.virtual-metro-entry` or compilation failed
 
 **Solution**:
-```bash
-# Clear cache
-rm -rf node_modules/.cache /tmp/metro-*
-rm -rf .expo
 
-# Reinstall dependencies
-npm install
+1. **Use automated script** (Recommended - automatically handles virtual entry point)
+   ```bash
+   bash mobile/scripts/dev-client-debug.sh
+   ```
 
-# Start Metro
-npm run start
-```
+2. **Manual cleanup and restart**
+   ```bash
+   # Clear cache
+   rm -rf mobile/node_modules/.cache /tmp/metro-*
+   
+   # Protect virtual entry point file (do NOT delete)
+   ls -la mobile/.expo/.virtual-metro-entry.js
+   
+   # If virtual entry point file is missing, recreate it
+   mkdir -p mobile/.expo
+   cat > mobile/.expo/.virtual-metro-entry.js << 'EOF'
+import { registerRootComponent } from 'expo';
+import App from '../App';
+registerRootComponent(App);
+EOF
+   
+   # Reinstall dependencies and restart
+   cd mobile
+   npm install
+   npm run start:dev-client
+   ```
 
-#### Backend Service Cannot Start
+⚠️ **Important**: `.virtual-metro-entry.js` is a required Metro virtual entry point file. **Never delete it**. Running the script will automatically protect it.
 
-**Issue**: `failed to connect mysql`
+#### Backend Service Cannot Start or Email Cannot Be Sent
+
+**Issue 1**: `failed to connect mysql`
 
 **Solution**:
 ```bash
@@ -650,6 +861,24 @@ mysql -u allcallall -p allcallall_db -h localhost
 
 # Verify Redis connection
 redis-cli ping
+```
+
+**Issue 2**: Email cannot be sent or verification code not received
+
+**Solution**:
+```bash
+# Check QQ Mail SMTP config
+cat backend/configs/config.yaml | grep -A5 mail:
+
+# Verify environment variable
+echo $MAIL_PASSWORD
+
+# Test email sending endpoint
+curl -X POST http://localhost:8080/api/v1/email/send-verification-code \
+  -H "Content-Type: application/json" \
+  -d '{"email":"byzaantios@gmail.com"}'
+
+# Expected response: {"message":"verification code sent successfully"}
 ```
 
 ### 📚 Development Guide

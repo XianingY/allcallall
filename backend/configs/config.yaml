@@ -24,13 +24,13 @@ redis:
   db: 0
 
 mail:
-  # SMTP 邮件配置
-  # SMTP mail configuration
-  host: "smtp.gmail.com"
+  # SMTP 邮件配置 - 使用QQ邮箱
+  # SMTP mail configuration - Using QQ Mail
+  host: "smtp.qq.com"
   port: 587
-  username: "allcallall.official@gmail.com"
-  password: "${MAIL_PASSWORD}"  # 从环境变量读取应用专用密码
-  from: "noreply@allcallall.com"
+  username: "1569297330@qq.com"
+  password: "${MAIL_PASSWORD}"  # QQ邮箱授权码，从环境变量读取
+  from: "1569297330@qq.com"
   from_name: "AllCallAll"
   max_retries: 3
   retry_delay_seconds: 5

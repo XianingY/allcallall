@@ -69,7 +69,7 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
           disabled={loading}
         />
         <TouchableOpacity
-          onPress={() => navigation.navigate("Register")}
+          onPress={() => navigation.navigate("Register", {})}
           style={styles.linkButton}
         >
           <Text style={styles.linkText}>

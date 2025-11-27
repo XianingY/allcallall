@@ -10,16 +10,10 @@ export const createApiClient = (token?: string): AxiosInstance => {
 
   instance.interceptors.request.use((config) => {
     if (token) {
-      config.headers = {
-        ...config.headers,
-        Authorization: `Bearer ${token}`
-      };
+      config.headers.Authorization = `Bearer ${token}`;
     }
-    config.headers = {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...config.headers
-    };
+    config.headers["Content-Type"] = "application/json";
+    config.headers["Accept"] = "application/json";
     return config;
   });
 

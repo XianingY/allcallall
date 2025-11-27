@@ -2,6 +2,11 @@ import mitt from "mitt";
 
 import { WS_URL } from "../config";
 
+export type SessionDescriptionPayload = {
+  type: "offer" | "answer";
+  sdp: string;
+};
+
 export type SignalMessageType =
   | "call.invite"
   | "call.invite.ack"
@@ -16,7 +21,7 @@ export interface SignalMessage {
   call_id?: string;
   to: string;
   from?: string;
-  payload?: Record<string, unknown> | null;
+  payload?: Record<string, unknown> | RTCIceCandidateInit | SessionDescriptionPayload | null;
 }
 
 type Events = {
@@ -76,11 +81,9 @@ export class SignalingClient {
     if (this.ws) {
       return;
     }
-    this.ws = new WebSocket(WS_URL, [], {
-      headers: {
-        Authorization: `Bearer ${this.token}`
-      }
-    });
+    // Include token as query parameter for authorization
+    const wsUrlWithAuth = `${WS_URL}?token=${encodeURIComponent(this.token)}`;
+    this.ws = new WebSocket(wsUrlWithAuth);
 
     this.ws.onopen = () => {
       this.emitter.emit("open", undefined);

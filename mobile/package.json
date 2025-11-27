@@ -7,6 +7,8 @@
     "start": "expo start",
     "start:lan": "expo start --lan",
     "start:tunnel": "expo start --tunnel",
+    "start:dev-client": "expo start --dev-client",
+    "start:dev-client:lan": "expo start --dev-client --lan",
     "start:debug": "bash start-debug.sh",
     "android": "expo run:android",
     "ios": "expo run:ios",

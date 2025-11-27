@@ -127,7 +127,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         console.log("[ensureAudioPermission] Permission result:", result);
 
         const allGranted = permissions.every(
-          (permission) => result[permission] === PermissionsAndroid.RESULTS.GRANTED
+          (permission) => (result as Record<string, any>)[permission] === PermissionsAndroid.RESULTS.GRANTED
         );
         
         console.log("[ensureAudioPermission] All permissions granted:", allGranted);
@@ -147,9 +147,9 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     pendingRemoteCandidates.current = [];
 
     if (peerRef.current) {
-      peerRef.current.onicecandidate = null;
-      peerRef.current.ontrack = null;
-      peerRef.current.onconnectionstatechange = null;
+      (peerRef.current as any).onicecandidate = null;
+      (peerRef.current as any).ontrack = null;
+      (peerRef.current as any).onconnectionstatechange = null;
       peerRef.current.close();
       peerRef.current = null;
     }
@@ -252,11 +252,10 @@ const createPeerConnection = useCallback(() => {
   const pc = new RTCPeerConnection({
     iceServers: STUN_SERVERS,
     bundlePolicy: "max-bundle",
-    iceTransportPolicy: "all",
-    sdpSemantics: "unified-plan"
-  });
+    iceTransportPolicy: "all"
+  } as any);
 
-    pc.onicecandidate = (event) => {
+    (pc as any).onicecandidate = (event: any) => {
       if (!event.candidate) {
         return;
       }
@@ -271,21 +270,21 @@ const createPeerConnection = useCallback(() => {
           type: "ice.candidate",
           call_id: current.callId,
           to: current.peerEmail,
-          payload: candidateInit
+          payload: candidateInit as any
         });
       } else {
         pendingLocalCandidates.current.push(candidateInit);
       }
     };
 
-    pc.ontrack = (event) => {
+    (pc as any).ontrack = (event: any) => {
       const [stream] = event.streams;
       if (stream) {
         setRemoteStream(stream);
       }
     };
 
-    pc.onconnectionstatechange = () => {
+    (pc as any).onconnectionstatechange = () => {
       if (
         pc.connectionState === "failed" ||
         pc.connectionState === "disconnected" ||
@@ -358,17 +357,17 @@ const createPeerConnection = useCallback(() => {
             callId: message.call_id ?? "",
             peerEmail: message.from,
             direction: "incoming",
-            offer: message.payload
+            offer: message.payload as SessionDescriptionPayload
           });
           setStatus("incoming");
           break;
         case "call.accept":
           if (isSessionDescriptionPayload(message.payload)) {
             const pc = peerRef.current;
-            if (pc) {
+            if (pc && message.payload.sdp) {
               try {
                 await pc.setRemoteDescription(
-                  new RTCSessionDescription(message.payload)
+                  new RTCSessionDescription(message.payload as any)
                 );
                 await drainRemoteCandidates();
               } catch (error) {
@@ -426,7 +425,11 @@ const createPeerConnection = useCallback(() => {
           }
           break;
         case "call.error":
-          Alert.alert("Call error", String(message.payload?.reason ?? "Error"));
+          if (message.payload && typeof message.payload === "object" && "reason" in message.payload) {
+            Alert.alert("Call error", String((message.payload as any).reason ?? "Error"));
+          } else {
+            Alert.alert("Call error", "Error");
+          }
           resetCallState();
           break;
         default:
@@ -574,7 +577,7 @@ const createPeerConnection = useCallback(() => {
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
       try {
-        await pc.setRemoteDescription(new RTCSessionDescription(session.offer));
+        await pc.setRemoteDescription(new RTCSessionDescription(session.offer as any));
       } catch (error) {
         console.warn("setRemoteDescription failed", error);
         Alert.alert("呼叫错误", "无法解析对方的连接请求");
@@ -582,10 +585,7 @@ const createPeerConnection = useCallback(() => {
         return;
       }
 
-      const answer = await pc.createAnswer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: false
-      });
+      const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       await drainRemoteCandidates();
 

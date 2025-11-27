@@ -1,81 +1,448 @@
-# AllCallAll Mobile App (Android Focus)
+# AllCallAll Mobile App - Expo Development Client
 
-React Native (Expo) prototype that pairs with the Go backend to deliver email-first calling.
+React Native (Expo) 跨平台音视频通话应用，与 Go 后端配合提供邮箱注册和音视频通话功能。
 
-## Features
+## 特性
 
-- Email/password registration & login (JWT stored securely via AsyncStorage).
-- Contacts management: add/remove by email, list with real-time presence snapshot.
-- WebSocket signaling client built on backend protocol (`call.invite`, `call.accept`, `ice.candidate`, `call.end`).
-- Call overlay UI for outgoing/incoming calls and simple ICE test messages.
-- Presence polling every 10 seconds to surface online users.
+- 📧 **邮箱注册验证** - QQ 邮箱 SMTP 验证码，6 位数字，10 分钟有效期
+- 🔐 **JWT 身份认证** - Token 安全存储在 AsyncStorage
+- 👥 **联系人管理** - 添加、删除、列表，支持实时在线状态显示
+- 🟢 **在线状态** - 每 10 秒轮询一次，显示用户在线状态和最后活跃时间
+- 🎤 **WebRTC 音频通话** - 基于 react-native-webrtc 的点对点通话
+- 🔄 **自动重连** - 网络异常时自动重新连接
+- 🛠 **开发者友好** - 完整的 TypeScript 类型支持，现代化的 React Hooks
+- ⚡ **高性能** - 优化的网络配置，自动检测本机 IP，支持多种调试模式
 
-## Project Structure
+## 技术栈
+
+- **框架**: React Native 0.74.1 + Expo 51.0.0
+- **开发工具**: Expo Development Client（自定义开发客户端）
+- **语言**: TypeScript
+- **导航**: React Navigation 6.1.9
+- **网络**: Axios 1.6.8
+- **WebRTC**: react-native-webrtc 124.0.0
+- **状态管理**: React Context API + Mitt Event Bus
+- **存储**: AsyncStorage（本地持久化）
+- **调试**: ADB 反向转发（推荐）/ LAN 模式
+
+## 项目结构
 
 ```
 mobile/
-├── App.tsx                  # Providers + navigation entry point
-├── app.json                 # Expo configuration
-├── package.json             # Dependencies & scripts
-├── tsconfig.json / babel.config.js
+├── App.tsx                          # 应用入口、提供器配置
+├── app.json                         # Expo 配置文件
+├── metro.config.js                  # Metro 打包器配置
+├── tsconfig.json                    # TypeScript 配置
+├── package.json                     # 依赖和脚本
+├── babel.config.js                  # Babel 转码配置
+│
+├── scripts/
+│   └── dev-client-debug.sh          # 完整启动脚本（推荐）
+│                                    # 自动处理 ADB 转发、虚拟入口点保护
+│
 └── src/
-    ├── api/                 # REST + signaling clients
-    ├── components/          # Reusable UI elements (buttons, overlays, badges)
-    ├── config/              # Runtime configuration (API/WS hosts)
-    ├── context/             # Auth & Signaling providers
-    ├── navigation/          # React Navigation stacks
-    └── screens/             # Login, Register, Contacts (main screen)
+    ├── api/
+    │   ├── client.ts                # Axios HTTP 客户端配置
+    │   ├── auth.ts                  # 认证 API（注册、登录、验证码）
+    │   ├── contact.ts               # 联系人 API
+    │   ├── presence.ts              # 在线状态 API
+    │   └── signaling.ts             # WebSocket 信令客户端
+    │
+    ├── components/
+    │   ├── CallOverlay.tsx          # 通话 UI 浮窗
+    │   ├── ContactCard.tsx          # 联系人卡片
+    │   ├── Badges.tsx               # 在线状态徽章
+    │   └── LoadingSpinner.tsx       # 加载指示器
+    │
+    ├── config/
+    │   └── index.ts                 # 应用配置（API 地址、超时时间等）
+    │                                # 已配置使用 localhost（ADB 转发）
+    │
+    ├── context/
+    │   ├── AuthContext.tsx          # 认证提供器（登录、注册、令牌管理）
+    │   └── SignalingContext.tsx     # 信令提供器（WebRTC、通话管理）
+    │
+    ├── navigation/
+    │   └── RootNavigator.tsx        # React Navigation 栈配置
+    │                                # 登录 → 注册 → 联系人
+    │
+    └── screens/
+        ├── LoginScreen.tsx           # 登录页面
+        ├── RegisterScreen.tsx        # 注册页面（邮箱验证）
+        └── ContactsScreen.tsx        # 联系人主页面
 ```
 
-## Prerequisites
+## 前置要求
 
-- Node.js 18+
-- Yarn or npm
-- Expo CLI (`npm install -g expo-cli`) *optional, `npx expo` works too*
-- Android Studio / emulator or physical Android device（真机需授予麦克风、摄像头及蓝牙权限，用于音频采集与耳机连接）
-- Backend running (see `infra/docker-compose.yml`)
-- Microphone permission enabled on device/emulator (通话前务必确认授予)
+### 开发工具
+- **Node.js**: 18.0+
+- **npm**: 9.0+ 或 **Yarn**
+- **Expo CLI**: `npm install -g expo-cli` （可选，`npx expo` 也可以）
 
-## Getting Started
+### 设备和模拟器
+- **Android 设备**: API 31+ 或 Android 模拟器
+- **权限**: 麦克风权限（必需用于通话）、摄像头权限（未来视频功能）
+- **测试邮箱**: byzaantios@gmail.com（接收验证码用）
+
+### 后端服务
+- 后端 Go 服务运行在 `localhost:8080`（通过 ADB 转发）
+- MySQL 和 Redis 服务运行正常（Docker Compose）
+- 邮件服务配置为 QQ 邮箱 SMTP（smtp.qq.com:587）
+
+## 快速开始
+
+### 方案 1：使用自动化脚本启动（推荐 ✅）
+
+这是最简单、最稳定的方式。脚本会自动处理所有初始化工作：
 
 ```bash
 cd mobile
-npm install            # or yarn install (确保安装 react-native-webrtc)
-npm run start          # starts Metro bundler
+
+# 仅需一条命令！脚本会自动：
+# 1. 停止所有 Metro 进程
+# 2. 清理缓存（保护虚拟入口点文件）
+# 3. 配置 ADB 反向转发 (8080, 8081)
+# 4. 清除应用数据
+# 5. 启动 Metro 开发服务器
+
+bash scripts/dev-client-debug.sh
+
+# 然后在真机上扫描二维码或输入 Metro 显示的 URL
 ```
 
-### Android emulator
+### 方案 2：手动启动（完整理解开发流程）
 
 ```bash
-npm run android
+cd mobile
+
+# 1. 安装依赖（首次或更新后）
+npm install
+
+# 2. 清理缓存
+rm -rf node_modules/.cache /tmp/metro-*
+
+# 3. 配置 ADB 反向转发
+adb reverse tcp:8080 tcp:8080  # 后端 API
+adb reverse tcp:8081 tcp:8081  # Metro 开发服务器
+
+# 4. 启动 Metro 开发服务器
+npm run start:dev-client
+
+# 5. 在真机上操作：
+#    - 打开 Expo Development Client 应用
+#    - 摇晃设备或按菜单键
+#    - 选择 "Scan QR Code" 或 "Change Bundle URL"
+#    - 扫描 Metro 终端显示的二维码
+#    - 或输入 Metro 显示的 URL（通常是 http://localhost:8081）
 ```
 
-### Physical device (Expo Go)
+### 方案 3：Wi-Fi 无线调试（可选）
 
-1. Ensure phone & dev machine on same network.
-2. Run `npm run start` to display the Expo QR code.
-3. Scan code with Expo Go app to load the project.
+如果需要无线调试，可使用 LAN 模式：
 
-## Environment Notes
+```bash
+cd mobile
 
-- The app auto-selects `http://10.0.2.2:8080` for Android emulators and `http://localhost:8080` for iOS/Web.
-- If backend runs on a different host or via HTTPS, update `src/config/index.ts` accordingly.
-- WebSocket auth relies on custom headers (supported on React Native Android/iOS 0.74+). Expo Go also supports this.
+# 启动 Metro (LAN 模式)
+npm run start:dev-client:lan
 
-## Manual Testing Flow
+# 或使用传统 Expo Go
+npm run start:lan
 
-1. Launch backend via `docker compose up -d --build`.
-2. Install & run the app (`npm install`, `npm run android`).
-3. Register or log in with an email (e.g., `alice@example.com`).
-4. Add another account (e.g., `bob@example.com`) from Contacts screen and log in on a second device/emulator.
-5. Observe presence updates (green dot for online users).
-6. Tap “呼叫 / Call” on a contact启动呼叫：系统会请求麦克风权限，随后开始采集音频。
-7. 被叫端点击“接受”，双方通过 WebRTC 自动交换 SDP/ICE，音频会在后台播放（`RTCView`隐藏渲染）。
-8. “结束 / End” 按钮会关闭通话并释放音频资源。
+# 真机上操作：
+#   - 确保与开发机在同一 Wi-Fi 网络
+#   - 摇晃设备选择 'Change Bundle URL'
+#   - 输入开发机 IP：http://192.168.31.217:8081
+```
 
-## Next Steps / Enhancements
+### 首次安装 Expo Development Client
 
-- 视频通话：在现有音频基础上追加摄像头采集与渲染。
-- Persist signaling events + call logs.
-- Implement push notifications for incoming calls when app backgrounded.
-- Add localization framework (currently inline Chinese/English text).
+第一次使用时或需要更新客户端时：
+
+```bash
+cd mobile
+
+# 构建并安装自定义开发客户端
+npm run android
+
+# 这会在真机上安装 Expo Development Client 应用
+# 安装完成后，才能运行上面的启动命令
+```
+
+## 网络配置
+
+### 推荐配置：ADB 反向转发（最稳定）
+
+当前应用已配置为使用 **ADB 反向转发** 方案：
+
+```typescript
+// src/config/index.ts
+const API_HOST = "http://localhost:8080";  // 通过 ADB 转发
+const WS_HOST = "ws://localhost:8080";      // WebSocket 也通过转发
+```
+
+**配置 ADB 转发**:
+```bash
+# 自动（脚本已集成）
+bash scripts/dev-client-debug.sh
+
+# 手动
+adb reverse tcp:8080 tcp:8080
+adb reverse tcp:8081 tcp:8081
+
+# 验证
+adb reverse --list
+# 应显示：tcp:8080 tcp:8080 和 tcp:8081 tcp:8081
+```
+
+**优势**:
+- ✅ 比直接 LAN IP 更稳定可靠
+- ✅ 与本地开发环境配置一致（localhost）
+- ✅ 支持多设备同时调试
+- ✅ 更低的延迟，更稳定的网络
+- ✅ 无需修改代码配置
+
+### 可选：LAN 模式（Wi-Fi 调试）
+
+开发机 IP：`192.168.31.217`
+
+使用场景：需要无线自由移动进行演示或测试
+
+```bash
+npm run start:dev-client:lan
+# 或
+npm run start:lan
+```
+
+## 常用开发命令
+
+```bash
+cd mobile
+
+# 启动开发服务器（使用 ADB 转发，推荐）
+npm run start:dev-client
+
+# LAN 模式启动（Wi-Fi 调试）
+npm run start:dev-client:lan
+
+# 或使用传统 Expo Go
+npm run start
+npm run start:lan
+
+# 构建自定义开发客户端 APK
+npm run android
+
+# iOS（macOS 上）
+npm run ios
+
+# Web 应用
+npm run web
+
+# 代码检查
+npm run lint
+
+# 完整启动脚本（所有初始化步骤）
+bash scripts/dev-client-debug.sh
+```
+
+## 环境配置说明
+
+应用会根据运行平台自动选择正确的 API 地址：
+
+```typescript
+// src/config/index.ts
+const API_HOST = "http://localhost:8080";  // ADB 转发
+const WS_HOST = "ws://localhost:8080";      // WebSocket
+const REQUEST_TIMEOUT = 10_000;             // 10 秒超时
+```
+
+**LAN IP 配置** (仅在使用 LAN 模式时需要更新):
+```typescript
+const LAN_IP = "192.168.31.217";  // 修改为你的开发机 IP
+```
+
+## 手动测试流程
+
+### 场景：两台设备进行音频通话
+
+1. **准备后端**
+   ```bash
+   ./start.sh          # 启动 MySQL 和 Redis
+   cd backend
+   go run cmd/server/main.go
+   ```
+
+2. **启动应用**
+   ```bash
+   cd mobile
+   bash scripts/dev-client-debug.sh  # 启动 Metro
+   
+   # 在两台设备上分别扫描二维码
+   ```
+
+3. **设备 A（Alice）**
+   - 输入邮箱：alice@example.com
+   - 点击"获取验证码" → 检查邮件 → 输入验证码
+   - 点击"注册"
+   - 进入联系人页面，点击"+"添加联系人
+   - 输入 bob@example.com → 搜索 → 添加
+   - 观察 Bob 的在线状态（绿点表示在线）
+
+4. **设备 B（Bob）**
+   - 同时在另一台设备或模拟器上重复注册流程
+   - 注册账号：bob@example.com
+   - 添加 Alice 为联系人
+
+5. **发起通话** (Alice 端)
+   - 在联系人列表中找到 Bob
+   - 点击"呼叫"按钮
+   - 系统会请求麦克风权限 → 授予
+   - 音频采集开始
+
+6. **接听通话** (Bob 端)
+   - 屏幕上弹出来电提示
+   - 点击"接受"
+   - 双方通过 WebRTC 自动交换 SDP 和 ICE 候选
+   - 音频会通过 P2P 连接传输（`RTCView` 在后台隐藏渲染）
+
+7. **结束通话**
+   - 任意一端点击"结束"按钮
+   - 通话关闭，音频资源释放
+
+## 故障排查
+
+### 问题 1：应用无法连接到后端 API
+
+**症状**: `AxiosError: Network Error` 或 `Network timeout`
+
+**解决方案**:
+
+```bash
+# 1. 检查 ADB 转发是否配置
+adb reverse --list
+# 应显示：tcp:8080 tcp:8080 和 tcp:8081 tcp:8081
+
+# 如果缺少，重新配置
+adb reverse tcp:8080 tcp:8080
+adb reverse tcp:8081 tcp:8081
+
+# 2. 验证后端是否运行
+curl http://localhost:8080/health
+
+# 3. 检查前端配置
+cat src/config/index.ts
+# 应显示 API_HOST = "http://localhost:8080"
+
+# 4. 清除应用数据
+adb shell pm clear com.allcallall.mobile
+
+# 5. 重新启动应用
+bash scripts/dev-client-debug.sh
+```
+
+### 问题 2：Metro 无法启动或虚拟入口点 404 错误
+
+**症状**: `Unable to resolve module ./.expo/.virtual-metro-entry` 或 Metro 编译失败
+
+**解决方案**:
+
+```bash
+# 1. 最简单：使用自动脚本
+bash scripts/dev-client-debug.sh
+
+# 2. 手动处理：
+# 清理缓存
+rm -rf node_modules/.cache /tmp/metro-*
+
+# 检查虚拟入口点文件（不要删除！）
+ls -la .expo/.virtual-metro-entry.js
+
+# 如果文件丢失，重建它
+mkdir -p .expo
+cat > .expo/.virtual-metro-entry.js << 'EOF'
+import { registerRootComponent } from 'expo';
+import App from '../App';
+registerRootComponent(App);
+EOF
+
+# 重新安装和启动
+npm install
+npm run start:dev-client
+```
+
+⚠️ **重要**: `.virtual-metro-entry.js` 是 Metro 必需的虚拟入口点文件。**绝不能删除**。脚本会自动保护它。
+
+### 问题 3：无法接收验证码邮件
+
+**症状**: 点击"获取验证码"但未收到邮件，或收到错误
+
+**排查步骤**:
+
+```bash
+# 1. 检查后端邮件配置
+cat backend/configs/config.yaml | grep -A5 mail:
+# 应显示：
+#   host: smtp.qq.com
+#   port: 587
+#   username: 1569297330@qq.com
+
+# 2. 验证环境变量
+echo $MAIL_PASSWORD
+
+# 3. 测试邮件发送端点
+curl -X POST http://localhost:8080/api/v1/email/send-verification-code \
+  -H "Content-Type: application/json" \
+  -d '{"email":"byzaantios@gmail.com"}'
+
+# 期望响应: {"message":"verification code sent successfully"}
+
+# 4. 如果验证码发送失败：
+#    - 检查是否触发防刷机制（60秒冷却）
+#    - 检查是否因为 3 次失败被封禁 30 分钟
+#    - 查看邮箱垃圾邮件文件夹
+```
+
+### 问题 4：设备日志和实时调试
+
+```bash
+# 查看 Android 日志
+adb logcat | grep allcall
+
+# 通过 Chrome DevTools 调试
+# Metro 菜单 → Debug Remote JS
+# 自动打开 Chrome，可设置断点、查看日志等
+
+# 性能监视
+# Metro 菜单 → Show Perf Monitor
+# 实时查看 FPS、内存使用、加载时间
+```
+
+## 代码风格和最佳实践
+
+- **TypeScript**: 完整类型检查，避免 `any`
+- **React Hooks**: 使用函数组件和 Hooks，避免类组件
+- **Context API**: 简单状态管理，适合此项目规模
+- **Error Handling**: 所有网络请求都有错误处理
+- **Loading States**: 显示加载状态和错误提示
+- **Cleanup**: 组件卸载时清理资源（取消请求、关闭连接等）
+
+## 未来优化方向
+
+- 🎥 **视频通话**: 在现有音频基础上添加摄像头采集和渲染
+- 💾 **通话记录**: 持久化存储信令事件和通话日志
+- 🔔 **推送通知**: 当应用后台时，来电通过推送通知用户
+- 🌍 **国际化**: 目前支持中文和英文，可扩展其他语言
+- 🔒 **端到端加密**: 为聊天消息添加加密
+- 📱 **iOS 支持**: 完整的 iOS 适配和测试
+
+## 相关文档
+
+- [根目录 README](../README.md) - 项目整体说明和后端信息
+- [Expo 官方文档](https://docs.expo.dev/)
+- [React Native 文档](https://reactnative.dev/)
+- [React Navigation 文档](https://reactnavigation.org/)
+- [WebRTC 信令协议](https://github.com/yourusername/allcall/wiki/WebRTC-Signaling)
+
+## 许可证
+
+MIT License - 详见 [LICENSE](../LICENSE) 文件
