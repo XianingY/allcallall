@@ -94,7 +94,7 @@ cd backend
 cp .env.example .env
 
 # 2. 编辑 .env，填入 QQ 邮箱授权码
-# MAIL_PASSWORD=rgmjwnbqzqrpjcca  (新授权码)
+# MAIL_PASSWORD=xxxx xxxx xxxx xxxx  (登录你自己的实际授权码)
 
 # 3. 验证后端配置文件中的邮件设置
 cat configs/config.yaml | grep -A5 mail:
@@ -555,7 +555,7 @@ cd backend
 cp .env.example .env
 
 # 2. Edit .env and fill in QQ Mail authorization code
-# MAIL_PASSWORD=rgmjwnbqzqrpjcca  (example)
+# MAIL_PASSWORD=xxxx xxxx xxxx xxxx  (enter your actual authorization code)
 
 # 3. Verify backend mail config in config.yaml
 cat configs/config.yaml | grep -A5 mail:
