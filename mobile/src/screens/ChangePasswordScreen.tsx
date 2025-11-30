@@ -37,16 +37,17 @@ const validatePassword = (password: string): PasswordValidation => {
 
   const hasLetter = /[a-zA-Z]/.test(password);
   const hasDigit = /[0-9]/.test(password);
-  const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+  // 检查是否仅包含字母和数字（不允许空格或特殊字符）
+  const onlyLettersAndDigits = /^[a-zA-Z0-9]*$/.test(password);
 
   if (!hasLetter) {
-    errors.push("密码必须包含字母（A-Z, a-z）");
+    errors.push("密码必需包含字母（A-Z, a-z）");
   }
   if (!hasDigit) {
-    errors.push("密码必须包含数字（0-9）");
+    errors.push("密码必需包含数字（0-9）");
   }
-  if (hasSpecialChar) {
-    errors.push("密码不能包含特殊字符");
+  if (!onlyLettersAndDigits && password.length > 0) {
+    errors.push("密码不能包含特殊字符或空格");
   }
 
   return {
@@ -62,6 +63,14 @@ const ChangePasswordScreen: React.FC<Props> = ({ navigation }) => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  // 检查 token 是否存在，如果不存在则跳转回登陆
+  React.useEffect(() => {
+    if (!token) {
+      Alert.alert("授权失效", "请先登陆");
+      navigation.goBack();
+    }
+  }, [token, navigation]);
 
   const newPasswordValidation = validatePassword(newPassword);
   const passwordsMatch = newPassword === confirmPassword && newPassword !== "";
@@ -102,10 +111,9 @@ const ChangePasswordScreen: React.FC<Props> = ({ navigation }) => {
 
       if (error instanceof AxiosError && error.response?.data) {
         const data = error.response.data as any;
+        // 后端返回结构: { error: "message", success: false }
         if (data.error) {
           errorMessage = data.error;
-        } else if (data.message) {
-          errorMessage = data.message;
         }
       }
 

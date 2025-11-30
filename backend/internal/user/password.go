@@ -7,12 +7,12 @@ import (
 
 // PasswordError 密码相关错误
 var (
-	ErrPasswordTooShort   = errors.New("password must be at least 8 characters")
-	ErrPasswordTooLong    = errors.New("password must be at most 128 characters")
-	ErrPasswordWeak       = errors.New("password must contain both letters and numbers")
-	ErrPasswordMismatch   = errors.New("new password and confirm password do not match")
-	ErrPasswordUnchanged  = errors.New("new password must be different from old password")
-	ErrSpecialCharacters  = errors.New("password cannot contain special characters")
+	ErrPasswordTooShort  = errors.New("password must be at least 8 characters")
+	ErrPasswordTooLong   = errors.New("password must be at most 128 characters")
+	ErrPasswordWeak      = errors.New("password must contain both letters and numbers")
+	ErrPasswordMismatch  = errors.New("new password and confirm password do not match")
+	ErrPasswordUnchanged = errors.New("new password must be different from old password")
+	ErrSpecialCharacters = errors.New("password cannot contain special characters")
 )
 
 // ValidatePasswordStrength 验证密码强度
@@ -33,8 +33,8 @@ func ValidatePasswordStrength(password string) error {
 			hasLetter = true
 		} else if unicode.IsDigit(r) {
 			hasDigit = true
-		} else if !unicode.IsSpace(r) {
-			// 检查是否为特殊字符（不是字母、数字、空格）
+		} else {
+			// 不允许任何其他字符（包括空格、特殊字符）
 			return ErrSpecialCharacters
 		}
 	}

@@ -300,6 +300,7 @@ const createPeerConnection = useCallback(() => {
 
   useEffect(() => {
     if (!token) {
+      console.log("[SignalingContext] No token available, disconnecting");
       signalingRef.current?.disconnect();
       signalingRef.current = null;
       setConnectionReady(false);
@@ -307,12 +308,16 @@ const createPeerConnection = useCallback(() => {
       return;
     }
 
+    console.log("[SignalingContext] Token available, initializing signaling client", {
+      tokenLength: token.length,
+      tokenPrefix: token.substring(0, 20) + "..."
+    });
     const client = new SignalingClient(token);
     signalingRef.current = client;
     client.connect();
 
     const handleOpen = () => {
-      console.log("[SignalingContext] Signaling connection opened");
+      console.log("[SignalingContext] Signaling connection opened successfully!");
       setConnectionReady(true);
     };
     const handleClose = () => {

@@ -34,11 +34,16 @@ func NewSignalingHandler(log zerolog.Logger, hub *signaling.Hub) *SignalingHandl
 // Handle 升级 WebSocket
 // Handle upgrades request to WebSocket and delegates to hub.
 func (h *SignalingHandler) Handle(c *gin.Context) {
+	// 中间件已经验证了 token（从 Authorization 第一个请求头或查询参数）
 	claims, err := auth.GetClaimsFromContext(c)
 	if err != nil {
+		// 正常不会走到这里，因为中间件已经随之丢弃此请求
+		h.logger.Error().Str("path", c.Request.URL.Path).Str("query", c.Request.URL.RawQuery).Msg("no auth claims in context")
 		JSONError(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+
+	h.logger.Info().Str("email", claims.Email).Msg("websocket upgrade attempt")
 
 	conn, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -46,5 +51,6 @@ func (h *SignalingHandler) Handle(c *gin.Context) {
 		return
 	}
 
+	h.logger.Info().Str("email", claims.Email).Msg("websocket connection established")
 	h.hub.HandleConnection(c.Request.Context(), claims.Email, conn)
 }
