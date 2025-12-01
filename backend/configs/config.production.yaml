@@ -1,0 +1,44 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout_seconds: 10
+  write_timeout_seconds: 15
+  idle_timeout_seconds: 60
+
+database:
+  # 使用环境变量
+  dsn: "allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local"
+  max_open_conns: 50
+  max_idle_conns: 10
+  conn_max_lifetime_minutes: 30
+
+redis:
+  addr: "redis:6379"
+  username: ""
+  password: "${REDIS_PASSWORD}"  # 这里也可以使用环境变量
+  db: 0
+
+mail:
+  host: "smtp.qq.com"
+  port: 587
+  username: "1569297330@qq.com"
+  password: "${MAIL_PASSWORD}"
+  from: "1569297330@qq.com"
+  from_name: "AllCallAll"
+  max_retries: 3
+  retry_delay_seconds: 5
+
+jwt:
+  secret: "${JWT_SECRET}"
+  issuer: "allcallall-backend"
+  access_token_ttl_minutes: 60
+  refresh_token_ttl_hours: 168
+
+webrtc:
+  ice_servers:
+    - urls:
+        - "stun:stun.l.google.com:19302"
+        - "stun:stun1.l.google.com:19302"
+
+logging:
+  level: "info"

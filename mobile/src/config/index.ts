@@ -1,23 +1,34 @@
 import { Platform } from "react-native";
 import * as Device from "expo-device";
 
-const LAN_IP = "192.168.31.217";
-const LAN_HTTP = `http://${LAN_IP}:8080`;
-const LAN_WS = `ws://${LAN_IP}:8080`;
+// 开发环境（本地）
+const DEV_API = {
+  HTTP: "http://192.168.31.217:8080",
+  WS: "ws://192.168.31.217:8080"
+};
+
+// 生产环境（云服务器）
+const PROD_API = {
+  HTTP: "https://allcall.cn", // 使用你的域名或直接用 IP
+  WS: "wss://allcall.cn"      // 必须是 wss://（安全 WebSocket）
+};
+
+// 或者使用公网 IP（暂时）
+const PROD_API_IP = {
+  HTTP: "http://81.68.168.207:8080",
+  WS: "ws://81.68.168.207:8080"
+};
+
+// 根据环境选择配置
+const __DEV__ = flase; // 在构建时修改为 false（生产环境）
+
+const API_CONFIG = __DEV__ ? DEV_API : PROD_API_IP;
 
 const isPhysicalAndroid = Platform.OS === "android" && Device.isDevice;
 
-// 使用 ADB 反向转发时，真实设备访问 localhost 即可
-// When using ADB reverse, physical devices can access localhost
-const API_HOST = Platform.OS === "android"
-  ? "http://localhost:8080"
-  : "http://localhost:8080";
-
-const WS_HOST = Platform.OS === "android"
-  ? "ws://localhost:8080"
-  : "ws://localhost:8080";
+const API_HOST = API_CONFIG.HTTP;
+const WS_HOST = API_CONFIG.WS;
 
 export const API_BASE_URL = `${API_HOST}/api/v1`;
 export const WS_URL = `${WS_HOST}/api/v1/ws`;
-
 export const REQUEST_TIMEOUT = 10_000;

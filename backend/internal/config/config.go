@@ -140,9 +140,37 @@ func (c *Config) postProcess() error {
 		c.Logging.Level = "info"
 	}
 
+	// 支持环境变量覆盖数据库配置
+	// Support environment variables override database config
+	if dbDSN := os.Getenv("DB_DSN"); dbDSN != "" {
+		c.Database.DSN = dbDSN
+	}
+
+	// 支持环境变量覆盖 Redis 配置
+	// Support environment variables override Redis config
+	if redisAddr := os.Getenv("REDIS_ADDR"); redisAddr != "" {
+		c.Redis.Addr = redisAddr
+	}
+	if redisPassword := os.Getenv("REDIS_PASSWORD"); redisPassword != "" {
+		c.Redis.Password = redisPassword
+	}
+
+	// 支持环境变量覆盖 JWT 密钥
+	// Support environment variables override JWT secret
+	if jwtSecret := os.Getenv("JWT_SECRET"); jwtSecret != "" {
+		c.JWT.Secret = jwtSecret
+	}
+
+	// 支持环境变量覆盖邮件密码
+	// Support environment variables override mail password
+	if mailPassword := os.Getenv("MAIL_PASSWORD"); mailPassword != "" {
+		c.Mail.Password = mailPassword
+	}
+
 	if c.JWT.Secret == "" {
 		return errors.New("config: jwt.secret must not be empty")
 	}
 
 	return nil
 }
+
