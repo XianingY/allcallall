@@ -20,7 +20,7 @@ const PROD_API_IP = {
 };
 
 // 根据环境选择配置
-const __DEV__ = flase; // 在构建时修改为 false（生产环境）
+const __DEV__ = false; // 在构建时修改为 false（生产环境）
 
 const API_CONFIG = __DEV__ ? DEV_API : PROD_API_IP;
 
