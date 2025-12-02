@@ -11,6 +11,10 @@ backend/.gocache/
 backend/.gomodcache/
 backend/.gopath/
 backend/server
+backend/allcall-server
+backend/mail-test
+backend/backend.log
+backend/wq
 
 # Mobile
 mobile/node_modules/
@@ -21,6 +25,8 @@ mobile/android/.gradle/
 mobile/android/app/build/
 mobile/android/react-settings-plugin/.gradle/
 mobile/android/react-settings-plugin/build/
+mobile/crash.log
+mobile/bugreport-*.zip
 
 # Logs
 *.log
@@ -35,3 +41,7 @@ yarn-error.log*
 
 # Assistant Docs
 docs/
+
+# macOS system files
+.DS_Store
+**/.DS_Store
