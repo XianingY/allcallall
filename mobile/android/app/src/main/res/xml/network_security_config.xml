@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 允许明文HTTP流量到特定域名 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">81.68.168.207</domain>
+        <domain includeSubdomains="true">192.168.31.217</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

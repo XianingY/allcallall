@@ -38,15 +38,15 @@ const ENV_CONFIG = {
     // 生产环境：使用域名 + HTTPS
     // Production: Domain name with HTTPS
     // ⚠️ 配置你自己的域名
-    HTTP: "https://api.allcall.com",
-    WS: "wss://api.allcall.com"
+    HTTP: "http://81.68.168.207",
+    WS: "ws://81.68.168.207"
   },
   
   production_ip: {
     // 生产环境备选：直接使用公网 IP（仅用于紧急情况）
     // Production Fallback: Direct public IP (emergency only)
-    HTTP: "https://81.68.168.207:8080",
-    WS: "wss://81.68.168.207:8080"
+    HTTP: "http://81.68.168.207:8080",
+    WS: "ws://81.68.168.207:8080"
   }
 };
 

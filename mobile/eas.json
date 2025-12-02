@@ -4,16 +4,19 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
-      },
-      "ios": {
-        "buildType": "simulator"
       }
     },
     "preview": {
+      "distribution": "internal",
       "android": {
         "buildType": "apk"
       }
     },
-    "production": {}
+    "production-apk": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    }
   }
 }
