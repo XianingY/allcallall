@@ -24,6 +24,8 @@ import {
 import { SignalingClient, SignalMessage } from "../api/signaling";
 import { fetchWebRTCConfig } from "../api/webrtc";
 import { useAuthContext } from "./AuthContext";
+import { useSettings } from "./SettingsContext";
+import AudioService from "../services/AudioServiceExpo";
 
 type CallDirection = "incoming" | "outgoing";
 
@@ -89,6 +91,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   children
 }) => {
   const { token, user } = useAuthContext();
+  const { settings } = useSettings();
   const [status, setStatus] = useState<CallStatus>("idle");
   const [session, setSession] = useState<CallSession | null>(null);
   const [connectionReady, setConnectionReady] = useState(false);
@@ -135,6 +138,43 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       cancelled = true;
     };
   }, [token]);
+
+  // 监听通话状态变化，播放相应的音频提醒
+  useEffect(() => {
+    if (!settings.audioNotificationsEnabled) {
+      return;
+    }
+
+    console.log("[SignalingContext] Status changed to:", status, "Session:", session?.direction);
+
+    switch (status) {
+      case "incoming":
+        // 接到来电，播放来电铃声
+        console.log("[SignalingContext] Playing incoming call ringtone");
+        AudioService.play("incoming_call");
+        break;
+
+      case "connecting":
+        // 正在呼叫，播放拨号音
+        if (session?.direction === "outgoing") {
+          console.log("[SignalingContext] Playing outgoing dial tone");
+          AudioService.play("outgoing_dial");
+        }
+        break;
+
+      case "in_call":
+        // 通话接通，停止所有音频
+        console.log("[SignalingContext] Call connected, stopping all audio");
+        AudioService.stopAll();
+        break;
+
+      case "idle":
+        // 通话结束或空闲，停止所有音频
+        console.log("[SignalingContext] Call ended/idle, stopping all audio");
+        AudioService.stopAll();
+        break;
+    }
+  }, [status, session, settings.audioNotificationsEnabled]);
 
   const ensureAudioPermission = useCallback(async () => {
     console.log("[ensureAudioPermission] Platform:", Platform.OS);
