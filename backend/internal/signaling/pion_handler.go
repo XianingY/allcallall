@@ -31,10 +31,10 @@ type PionSignalMessage struct {
 // ICECandidatePayload 包含 ICE 候选的信息
 // ICECandidatePayload contains ICE candidate information
 type ICECandidatePayload struct {
-	Candidate        string `json:"candidate"`
+	Candidate        string  `json:"candidate"`
 	SDPMLineIndex    *uint16 `json:"sdpMLineIndex"`
 	SDPMid           *string `json:"sdpMid"`
-	UsernameFragment string `json:"usernameFragment,omitempty"`
+	UsernameFragment string  `json:"usernameFragment,omitempty"`
 }
 
 // MediaCommandType 定义媒体命令类型
@@ -95,7 +95,7 @@ func (h *Hub) HandlePionMessage(ctx context.Context, callID, localEmail, remoteE
 			callID,
 			localEmail,
 			remoteEmail,
-			&webrtc.Configuration{},
+			nil, // use engine default ICE config
 		)
 		if err != nil {
 			return fmt.Errorf("create peer connection: %w", err)
@@ -278,11 +278,11 @@ func (h *Hub) GetConnectionStats(callID, localEmail, remoteEmail string) (*Conne
 	// 基本状态信息
 	// Basic status information
 	stats := &ConnectionStats{
-		CallID:       callID,
-		LocalEmail:   localEmail,
-		RemoteEmail:  remoteEmail,
-		State:        peerConn.State,
-		PCState:      peerConn.PC.ConnectionState().String(),
+		CallID:         callID,
+		LocalEmail:     localEmail,
+		RemoteEmail:    remoteEmail,
+		State:          peerConn.State,
+		PCState:        peerConn.PC.ConnectionState().String(),
 		SignalingState: peerConn.PC.SignalingState().String(),
 	}
 

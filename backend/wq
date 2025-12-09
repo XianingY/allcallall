@@ -1,0 +1,49 @@
+FROM golang:1.22-alpine AS build
+
+WORKDIR /src
+
+# 1. 设置 Alpine 国内镜像源（加速包下载）
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
+# 2. 优化依赖安装：只安装必要的包
+RUN apk add --no-cache git
+
+# 3. 先复制依赖文件，利用 Docker 缓存
+COPY go.mod go.sum ./
+RUN go mod download
+
+# 4. 复制源代码
+COPY . .
+
+# 5. 优化构建参数
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags='-w -s' -trimpath -o /out/server ./cmd/server
+
+FROM alpine:3.18
+
+WORKDIR /app
+
+# 6. 设置运行时的镜像源
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
+    # 添加时区数据（如果需要日志时间戳）
+    apk add --no-cache tzdata ca-certificates && \
+    # 清理缓存
+    rm -rf /var/cache/apk/*
+
+# 7. 复制二进制文件和配置文件
+COPY --from=build /out/server ./server
+COPY configs ./configs
+
+# 8. 创建非 root 用户（增强安全性）
+RUN addgroup -g 1000 appuser && \
+    adduser -D -u 1000 -G appuser appuser && \
+    chown -R appuser:appuser /app
+
+USER appuser
+
+ENV CONFIG_PATH=/app/configs/config.yaml
+ENV HTTP_PORT=8080
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/server"]

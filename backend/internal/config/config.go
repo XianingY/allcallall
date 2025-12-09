@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -72,15 +73,15 @@ type JWTConfig struct {
 // WebRTCConfig WebRTC 相关配置
 // WebRTCConfig contains ICE server list.
 type WebRTCConfig struct {
-	ICEServers []ICEServer `yaml:"ice_servers"`
+	ICEServers []ICEServer `yaml:"ice_servers" json:"ice_servers"`
 }
 
 // ICEServer 单个 ICE 服务配置
 // ICEServer represents a single ICE server entry.
 type ICEServer struct {
-	URLs       []string `yaml:"urls"`
-	Username   string   `yaml:"username"`
-	Credential string   `yaml:"credential"`
+	URLs       []string `yaml:"urls" json:"urls"`
+	Username   string   `yaml:"username" json:"username"`
+	Credential string   `yaml:"credential" json:"credential"`
 }
 
 // LoggingConfig 日志配置
@@ -167,10 +168,21 @@ func (c *Config) postProcess() error {
 		c.Mail.Password = mailPassword
 	}
 
+	// 支持环境变量覆盖 ICE/TURN 配置，格式为 JSON 数组：
+	// [{"urls":["stun:stun.l.google.com:19302"]},{"urls":["turn:1.2.3.4:3478"],"username":"user","credential":"pass"}]
+	if iceServersJSON := os.Getenv("WEBRTC_ICE_SERVERS_JSON"); iceServersJSON != "" {
+		var servers []ICEServer
+		if err := json.Unmarshal([]byte(iceServersJSON), &servers); err != nil {
+			return fmt.Errorf("config: invalid WEBRTC_ICE_SERVERS_JSON: %w", err)
+		}
+		if len(servers) > 0 {
+			c.WebRTC.ICEServers = servers
+		}
+	}
+
 	if c.JWT.Secret == "" {
 		return errors.New("config: jwt.secret must not be empty")
 	}
 
 	return nil
 }
-

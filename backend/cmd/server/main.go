@@ -114,11 +114,12 @@ func main() {
 	presenceManager := presence.NewManager(redisClient, appLogger, userSvc)
 
 	userHandler := handlers.NewUserHandler(appLogger, userSvc, presenceManager, contactSvc)
+	webrtcHandler := handlers.NewWebRTCHandler(appLogger, cfg.WebRTC)
 	signalingHub := signaling.NewHub(redisClient, appLogger, presenceManager)
 
 	// 初始化 Pion WebRTC 媒体引擎
 	// Initialize Pion WebRTC media engine
-	mediaEngine, err := signaling.InitPionMediaEngine(appLogger)
+	mediaEngine, err := signaling.InitPionMediaEngine(appLogger, cfg.WebRTC)
 	if err != nil {
 		appLogger.Fatal().Err(err).Msg("failed to initialize pion media engine")
 	}
@@ -141,6 +142,7 @@ func main() {
 		EmailHandler:     emailHandler,
 		UserHandler:      userHandler,
 		SignalingHandler: signalingHandler,
+		WebRTCHandler:    webrtcHandler,
 		AuthMiddleware:   auth.Middleware(jwtManager),
 	})
 

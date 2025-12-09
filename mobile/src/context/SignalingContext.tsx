@@ -17,10 +17,12 @@ import {
   RTCPeerConnection,
   RTCIceCandidate,
   RTCSessionDescription,
-  mediaDevices as webrtcMediaDevices
+  mediaDevices as webrtcMediaDevices,
+  RTCIceServer
 } from "react-native-webrtc";
 
 import { SignalingClient, SignalMessage } from "../api/signaling";
+import { fetchWebRTCConfig } from "../api/webrtc";
 import { useAuthContext } from "./AuthContext";
 
 type CallDirection = "incoming" | "outgoing";
@@ -54,7 +56,7 @@ const SignalingContext = createContext<SignalingContextValue | undefined>(
   undefined
 );
 
-const STUN_SERVERS = [
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun2.l.google.com:19302" },
@@ -92,6 +94,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const [connectionReady, setConnectionReady] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [iceServers, setIceServers] = useState<RTCIceServer[]>(DEFAULT_ICE_SERVERS);
 
   const signalingRef = useRef<SignalingClient | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
@@ -103,6 +106,35 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadIceServers = async () => {
+      if (!token) {
+        setIceServers(DEFAULT_ICE_SERVERS);
+        return;
+      }
+      try {
+        const config = await fetchWebRTCConfig(token);
+        const servers = Array.isArray(config.ice_servers) ? config.ice_servers : [];
+        if (!cancelled && servers.length) {
+          setIceServers(servers as RTCIceServer[]);
+          console.log("[SignalingContext] Using ICE servers from backend", servers);
+        } else if (!cancelled) {
+          setIceServers(DEFAULT_ICE_SERVERS);
+        }
+      } catch (error) {
+        console.warn("[SignalingContext] Failed to load ICE servers, fallback to defaults", error);
+        if (!cancelled) {
+          setIceServers(DEFAULT_ICE_SERVERS);
+        }
+      }
+    };
+    loadIceServers();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   const ensureAudioPermission = useCallback(async () => {
     console.log("[ensureAudioPermission] Platform:", Platform.OS);
@@ -248,12 +280,12 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
-const createPeerConnection = useCallback(() => {
-  const pc = new RTCPeerConnection({
-    iceServers: STUN_SERVERS,
-    bundlePolicy: "max-bundle",
-    iceTransportPolicy: "all"
-  } as any);
+  const createPeerConnection = useCallback(() => {
+    const pc = new RTCPeerConnection({
+      iceServers,
+      bundlePolicy: "max-bundle",
+      iceTransportPolicy: "all"
+    } as any);
 
     (pc as any).onicecandidate = (event: any) => {
       if (!event.candidate) {
@@ -296,7 +328,7 @@ const createPeerConnection = useCallback(() => {
 
     peerRef.current = pc;
     return pc;
-  }, [resetCallState, sendMessage]);
+  }, [iceServers, resetCallState, sendMessage]);
 
   useEffect(() => {
     if (!token) {

@@ -59,7 +59,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/XianingY/AllCallAll.git
+git clone git@github.com:1victorloui1/AllCallAll.git
 cd AllCallAll
 
 # 安装后端依赖
@@ -117,6 +117,85 @@ go run cmd/server/main.go
 
 # 验证后端是否运行
 curl http://localhost:8080/health
+```
+
+### WebRTC/TURN 配置（真机语音必需）
+
+1. 在服务器上准备 TURN（示例，端口 3478）：  
+   ```bash
+   docker run -d --network host --name coturn instrumentisto/coturn \
+     -a -f -v -n --log-file=stdout \
+     --realm=allcallall --user=allcallall:strongpassword \
+     --external-ip=$(curl -s ifconfig.me) \
+     --min-port=49152 --max-port=49200
+   ```
+2. 把 TURN/STUN 列表下发给后端（移动端会自动拉取）：  
+   ```bash
+export WEBRTC_ICE_SERVERS_JSON='[
+  {"urls":["stun:stun.l.google.com:19302"]},
+  {"urls":["turn:47.109.183.99:3478?transport=udp","turn:47.109.183.99:3478?transport=tcp"],"username":"allcallall","credential":"strongpassword"}
+]'
+```
+3. 重启后端。APK 不需要重新打包，登陆后客户端会自动从 `/api/v1/webrtc/config` 读取最新 ICE/TURN 配置。
+
+### 🌐 生产环境（当前部署：47.109.183.99）
+
+- API: `http://47.109.183.99/api/v1`  
+- WS: `ws://47.109.183.99/api/v1/ws`
+
+#### 云服务器运维
+
+```bash
+# 进入部署目录
+cd ~/workspace/AllCallAll-deploy-server/infra
+
+# 首次或重新构建启动（确保 .env 填好）
+docker compose -f docker-compose.production.yml up -d --build
+
+# 常规重启后端/nginx
+docker compose -f docker-compose.production.yml up -d
+
+# 关闭所有服务
+docker compose -f docker-compose.production.yml down
+```
+
+#### TURN 服务 (coturn)
+
+```bash
+# 首次启动 TURN（监听 3478，端口范围 49152-49200）
+docker run -d --network host --name coturn instrumentisto/coturn \
+  -a -f -v -n --log-file=stdout \
+  --realm=allcallall --user=allcallall:strongpassword \
+  --external-ip=$(curl -s ifconfig.me) \
+  --min-port=49152 --max-port=49200
+
+# 之后启动/停止
+docker start coturn
+docker stop coturn
+```
+
+#### 数据清理（删除所有账号数据）
+
+```bash
+docker exec -it infra-mysql-1 mysql -uroot -p"$MYSQL_ROOT_PASSWORD" allcallall_db \
+  -e "SET FOREIGN_KEY_CHECKS=0;
+      TRUNCATE TABLE contacts;
+      TRUNCATE TABLE email_verification_codes;
+      TRUNCATE TABLE email_send_logs;
+      TRUNCATE TABLE users;
+      SET FOREIGN_KEY_CHECKS=1;"
+```
+
+### 📦 移动端 Release APK 构建（本地）
+
+```bash
+cd mobile
+npm install
+cd android
+./gradlew assembleRelease
+cp app/build/outputs/apk/release/app-release.apk ../AllCallAll.apk
+# 可选：安装到真机
+adb install -r ../AllCallAll.apk
 ```
 
 ### 启动移动应用
@@ -455,8 +534,8 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 
 ### 📧 联系方式
 
-- 问题报告: [GitHub Issues](https://github.com/yourusername/allcall/issues)
-- 讨论: [GitHub Discussions](https://github.com/yourusername/allcall/discussions)
+- 问题报告: [GitHub Issues](https://github.com/1victorloui1/AllCallAll/issues)
+- 讨论: [GitHub Discussions](https://github.com/1victorloui1/AllCallAll/discussions)
 
 ### 🙏 致谢
 
@@ -520,7 +599,7 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 
 ```bash
 # Clone the repository
-git clone https://github.com/XianingY/AllCallAll.git
+git clone git@github.com:1victorloui1/AllCallAll.git
 cd AllCallAll
 
 # Install backend dependencies
@@ -532,6 +611,53 @@ cd ..
 cd mobile
 npm install
 cd ..
+```
+
+### 🌐 Production Deployment (current server: 47.109.183.99)
+
+- API: `http://47.109.183.99/api/v1`  
+- WS: `ws://47.109.183.99/api/v1/ws`
+
+#### Cloud server ops
+
+```bash
+cd ~/workspace/AllCallAll-deploy-server/infra
+
+# First time or rebuild/start (ensure .env is filled)
+docker compose -f docker-compose.production.yml up -d --build
+
+# Regular restart
+docker compose -f docker-compose.production.yml up -d
+
+# Stop all services
+docker compose -f docker-compose.production.yml down
+```
+
+#### TURN (coturn)
+
+```bash
+# First start (ports: 3478, relay 49152-49200)
+docker run -d --network host --name coturn instrumentisto/coturn \
+  -a -f -v -n --log-file=stdout \
+  --realm=allcallall --user=allcallall:strongpassword \
+  --external-ip=$(curl -s ifconfig.me) \
+  --min-port=49152 --max-port=49200
+
+# Afterwards
+docker start coturn
+docker stop coturn
+```
+
+#### Data reset (wipe all accounts)
+
+```bash
+docker exec -it infra-mysql-1 mysql -uroot -p"$MYSQL_ROOT_PASSWORD" allcallall_db \
+  -e "SET FOREIGN_KEY_CHECKS=0;
+      TRUNCATE TABLE contacts;
+      TRUNCATE TABLE email_verification_codes;
+      TRUNCATE TABLE email_send_logs;
+      TRUNCATE TABLE users;
+      SET FOREIGN_KEY_CHECKS=1;"
 ```
 
 #### Start Database Services
@@ -618,6 +744,18 @@ cd mobile
 npm run android
 
 # This builds and installs the Expo Development Client
+```
+
+### 📦 Build Release APK (local)
+
+```bash
+cd mobile
+npm install
+cd android
+./gradlew assembleRelease
+cp app/build/outputs/apk/release/app-release.apk ../AllCallAll.apk
+# Optional: install to device
+adb install -r ../AllCallAll.apk
 ```
 
 ### 📁 Directory Structure
@@ -910,8 +1048,8 @@ MIT License - See the [LICENSE](LICENSE) file for details
 
 ### 📧 Contact
 
-- Issues: [GitHub Issues](https://github.com/yourusername/allcall/issues)
-- Discussions: [GitHub Discussions](https://github.com/yourusername/allcall/discussions)
+- Issues: [GitHub Issues](https://github.com/1victorloui1/AllCallAll/issues)
+- Discussions: [GitHub Discussions](https://github.com/1victorloui1/AllCallAll/discussions)
 
 ### 🙏 Acknowledgments
 

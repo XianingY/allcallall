@@ -21,9 +21,9 @@ redis:
 mail:
   host: "smtp.qq.com"
   port: 587
-  username: "1569297330@qq.com"
+  username: "3267119817@qq.com"
   password: "${MAIL_PASSWORD}"
-  from: "1569297330@qq.com"
+  from: "3267119817@qq.com"
   from_name: "AllCallAll"
   max_retries: 3
   retry_delay_seconds: 5

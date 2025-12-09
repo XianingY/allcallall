@@ -28,9 +28,9 @@ mail:
   # SMTP mail configuration - Using QQ Mail
   host: "smtp.qq.com"
   port: 587
-  username: "1569297330@qq.com"
+  username: "3267119817@qq.com"
   password: "${MAIL_PASSWORD}"  # QQ邮箱授权码，从环境变量读取
-  from: "1569297330@qq.com"
+  from: "3267119817@qq.com"
   from_name: "AllCallAll"
   max_retries: 3
   retry_delay_seconds: 5

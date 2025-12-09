@@ -3,7 +3,7 @@
 # AllCallAll 云服务器自动部署脚本
 # Automated Cloud Deployment Script
 # 使用方法: bash deploy-cloud.sh <server-ip> <domain-name>
-# Usage: bash deploy-cloud.sh 81.68.168.207 api.allcall.com
+# Usage: bash deploy-cloud.sh 47.109.183.99 api.allcall.com
 
 set -e
 
@@ -17,7 +17,7 @@ NC='\033[0m' # No Color
 # 参数检查
 if [ $# -lt 1 ]; then
     echo -e "${RED}使用方法: bash deploy-cloud.sh <server-ip> [domain-name]${NC}"
-    echo -e "${YELLOW}示例: bash deploy-cloud.sh 81.68.168.207 api.allcall.com${NC}"
+    echo -e "${YELLOW}示例: bash deploy-cloud.sh 47.109.183.99 api.allcall.com${NC}"
     exit 1
 fi
 

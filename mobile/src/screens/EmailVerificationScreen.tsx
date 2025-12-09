@@ -87,15 +87,16 @@ const EmailVerificationScreen: React.FC<Props> = ({ navigation, route }) => {
   /**
    * 验证码校验
    */
-  const handleVerifyCode = async () => {
+  const handleVerifyCode = async (inputCode?: string) => {
     try {
-      if (code.length !== 6) {
+      const value = (inputCode ?? code).trim();
+      if (value.length !== 6) {
         Alert.alert("错误", "请输入完整的6位验证码");
         return;
       }
 
       setLoading(true);
-      await verifyCode(email.trim().toLowerCase(), code);
+      await verifyCode(email.trim().toLowerCase(), value);
 
       Alert.alert("成功", "邮箱验证完成");
 
@@ -207,7 +208,10 @@ const EmailVerificationScreen: React.FC<Props> = ({ navigation, route }) => {
           <VerificationCodeInput
             codeLength={6}
             onCodeChange={setCode}
-            onCodeComplete={handleVerifyCode}
+            onCodeComplete={(value) => {
+              setCode(value);
+              handleVerifyCode(value);
+            }}
             editable={!loading}
           />
 

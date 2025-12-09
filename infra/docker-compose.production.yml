@@ -43,6 +43,7 @@ services:
       MAIL_PASSWORD: ${MAIL_PASSWORD}
       HTTP_PORT: "8080"
       CONFIG_PATH: /app/configs/config.production.yaml
+      WEBRTC_ICE_SERVERS_JSON: ${WEBRTC_ICE_SERVERS_JSON}
     ports:
       - "8080:8080"
     volumes:
