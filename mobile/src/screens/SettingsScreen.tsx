@@ -10,16 +10,30 @@ import {
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import { useSettings } from "../context/SettingsContext";
-import AudioService from "../services/AudioService";
+import AudioService from "../services/AudioServiceExpo";
+import VibrationService from "../services/VibrationService";
+import PushNotificationService from "../services/PushNotificationService";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Settings">;
 
 const SettingsScreen: React.FC<Props> = ({ navigation }) => {
-  const { settings, updateAudioNotifications } = useSettings();
+  const { settings, updateAudioNotifications, updateVibration, updatePushNotifications } = useSettings();
 
   const handleAudioToggle = (value: boolean) => {
     updateAudioNotifications(value);
     AudioService.setEnabled(value);
+  };
+
+  const handleVibrationToggle = (value: boolean) => {
+    updateVibration(value);
+    VibrationService.setEnabled(value);
+  };
+
+  const handlePushToggle = (value: boolean) => {
+    updatePushNotifications(value);
+    if (value) {
+      PushNotificationService.requestPermission();
+    }
   };
 
   return (
@@ -43,9 +57,39 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
             />
           </View>
 
+          <View style={styles.settingItem}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>震动反馈 / Vibration</Text>
+              <Text style={styles.settingDescription}>
+                开启后，来电和拨号时会有震动提醒
+              </Text>
+            </View>
+            <Switch
+              trackColor={{ false: "#767577", true: "#81b0ff" }}
+              thumbColor={settings.vibrationEnabled ? "#f5dd4b" : "#f4f3f4"}
+              onValueChange={handleVibrationToggle}
+              value={settings.vibrationEnabled}
+            />
+          </View>
+
+          <View style={styles.settingItem}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>推送通知 / Push Notifications</Text>
+              <Text style={styles.settingDescription}>
+                开启后，即使应用在后台也能接收来电通知
+              </Text>
+            </View>
+            <Switch
+              trackColor={{ false: "#767577", true: "#81b0ff" }}
+              thumbColor={settings.pushNotificationsEnabled ? "#f5dd4b" : "#f4f3f4"}
+              onValueChange={handlePushToggle}
+              value={settings.pushNotificationsEnabled}
+            />
+          </View>
+
           <View style={styles.infoBox}>
             <Text style={styles.infoText}>
-              ℹ️ 音频提醒在设备静音模式下不会播放
+              ℹ️ 音频提醒在设备静音模式下不会播放，但震动仍会工作
             </Text>
           </View>
         </View>

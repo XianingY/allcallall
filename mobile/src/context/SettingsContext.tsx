@@ -3,11 +3,15 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface Settings {
   audioNotificationsEnabled: boolean;
+  vibrationEnabled: boolean;
+  pushNotificationsEnabled: boolean;
 }
 
 interface SettingsContextValue {
   settings: Settings;
   updateAudioNotifications: (enabled: boolean) => void;
+  updateVibration: (enabled: boolean) => void;
+  updatePushNotifications: (enabled: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | undefined>(
@@ -20,7 +24,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   children
 }) => {
   const [settings, setSettings] = useState<Settings>({
-    audioNotificationsEnabled: true
+    audioNotificationsEnabled: true,
+    vibrationEnabled: true,
+    pushNotificationsEnabled: true
   });
   const [loaded, setLoaded] = useState(false);
 
@@ -32,7 +38,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         if (storedSettings) {
           const parsed = JSON.parse(storedSettings);
           setSettings({
-            audioNotificationsEnabled: parsed.audioNotificationsEnabled ?? true
+            audioNotificationsEnabled: parsed.audioNotificationsEnabled ?? true,
+            vibrationEnabled: parsed.vibrationEnabled ?? true,
+            pushNotificationsEnabled: parsed.pushNotificationsEnabled ?? true
           });
           console.log("[SettingsContext] Loaded settings from storage:", parsed);
         }
@@ -52,15 +60,37 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
       audioNotificationsEnabled: enabled
     };
     setSettings(newSettings);
+    await saveSettings(newSettings);
+    console.log("[SettingsContext] Audio notifications updated:", enabled);
+  };
 
+  const updateVibration = async (enabled: boolean) => {
+    const newSettings = {
+      ...settings,
+      vibrationEnabled: enabled
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+    console.log("[SettingsContext] Vibration updated:", enabled);
+  };
+
+  const updatePushNotifications = async (enabled: boolean) => {
+    const newSettings = {
+      ...settings,
+      pushNotificationsEnabled: enabled
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+    console.log("[SettingsContext] Push notifications updated:", enabled);
+  };
+
+  const saveSettings = async (newSettings: Settings) => {
     try {
       await AsyncStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
       console.log("[SettingsContext] Settings saved:", newSettings);
     } catch (error) {
       console.warn("[SettingsContext] Failed to save settings:", error);
     }
-
-    console.log("[SettingsContext] Audio notifications updated:", enabled);
   };
 
   if (!loaded) {
@@ -72,7 +102,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     <SettingsContext.Provider
       value={{
         settings,
-        updateAudioNotifications
+        updateAudioNotifications,
+        updateVibration,
+        updatePushNotifications
       }}
     >
       {children}
