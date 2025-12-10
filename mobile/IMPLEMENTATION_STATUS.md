@@ -15,9 +15,8 @@
 - ✅ 自动初始化 (构造函数中调用)
 
 #### 📳 VibrationService.ts (震动反馈服务)
-- ✅ 5种震动模式:
+- ✅ 4种震动模式:
   - incoming_call: 长震-短停-长震循环
-  - outgoing_dial: 短促震动
   - ringback: 中震动循环
   - call_connected: 双震动
   - call_ended: 单次长震动
@@ -64,7 +63,7 @@
 - ✅ 根据设置项控制功能行为
 - ✅ 通话状态联动:
   - 来电时: 播放铃声 + 震动
-  - 拨号时: 播放拨号音 + 震动
+  - 拨号时: 现代WebRTC应用通过UI显示连接进度
   - 通话接通: 停止音频 + 提示震动
   - 通话结束: 停止音频 + 提示震动
 
@@ -99,23 +98,21 @@ mobile/src/
 └── assets/
     └── sounds/                      📁 音频文件目录
         ├── README.md                ✅ 目录说明文档
-        ├── incoming_call.wav        📄 来电铃声 (需添加)
-        ├── outgoing_dial.wav        📄 拨号音 (需添加)
-        └── ringback.wav             📄 回铃音 (需添加)
+        ├── incoming_call.mp3        📄 来电铃声 (需添加)
+        └── ringback.mp3             📄 回铃音 (需添加)
 ```
 
 ## 📋 待完成事项
 
 ### 高优先级
 
-1. **添加音频文件** (必需)
+1. **添加音频文件** (推荐)
    - 位置: `mobile/src/assets/sounds/`
    - 需要文件:
-     - `incoming_call.wav` (3-5秒, 来电铃声)
-     - `outgoing_dial.wav` (1-2秒, 拨号音)
-     - `ringback.wav` (2-3秒, 回铃音)
-   - 格式: WAV (推荐) 或 MP3
-   - 规格: 44100Hz, Mono, 16-bit, <500KB
+     - `incoming_call.mp3` (3-5秒, 来电铃声)
+     - `ringback.mp3` (2-3秒, 回铃音)
+   - 格式: MP3 (推荐) 或 WAV
+   - 规格: 44100Hz, Mono, 64-128kbps, <500KB
 
 2. **安装依赖**
    ```bash

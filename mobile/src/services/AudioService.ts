@@ -4,7 +4,7 @@ import Sound from "react-native-sound";
  * 音频服务类
  * 负责播放来电铃声、拨号音、回铃音等
  */
-export type AudioType = "incoming_call" | "outgoing_dial" | "ringback";
+export type AudioType = "incoming_call" | "ringback";
 
 export class AudioService {
   private static instance: AudioService;
@@ -42,18 +42,6 @@ export class AudioService {
         }
       );
       this.sounds.set("incoming_call", incomingCallSound);
-
-      // 拨号音 - 需要创建文件: outgoing_dial.wav
-      const outgoingDialSound = new Sound(
-        "outgoing_dial.wav",
-        Sound.MAIN_BUNDLE,
-        (error) => {
-          if (error) {
-            console.warn("Failed to load outgoing_dial.wav:", error);
-          }
-        }
-      );
-      this.sounds.set("outgoing_dial", outgoingDialSound);
 
       // 回铃音 - 需要创建文件: ringback.wav
       const ringbackSound = new Sound(

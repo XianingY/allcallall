@@ -13,7 +13,7 @@
 import { Audio } from "expo-av";
 import { Platform } from "react-native";
 
-export type AudioType = "incoming_call" | "outgoing_dial" | "ringback";
+export type AudioType = "incoming_call" | "ringback";
 
 interface AudioFile {
   type: AudioType;
@@ -28,22 +28,17 @@ class AudioServiceExpo {
   private initialized: boolean = false;
   private loading: boolean = false;
 
-  // 音频文件配置 - 实际项目中需要准备这些音频文件
+  // 音频文件配置 - 支持MP3格式，推荐使用MP3以减小文件大小
   private readonly audioFiles: AudioFile[] = [
     {
       type: "incoming_call",
-      source: require("../../assets/sounds/incoming_call.wav"),
-      name: "incoming_call.wav"
-    },
-    {
-      type: "outgoing_dial",
-      source: require("../../assets/sounds/outgoing_dial.wav"),
-      name: "outgoing_dial.wav"
+      source: require("../../assets/sounds/incoming_call.mp3"),
+      name: "incoming_call.mp3"
     },
     {
       type: "ringback",
-      source: require("../../assets/sounds/ringback.wav"),
-      name: "ringback.wav"
+      source: require("../../assets/sounds/ringback.mp3"),
+      name: "ringback.mp3"
     }
   ];
 

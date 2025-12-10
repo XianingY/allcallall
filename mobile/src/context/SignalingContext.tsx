@@ -157,16 +157,9 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         break;
 
       case "connecting":
-        // 正在呼叫，播放拨号音和震动
-        if (session?.direction === "outgoing") {
-          console.log("[SignalingContext] Playing outgoing dial tone with vibration");
-          if (settings.audioNotificationsEnabled) {
-            AudioService.play("outgoing_dial");
-          }
-          if (settings.vibrationEnabled) {
-            VibrationService.vibrate("outgoing_dial");
-          }
-        }
+        // 正在呼叫，连接到远端
+        console.log("[SignalingContext] Connecting to remote peer");
+        // 不播放拨号音，现代WebRTC应用通过UI状态显示连接进度
         break;
 
       case "in_call":

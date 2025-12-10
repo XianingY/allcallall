@@ -5,7 +5,7 @@
 
 import { Vibration } from "react-native";
 
-export type VibrationType = "incoming_call" | "outgoing_dial" | "ringback" | "call_connected" | "call_ended";
+export type VibrationType = "incoming_call" | "ringback" | "call_connected" | "call_ended";
 
 interface VibrationPattern {
   [key: string]: number[];
@@ -20,9 +20,6 @@ class VibrationService {
   private readonly patterns: VibrationPattern = {
     // 来电：长震-短停-长震循环 (持续震动)
     incoming_call: [0, 500, 250, 500],
-
-    // 拨号：短促震动一次
-    outgoing_dial: [0, 200],
 
     // 回铃：中震动-短停-中震动循环
     ringback: [0, 1000, 500],
@@ -128,8 +125,6 @@ class VibrationService {
     switch (type) {
       case "incoming_call":
         return "medium";
-      case "outgoing_dial":
-        return "light";
       case "ringback":
         return "medium";
       case "call_connected":

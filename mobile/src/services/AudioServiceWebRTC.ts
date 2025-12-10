@@ -6,7 +6,7 @@
 import { Platform } from "react-native";
 import { mediaDevices } from "react-native-webrtc";
 
-export type AudioType = "incoming_call" | "outgoing_dial" | "ringback";
+export type AudioType = "incoming_call" | "ringback";
 
 // 生成简单的提示音（使用 Web Audio API 的振荡器）
 class AudioServiceWebRTC {
@@ -113,14 +113,6 @@ class AudioServiceWebRTC {
             this.gainNode.gain.value = this.gainNode.gain.value > 0 ? 0 : 0.3;
           }
         }, 500);
-        break;
-
-      case "outgoing_dial":
-        // 拨号音：400Hz 连续音
-        this.oscillator.frequency.value = 400;
-        this.oscillator.type = "sine";
-        this.gainNode.gain.value = 0.2;
-        this.oscillator.start();
         break;
 
       case "ringback":

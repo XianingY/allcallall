@@ -43,7 +43,6 @@
 
 **震动模式**:
 - `incoming_call`: [0, 500, 250, 500] - 长震-短停-长震循环
-- `outgoing_dial`: [0, 200] - 短促震动
 - `ringback`: [0, 1000, 500] - 中震动-短停-中震动循环
 - `call_connected`: [0, 150, 100, 150] - 双震动
 - `call_ended`: [0, 400] - 单次长震动
@@ -131,8 +130,7 @@ AudioService.play("incoming_call");      // 播放铃声
 VibrationService.vibrate("incoming_call"); // 震动
 
 // 拨号时
-AudioService.play("outgoing_dial");      // 播放拨号音
-VibrationService.vibrate("outgoing_dial"); // 震动
+// 现代WebRTC应用通过UI状态显示连接进度，无需额外音频提示
 
 // 通话接通时
 AudioService.stopAll();                  // 停止音频
@@ -167,9 +165,8 @@ mobile/src/
 │   └── SettingsScreen.tsx           ✅ 新增设置项UI
 ├── assets/
 │   └── sounds/                      📁 音频文件目录
-│       ├── incoming_call.wav        📄 来电铃声（需添加）
-│       ├── outgoing_dial.wav        📄 拨号音（需添加）
-│       └── ringback.wav             📄 回铃音（需添加）
+│       ├── incoming_call.mp3        📄 来电铃声（需添加）
+│       └── ringback.mp3             📄 回铃音（需添加）
 └── AUDIO_FILES_SETUP.md             ✅ 音频文件设置指南
 ```
 
@@ -195,7 +192,7 @@ useEffect(() => {
 ### 3. 测试功能
 
 1. **音频测试**
-   - 拨出电话 → 验证拨号音播放
+   - 拨出电话 → 验证回铃音播放
    - 接听来电 → 验证铃声播放
    - 通话接通/结束 → 验证音频停止
 

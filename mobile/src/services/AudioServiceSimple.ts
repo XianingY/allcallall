@@ -6,7 +6,7 @@
 
 import { Platform } from "react-native";
 
-export type AudioType = "incoming_call" | "outgoing_dial" | "ringback";
+export type AudioType = "incoming_call" | "ringback";
 
 // 模拟音频播放的简单实现
 // 注意：此版本为演示用途，实际使用时需要真实的音频文件

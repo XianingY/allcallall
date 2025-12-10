@@ -7,19 +7,20 @@
 ## 🎵 音频文件要求
 
 ### 推荐格式
-- **格式**: WAV (推荐) 或 MP3
+- **格式**: MP3 (推荐) 或 WAV
 - **采样率**: 44100 Hz 或 48000 Hz
 - **声道**: 单声道 (Mono)
-- **位深度**: 16-bit
+- **比特率**: 64-128 kbps (MP3)
 - **文件大小**: 建议小于 500KB
+
+> **提示**: MP3格式具有更好的压缩比，文件更小，推荐使用。
 
 ### 音频类型和时长
 
 | 音频类型 | 文件名 | 建议时长 | 用途 |
 |----------|--------|----------|------|
-| 来电铃声 | incoming_call.wav | 3-5 秒 | 接到来电时播放 |
-| 拨号音 | outgoing_dial.wav | 1-2 秒 | 拨出电话时播放 |
-| 回铃音 | ringback.wav | 2-3 秒 | 对方未接听时播放 |
+| 来电铃声 | incoming_call.mp3 | 3-5 秒 | 接到来电时播放 |
+| 回铃音 | ringback.mp3 | 2-3 秒 | 拨打电话时播放（对方手机响铃提示） |
 
 ## 📁 添加音频文件
 
@@ -40,9 +41,8 @@ mkdir -p assets/sounds
 mobile/src/
 └── assets/
     └── sounds/
-        ├── incoming_call.wav
-        ├── outgoing_dial.wav
-        └── ringback.wav
+        ├── incoming_call.mp3
+        └── ringback.mp3
 ```
 
 ### 步骤 3: 检查文件引用
@@ -53,18 +53,13 @@ mobile/src/
 private readonly audioFiles: AudioFile[] = [
   {
     type: "incoming_call",
-    source: require("../../assets/sounds/incoming_call.wav"),
-    name: "incoming_call.wav"
-  },
-  {
-    type: "outgoing_dial",
-    source: require("../../assets/sounds/outgoing_dial.wav"),
-    name: "outgoing_dial.wav"
+    source: require("../../assets/sounds/incoming_call.mp3"),
+    name: "incoming_call.mp3"
   },
   {
     type: "ringback",
-    source: require("../../assets/sounds/ringback.wav"),
-    name: "ringback.wav"
+    source: require("../../assets/sounds/ringback.mp3"),
+    name: "ringback.mp3"
   }
 ];
 ```
@@ -94,11 +89,6 @@ private readonly audioFiles: AudioFile[] = [
 - **音量**: 中等（避免过大）
 - **建议**: 使用经典的电话铃声或自定义音乐片段
 
-#### 拨号音 (outgoing_dial.wav)
-- **内容**: 单音或双音提示音
-- **音量**: 较轻
-- **建议**: 类似传统电话的拨号音
-
 #### 回铃音 (ringback.wav)
 - **内容**: 间歇性提示音
 - **音量**: 中等
@@ -120,9 +110,8 @@ console.log("Audio files check:", this.checkAudioFiles());
 在控制台中查看加载日志：
 
 ```
-[AudioService] ✓ Loaded: incoming_call.wav
-[AudioService] ✓ Loaded: outgoing_dial.wav
-[AudioService] ✓ Loaded: ringback.wav
+[AudioService] ✓ Loaded: incoming_call.mp3
+[AudioService] ✓ Loaded: ringback.mp3
 ```
 
 ### 3. 测试播放
