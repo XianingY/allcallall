@@ -133,15 +133,15 @@ curl http://localhost:8080/health
    ```bash
 export WEBRTC_ICE_SERVERS_JSON='[
   {"urls":["stun:stun.l.google.com:19302"]},
-  {"urls":["turn:47.109.183.99:3478?transport=udp","turn:47.109.183.99:3478?transport=tcp"],"username":"allcallall","credential":"strongpassword"}
+  {"urls":["turn:81.68.168.207:3478?transport=udp","turn:81.68.168.207:3478?transport=tcp"],"username":"allcallall","credential":"strongpassword"}
 ]'
 ```
 3. 重启后端。APK 不需要重新打包，登陆后客户端会自动从 `/api/v1/webrtc/config` 读取最新 ICE/TURN 配置。
 
-### 🌐 生产环境（当前部署：47.109.183.99）
+### 🌐 生产环境（当前部署：81.68.168.207）
 
-- API: `http://47.109.183.99/api/v1`  
-- WS: `ws://47.109.183.99/api/v1/ws`
+- API: `http://81.68.168.207/api/v1`  
+- WS: `ws://81.68.168.207/api/v1/ws`
 
 #### 云服务器运维
 
@@ -613,10 +613,10 @@ npm install
 cd ..
 ```
 
-### 🌐 Production Deployment (current server: 47.109.183.99)
+### 🌐 Production Deployment (current server: 81.68.168.207)
 
-- API: `http://47.109.183.99/api/v1`  
-- WS: `ws://47.109.183.99/api/v1/ws`
+- API: `http://81.68.168.207/api/v1`  
+- WS: `ws://81.68.168.207/api/v1/ws`
 
 #### Cloud server ops
 

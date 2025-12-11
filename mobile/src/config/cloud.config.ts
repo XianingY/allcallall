@@ -3,12 +3,12 @@
 // 
 // 说明:
 // - 开发环境: 使用本地 IP（192.168.31.217）通过 ADB 调试
-// - 生产环境: 使用公网 IP 或域名（47.109.183.99 或 api.allcall.com）
+// - 生产环境: 使用公网 IP 或域名（81.68.168.207 或 api.allcall.com）
 // - 注意: 生产环境 WebSocket 必须使用 wss://（安全连接）
 //
 // Instructions:
 // - Development: Use local IP (192.168.31.217) via ADB reverse forwarding
-// - Production: Use public IP (47.109.183.99) or domain (api.allcall.com)
+// - Production: Use public IP (81.68.168.207) or domain (api.allcall.com)
 // - Note: Production WebSocket MUST use wss:// (secure connection)
 
 import { Platform } from "react-native";
@@ -30,23 +30,23 @@ const ENV_CONFIG = {
   staging: {
     // 测试环境：公网 IP（不使用 HTTPS）
     // Staging: Public IP (without HTTPS)
-    HTTP: "http://47.109.183.99:8080",
-    WS: "ws://47.109.183.99:8080"
+    HTTP: "http://81.68.168.207:8080",
+    WS: "ws://81.68.168.207:8080"
   },
   
   production: {
     // 生产环境：使用域名 + HTTPS
     // Production: Domain name with HTTPS
     // ⚠️ 配置你自己的域名
-    HTTP: "http://47.109.183.99",
-    WS: "ws://47.109.183.99"
+    HTTP: "http://81.68.168.207",
+    WS: "ws://81.68.168.207"
   },
   
   production_ip: {
     // 生产环境备选：直接使用公网 IP（仅用于紧急情况）
     // Production Fallback: Direct public IP (emergency only)
-    HTTP: "http://47.109.183.99:8080",
-    WS: "ws://47.109.183.99:8080"
+    HTTP: "http://81.68.168.207:8080",
+    WS: "ws://81.68.168.207:8080"
   }
 };
 
