@@ -19,8 +19,22 @@ const PROD_API_IP = {
   WS: "ws://81.68.168.207"
 };
 
-// 根据环境选择配置
-const __DEV__ = false; // 在构建时修改为 false（生产环境）
+// 根据环境自动检测 __DEV__ 变量值
+// __DEV__ 在 Metro bundler 中会自动设置：
+// - 开发模式: true (使用 npx expo start 或开发构建)
+// - 生产模式: false (使用 eas build --profile production)
+const __DEV__ = global.__DEV__ ?? false;
+
+// 开发模式下的自动检测日志
+if (__DEV__) {
+  console.log("🚀 开发模式: 使用本地API配置");
+  console.log("📡 API:", DEV_API.HTTP);
+  console.log("🔌 WebSocket:", DEV_API.WS);
+} else {
+  console.log("🏭 生产模式: 使用云服务器API配置");
+  console.log("📡 API:", PROD_API_IP.HTTP);
+  console.log("🔌 WebSocket:", PROD_API_IP.WS);
+}
 
 const API_CONFIG = __DEV__ ? DEV_API : PROD_API_IP;
 
