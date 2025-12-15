@@ -2,7 +2,8 @@
 .DS_Store
 
 # IDE
-.qoder/
+#.qoder/
+#.claude/
 .vscode/
 .idea/
 
@@ -33,8 +34,6 @@ yarn-error.log*
 
 # Environment variables
 .env
-.env.local
-.env.*.local
 
 # Assistant Docs
 docs/mobile/*.apk

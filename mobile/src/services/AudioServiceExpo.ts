@@ -32,12 +32,12 @@ class AudioServiceExpo {
   private readonly audioFiles: AudioFile[] = [
     {
       type: "incoming_call",
-      source: require("../../assets/sounds/incoming_call.mp3"),
+      source: require("../assets/sounds/incoming_call.mp3"),
       name: "incoming_call.mp3"
     },
     {
       type: "ringback",
-      source: require("../../assets/sounds/ringback.mp3"),
+      source: require("../assets/sounds/ringback.mp3"),
       name: "ringback.mp3"
     }
   ];

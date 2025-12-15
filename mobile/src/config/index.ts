@@ -23,8 +23,8 @@ const getApiConfig = () => {
   switch (APP_ENV) {
     case 'development':
       return {
-        HTTP: "http://192.168.31.217:8080",
-        WS: "ws://192.168.31.217:8080"
+        HTTP: "http://192.168.1.30:8080",
+        WS: "ws://192.168.1.30:8080"
       };
     case 'staging':
       return {
@@ -40,8 +40,8 @@ const getApiConfig = () => {
       // 默认使用开发环境配置
       // Default to development configuration
       return {
-        HTTP: "http://192.168.31.217:8080",
-        WS: "ws://192.168.31.217:8080"
+        HTTP: "http://192.168.1.30:8080",
+        WS: "ws://192.168.1.30:8080"
       };
   }
 };
@@ -90,7 +90,7 @@ export const WS_HOST = API_CONFIG.WS;
 
 export const API_BASE_URL = `${API_HOST}/api/v1`;
 export const WS_URL = `${API_CONFIG.WS}/api/v1/ws`;
-export const REQUEST_TIMEOUT = 10_000;
+export const REQUEST_TIMEOUT = 15_000; // 15秒超时，给邮件发送更多时间
 
 // 环境信息导出
 // Environment information exports
