@@ -1,21 +1,11 @@
 import { Platform } from "react-native";
 import * as Device from "expo-device";
 
-// 读取 .env 文件中的 APP_ENV 配置
-// Read APP_ENV configuration from .env file
-const getAppEnv = (): string => {
-  // 从全局变量或环境变量读取
-  // Read from global or environment variables
-  const appEnv = (global as any).__APP_ENV__ || process.env.APP_ENV || 'development';
-
-  // 确保值为小写
-  // Ensure lowercase value
-  return appEnv.toLowerCase().trim();
-};
-
-// 环境变量
-// Environment variables
-const APP_ENV = getAppEnv();
+// 环境配置
+// Environment configuration
+// 注意: Release APK 始终使用 production 配置
+// Note: Release APK always uses production configuration
+const APP_ENV: string = __DEV__ ? 'development' : 'production';
 
 // 根据 APP_ENV 选择配置
 // Select configuration based on APP_ENV

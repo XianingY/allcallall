@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 # 项目根目录
 PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 INFRA_DIR="$PROJECT_ROOT/infra"
-ENV_FILE="$PROJECT_ROOT/.env"
+ENV_FILE="$INFRA_DIR/.env"  # 使用 infra 目录下的符号链接
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}AllCallAll 生产环境启动脚本${NC}"
@@ -43,11 +43,11 @@ cd "$INFRA_DIR"
 echo -e "${GREEN}✓ 已进入目录: $INFRA_DIR${NC}"
 echo ""
 
-# 检查根目录 .env 文件
+# 检查 .env 符号链接
 if [ ! -f "$ENV_FILE" ]; then
     echo -e "${RED}✗ 错误: 未找到环境配置文件: $ENV_FILE${NC}"
     echo ""
-    echo "请创建 .env 文件并配置必需的环境变量"
+    echo "请确保根目录的 .env 文件存在"
     exit 1
 fi
 
@@ -66,7 +66,8 @@ echo -e "${YELLOW}========== 启动服务 ==========${NC}"
 echo "正在启动所有服务 (MySQL, Redis, Backend, Nginx)..."
 echo ""
 
-docker-compose --env-file "$ENV_FILE" -f docker-compose.production.yml up -d
+# Docker Compose 自动读取 infra/.env 符号链接
+docker-compose -f docker-compose.production.yml up -d
 
 # 等待服务启动
 echo ""
@@ -129,11 +130,11 @@ echo "  HTTPS: https://localhost:443"
 echo ""
 
 echo -e "${BLUE}========== 常用命令 ==========${NC}"
-echo "查看日志:        docker-compose --env-file $ENV_FILE -f docker-compose.production.yml logs -f"
-echo "查看Backend日志: docker-compose --env-file $ENV_FILE -f docker-compose.production.yml logs -f backend"
-echo "停止服务:        docker-compose --env-file $ENV_FILE -f docker-compose.production.yml stop"
-echo "重启服务:        docker-compose --env-file $ENV_FILE -f docker-compose.production.yml restart"
-echo "删除服务:        docker-compose --env-file $ENV_FILE -f docker-compose.production.yml down"
+echo "查看日志:        docker-compose -f docker-compose.production.yml logs -f"
+echo "查看Backend日志: docker-compose -f docker-compose.production.yml logs -f backend"
+echo "停止服务:        docker-compose -f docker-compose.production.yml stop"
+echo "重启服务:        docker-compose -f docker-compose.production.yml restart"
+echo "删除服务:        docker-compose -f docker-compose.production.yml down"
 echo ""
 
 echo -e "${GREEN}✅ 所有服务已启动!${NC}"

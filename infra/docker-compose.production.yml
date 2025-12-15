@@ -1,6 +1,3 @@
-# 从根目录读取 .env 文件
-# 使用方式: docker-compose --env-file ../.env -f docker-compose.production.yml up -d
-
 services:
   mysql:
     image: mysql:8.0
