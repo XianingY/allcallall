@@ -15,6 +15,7 @@ NC='\033[0m' # No Color
 # 项目根目录
 PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 INFRA_DIR="$PROJECT_ROOT/infra"
+ENV_FILE="$PROJECT_ROOT/.env"
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}AllCallAll 生产环境启动脚本${NC}"
@@ -42,35 +43,22 @@ cd "$INFRA_DIR"
 echo -e "${GREEN}✓ 已进入目录: $INFRA_DIR${NC}"
 echo ""
 
-# 提示用户设置环境变量
-echo -e "${YELLOW}========== 环境变量配置 ==========${NC}"
-echo "请确保已设置以下环境变量："
-echo "  - MYSQL_ROOT_PASSWORD (默认: rootpass)"
-echo "  - MYSQL_PASSWORD (默认: allcallallpass)"
-echo "  - REDIS_PASSWORD (默认: redis_secure_password)"
-echo "  - JWT_SECRET (必需, 最少32字符)"
-echo "  - MAIL_PASSWORD (必需, QQ邮箱授权码)"
-echo "  - WEBRTC_ICE_SERVERS_JSON (可选)"
-echo ""
-
-# 设置默认值（如果未设置）
-export MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-rootpass}
-export MYSQL_PASSWORD=${MYSQL_PASSWORD:-allcallallpass}
-export REDIS_PASSWORD=${REDIS_PASSWORD:-redis_secure_password}
-export JWT_SECRET=${JWT_SECRET:-}
-export MAIL_PASSWORD=${MAIL_PASSWORD:-}
-export WEBRTC_ICE_SERVERS_JSON=${WEBRTC_ICE_SERVERS_JSON:-'[{"urls":["stun:stun.l.google.com:19302"]}]'}
-
-# 检查必需的变量
-if [ -z "$JWT_SECRET" ] || [ -z "$MAIL_PASSWORD" ]; then
-    echo -e "${RED}✗ 错误: JWT_SECRET 和 MAIL_PASSWORD 为必需${NC}"
+# 检查根目录 .env 文件
+if [ ! -f "$ENV_FILE" ]; then
+    echo -e "${RED}✗ 错误: 未找到环境配置文件: $ENV_FILE${NC}"
     echo ""
-    echo "设置方式: export JWT_SECRET='your-secret-key'"
-    echo "          export MAIL_PASSWORD='your-qq-auth-code'"
+    echo "请创建 .env 文件并配置必需的环境变量"
     exit 1
 fi
 
-echo -e "${GREEN}✓ 环境变量已配置${NC}"
+echo -e "${GREEN}✓ 找到环境配置文件: $ENV_FILE${NC}"
+
+# 加载环境变量
+set -a
+source "$ENV_FILE"
+set +a
+
+echo -e "${GREEN}✓ 环境变量已加载${NC}"
 echo ""
 
 # 启动服务
@@ -78,7 +66,7 @@ echo -e "${YELLOW}========== 启动服务 ==========${NC}"
 echo "正在启动所有服务 (MySQL, Redis, Backend, Nginx)..."
 echo ""
 
-docker-compose -f docker-compose.production.yml up -d
+docker-compose --env-file "$ENV_FILE" -f docker-compose.production.yml up -d
 
 # 等待服务启动
 echo ""
@@ -141,11 +129,11 @@ echo "  HTTPS: https://localhost:443"
 echo ""
 
 echo -e "${BLUE}========== 常用命令 ==========${NC}"
-echo "查看日志:        docker-compose -f docker-compose.production.yml logs -f"
-echo "查看Backend日志: docker-compose -f docker-compose.production.yml logs -f backend"
-echo "停止服务:        docker-compose -f docker-compose.production.yml stop"
-echo "重启服务:        docker-compose -f docker-compose.production.yml restart"
-echo "删除服务:        docker-compose -f docker-compose.production.yml down"
+echo "查看日志:        docker-compose --env-file $ENV_FILE -f docker-compose.production.yml logs -f"
+echo "查看Backend日志: docker-compose --env-file $ENV_FILE -f docker-compose.production.yml logs -f backend"
+echo "停止服务:        docker-compose --env-file $ENV_FILE -f docker-compose.production.yml stop"
+echo "重启服务:        docker-compose --env-file $ENV_FILE -f docker-compose.production.yml restart"
+echo "删除服务:        docker-compose --env-file $ENV_FILE -f docker-compose.production.yml down"
 echo ""
 
 echo -e "${GREEN}✅ 所有服务已启动!${NC}"
