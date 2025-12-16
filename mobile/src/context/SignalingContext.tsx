@@ -21,13 +21,26 @@ import {
 } from "react-native-webrtc";
 
 import { SignalingClient, SignalMessage } from "../api/signaling";
+import { fetchWebRTCConfig } from "../api/webrtc";
 import { useAuthContext } from "./AuthContext";
+import { useSettings } from "./SettingsContext";
+import AudioService from "../services/AudioServiceExpo";
+import VibrationService from "../services/VibrationService";
+import VideoService, { CameraFacing, VideoQuality } from "../services/VideoService";
+import CameraPermissionService from "../services/CameraPermissionService";
 
 type CallDirection = "incoming" | "outgoing";
 
 type SessionDescriptionPayload = RTCSessionDescriptionInit;
 
 type IceCandidatePayload = RTCIceCandidateInit;
+
+// RTCIceServer 类型定义
+interface RTCIceServer {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+}
 
 interface CallSession {
   callId: string;
@@ -44,17 +57,26 @@ interface SignalingContextValue {
   connectionReady: boolean;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
+  // 视频通话相关状态
+  isVideoEnabled: boolean;
+  isAudioEnabled: boolean;
+  cameraFacing: CameraFacing;
+  // 通话控制函数
   startCall: (email: string) => Promise<void>;
   acceptCall: () => Promise<void>;
   rejectCall: () => void;
   endCall: () => void;
+  // 媒体控制函数
+  toggleVideo: () => Promise<void>;
+  toggleAudio: () => void;
+  switchCamera: () => Promise<void>;
 }
 
 const SignalingContext = createContext<SignalingContextValue | undefined>(
   undefined
 );
 
-const STUN_SERVERS = [
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun2.l.google.com:19302" },
@@ -87,11 +109,18 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   children
 }) => {
   const { token, user } = useAuthContext();
+  const { settings } = useSettings();
   const [status, setStatus] = useState<CallStatus>("idle");
   const [session, setSession] = useState<CallSession | null>(null);
   const [connectionReady, setConnectionReady] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [iceServers, setIceServers] = useState<RTCIceServer[]>(DEFAULT_ICE_SERVERS);
+  
+  // 视频通话状态
+  const [isVideoEnabled, setIsVideoEnabled] = useState<boolean>(false);
+  const [isAudioEnabled, setIsAudioEnabled] = useState<boolean>(true);
+  const [cameraFacing, setCameraFacing] = useState<CameraFacing>("front");
 
   const signalingRef = useRef<SignalingClient | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
@@ -103,6 +132,83 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadIceServers = async () => {
+      if (!token) {
+        setIceServers(DEFAULT_ICE_SERVERS);
+        return;
+      }
+      try {
+        const config = await fetchWebRTCConfig(token);
+        const servers = Array.isArray(config.ice_servers) ? config.ice_servers : [];
+        if (!cancelled && servers.length) {
+          setIceServers(servers as RTCIceServer[]);
+          console.log("[SignalingContext] Using ICE servers from backend", servers);
+        } else if (!cancelled) {
+          setIceServers(DEFAULT_ICE_SERVERS);
+        }
+      } catch (error) {
+        console.warn("[SignalingContext] Failed to load ICE servers, fallback to defaults", error);
+        if (!cancelled) {
+          setIceServers(DEFAULT_ICE_SERVERS);
+        }
+      }
+    };
+    loadIceServers();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  // 监听通话状态变化，播放相应的音频和震动提醒
+  useEffect(() => {
+    console.log("[SignalingContext] Status changed to:", status, "Session:", session?.direction);
+
+    switch (status) {
+      case "incoming":
+        // 接到来电，播放来电铃声和震动
+        console.log("[SignalingContext] Playing incoming call ringtone with vibration");
+        if (settings.audioNotificationsEnabled) {
+          AudioService.play("incoming_call");
+        }
+        if (settings.vibrationEnabled) {
+          VibrationService.vibrate("incoming_call");
+        }
+        break;
+
+      case "connecting":
+        // 正在呼叫，播放回铃音和震动
+        console.log("[SignalingContext] Connecting to remote peer, playing ringback");
+        if (settings.audioNotificationsEnabled) {
+          AudioService.play("ringback");
+        }
+        if (settings.vibrationEnabled) {
+          VibrationService.vibrate("ringback");
+        }
+        break;
+
+      case "in_call":
+        // 通话接通，停止所有音频和震动
+        console.log("[SignalingContext] Call connected, stopping all audio and vibration");
+        AudioService.stopAll();
+        VibrationService.cancel();
+        if (settings.vibrationEnabled) {
+          VibrationService.vibrate("call_connected"); // 通话接通提示音
+        }
+        break;
+
+      case "idle":
+        // 通话结束，停止所有音频和震动
+        // 仅在从非idle状态改变到idle时才播放结束提示
+        console.log("[SignalingContext] Call ended/idle, stopping all audio and vibration");
+        AudioService.stopAll();
+        VibrationService.cancel();
+        // 只有当通话真实结束时才提示（由其他地方触发），避免应用启动时的误触
+        break;
+    }
+  }, [status, session, settings.audioNotificationsEnabled, settings.vibrationEnabled]);
 
   const ensureAudioPermission = useCallback(async () => {
     console.log("[ensureAudioPermission] Platform:", Platform.OS);
@@ -134,7 +240,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         return allGranted;
       } catch (error) {
         console.error("[ensureAudioPermission] Permission request error:", error);
-        Alert.alert("权限错误", `无法获取权限: ${error instanceof Error ? error.message : String(error)}`);
+        Alert.alert("权限错误 / Permission Error", `无法获取权限: ${error instanceof Error ? error.message : String(error)} / Failed to get permissions.`);
         return false;
       }
     }
@@ -180,7 +286,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!client) {
       console.warn("[sendMessage] No active signaling client, message dropped", message);
       if (message.type !== "ice.candidate") {
-        Alert.alert("连接问题", "信令服务未连接。");
+        Alert.alert("错误 / Connection Issue", "信令服务未连接 / Signaling service not connected.");
       }
       return;
     }
@@ -196,7 +302,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (error) {
       console.error("[sendMessage] Failed to send signaling message", error);
       if (message.type !== "ice.candidate") {
-        Alert.alert("连接问题", "无法发送信令消息。");
+        Alert.alert("错误 / Connection Issue", "无法发送信令消息 / Failed to send signaling message.");
       }
     }
   }, []);
@@ -248,12 +354,12 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
-const createPeerConnection = useCallback(() => {
-  const pc = new RTCPeerConnection({
-    iceServers: STUN_SERVERS,
-    bundlePolicy: "max-bundle",
-    iceTransportPolicy: "all"
-  } as any);
+  const createPeerConnection = useCallback(() => {
+    const pc = new RTCPeerConnection({
+      iceServers,
+      bundlePolicy: "max-bundle",
+      iceTransportPolicy: "all"
+    } as any);
 
     (pc as any).onicecandidate = (event: any) => {
       if (!event.candidate) {
@@ -296,7 +402,7 @@ const createPeerConnection = useCallback(() => {
 
     peerRef.current = pc;
     return pc;
-  }, [resetCallState, sendMessage]);
+  }, [iceServers, resetCallState, sendMessage]);
 
   useEffect(() => {
     if (!token) {
@@ -462,46 +568,70 @@ const createPeerConnection = useCallback(() => {
       
       if (!user) {
         console.warn("[startCall] No user logged in");
-        Alert.alert("错误", "请先登录");
+        Alert.alert("错误 / Error", "请先登录 / Please log in first.");
         return;
       }
       
       if (status !== "idle") {
         console.warn("[startCall] Call already in progress. Current status:", status);
-        Alert.alert("提示", "已有通话在进行中，请先结束该通话");
+        Alert.alert("提示 / Tip", "已有通话在进行中，请先结束该通话 / A call is already in progress. Please end it first.");
         return;
       }
 
       try {
-        console.log("[startCall] Requesting audio permissions...");
-        const hasPermission = await ensureAudioPermission();
-        if (!hasPermission) {
-          console.warn("[startCall] Audio permission denied");
-          Alert.alert("需要麦克风权限", "请在系统设置中授予麦克风或蓝牙权限。");
+        // 从设置中获取默认值
+        const shouldEnableVideo = settings.defaultVideoEnabled;
+        const shouldEnableAudio = settings.defaultAudioEnabled;
+        const defaultCameraFacing = settings.cameraFacing;
+
+        console.log("[startCall] Media settings:", {
+          video: shouldEnableVideo,
+          audio: shouldEnableAudio,
+          camera: defaultCameraFacing
+        });
+
+        // 检查权限
+        const permissionResult = await CameraPermissionService.checkPermissions();
+        if (!permissionResult.microphone) {
+          Alert.alert("需要麦克风权限 / Microphone Permission Required", "请在系统设置中授予麦克风权限 / Please grant microphone permission in system settings.");
           return;
         }
-        console.log("[startCall] Audio permission granted");
+        if (shouldEnableVideo && !permissionResult.camera) {
+          Alert.alert("需要摄像头权限 / Camera Permission Required", "请在系统设置中授予摄像头权限 / Please grant camera permission in system settings.");
+          return;
+        }
 
         console.log("[startCall] Resetting peer resources...");
         resetPeerResources();
         
         console.log("[startCall] Requesting media stream...");
-        console.log("[startCall] webrtcMediaDevices:", webrtcMediaDevices ? "available" : "null");
         
         if (!webrtcMediaDevices) {
           throw new Error("WebRTC mediaDevices not available. Please use 'expo run:android' to build a native app.");
         }
-        
-        console.log("[startCall] Requesting getUserMedia with audio only...");
-        const stream = await webrtcMediaDevices.getUserMedia({
-          audio: true,
-          video: false
-        });
+
+        // 使用 VideoService 获取媒体流
+        await VideoService.initialize();
+        const stream = await VideoService.getLocalStream(
+          shouldEnableAudio,
+          shouldEnableVideo,
+          defaultCameraFacing,
+          "medium"
+        );
+
+        if (!stream) {
+          throw new Error("Failed to get media stream");
+        }
+
         console.log("[startCall] Media stream obtained:", stream.getTracks().length, "tracks");
         stream.getTracks().forEach((track) => {
           console.log("[startCall] Track obtained - Kind:", track.kind, "Enabled:", track.enabled);
         });
+        
         setLocalStream(stream);
+        setIsVideoEnabled(shouldEnableVideo);
+        setIsAudioEnabled(shouldEnableAudio);
+        setCameraFacing(defaultCameraFacing);
 
         console.log("[startCall] Creating peer connection...");
         const pc = createPeerConnection();
@@ -513,7 +643,7 @@ const createPeerConnection = useCallback(() => {
         console.log("[startCall] Creating offer...");
         const offer = await pc.createOffer({
           offerToReceiveAudio: true,
-          offerToReceiveVideo: false
+          offerToReceiveVideo: true
         });
         console.log("[startCall] Offer created, SDP length:", offer.sdp?.length);
         
@@ -540,12 +670,12 @@ const createPeerConnection = useCallback(() => {
         console.error("[startCall] Error name:", (error as Error)?.name);
         console.error("[startCall] Error message:", (error as Error)?.message);
         const errorMsg = error instanceof Error ? error.message : String(error);
-        Alert.alert("无法发起通话", `错误: ${errorMsg}\n请确认麦克风未被占用或已授权。`);
+          Alert.alert("错误 / Error", "请确认麦克风/摄像头未被占用或已授权 / Please ensure the microphone/camera is not in use or permissions are granted.");
         resetPeerResources();
         setStatus("idle");
       }
     },
-    [createPeerConnection, ensureAudioPermission, resetPeerResources, sendMessage, status, user]
+    [createPeerConnection, resetPeerResources, sendMessage, status, user, settings]
   );
 
   const acceptCall = useCallback(async () => {
@@ -553,30 +683,57 @@ const createPeerConnection = useCallback(() => {
       return;
     }
 
-    const hasPermission = await ensureAudioPermission();
-    if (!hasPermission) {
-      Alert.alert("需要麦克风权限", "请在系统设置中授予麦克风权限。");
-      return;
-    }
-
     try {
+      // 从设置中获取默认值
+      const shouldEnableVideo = settings.defaultVideoEnabled;
+      const shouldEnableAudio = settings.defaultAudioEnabled;
+      const defaultCameraFacing = settings.cameraFacing;
+
+      console.log("[acceptCall] Media settings:", {
+        video: shouldEnableVideo,
+        audio: shouldEnableAudio,
+        camera: defaultCameraFacing
+      });
+
+      // 检查权限
+      const permissionResult = await CameraPermissionService.checkPermissions();
+      if (!permissionResult.microphone) {
+        Alert.alert("需要麦克风权限 / Microphone Permission Required", "请在系统设置中授予麦克风权限 / Please grant microphone permission in system settings.");
+        return;
+      }
+      if (shouldEnableVideo && !permissionResult.camera) {
+        Alert.alert("需要摄像头权限 / Camera Permission Required", "请在系统设置中授予摄像头权限 / Please grant camera permission in system settings.");
+        return;
+      }
+
       console.log("[acceptCall] Requesting media stream...");
-      console.log("[acceptCall] webrtcMediaDevices:", webrtcMediaDevices ? "available" : "null");
       
       if (!webrtcMediaDevices) {
         throw new Error("WebRTC mediaDevices not available. Please use 'expo run:android' to build a native app.");
       }
-      
-      console.log("[acceptCall] Requesting getUserMedia with audio only...");
-      const stream = await webrtcMediaDevices.getUserMedia({
-        audio: true,
-        video: false
-      });
+
+      // 使用 VideoService 获取媒体流
+      await VideoService.initialize();
+      const stream = await VideoService.getLocalStream(
+        shouldEnableAudio,
+        shouldEnableVideo,
+        defaultCameraFacing,
+        "medium"
+      );
+
+      if (!stream) {
+        throw new Error("Failed to get media stream");
+      }
+
       console.log("[acceptCall] Media stream obtained:", stream.getTracks().length, "tracks");
       stream.getTracks().forEach((track) => {
         console.log("[acceptCall] Track obtained - Kind:", track.kind, "Enabled:", track.enabled);
       });
+      
       setLocalStream(stream);
+      setIsVideoEnabled(shouldEnableVideo);
+      setIsAudioEnabled(shouldEnableAudio);
+      setCameraFacing(defaultCameraFacing);
 
       const pc = createPeerConnection();
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
@@ -585,7 +742,7 @@ const createPeerConnection = useCallback(() => {
         await pc.setRemoteDescription(new RTCSessionDescription(session.offer as any));
       } catch (error) {
         console.warn("setRemoteDescription failed", error);
-        Alert.alert("呼叫错误", "无法解析对方的连接请求");
+        Alert.alert("呼叫错误 / Call Error", "无法解析对方的连接请求 / Failed to parse the remote call request.");
         resetCallState();
         return;
       }
@@ -607,10 +764,10 @@ const createPeerConnection = useCallback(() => {
       setStatus("in_call");
     } catch (error) {
       console.error("acceptCall error", error);
-      Alert.alert("无法接通", "请确认麦克风或蓝牙权限已授权。");
+      Alert.alert("无法接通 / Failed to Answer", "请确认麦克风/摄像头权限已授权 / Please ensure microphone/camera permissions are granted.");
       resetCallState();
     }
-  }, [createPeerConnection, drainRemoteCandidates, ensureAudioPermission, resetCallState, sendMessage, session]);
+  }, [createPeerConnection, drainRemoteCandidates, resetCallState, sendMessage, session, settings]);
 
   const rejectCall = useCallback(() => {
     if (!session) {
@@ -636,6 +793,118 @@ const createPeerConnection = useCallback(() => {
     resetCallState();
   }, [resetCallState, sendMessage, session]);
 
+  /**
+   * 切换视频开关
+   */
+  const toggleVideo = useCallback(async () => {
+    try {
+      console.log("[toggleVideo] Current video enabled:", isVideoEnabled);
+      
+      if (!localStream) {
+        console.warn("[toggleVideo] No local stream available");
+        return;
+      }
+
+      const newVideoEnabled = !isVideoEnabled;
+
+      if (newVideoEnabled) {
+        // 开启视频：需要检查权限并重新获取流
+        const permissionResult = await CameraPermissionService.checkPermissions();
+        if (!permissionResult.camera) {
+          Alert.alert("权限不足 / Permission Required", "需要摄像头权限才能开启视频 / Camera permission is required to enable video.");
+          return;
+        }
+
+        // 重新获取带视频的流
+        await VideoService.initialize();
+        const newStream = await VideoService.getLocalStream(
+          isAudioEnabled,
+          true,
+          cameraFacing,
+          "medium"
+        );
+
+        if (newStream && peerRef.current) {
+          // 替换 peer connection 中的轨道
+          const videoTrack = newStream.getVideoTracks()[0];
+          const senders = peerRef.current.getSenders();
+          const videoSender = senders.find(sender => sender.track?.kind === "video");
+          
+          if (videoSender) {
+            await videoSender.replaceTrack(videoTrack);
+          } else {
+            peerRef.current.addTrack(videoTrack, newStream);
+          }
+
+          setLocalStream(newStream);
+          setIsVideoEnabled(true);
+          console.log("[toggleVideo] Video enabled successfully");
+        }
+      } else {
+        // 关闭视频：直接禁用轨道
+        VideoService.toggleVideoTrack(false);
+        setIsVideoEnabled(false);
+        console.log("[toggleVideo] Video disabled");
+      }
+    } catch (error) {
+      console.error("[toggleVideo] Error:", error);
+      Alert.alert("错误 / Error", "无法切换视频状态 / Failed to toggle video.");
+    }
+  }, [isVideoEnabled, isAudioEnabled, cameraFacing, localStream]);
+
+  /**
+   * 切换麦克风开关
+   */
+  const toggleAudio = useCallback(() => {
+    console.log("[toggleAudio] Current audio enabled:", isAudioEnabled);
+    
+    if (!localStream) {
+      console.warn("[toggleAudio] No local stream available");
+      return;
+    }
+
+    const newAudioEnabled = !isAudioEnabled;
+    VideoService.toggleAudioTrack(newAudioEnabled);
+    setIsAudioEnabled(newAudioEnabled);
+    console.log(`[toggleAudio] Audio ${newAudioEnabled ? "enabled" : "disabled"}`);
+  }, [isAudioEnabled, localStream]);
+
+  /**
+   * 切换摄像头（前置/后置）
+   */
+  const switchCamera = useCallback(async () => {
+    try {
+      console.log("[switchCamera] Current facing:", cameraFacing);
+      
+      if (!localStream || !isVideoEnabled) {
+        console.warn("[switchCamera] No video stream or video not enabled");
+        Alert.alert("提示 / Tip", "请先开启视频 / Please enable video first.");
+        return;
+      }
+
+      const newStream = await VideoService.switchCamera();
+      
+      if (newStream && peerRef.current) {
+        // 替换 peer connection 中的视频轨道
+        const videoTrack = newStream.getVideoTracks()[0];
+        const senders = peerRef.current.getSenders();
+        const videoSender = senders.find(sender => sender.track?.kind === "video");
+        
+        if (videoSender) {
+          await videoSender.replaceTrack(videoTrack);
+        }
+
+        setLocalStream(newStream);
+        const newFacing = cameraFacing === "front" ? "back" : "front";
+        setCameraFacing(newFacing);
+        console.log("[switchCamera] Camera switched to:", newFacing);
+      }
+    } catch (error) {
+      console.error("[switchCamera] Error:", error);
+      Alert.alert("错误 / Error", "无法切换摄像头 / Failed to switch camera.");
+    }
+  }, [cameraFacing, isVideoEnabled, localStream]);
+
   const value = useMemo<SignalingContextValue>(
     () => ({
       status,
@@ -643,10 +912,16 @@ const createPeerConnection = useCallback(() => {
       connectionReady,
       localStream,
       remoteStream,
+      isVideoEnabled,
+      isAudioEnabled,
+      cameraFacing,
       startCall,
       acceptCall,
       rejectCall,
-      endCall
+      endCall,
+      toggleVideo,
+      toggleAudio,
+      switchCamera
     }),
     [
       status,
@@ -654,10 +929,16 @@ const createPeerConnection = useCallback(() => {
       connectionReady,
       localStream,
       remoteStream,
+      isVideoEnabled,
+      isAudioEnabled,
+      cameraFacing,
       startCall,
       acceptCall,
       rejectCall,
-      endCall
+      endCall,
+      toggleVideo,
+      toggleAudio,
+      switchCamera
     ]
   );
 

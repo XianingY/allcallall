@@ -18,6 +18,7 @@ import VerificationCodeInput from "../components/VerificationCodeInput";
 import { sendVerificationCode, verifyCode } from "../api/email";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import { useAuthContext } from "../context/AuthContext";
+import { API_BASE_URL } from "../config";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EmailVerification">;
 
@@ -74,10 +75,30 @@ const EmailVerificationScreen: React.FC<Props> = ({ navigation, route }) => {
       setCountdown(60); // 60秒倒计时
     } catch (error) {
       console.error("Send code error:", error);
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "请检查网络连接后重试";
+      
+      // 获取详细错误信息
+      let errorMessage = "发送失败，请稍后重试";
+      
+      if (error && typeof error === 'object') {
+        const axiosError = error as any;
+        
+        // 显示后端返回的错误信息
+        if (axiosError.response?.data?.error) {
+          errorMessage = axiosError.response.data.error;
+        } else if (axiosError.response?.data?.message) {
+          errorMessage = axiosError.response.data.message;
+        } else if (axiosError.message) {
+          // 网络错误
+          if (axiosError.message.includes('Network Error')) {
+            errorMessage = `网络连接失败\n请检查:\n1. 手机是否连接到WiFi\n2. 后端服务是否运行 (${API_BASE_URL})`;
+          } else if (axiosError.message.includes('timeout')) {
+            errorMessage = '请求超时，请检查网络连接';
+          } else {
+            errorMessage = axiosError.message;
+          }
+        }
+      }
+      
       Alert.alert("发送失败", errorMessage);
     } finally {
       setLoading(false);
@@ -87,15 +108,16 @@ const EmailVerificationScreen: React.FC<Props> = ({ navigation, route }) => {
   /**
    * 验证码校验
    */
-  const handleVerifyCode = async () => {
+  const handleVerifyCode = async (inputCode?: string) => {
     try {
-      if (code.length !== 6) {
+      const value = (inputCode ?? code).trim();
+      if (value.length !== 6) {
         Alert.alert("错误", "请输入完整的6位验证码");
         return;
       }
 
       setLoading(true);
-      await verifyCode(email.trim().toLowerCase(), code);
+      await verifyCode(email.trim().toLowerCase(), value);
 
       Alert.alert("成功", "邮箱验证完成");
 
@@ -207,7 +229,10 @@ const EmailVerificationScreen: React.FC<Props> = ({ navigation, route }) => {
           <VerificationCodeInput
             codeLength={6}
             onCodeChange={setCode}
-            onCodeComplete={handleVerifyCode}
+            onCodeComplete={(value) => {
+              setCode(value);
+              handleVerifyCode(value);
+            }}
             editable={!loading}
           />
 

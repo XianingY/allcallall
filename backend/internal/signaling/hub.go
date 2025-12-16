@@ -12,8 +12,10 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
+	"github.com/allcallall/backend/internal/fcm"
 	"github.com/allcallall/backend/internal/media"
 	"github.com/allcallall/backend/internal/presence"
+	"github.com/allcallall/backend/internal/user"
 )
 
 // Hub 管理所有 WebSocket 连接
@@ -21,10 +23,12 @@ import (
 // 现在同时支持 WebSocket 信令和 Pion WebRTC 媒体引擎
 // Now supports both WebSocket signaling and Pion WebRTC media engine
 type Hub struct {
-	redis        *redis.Client
-	logger       zerolog.Logger
-	presence     *presence.Manager
-	mediaEngine  *media.Engine
+	redis       *redis.Client
+	logger      zerolog.Logger
+	presence    *presence.Manager
+	mediaEngine *media.Engine
+	users       *user.Service
+	fcmManager  *fcm.Manager
 
 	mu      sync.RWMutex
 	clients map[string]map[*client]struct{}
@@ -71,6 +75,20 @@ func NewHub(redis *redis.Client, logger zerolog.Logger, presence *presence.Manag
 		clients:  make(map[string]map[*client]struct{}),
 		nodeID:   uuid.NewString(),
 	}
+}
+
+// WithUserService 附加用户服务到 Hub
+// WithUserService attaches user service to the hub
+func (h *Hub) WithUserService(users *user.Service) {
+	h.users = users
+	h.logger.Info().Msg("user service attached to signaling hub")
+}
+
+// WithFCMManager 附加 FCM 管理器到 Hub
+// WithFCMManager attaches FCM manager to the hub
+func (h *Hub) WithFCMManager(fcmMgr *fcm.Manager) {
+	h.fcmManager = fcmMgr
+	h.logger.Info().Msg("fcm manager attached to signaling hub")
 }
 
 // HandleConnection 处理单个连接
@@ -162,6 +180,12 @@ func (h *Hub) handleIncoming(ctx context.Context, fromClient *client, data []byt
 		} else {
 			h.logger.Warn().Err(err).Msg("failed to marshal ack message")
 		}
+	}
+
+	// 如果是 call.invite 消息，需要发送推送通知
+	// If this is a call.invite message, send push notification
+	if msg.Type == TypeCallInvite {
+		h.sendCallNotification(ctx, msg.To, msg.From)
 	}
 
 	return h.redis.Publish(ctx, h.channelName(msg.To), envBytes).Err()
@@ -279,4 +303,70 @@ func (h *Hub) redisForwarder(ctx context.Context, sub *redis.PubSub, cl *client)
 
 func (h *Hub) channelName(email string) string {
 	return fmt.Sprintf("signal:%s", email)
+}
+
+// sendCallNotification 发送来电推送通知
+// sendCallNotification sends push notification for incoming call
+func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmail string) {
+	// 如果没有 FCM 管理器或用户服务，跳过
+	// Skip if FCM manager or user service not available
+	if h.fcmManager == nil || h.users == nil {
+		h.logger.Debug().
+			Str("to", toEmail).
+			Str("from", fromEmail).
+			Msg("fcm manager or user service not available, skipping notification")
+		return
+	}
+
+	// 不阻塞地发送推送通知，使用 goroutine
+	// Send notification asynchronously to avoid blocking
+	go func() {
+		// 调用上上下文以取消悠斶
+		// Create a new context with timeout
+		notifCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		// 获取接收者的用户信息
+		// Get recipient user info
+		toUser, err := h.users.GetByEmail(notifCtx, toEmail)
+		if err != nil {
+			h.logger.Warn().Err(err).Str("email", toEmail).Msg("failed to get recipient user info")
+			return
+		}
+
+		if toUser.FCMToken == "" {
+			h.logger.Debug().Str("email", toEmail).Msg("recipient has no fcm token")
+			return
+		}
+
+		// 获取勳者的用户信息
+		// Get initiator user info
+		fromUser, err := h.users.GetByEmail(notifCtx, fromEmail)
+		if err != nil {
+			h.logger.Warn().Err(err).Str("email", fromEmail).Msg("failed to get initiator user info")
+			return
+		}
+
+		// 发送推送通知
+		// Send the notification
+		err = h.fcmManager.SendCallNotification(
+			notifCtx,
+			toUser.FCMToken,
+			fromEmail,
+			fromUser.DisplayName,
+			"", // callID will be added later if needed
+		)
+		if err != nil {
+			h.logger.Error().Err(err).
+				Str("to", toEmail).
+				Str("from", fromEmail).
+				Msg("failed to send call notification")
+			return
+		}
+
+		h.logger.Info().
+			Str("to", toEmail).
+			Str("from", fromEmail).
+			Msg("call notification sent successfully")
+	}()
 }

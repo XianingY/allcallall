@@ -105,7 +105,7 @@ echo -e "${GREEN}✓ .env 文件已创建 (请手动编辑邮箱授权码)${NC}"
 # 6. 创建生产环境配置
 echo -e "${BLUE}[6/8] 创建生产环境配置...${NC}"
 
-cat > "$WORK_DIR/backend/configs/config.production.yaml" << 'EOF'
+cat > "$WORK_DIR/backend/configs/config.yaml" << 'EOF'
 server:
   host: "0.0.0.0"
   port: 8080

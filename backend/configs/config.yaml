@@ -1,6 +1,4 @@
 server:
-  # HTTP 服务监听地址
-  # HTTP server listen address
   host: "0.0.0.0"
   port: 8080
   read_timeout_seconds: 10
@@ -8,49 +6,39 @@ server:
   idle_timeout_seconds: 60
 
 database:
-  # MySQL 连接参数 (DSN)
-  # MySQL connection settings
-  dsn: "allcallall:allcallallpass@tcp(localhost:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local"
-  max_open_conns: 25
+  # 使用环境变量
+  dsn: "allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local"
+  max_open_conns: 50
   max_idle_conns: 10
   conn_max_lifetime_minutes: 30
 
 redis:
-  # Redis 连接信息
-  # Redis connection settings
-  addr: "localhost:6379"
+  addr: "redis:6379"
   username: ""
-  password: ""
+  password: "${REDIS_PASSWORD}"  # 这里也可以使用环境变量
   db: 0
 
 mail:
-  # SMTP 邮件配置 - 使用QQ邮箱
-  # SMTP mail configuration - Using QQ Mail
   host: "smtp.qq.com"
   port: 587
-  username: "1569297330@qq.com"
-  password: "${MAIL_PASSWORD}"  # QQ邮箱授权码，从环境变量读取
+  username: "1569297330@qq.com"  # QQ邮箱SMTP登录必须使用完整邮箱地址
+  password: "${MAIL_PASSWORD}"
   from: "1569297330@qq.com"
   from_name: "AllCallAll"
   max_retries: 3
   retry_delay_seconds: 5
 
 jwt:
-  # JWT 签发密钥 (部署时务必替换)
-  # JWT signing secret (replace in production)
-  secret: "please_change_me"
+  secret: "${JWT_SECRET}"
   issuer: "allcallall-backend"
   access_token_ttl_minutes: 60
   refresh_token_ttl_hours: 168
 
 webrtc:
-  # ICE 服务器配置
-  # ICE servers used by WebRTC peers
   ice_servers:
     - urls:
         - "stun:stun.l.google.com:19302"
+        - "stun:stun1.l.google.com:19302"
 
 logging:
-  # 日志等级: debug | info | warn | error
-  # Logging level
   level: "info"

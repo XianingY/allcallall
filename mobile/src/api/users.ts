@@ -70,3 +70,8 @@ export const changePassword = async (token: string, data: ChangePasswordRequest)
   const response = await api.post<ChangePasswordResponse>("/users/change-password", data);
   return response.data;
 };
+
+export const saveFCMToken = async (token: string, fcmToken: string) => {
+  const api = createApiClient(token);
+  await api.post("/users/fcm-token", { fcm_token: fcmToken });
+};

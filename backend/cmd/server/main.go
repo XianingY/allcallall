@@ -16,6 +16,7 @@ import (
 	"github.com/allcallall/backend/internal/config"
 	"github.com/allcallall/backend/internal/contact"
 	"github.com/allcallall/backend/internal/database"
+	"github.com/allcallall/backend/internal/fcm"
 	"github.com/allcallall/backend/internal/handlers"
 	"github.com/allcallall/backend/internal/logger"
 	"github.com/allcallall/backend/internal/mail"
@@ -114,11 +115,18 @@ func main() {
 	presenceManager := presence.NewManager(redisClient, appLogger, userSvc)
 
 	userHandler := handlers.NewUserHandler(appLogger, userSvc, presenceManager, contactSvc)
+	webrtcHandler := handlers.NewWebRTCHandler(appLogger, cfg.WebRTC)
 	signalingHub := signaling.NewHub(redisClient, appLogger, presenceManager)
+
+	// 初始化 FCM 管理器
+	// Initialize FCM manager
+	fcmManager := fcm.NewManager(appLogger)
+	signalingHub.WithUserService(userSvc)
+	signalingHub.WithFCMManager(fcmManager)
 
 	// 初始化 Pion WebRTC 媒体引擎
 	// Initialize Pion WebRTC media engine
-	mediaEngine, err := signaling.InitPionMediaEngine(appLogger)
+	mediaEngine, err := signaling.InitPionMediaEngine(appLogger, cfg.WebRTC)
 	if err != nil {
 		appLogger.Fatal().Err(err).Msg("failed to initialize pion media engine")
 	}
@@ -141,6 +149,7 @@ func main() {
 		EmailHandler:     emailHandler,
 		UserHandler:      userHandler,
 		SignalingHandler: signalingHandler,
+		WebRTCHandler:    webrtcHandler,
 		AuthMiddleware:   auth.Middleware(jwtManager),
 	})
 

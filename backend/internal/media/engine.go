@@ -15,6 +15,7 @@ type Engine struct {
 	mu              sync.RWMutex
 	logger          zerolog.Logger
 	peerConnections map[string]*PeerConnection
+	defaultConfig   webrtc.Configuration
 }
 
 // Config 包含 Pion 媒体引擎的配置
@@ -31,6 +32,7 @@ func NewEngine(logger zerolog.Logger, cfg *Config) (*Engine, error) {
 	return &Engine{
 		logger:          logger.With().Str("component", "media_engine").Logger(),
 		peerConnections: make(map[string]*PeerConnection),
+		defaultConfig:   cfg.WebRTCConfig,
 	}, nil
 }
 
@@ -40,9 +42,14 @@ func (e *Engine) CreatePeerConnection(ctx context.Context, callID, localEmail, r
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	pcCfg := e.defaultConfig
+	if cfg != nil {
+		pcCfg = *cfg
+	}
+
 	// 创建 PeerConnection
 	// Create peer connection
-	pc, err := webrtc.NewPeerConnection(*cfg)
+	pc, err := webrtc.NewPeerConnection(pcCfg)
 	if err != nil {
 		return nil, fmt.Errorf("create peer connection: %w", err)
 	}

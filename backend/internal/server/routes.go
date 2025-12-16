@@ -1,6 +1,8 @@
 package server
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/allcallall/backend/internal/handlers"
@@ -13,6 +15,7 @@ type RouteDependencies struct {
 	EmailHandler     *handlers.EmailHandler
 	UserHandler      *handlers.UserHandler
 	SignalingHandler *handlers.SignalingHandler
+	WebRTCHandler    *handlers.WebRTCHandler
 	AuthMiddleware   gin.HandlerFunc
 }
 
@@ -20,6 +23,11 @@ type RouteDependencies struct {
 // RegisterRoutes wires handlers into the Gin engine.
 func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 	api := router.Group("/api/v1")
+
+	// 健康检查
+	api.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
 
 	authGroup := api.Group("/auth")
 	deps.AuthHandler.RegisterRoutes(authGroup)
@@ -33,5 +41,8 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 		userGroup := protected.Group("/users")
 		deps.UserHandler.RegisterRoutes(userGroup)
 		protected.GET("/ws", deps.SignalingHandler.Handle)
+		if deps.WebRTCHandler != nil {
+			deps.WebRTCHandler.RegisterRoutes(protected)
+		}
 	}
 }

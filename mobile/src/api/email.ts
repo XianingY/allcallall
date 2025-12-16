@@ -19,7 +19,47 @@ export interface VerifyCodeResponse {
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   timeout: REQUEST_TIMEOUT,
+  headers: {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  },
 });
+
+// 添加请求拦截器
+apiClient.interceptors.request.use(
+  (config) => {
+    console.log('[Email API] Request:', {
+      url: config.url,
+      method: config.method,
+      baseURL: config.baseURL,
+      data: config.data,
+    });
+    return config;
+  },
+  (error) => {
+    console.error('[Email API] Request error:', error);
+    return Promise.reject(error);
+  }
+);
+
+// 添加响应拦截器
+apiClient.interceptors.response.use(
+  (response) => {
+    console.log('[Email API] Response success:', {
+      status: response.status,
+      data: response.data,
+    });
+    return response;
+  },
+  (error) => {
+    console.error('[Email API] Response error:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+    });
+    return Promise.reject(error);
+  }
+);
 
 /**
  * 发送邮箱验证码

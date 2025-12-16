@@ -41,6 +41,7 @@ func (h *UserHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/search", h.handleSearch)
 	rg.GET("/presence", h.handlePresence)
 	rg.POST("/change-password", h.handleChangePassword)
+	rg.POST("/fcm-token", h.handleSaveFCMToken)
 
 	contactsGroup := rg.Group("/contacts")
 	contactsGroup.GET("", h.handleListContacts)
@@ -283,4 +284,31 @@ func (h *UserHandler) handleChangePassword(c *gin.Context) {
 	}
 
 	JSONSuccess(c, http.StatusOK, gin.H{"message": "password changed successfully"})
+}
+
+type saveFCMTokenRequest struct {
+	FCMToken string `json:"fcm_token" binding:"required"`
+}
+
+func (h *UserHandler) handleSaveFCMToken(c *gin.Context) {
+	claims, err := auth.GetClaimsFromContext(c)
+	if err != nil {
+		JSONError(c, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req saveFCMTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := h.users.SaveFCMToken(c.Request.Context(), claims.UserID, req.FCMToken); err != nil {
+		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Msg("save fcm token failed")
+		JSONError(c, http.StatusInternalServerError, "failed to save fcm token")
+		return
+	}
+
+	h.logger.Info().Uint64("user_id", claims.UserID).Str("fcm_token", req.FCMToken[:20]+"...").Msg("fcm token saved")
+	JSONSuccess(c, http.StatusOK, gin.H{"message": "fcm token saved successfully"})
 }
