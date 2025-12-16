@@ -51,7 +51,7 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
       setContacts(data);
     } catch (error) {
       console.error(error);
-      Alert.alert("拉取联系人失败", "无法加载联系人列表，请重试。");
+      Alert.alert("拉取联系人失败 / Failed to load contacts", "无法加载联系人列表，请重试 / Please try again later.");
     } finally {
       setLoadingContacts(false);
     }
@@ -116,22 +116,22 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
       setAddModalVisible(false);
       await loadContacts();
       await loadPresence();
-      Alert.alert("联系人已添加", `${target} 已加入联系人。`);
+      Alert.alert("联系人已添加 / Contact Added", `${target} 已加入联系人 / ${target} has been added to your contacts.`);
     } catch (error) {
       console.error(error);
-      Alert.alert("添加失败", "无法添加联系人，可能已存在或输入有误。");
+      Alert.alert("添加失败 / Failed to add", "无法添加联系人，可能已存在或输入有误 / This contact may already exist or the email is invalid.");
     }
   }, [loadContacts, loadPresence, newContactEmail, token]);
 
   const handleRemoveContact = useCallback(
     (contact: User) => {
       Alert.alert(
-        "删除联系人",
-        `确定删除 ${contact.display_name || contact.email} 吗？`,
+        "删除联系人 / Delete Contact",
+        `确定删除 ${contact.display_name || contact.email} 吗？ / Are you sure you want to delete ${contact.display_name || contact.email}?`,
         [
-          { text: "取消", style: "cancel" },
+          { text: "取消 / Cancel", style: "cancel" },
           {
-            text: "删除",
+            text: "删除 / Delete",
             style: "destructive",
             onPress: async () => {
               if (!token) return;
@@ -141,7 +141,7 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
                 await loadPresence();
               } catch (error) {
                 console.error(error);
-                Alert.alert("删除失败", "请稍后再试。");
+                Alert.alert("删除失败 / Failed to delete", "请稍后再试 / Please try again later.");
               }
             }
           }
@@ -185,16 +185,16 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
             style={styles.settingsButton}
             onPress={() => navigation.navigate("Settings")}
           >
-            <Text style={styles.settingsText}>设置</Text>
+            <Text style={styles.settingsText}>设置 / Settings</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.changePasswordButton}
             onPress={() => navigation.navigate("ChangePassword")}
           >
-            <Text style={styles.changePasswordText}>改密码</Text>
+            <Text style={styles.changePasswordText}>改密码 / Change Password</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.logoutButton} onPress={logout}>
-            <Text style={styles.logoutText}>退出登录</Text>
+            <Text style={styles.logoutText}>退出登录 / Logout</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -234,7 +234,7 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
         ListEmptyComponent={
           !loadingContacts ? (
             <Text style={styles.emptyText}>
-              还没有联系人，点击“添加联系人”开始吧。
+              还没有联系人，点击"添加联系人"开始吧 / No contacts yet. Click "Add" to get started.
             </Text>
           ) : null
         }
@@ -248,17 +248,17 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>添加联系人</Text>
+            <Text style={styles.modalTitle}>添加联系人 / Add Contact</Text>
             <TextField
-              label="邮箱 / Email"
+              label="邮箱 / Email Address"
               autoCapitalize="none"
               keyboardType="email-address"
               value={newContactEmail}
               onChangeText={setNewContactEmail}
             />
-            <PrimaryButton title="添加" onPress={handleAddContact} />
+            <PrimaryButton title="添加 / Add" onPress={handleAddContact} />
             <PrimaryButton
-              title="取消"
+              title="取消 / Cancel"
               onPress={() => setAddModalVisible(false)}
               style={styles.modalCancel}
             />

@@ -13,6 +13,7 @@
 import messaging from '@react-native-firebase/messaging';
 import { Platform } from 'react-native';
 import { NavigationContainerRef } from '@react-navigation/native';
+import axios, { AxiosInstance } from 'axios';
 
 export type NotificationType = 'incoming_call' | 'call_ended' | 'generic';
 
@@ -32,7 +33,9 @@ interface NotificationPayload {
 class PushNotificationService {
   private static instance: PushNotificationService;
   private initialized: boolean = false;
-  private navigationRef: React.RefObject<NavigationContainerRef> | null = null;
+  private navigationRef: React.RefObject<NavigationContainerRef<any>> | null = null;
+  private apiClient: AxiosInstance | null = null;
+  private currentToken: string | null = null;
 
   private constructor() {
     this.initialize();
@@ -260,20 +263,62 @@ class PushNotificationService {
    */
   private async sendTokenToServer(token: string): Promise<void> {
     try {
-      // TODO: 实现将 token 发送到后端 API
-      console.log("[PushNotificationService] Sending token to server:", token);
+      this.currentToken = token;
+      console.log("[PushNotificationService] Preparing to send token to server:", token.substring(0, 20) + "...");
 
-      // 示例实现：
-      // await apiClient.post('/users/fcm-token', { token });
+      // 从 localStorage 获取 JWT Token（需要用户已登录）
+      // 这里需要与认证系统集成
+      // 可以通过事件或其他方式在用户登录后立即发送
+      
+      // 示例实现（实际使用时需要获取有效的 JWT）：
+      // const token = await AsyncStorage.getItem('authToken');
+      // if (token) {
+      //   await this.updateFCMTokenOnBackend(token);
+      // } else {
+      //   console.log("[PushNotificationService] User not logged in yet, token will be sent after login");
+      // }
     } catch (error) {
-      console.error("[PushNotificationService] Error sending token to server:", error);
+      console.error("[PushNotificationService] Error preparing to send token to server:", error);
+    }
+  }
+
+  /**
+   * 在用户登录后发送 FCM Token 到后端
+   * 应该在认证成功后调用此方法
+   */
+  public async sendCurrentTokenToBackend(authToken: string): Promise<void> {
+    if (!this.currentToken) {
+      console.warn("[PushNotificationService] No FCM token available");
+      return;
+    }
+
+    try {
+      console.log("[PushNotificationService] Sending FCM token to backend...");
+      
+      // 使用 authToken 发送请求
+      const response = await axios.post(
+        '/users/fcm-token',
+        { fcm_token: this.currentToken },
+        {
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      console.log("[PushNotificationService] ✓ FCM token sent to backend successfully");
+      console.log("[PushNotificationService] Response:", response.data);
+    } catch (error) {
+      console.error("[PushNotificationService] Error sending token to backend:", error);
+      // 错误处理：可以在下次登录时重试
     }
   }
 
   /**
    * 设置导航引用
    */
-  public setNavigationRef(navigationRef: React.RefObject<NavigationContainerRef>): void {
+  public setNavigationRef(navigationRef: React.RefObject<NavigationContainerRef<any>>): void {
     this.navigationRef = navigationRef;
   }
 

@@ -11,6 +11,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as authApi from "../api/auth";
 import * as usersApi from "../api/users";
 import { User } from "../api/users";
+import PushNotificationService from "../services/PushNotificationService";
 
 const STORAGE_KEY = "allcallall.auth";
 
@@ -81,6 +82,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     async (email: string, password: string) => {
       const response = await authApi.login(email, password);
       await persistState(response.access_token, response.user);
+      
+      // 登录成功后，发送 FCM Token 到后端
+      // Send FCM Token to backend after successful login
+      try {
+        console.log("[AuthContext] Sending FCM token to backend...");
+        await PushNotificationService.sendCurrentTokenToBackend(response.access_token);
+        console.log("[AuthContext] FCM token sent successfully");
+      } catch (error) {
+        console.warn("[AuthContext] Failed to send FCM token:", error);
+        // 不中断登录流程，继续进行
+        // Continue with login process even if FCM token send fails
+      }
     },
     [persistState]
   );
