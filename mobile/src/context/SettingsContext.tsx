@@ -5,6 +5,10 @@ interface Settings {
   audioNotificationsEnabled: boolean;
   vibrationEnabled: boolean;
   pushNotificationsEnabled: boolean;
+  // 视频通话设置
+  defaultVideoEnabled: boolean; // 默认开启视频
+  defaultAudioEnabled: boolean; // 默认开启麦克风
+  cameraFacing: "front" | "back"; // 默认摄像头方向
 }
 
 interface SettingsContextValue {
@@ -12,6 +16,10 @@ interface SettingsContextValue {
   updateAudioNotifications: (enabled: boolean) => void;
   updateVibration: (enabled: boolean) => void;
   updatePushNotifications: (enabled: boolean) => void;
+  // 视频通话设置更新函数
+  updateDefaultVideoEnabled: (enabled: boolean) => void;
+  updateDefaultAudioEnabled: (enabled: boolean) => void;
+  updateCameraFacing: (facing: "front" | "back") => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | undefined>(
@@ -26,7 +34,11 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [settings, setSettings] = useState<Settings>({
     audioNotificationsEnabled: true,
     vibrationEnabled: true,
-    pushNotificationsEnabled: true
+    pushNotificationsEnabled: true,
+    // 视频通话默认设置
+    defaultVideoEnabled: false, // 默认关闭视频
+    defaultAudioEnabled: true, // 默认开启麦克风
+    cameraFacing: "front" // 默认前置摄像头
   });
   const [loaded, setLoaded] = useState(false);
 
@@ -40,7 +52,10 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
           setSettings({
             audioNotificationsEnabled: parsed.audioNotificationsEnabled ?? true,
             vibrationEnabled: parsed.vibrationEnabled ?? true,
-            pushNotificationsEnabled: parsed.pushNotificationsEnabled ?? true
+            pushNotificationsEnabled: parsed.pushNotificationsEnabled ?? true,
+            defaultVideoEnabled: parsed.defaultVideoEnabled ?? false,
+            defaultAudioEnabled: parsed.defaultAudioEnabled ?? true,
+            cameraFacing: parsed.cameraFacing ?? "front"
           });
           console.log("[SettingsContext] Loaded settings from storage:", parsed);
         }
@@ -84,6 +99,36 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     console.log("[SettingsContext] Push notifications updated:", enabled);
   };
 
+  const updateDefaultVideoEnabled = async (enabled: boolean) => {
+    const newSettings = {
+      ...settings,
+      defaultVideoEnabled: enabled
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+    console.log("[SettingsContext] Default video enabled updated:", enabled);
+  };
+
+  const updateDefaultAudioEnabled = async (enabled: boolean) => {
+    const newSettings = {
+      ...settings,
+      defaultAudioEnabled: enabled
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+    console.log("[SettingsContext] Default audio enabled updated:", enabled);
+  };
+
+  const updateCameraFacing = async (facing: "front" | "back") => {
+    const newSettings = {
+      ...settings,
+      cameraFacing: facing
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+    console.log("[SettingsContext] Camera facing updated:", facing);
+  };
+
   const saveSettings = async (newSettings: Settings) => {
     try {
       await AsyncStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
@@ -104,7 +149,10 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         settings,
         updateAudioNotifications,
         updateVibration,
-        updatePushNotifications
+        updatePushNotifications,
+        updateDefaultVideoEnabled,
+        updateDefaultAudioEnabled,
+        updateCameraFacing
       }}
     >
       {children}

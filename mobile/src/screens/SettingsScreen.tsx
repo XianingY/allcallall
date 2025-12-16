@@ -17,7 +17,15 @@ import PushNotificationService from "../services/PushNotificationService";
 type Props = NativeStackScreenProps<RootStackParamList, "Settings">;
 
 const SettingsScreen: React.FC<Props> = ({ navigation }) => {
-  const { settings, updateAudioNotifications, updateVibration, updatePushNotifications } = useSettings();
+  const { 
+    settings, 
+    updateAudioNotifications, 
+    updateVibration, 
+    updatePushNotifications,
+    updateDefaultVideoEnabled,
+    updateDefaultAudioEnabled,
+    updateCameraFacing
+  } = useSettings();
 
   const handleAudioToggle = (value: boolean) => {
     updateAudioNotifications(value);
@@ -31,9 +39,19 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
 
   const handlePushToggle = (value: boolean) => {
     updatePushNotifications(value);
-    if (value) {
-      PushNotificationService.requestPermission();
-    }
+    // 权限由 PushNotificationService 在初始化时自动管理
+  };
+
+  const handleVideoToggle = (value: boolean) => {
+    updateDefaultVideoEnabled(value);
+  };
+
+  const handleMicToggle = (value: boolean) => {
+    updateDefaultAudioEnabled(value);
+  };
+
+  const handleCameraFacingToggle = (value: boolean) => {
+    updateCameraFacing(value ? "back" : "front");
   };
 
   return (
@@ -90,6 +108,61 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
           <View style={styles.infoBox}>
             <Text style={styles.infoText}>
               ℹ️ 音频提醒在设备静音模式下不会播放，但震动仍会工作
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>视频通话设置 / Video Call Settings</Text>
+
+          <View style={styles.settingItem}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>默认开启视频 / Default Video On</Text>
+              <Text style={styles.settingDescription}>
+                开启后，通话时默认启用摄像头
+              </Text>
+            </View>
+            <Switch
+              trackColor={{ false: "#767577", true: "#81b0ff" }}
+              thumbColor={settings.defaultVideoEnabled ? "#f5dd4b" : "#f4f3f4"}
+              onValueChange={handleVideoToggle}
+              value={settings.defaultVideoEnabled}
+            />
+          </View>
+
+          <View style={styles.settingItem}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>默认开启麦克风 / Default Microphone On</Text>
+              <Text style={styles.settingDescription}>
+                开启后，通话时默认启用麦克风
+              </Text>
+            </View>
+            <Switch
+              trackColor={{ false: "#767577", true: "#81b0ff" }}
+              thumbColor={settings.defaultAudioEnabled ? "#f5dd4b" : "#f4f3f4"}
+              onValueChange={handleMicToggle}
+              value={settings.defaultAudioEnabled}
+            />
+          </View>
+
+          <View style={styles.settingItem}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>默认摄像头 / Default Camera</Text>
+              <Text style={styles.settingDescription}>
+                {settings.cameraFacing === "front" ? "前置摄像头 / Front Camera" : "后置摄像头 / Back Camera"}
+              </Text>
+            </View>
+            <Switch
+              trackColor={{ false: "#767577", true: "#81b0ff" }}
+              thumbColor={settings.cameraFacing === "back" ? "#f5dd4b" : "#f4f3f4"}
+              onValueChange={handleCameraFacingToggle}
+              value={settings.cameraFacing === "back"}
+            />
+          </View>
+
+          <View style={styles.infoBox}>
+            <Text style={styles.infoText}>
+              ℹ️ 视频和麦克风可在通话过程中随时开关
             </Text>
           </View>
         </View>
