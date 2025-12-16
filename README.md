@@ -77,7 +77,7 @@ cd ..
 
 ```bash
 # 启动 MySQL 和 Redis
-./start.sh
+./scripts/development/start-services.sh
 
 # 验证服务状态
 docker-compose -f infra/docker-compose.yml ps
@@ -478,7 +478,7 @@ EOF
 **解决方案**:
 ```bash
 # 确保数据库服务已启动
-./start.sh
+./scripts/development/start-services.sh
 
 # 检查 MySQL 连接
 mysql -u allcallall -p allcallall_db -h localhost
@@ -664,7 +664,7 @@ docker exec -it infra-mysql-1 mysql -uroot -p"$MYSQL_ROOT_PASSWORD" allcallall_d
 
 ```bash
 # Start MySQL and Redis
-./start.sh
+./scripts/development/start-services.sh
 
 # Verify service status
 docker-compose -f infra/docker-compose.yml ps
@@ -992,7 +992,7 @@ EOF
 **Solution**:
 ```bash
 # Ensure database service is running
-./start.sh
+./scripts/development/start-services.sh
 
 # Check MySQL connection
 mysql -u allcallall -p allcallall_db -h localhost

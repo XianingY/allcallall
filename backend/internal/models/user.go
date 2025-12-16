@@ -9,6 +9,7 @@ type User struct {
 	Email        string     `gorm:"size:255;uniqueIndex;not null"`
 	PasswordHash string     `gorm:"size:255;not null"`
 	DisplayName  string     `gorm:"size:100"`
+	FCMToken     string     `gorm:"size:255;index"` // Firebase Cloud Messaging token
 	CreatedAt    time.Time  `gorm:"autoCreateTime"`
 	UpdatedAt    time.Time  `gorm:"autoUpdateTime"`
 	LastSeen     *time.Time `gorm:"index"`

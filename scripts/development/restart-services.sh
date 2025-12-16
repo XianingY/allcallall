@@ -5,7 +5,7 @@
 
 set -e
 
-PROJECT_ROOT="/Users/byzantium/github/allcall"
+PROJECT_ROOT="/Users/byzantium/github/allcallall"
 cd "$PROJECT_ROOT"
 
 echo "════════════════════════════════════════════════════════════════"

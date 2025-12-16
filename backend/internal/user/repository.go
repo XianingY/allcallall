@@ -89,3 +89,11 @@ func (r *Repository) UpdatePassword(ctx context.Context, userID uint64, password
 		Where("id = ?", userID).
 		Update("password_hash", passwordHash).Error
 }
+
+// UpdateFCMToken 更新用户的 FCM Token
+// UpdateFCMToken updates user FCM token for push notifications.
+func (r *Repository) UpdateFCMToken(ctx context.Context, userID uint64, fcmToken string) error {
+	return r.db.WithContext(ctx).Model(&models.User{}).
+		Where("id = ?", userID).
+		Update("fcm_token", fcmToken).Error
+}

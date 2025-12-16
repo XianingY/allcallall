@@ -2,8 +2,8 @@
 .DS_Store
 
 # IDE
-#.qoder/
-#.claude/
+.qoder/
+.claude/
 .vscode/
 .idea/
 

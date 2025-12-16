@@ -157,3 +157,22 @@ func (s *Service) ChangePassword(ctx context.Context, userID uint64, in ChangePa
 	// 更新数据库
 	return s.repo.UpdatePassword(ctx, userID, string(newHash))
 }
+
+// SaveFCMToken 保存或更新用户的 FCM Token
+// SaveFCMToken saves or updates user FCM token for push notifications.
+func (s *Service) SaveFCMToken(ctx context.Context, userID uint64, fcmToken string) error {
+	if strings.TrimSpace(fcmToken) == "" {
+		return errors.New("fcm token cannot be empty")
+	}
+	return s.repo.UpdateFCMToken(ctx, userID, strings.TrimSpace(fcmToken))
+}
+
+// GetFCMToken 获取用户的 FCM Token
+// GetFCMToken retrieves user FCM token.
+func (s *Service) GetFCMToken(ctx context.Context, userID uint64) (string, error) {
+	user, err := s.repo.FindByID(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	return user.FCMToken, nil
+}

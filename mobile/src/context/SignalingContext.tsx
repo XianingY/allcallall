@@ -157,9 +157,14 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         break;
 
       case "connecting":
-        // 正在呼叫，连接到远端
-        console.log("[SignalingContext] Connecting to remote peer");
-        // 不播放拨号音，现代WebRTC应用通过UI状态显示连接进度
+        // 正在呼叫，播放回铃音和震动
+        console.log("[SignalingContext] Connecting to remote peer, playing ringback");
+        if (settings.audioNotificationsEnabled) {
+          AudioService.play("ringback");
+        }
+        if (settings.vibrationEnabled) {
+          VibrationService.vibrate("ringback");
+        }
         break;
 
       case "in_call":
@@ -173,13 +178,12 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         break;
 
       case "idle":
-        // 通话结束或空闲，停止所有音频和震动
+        // 通话结束，停止所有音频和震动
+        // 仅在从非idle状态改变到idle时才播放结束提示
         console.log("[SignalingContext] Call ended/idle, stopping all audio and vibration");
         AudioService.stopAll();
         VibrationService.cancel();
-        if (settings.vibrationEnabled) {
-          VibrationService.vibrate("call_ended"); // 通话结束提示音
-        }
+        // 只有当通话真实结束时才提示（由其他地方触发），避免应用启动时的误触
         break;
     }
   }, [status, session, settings.audioNotificationsEnabled, settings.vibrationEnabled]);
@@ -214,7 +218,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         return allGranted;
       } catch (error) {
         console.error("[ensureAudioPermission] Permission request error:", error);
-        Alert.alert("权限错误", `无法获取权限: ${error instanceof Error ? error.message : String(error)}`);
+        Alert.alert("权限错误 / Permission Error", `无法获取权限: ${error instanceof Error ? error.message : String(error)} / Failed to get permissions.`);
         return false;
       }
     }
@@ -260,7 +264,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!client) {
       console.warn("[sendMessage] No active signaling client, message dropped", message);
       if (message.type !== "ice.candidate") {
-        Alert.alert("连接问题", "信令服务未连接。");
+        Alert.alert("错误 / Connection Issue", "信令服务未连接 / Signaling service not connected.");
       }
       return;
     }
@@ -276,7 +280,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (error) {
       console.error("[sendMessage] Failed to send signaling message", error);
       if (message.type !== "ice.candidate") {
-        Alert.alert("连接问题", "无法发送信令消息。");
+        Alert.alert("错误 / Connection Issue", "无法发送信令消息 / Failed to send signaling message.");
       }
     }
   }, []);
@@ -542,13 +546,13 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       
       if (!user) {
         console.warn("[startCall] No user logged in");
-        Alert.alert("错误", "请先登录");
+        Alert.alert("错误 / Error", "请先登录 / Please log in first.");
         return;
       }
       
       if (status !== "idle") {
         console.warn("[startCall] Call already in progress. Current status:", status);
-        Alert.alert("提示", "已有通话在进行中，请先结束该通话");
+        Alert.alert("提示 / Tip", "已有通话在进行中，请先结束该通话 / A call is already in progress. Please end it first.");
         return;
       }
 
@@ -557,7 +561,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         const hasPermission = await ensureAudioPermission();
         if (!hasPermission) {
           console.warn("[startCall] Audio permission denied");
-          Alert.alert("需要麦克风权限", "请在系统设置中授予麦克风或蓝牙权限。");
+          Alert.alert("需要麦克风权限 / Microphone Permission Required", "请在系统设置中授予麦克风或蓝牙权限 / Please grant microphone or Bluetooth permission in system settings.");
           return;
         }
         console.log("[startCall] Audio permission granted");
@@ -620,7 +624,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("[startCall] Error name:", (error as Error)?.name);
         console.error("[startCall] Error message:", (error as Error)?.message);
         const errorMsg = error instanceof Error ? error.message : String(error);
-        Alert.alert("无法发起通话", `错误: ${errorMsg}\n请确认麦克风未被占用或已授权。`);
+          Alert.alert("错误 / Error", "请确认麦克风未被占用或已授权 / Please ensure the microphone is not in use or permissions are granted.");
         resetPeerResources();
         setStatus("idle");
       }
@@ -635,7 +639,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
     const hasPermission = await ensureAudioPermission();
     if (!hasPermission) {
-      Alert.alert("需要麦克风权限", "请在系统设置中授予麦克风权限。");
+      Alert.alert("需要麦克风权限 / Microphone Permission Required", "请在系统设置中授予麦克风权限 / Please grant microphone permission in system settings.");
       return;
     }
 
@@ -665,7 +669,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         await pc.setRemoteDescription(new RTCSessionDescription(session.offer as any));
       } catch (error) {
         console.warn("setRemoteDescription failed", error);
-        Alert.alert("呼叫错误", "无法解析对方的连接请求");
+        Alert.alert("呼叫错误 / Call Error", "无法解析对方的连接请求 / Failed to parse the remote call request.");
         resetCallState();
         return;
       }
@@ -687,7 +691,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       setStatus("in_call");
     } catch (error) {
       console.error("acceptCall error", error);
-      Alert.alert("无法接通", "请确认麦克风或蓝牙权限已授权。");
+      Alert.alert("无法接通 / Failed to Answer", "请确认麦克风或蓝牙权限已授权 / Please ensure microphone or Bluetooth permissions are granted.");
       resetCallState();
     }
   }, [createPeerConnection, drainRemoteCandidates, ensureAudioPermission, resetCallState, sendMessage, session]);
