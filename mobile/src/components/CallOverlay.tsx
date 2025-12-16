@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from "react-nati
 import { RTCView } from "react-native-webrtc";
 
 import { useSignaling } from "../context/SignalingContext";
+import TranslationOverlay from "./translation/TranslationOverlay";
+import TranslationControl from "./translation/TranslationControl";
 
 const CallOverlay: React.FC = () => {
   const {
@@ -17,7 +19,13 @@ const CallOverlay: React.FC = () => {
     isAudioEnabled,
     toggleVideo,
     toggleAudio,
-    switchCamera
+    switchCamera,
+    translationEnabled,
+    translationLanguage,
+    subtitles,
+    toggleTranslation,
+    setTranslationLanguage,
+    clearSubtitles
   } = useSignaling();
 
   if (status === "idle" || !session) {
@@ -142,6 +150,28 @@ const CallOverlay: React.FC = () => {
           </>
         )}
       </View>
+
+      {/* 翻译字幕显示 */}
+      {status === "in_call" && (
+        <>
+          <TranslationOverlay
+            subtitles={subtitles}
+            isVisible={translationEnabled}
+            language={translationLanguage}
+            onClear={clearSubtitles}
+          />
+          
+          {/* 翻译控制面板 */}
+          <View style={styles.translationControlContainer}>
+            <TranslationControl
+              isEnabled={translationEnabled}
+              onToggle={toggleTranslation}
+              targetLanguage={translationLanguage}
+              onLanguageChange={setTranslationLanguage}
+            />
+          </View>
+        </>
+      )}
 
       {/* 音频流隐藏处理 */}
       <View style={styles.audioAttachments}>
@@ -282,6 +312,13 @@ const styles = StyleSheet.create({
     height: 1,
     top: 0,
     left: 0
+  },
+  translationControlContainer: {
+    position: "absolute",
+    bottom: 100,
+    left: 0,
+    right: 0,
+    zIndex: 999
   }
 });
 

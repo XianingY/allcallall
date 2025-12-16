@@ -28,6 +28,9 @@ import AudioService from "../services/AudioServiceExpo";
 import VibrationService from "../services/VibrationService";
 import VideoService, { CameraFacing, VideoQuality } from "../services/VideoService";
 import CameraPermissionService from "../services/CameraPermissionService";
+import TranslationService from "../services/translation/TranslationService";
+import ParallelProcessor from "../services/translation/utils/ParallelProcessor";
+import { SubtitleItem } from "../components/translation/TranslationOverlay";
 
 type CallDirection = "incoming" | "outgoing";
 
@@ -61,6 +64,10 @@ interface SignalingContextValue {
   isVideoEnabled: boolean;
   isAudioEnabled: boolean;
   cameraFacing: CameraFacing;
+  // 翻译功能相关状态
+  translationEnabled: boolean;
+  translationLanguage: string;
+  subtitles: SubtitleItem[];
   // 通话控制函数
   startCall: (email: string) => Promise<void>;
   acceptCall: () => Promise<void>;
@@ -70,6 +77,10 @@ interface SignalingContextValue {
   toggleVideo: () => Promise<void>;
   toggleAudio: () => void;
   switchCamera: () => Promise<void>;
+  // 翻译控制函数
+  toggleTranslation: (enabled: boolean) => Promise<void>;
+  setTranslationLanguage: (language: string) => void;
+  clearSubtitles: () => void;
 }
 
 const SignalingContext = createContext<SignalingContextValue | undefined>(
@@ -121,6 +132,12 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const [isVideoEnabled, setIsVideoEnabled] = useState<boolean>(false);
   const [isAudioEnabled, setIsAudioEnabled] = useState<boolean>(true);
   const [cameraFacing, setCameraFacing] = useState<CameraFacing>("front");
+  
+  // 翻译功能状态
+  const [translationEnabled, setTranslationEnabled] = useState<boolean>(false);
+  const [translationLanguage, setTranslationLanguage] = useState<string>("zh");
+  const [subtitles, setSubtitles] = useState<SubtitleItem[]>([]);
+  const processorRef = useRef<ParallelProcessor | null>(null);
 
   const signalingRef = useRef<SignalingClient | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
@@ -905,6 +922,70 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [cameraFacing, isVideoEnabled, localStream]);
 
+  // 翻译控制函数
+  const toggleTranslation = useCallback(async (enabled: boolean) => {
+    try {
+      if (enabled) {
+        // 启用翻译
+        console.log("[toggleTranslation] Enabling translation");
+        
+        // 初始化翻译服务
+        if (!TranslationService.isReady()) {
+          await TranslationService.initialize({
+            whisperModel: 'small',
+            targetLanguage: translationLanguage,
+            quantization: 'int8'
+          });
+        }
+
+        // 如果有活动的音频流，开始处理
+        if (localStream && status === "in_call") {
+          const processor = new ParallelProcessor();
+          processorRef.current = processor;
+          
+          await processor.processAudioStream(
+            localStream,
+            (subtitle) => {
+              setSubtitles(prev => [...prev.slice(-9), subtitle]); // 只保留最后10条
+            },
+            translationLanguage
+          );
+        }
+
+        setTranslationEnabled(true);
+      } else {
+        // 禁用翻译
+        console.log("[toggleTranslation] Disabling translation");
+        
+        if (processorRef.current) {
+          processorRef.current.stopProcessing();
+          processorRef.current = null;
+        }
+
+        setTranslationEnabled(false);
+        setSubtitles([]);
+      }
+    } catch (error) {
+      console.error("[toggleTranslation] Error:", error);
+      Alert.alert("错误 / Error", `翻译功能开关失败 / Failed to toggle translation: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [localStream, translationLanguage, status]);
+
+  const handleSetTranslationLanguage = useCallback((language: string) => {
+    setTranslationLanguage(language);
+    
+    // 如果翻译功能开启，更新处理器的目标语言
+    if (processorRef.current) {
+      processorRef.current.setTargetLanguage(language);
+    }
+
+    console.log("[setTranslationLanguage] Language changed to:", language);
+  }, []);
+
+  const clearSubtitles = useCallback(() => {
+    setSubtitles([]);
+  }, []);
+
   const value = useMemo<SignalingContextValue>(
     () => ({
       status,
@@ -915,13 +996,19 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       isVideoEnabled,
       isAudioEnabled,
       cameraFacing,
+      translationEnabled,
+      translationLanguage,
+      subtitles,
       startCall,
       acceptCall,
       rejectCall,
       endCall,
       toggleVideo,
       toggleAudio,
-      switchCamera
+      switchCamera,
+      toggleTranslation,
+      setTranslationLanguage: handleSetTranslationLanguage,
+      clearSubtitles
     }),
     [
       status,
@@ -932,13 +1019,19 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       isVideoEnabled,
       isAudioEnabled,
       cameraFacing,
+      translationEnabled,
+      translationLanguage,
+      subtitles,
       startCall,
       acceptCall,
       rejectCall,
       endCall,
       toggleVideo,
       toggleAudio,
-      switchCamera
+      switchCamera,
+      toggleTranslation,
+      handleSetTranslationLanguage,
+      clearSubtitles
     ]
   );
 
