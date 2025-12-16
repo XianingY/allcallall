@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# AllCallAll 生产环境Docker Compose启动脚本
+# AllCallAll Docker Compose启动脚本
 # 用于启动MySQL、Redis、Backend和Nginx服务
 
 set -e
@@ -18,7 +18,7 @@ INFRA_DIR="$PROJECT_ROOT/infra"
 ENV_FILE="$INFRA_DIR/.env"  # 使用 infra 目录下的符号链接
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}AllCallAll 生产环境启动脚本${NC}"
+echo -e "${BLUE}AllCallAll 服务启动脚本${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
@@ -67,7 +67,7 @@ echo "正在启动所有服务 (MySQL, Redis, Backend, Nginx)..."
 echo ""
 
 # Docker Compose 自动读取 infra/.env 符号链接
-docker-compose -f docker-compose.production.yml up -d
+docker-compose up -d
 
 # 等待服务启动
 echo ""
@@ -77,7 +77,7 @@ sleep 30
 # 显示服务状态
 echo ""
 echo -e "${BLUE}========== 服务状态 ==========${NC}"
-docker-compose -f docker-compose.production.yml ps
+docker-compose ps
 
 echo ""
 
@@ -86,7 +86,7 @@ echo -e "${BLUE}========== 服务验证 ==========${NC}"
 
 # 检查MySQL
 echo -n "检查MySQL... "
-if docker-compose -f docker-compose.production.yml exec mysql mysql -uallcallall -pallcallallpass -e "SELECT 1;" > /dev/null 2>&1; then
+if docker-compose exec mysql mysql -uallcallall -pallcallallpass -e "SELECT 1;" > /dev/null 2>&1; then
     echo -e "${GREEN}✓ 正常${NC}"
 else
     echo -e "${RED}✗ 异常${NC}"
@@ -94,7 +94,7 @@ fi
 
 # 检查Redis
 echo -n "检查Redis... "
-if docker-compose -f docker-compose.production.yml exec redis redis-cli -a redis_secure_password ping > /dev/null 2>&1; then
+if docker-compose exec redis redis-cli -a redis_secure_password ping > /dev/null 2>&1; then
     echo -e "${GREEN}✓ 正常${NC}"
 else
     echo -e "${RED}✗ 异常${NC}"
@@ -130,11 +130,11 @@ echo "  HTTPS: https://localhost:443"
 echo ""
 
 echo -e "${BLUE}========== 常用命令 ==========${NC}"
-echo "查看日志:        docker-compose -f docker-compose.production.yml logs -f"
-echo "查看Backend日志: docker-compose -f docker-compose.production.yml logs -f backend"
-echo "停止服务:        docker-compose -f docker-compose.production.yml stop"
-echo "重启服务:        docker-compose -f docker-compose.production.yml restart"
-echo "删除服务:        docker-compose -f docker-compose.production.yml down"
+echo "查看日志:        docker-compose logs -f"
+echo "查看Backend日志: docker-compose logs -f backend"
+echo "停止服务:        docker-compose stop"
+echo "重启服务:        docker-compose restart"
+echo "删除服务:        docker-compose down"
 echo ""
 
 echo -e "${GREEN}✅ 所有服务已启动!${NC}"

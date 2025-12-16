@@ -118,15 +118,15 @@ log_info "启动 Docker 容器..."
 
 cd /opt/AllCallAll/infra
 
-# 使用生产配置启动
-docker-compose -f docker-compose.production.yml up -d
+# 使用默认配置启动
+docker-compose up -d
 
 # 等待服务启动
 log_info "等待服务启动..."
 sleep 10
 
 # 检查服务状态
-if docker-compose -f docker-compose.production.yml ps | grep -q "healthy"; then
+if docker-compose ps | grep -q "healthy"; then
   log_info "✓ 所有服务已启动"
 else
   log_warn "某些服务可能仍在启动中，请稍候..."
@@ -281,7 +281,7 @@ echo "  - 后端 API: https://${DOMAIN}"
 echo "  - WebSocket: wss://${DOMAIN}/ws"
 echo ""
 echo "📊 日志查看:"
-echo "  - 后端日志: docker-compose -f docker-compose.production.yml logs -f backend"
+echo "  - 后端日志: docker-compose logs -f backend"
 echo "  - Tunnel 日志: journalctl -u cloudflared -f"
 echo ""
 echo "💾 备份管理:"
