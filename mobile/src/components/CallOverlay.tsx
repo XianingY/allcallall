@@ -34,13 +34,13 @@ const CallOverlay: React.FC = () => {
       <View style={styles.card}>
         <Text style={styles.title}>
           {status === "connecting"
-            ? `正在呼叫 ${session.peerEmail}`
+            ? `正在呼叫 ${session.peerEmail} / Calling ${session.peerEmail}`
             : status === "incoming"
-            ? `${session.peerEmail} 呼叫你`
-            : `与 ${session.peerEmail} 通话中`}
+            ? `${session.peerEmail} 呼叫你 / ${session.peerEmail} is calling`
+            : `与 ${session.peerEmail} 通话中 / In call with ${session.peerEmail}`}
         </Text>
         <Text style={styles.subtitle}>
-          状态 / Status: {status === "connecting" ? "呼叫中" : status}
+          状态 / Status: {status === "connecting" ? "呼叫中 / Connecting" : status === "incoming" ? "来电 / Incoming" : "通话中 / In call"}
         </Text>
         <View style={styles.actions}>
           {isIncoming && status === "incoming" ? (

@@ -16,6 +16,7 @@ import (
 	"github.com/allcallall/backend/internal/config"
 	"github.com/allcallall/backend/internal/contact"
 	"github.com/allcallall/backend/internal/database"
+	"github.com/allcallall/backend/internal/fcm"
 	"github.com/allcallall/backend/internal/handlers"
 	"github.com/allcallall/backend/internal/logger"
 	"github.com/allcallall/backend/internal/mail"
@@ -116,6 +117,12 @@ func main() {
 	userHandler := handlers.NewUserHandler(appLogger, userSvc, presenceManager, contactSvc)
 	webrtcHandler := handlers.NewWebRTCHandler(appLogger, cfg.WebRTC)
 	signalingHub := signaling.NewHub(redisClient, appLogger, presenceManager)
+
+	// 初始化 FCM 管理器
+	// Initialize FCM manager
+	fcmManager := fcm.NewManager(appLogger)
+	signalingHub.WithUserService(userSvc)
+	signalingHub.WithFCMManager(fcmManager)
 
 	// 初始化 Pion WebRTC 媒体引擎
 	// Initialize Pion WebRTC media engine
