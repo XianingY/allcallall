@@ -1,19 +1,79 @@
-# MacOS
-.DS_Store
+# ============================
+# AllCallAll Project .gitignore
+# ============================
 
-# IDE
+# ============================
+# System Files
+# ============================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ============================
+# IDE & Editor Files
+# ============================
 .qoder/
 .claude/
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
+# ============================
+# Virtual Environments
+# ============================
+.venv/
+venv/
+env/
+ENV/
+.env/
+
+# ============================
+# Python
+# ============================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ============================
 # Backend Go
+# ============================
 backend/.gocache/
 backend/.gomodcache/
 backend/.gopath/
 backend/server
+backend/*.exe
+backend/*.exe~
+backend/*.dll
+backend/*.so
+backend/*.dylib
 
-# Mobile
+# ============================
+# Mobile React Native
+# ============================
 mobile/node_modules/
 mobile/.expo/
 mobile/dist/
@@ -25,15 +85,107 @@ mobile/android/react-settings-plugin/build/
 mobile/AllCallAll.apk
 mobile/app/build/
 mobile/bugreport-*.zip
+mobile/coverage/
+mobile/.nyc_output/
 
+# ============================
 # Logs
+# ============================
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
 
-# Environment variables
+# ============================
+# Environment Variables
+# ============================
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
 
-# Assistant Docs
-docs/mobile/*.apk
+# ============================
+# AI Models & Assets
+# ============================
+# Ignore all model files (large binary files)
+assets/models/**/*.bin
+assets/models/**/*.onnx
+assets/models/**/*.pt
+assets/models/**/*.pth
+assets/models/**/*.msgpack
+assets/models/**/*.ot
+assets/models/**/*.h5
+# Keep directory structure but ignore all model files
+!assets/models/.gitkeep
+!assets/models/*/.gitkeep
+!assets/models/**/.gitkeep
+
+# ============================
+# Whisper.cpp Build Artifacts
+# ============================
+whisper.cpp/
+whisper.cpp/build/
+whisper.cpp/*.o
+whisper.cpp/*.a
+whisper.cpp/*.so
+whisper.cpp/*.dylib
+whisper.cpp/libwhisper.so
+
+# ============================
+# Temporary Files
+# ============================
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+
+# ============================
+# Build Artifacts
+# ============================
+build/
+dist/
+out/
+target/
+*.tgz
+*.tar.gz
+
+# ============================
+# Database
+# ============================
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# ============================
+# Test Coverage
+# ============================
+coverage/
+.nyc_output/
+lcov.info
+*.lcov
+
+# ============================
+# Miscellaneous
+# ============================
+*.pid
+*.seed
+*.pid.lock
+.npm
+.eslintcache
+.parcel-cache
+.cache
+.parcel-cache
+.next
+.nuxt
+.vuepress/dist
+.serverless
+.fusebox/
