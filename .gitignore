@@ -189,3 +189,14 @@ lcov.info
 .vuepress/dist
 .serverless
 .fusebox/
+
+# Android assets models (too large for git)
+mobile/android/app/src/main/assets/models/**/*.bin
+mobile/android/app/src/main/assets/models/**/*.onnx
+
+# ONNX Runtime extracted libraries (downloaded at build time)
+mobile/android/app/src/main/cpp/libs/onnxruntime/
+
+# React settings plugin build artifacts
+mobile/android/react-settings-plugin/bin/
+
