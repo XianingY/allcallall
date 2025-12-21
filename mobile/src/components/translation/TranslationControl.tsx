@@ -1,5 +1,5 @@
 // mobile/src/components/translation/TranslationControl.tsx
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,8 @@ import {
   Switch,
   TouchableOpacity,
   Modal,
-  ScrollView
+  ScrollView,
+  ActivityIndicator
 } from 'react-native';
 
 interface TranslationControlProps {
@@ -15,6 +16,12 @@ interface TranslationControlProps {
   onToggle: (enabled: boolean) => void;
   targetLanguage: string;
   onLanguageChange: (language: string) => void;
+  // New props for translation display
+  originalText?: string;
+  translatedText?: string;
+  isTranslating?: boolean;
+  detectedLanguage?: string;
+  onPlayAudio?: () => void;
 }
 
 const SUPPORTED_LANGUAGES = [
@@ -30,15 +37,33 @@ const TranslationControl: React.FC<TranslationControlProps> = ({
   isEnabled,
   onToggle,
   targetLanguage,
-  onLanguageChange
+  onLanguageChange,
+  originalText = '',
+  translatedText = '',
+  isTranslating = false,
+  detectedLanguage = '',
+  onPlayAudio
 }) => {
   const [showLanguagePicker, setShowLanguagePicker] = useState(false);
   const currentLanguage = SUPPORTED_LANGUAGES.find(
     lang => lang.code === targetLanguage
   );
 
+  // Determine translation direction display
+  const getDirectionText = useCallback(() => {
+    if (!detectedLanguage) return '';
+    const isEnglish = detectedLanguage === 'en';
+    if (targetLanguage === 'zh') {
+      return isEnglish ? '英 → 中' : '中 → 中';
+    } else if (targetLanguage === 'en') {
+      return isEnglish ? '英 → 英' : '中 → 英';
+    }
+    return '';
+  }, [detectedLanguage, targetLanguage]);
+
   return (
     <View style={styles.container}>
+      {/* Control Bar */}
       <View style={styles.controlBar}>
         <View style={styles.toggleContainer}>
           <Text style={styles.label}>实时翻译</Text>
@@ -62,6 +87,54 @@ const TranslationControl: React.FC<TranslationControlProps> = ({
         )}
       </View>
 
+      {/* Translation Display Area */}
+      {isEnabled && (
+        <View style={styles.translationDisplay}>
+          {/* Direction Indicator */}
+          {detectedLanguage && (
+            <View style={styles.directionContainer}>
+              <Text style={styles.directionText}>{getDirectionText()}</Text>
+            </View>
+          )}
+
+          {/* Loading Indicator */}
+          {isTranslating && (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#3b82f6" />
+              <Text style={styles.loadingText}>翻译中...</Text>
+            </View>
+          )}
+
+          {/* Original Text */}
+          {originalText && (
+            <View style={styles.textContainer}>
+              <Text style={styles.textLabel}>原文:</Text>
+              <Text style={styles.originalText}>{originalText}</Text>
+            </View>
+          )}
+
+          {/* Translated Text */}
+          {translatedText && (
+            <View style={styles.textContainer}>
+              <Text style={styles.textLabel}>译文:</Text>
+              <Text style={styles.translatedText}>{translatedText}</Text>
+            </View>
+          )}
+
+          {/* Play Audio Button */}
+          {translatedText && onPlayAudio && (
+            <TouchableOpacity
+              style={styles.playButton}
+              onPress={onPlayAudio}
+            >
+              <Text style={styles.playButtonIcon}>🔊</Text>
+              <Text style={styles.playButtonText}>播放翻译</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Language Picker Modal */}
       <Modal
         visible={showLanguagePicker}
         transparent={true}
@@ -141,6 +214,73 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600'
   },
+  // Translation Display Styles
+  translationDisplay: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12
+  },
+  directionContainer: {
+    alignItems: 'center',
+    marginBottom: 12
+  },
+  directionText: {
+    color: '#81b0ff',
+    fontSize: 18,
+    fontWeight: '600'
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8
+  },
+  loadingText: {
+    color: '#999',
+    fontSize: 14,
+    marginLeft: 8
+  },
+  textContainer: {
+    marginVertical: 8
+  },
+  textLabel: {
+    color: '#999',
+    fontSize: 12,
+    marginBottom: 4
+  },
+  originalText: {
+    color: '#ccc',
+    fontSize: 16,
+    lineHeight: 22
+  },
+  translatedText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '500',
+    lineHeight: 26
+  },
+  playButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3b82f6',
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    marginTop: 12,
+    alignSelf: 'center'
+  },
+  playButtonIcon: {
+    fontSize: 18,
+    marginRight: 8
+  },
+  playButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600'
+  },
+  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',

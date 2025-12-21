@@ -121,19 +121,31 @@ class TranslationService {
   }
 
   private async getModelPath(modelName: string): Promise<string> {
-    // 模型文件路径
-    const modelFiles: { [key: string]: string } = {
+    // Updated model files for bidirectional translation
+    const modelFiles: { [key: string]: any } = {
       whisper: 'ggml-small-q8.bin',
-      opus: 'opus-mt-en-zh-q8.onnx',
-      tts: 'vits-zh-en.bin'
+      opus: {
+        'en-zh': 'opus-mt-en-zh-q8.onnx',
+        'zh-en': 'opus-mt-zh-en-q8.onnx'
+      },
+      tts: {
+        'zh': 'zh_CN-huayan-medium.onnx',
+        'en': 'en_US-amy-medium.onnx'
+      }
     };
 
-    const fileName = modelFiles[modelName];
-    if (!fileName) {
+    const modelFile = modelFiles[modelName];
+    if (!modelFile) {
       throw new Error(`Unknown model: ${modelName}`);
     }
 
-    return `${RNFS.DocumentDirectoryPath}/models/${modelName}/${fileName}`;
+    // For whisper, return full path; for others, return directory path
+    if (typeof modelFile === 'string') {
+      return `${RNFS.DocumentDirectoryPath}/models/${modelName}/${modelFile}`;
+    } else {
+      // Return directory path for opus and tts (contains multiple model files)
+      return `${RNFS.DocumentDirectoryPath}/models/${modelName}`;
+    }
   }
 
   async cleanup(): Promise<void> {
