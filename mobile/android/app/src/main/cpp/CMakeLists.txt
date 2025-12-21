@@ -7,10 +7,10 @@ project("translation-lib")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 计算 whisper.cpp 的绝对路径
+# 计算 whisper.cpp 的绝对路径 (使用 third_party 子模块)
 # cpp -> main -> src -> app -> android -> mobile -> allcallall (6 级)
 get_filename_component(PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../.." ABSOLUTE)
-set(WHISPER_CPP_DIR "${PROJECT_ROOT}/whisper.cpp")
+set(WHISPER_CPP_DIR "${PROJECT_ROOT}/third_party/whisper.cpp")
 
 message(STATUS "Looking for whisper.cpp at: ${WHISPER_CPP_DIR}")
 

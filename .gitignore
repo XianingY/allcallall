@@ -113,28 +113,27 @@ lerna-debug.log*
 # AI Models & Assets
 # ============================
 # Ignore all model files (large binary files)
-assets/models/**/*.bin
-assets/models/**/*.onnx
-assets/models/**/*.pt
-assets/models/**/*.pth
-assets/models/**/*.msgpack
-assets/models/**/*.ot
-assets/models/**/*.h5
+models/**/*.bin
+models/**/*.onnx
+models/**/*.pt
+models/**/*.pth
+models/**/*.msgpack
+models/**/*.ot
+models/**/*.h5
 # Keep directory structure but ignore all model files
-!assets/models/.gitkeep
-!assets/models/*/.gitkeep
-!assets/models/**/.gitkeep
+!models/.gitkeep
+!models/*/.gitkeep
+!models/**/.gitkeep
 
 # ============================
-# Whisper.cpp Build Artifacts
+# Whisper.cpp Build Artifacts (submodule in third_party/)
 # ============================
-whisper.cpp/
-whisper.cpp/build/
-whisper.cpp/*.o
-whisper.cpp/*.a
-whisper.cpp/*.so
-whisper.cpp/*.dylib
-whisper.cpp/libwhisper.so
+third_party/whisper.cpp/build/
+third_party/whisper.cpp/*.o
+third_party/whisper.cpp/*.a
+third_party/whisper.cpp/*.so
+third_party/whisper.cpp/*.dylib
+third_party/whisper.cpp/libwhisper.so
 
 # ============================
 # Temporary Files
