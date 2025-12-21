@@ -141,13 +141,61 @@ except Exception as e:
     cp -r temp_downloads/opus-mt-en-zh/* assets/models/opus/ 2>/dev/null || true
 }
 
-# 3. VITS TTS 模型
+# 3. TTS 模型 (轻量级选项)
 echo ""
-echo "=== 步骤 3: 下载 VITS TTS 模型 ==="
-download_with_wget \
-    "https://huggingface.co/coqui/VITS/resolve/main/vits-zh-en.bin" \
-    "assets/models/tts/vits-zh-en.bin" \
-    "VITS TTS 模型"
+echo "=== 步骤 3: 下载 TTS 模型 ==="
+echo "请选择 TTS 模型类型:"
+echo "  1) Piper TTS (推荐) - 75MB, 高质量, 多语言"
+echo "  2) VITS TTS - 100MB, 平衡质量和大小"
+echo "  3) 跳过 TTS 下载 (稍后手动下载)"
+echo ""
+read -p "请输入选择 [1-3]: " TTS_CHOICE
+
+case $TTS_CHOICE in
+    1|"")
+        echo "正在下载 Piper TTS (中文)..."
+        mkdir -p assets/models/tts/piper_zh
+
+        # 检查是否安装了TTS
+        if command -v TTS &> /dev/null; then
+            echo "使用 TTS 工具下载..."
+            TTS --text "你好" --model_name "tts_models/multilingual/multi-dataset/piper_v2" \
+                --output_path temp_downloads/test.wav || true
+
+            # 下载中文 Piper 模型
+            huggingface-cli download rhasspy/piper-voices zh_CN-xiaoxiao-medium \
+                --local-dir assets/models/tts/piper_zh \
+                --local-dir-use-symlinks False
+
+            echo "Piper TTS 模型下载完成"
+        else
+            # 手动下载 Piper 模型文件
+            download_with_wget \
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh_CN-xiaoxiao-medium/medium.onnx" \
+                "assets/models/tts/piper_zh/medium.onnx" \
+                "Piper TTS 模型 (ONNX)"
+
+            download_with_wget \
+                "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh_CN-xiaoxiao-medium/medium.onnx.json" \
+                "assets/models/tts/piper_zh/medium.onnx.json" \
+                "Piper TTS 配置"
+        fi
+        ;;
+    2)
+        echo "正在下载 VITS TTS..."
+        download_with_wget \
+            "https://huggingface.co/coqui/VITS/resolve/main/vits-zh-en.bin" \
+            "assets/models/tts/vits-zh-en.bin" \
+            "VITS TTS 模型"
+        ;;
+    3)
+        echo "跳过 TTS 模型下载"
+        echo "注意: 你需要手动下载 TTS 模型才能完成语音合成功能"
+        ;;
+    *)
+        echo "无效选择，跳过 TTS 模型下载"
+        ;;
+esac
 
 # 清理临时文件
 echo ""
@@ -160,13 +208,13 @@ echo ""
 echo "模型文件位置:"
 echo "  Whisper:   assets/models/whisper/"
 echo "  Opus-MT:   assets/models/opus/"
-echo "  VITS TTS:  assets/models/tts/"
+echo "  TTS:       assets/models/tts/"
 echo ""
 echo "总模型大小:"
 
 du -sh assets/models/whisper/ 2>/dev/null || echo "  Whisper:   N/A"
 du -sh assets/models/opus/ 2>/dev/null || echo "  Opus-MT:   N/A"
-du -sh assets/models/tts/ 2>/dev/null || echo "  VITS TTS:  N/A"
+du -sh assets/models/tts/ 2>/dev/null || echo "  TTS:       N/A"
 
 du -sh assets/models/ 2>/dev/null || echo "  总计:      N/A"
 
