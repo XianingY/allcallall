@@ -130,7 +130,7 @@ android {
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
-            version "3.18.1"
+            version "3.22.1"
         }
     }
     signingConfigs {
@@ -189,6 +189,9 @@ android {
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+
+    // ONNX Runtime for ML model inference (translation and TTS)
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.16.3'
 
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";
