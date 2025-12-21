@@ -81,18 +81,25 @@ public class TranslationModule extends ReactContextBaseJavaModule {
         try {
             Log.d(TAG, "Translating audio to: " + targetLanguage);
             
-            String result = nativeTranslateAudio(
+            String jsonResult = nativeTranslateAudio(
                 audioDataBase64,
                 targetLanguage
             );
             
-            WritableMap response = new WritableNativeMap();
-            response.putString("originalText", ""); // Will be filled by native code
-            response.putString("translatedText", result);
-            response.putDouble("confidence", 0.9); // Placeholder
+            // Parse JSON response from native code
+            org.json.JSONObject json = new org.json.JSONObject(jsonResult);
             
-            Log.d(TAG, "Translation complete: " + result);
+            WritableMap response = new WritableNativeMap();
+            response.putString("originalText", json.optString("originalText", ""));
+            response.putString("translatedText", json.optString("translatedText", ""));
+            response.putDouble("confidence", json.optDouble("confidence", 0.9));
+            response.putString("audioBase64", json.optString("audioBase64", ""));
+            
+            Log.d(TAG, "Translation complete: " + json.optString("translatedText"));
             promise.resolve(response);
+        } catch (org.json.JSONException e) {
+            Log.e(TAG, "Failed to parse translation result", e);
+            promise.reject("PARSE_ERROR", e.getMessage());
         } catch (Exception e) {
             Log.e(TAG, "Translation failed", e);
             promise.reject("TRANSLATE_ERROR", e.getMessage());
