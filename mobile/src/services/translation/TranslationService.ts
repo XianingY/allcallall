@@ -30,14 +30,17 @@ class TranslationService {
       console.log('[TranslationService] Already initialized');
       return;
     }
-    
+
     console.log('[TranslationService] Initializing with config:', config);
     this.config = config;
-    
+
     try {
+      // 复制 espeak-ng 数据（用于 TTS）
+      await this.copyEspeakData();
+
       // 检查并下载模型
       await this.checkAndDownloadModels(config);
-      
+
       // 初始化 Native Module
       if (TranslationModule) {
         await TranslationModule.initialize(
@@ -47,12 +50,94 @@ class TranslationService {
           config.quantization || 'int8'
         );
       }
-      
+
       this.isInitialized = true;
       console.log('[TranslationService] Initialization complete');
     } catch (error) {
       console.error('[TranslationService] Initialization failed:', error);
       throw error;
+    }
+  }
+
+  /**
+   * 复制 espeak-ng 数据从 assets 到 files 目录
+   * espeak-ng 需要这些数据文件进行 text-to-phoneme 转换
+   */
+  private async copyEspeakData(): Promise<void> {
+    const espeakDataDir = `${RNFS.DocumentDirectoryPath}/espeak-ng-data`;
+
+    // 检查是否已经复制过
+    const exists = await RNFS.exists(espeakDataDir);
+    if (exists) {
+      console.log('[TranslationService] espeak-ng data already exists');
+      return;
+    }
+
+    console.log('[TranslationService] Copying espeak-ng data from assets...');
+
+    try {
+      // 创建目录
+      await RNFS.mkdir(espeakDataDir);
+      await RNFS.mkdir(`${espeakDataDir}/lang`);
+      await RNFS.mkdir(`${espeakDataDir}/voices`);
+
+      // 需要复制的文件列表
+      const files = [
+        'en_dict',
+        'cmn_dict',
+        'intonations',
+        'phondata',
+        'phonindex',
+        'phontab',
+      ];
+
+      // 复制主要文件
+      for (const file of files) {
+        await RNFS.copyFileAssets(
+          `espeak-ng-data/${file}`,
+          `${espeakDataDir}/${file}`
+        );
+      }
+
+      // 复制 lang 和 voices 子目录内容
+      // 注意: RNFS.copyFileAssets 不能递归复制目录
+      // 需要使用 readDirAssets 列出文件
+      const langFiles = await RNFS.readDirAssets('espeak-ng-data/lang');
+      for (const item of langFiles) {
+        if (item.isFile()) {
+          await RNFS.copyFileAssets(
+            `espeak-ng-data/lang/${item.name}`,
+            `${espeakDataDir}/lang/${item.name}`
+          );
+        }
+      }
+
+      const voicesFiles = await RNFS.readDirAssets('espeak-ng-data/voices');
+      for (const item of voicesFiles) {
+        if (item.isFile()) {
+          await RNFS.copyFileAssets(
+            `espeak-ng-data/voices/${item.name}`,
+            `${espeakDataDir}/voices/${item.name}`
+          );
+        } else if (item.isDirectory()) {
+          // 创建子目录并复制
+          await RNFS.mkdir(`${espeakDataDir}/voices/${item.name}`);
+          const subFiles = await RNFS.readDirAssets(`espeak-ng-data/voices/${item.name}`);
+          for (const subItem of subFiles) {
+            if (subItem.isFile()) {
+              await RNFS.copyFileAssets(
+                `espeak-ng-data/voices/${item.name}/${subItem.name}`,
+                `${espeakDataDir}/voices/${item.name}/${subItem.name}`
+              );
+            }
+          }
+        }
+      }
+
+      console.log('[TranslationService] espeak-ng data copied successfully');
+    } catch (error) {
+      console.error('[TranslationService] Failed to copy espeak-ng data:', error);
+      // 不抛出错误，TTS 将使用占位符音频
     }
   }
 

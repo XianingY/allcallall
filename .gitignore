@@ -199,3 +199,6 @@ mobile/android/app/src/main/cpp/libs/onnxruntime/
 # React settings plugin build artifacts
 mobile/android/react-settings-plugin/bin/
 
+
+# espeak-ng build artifacts
+third_party/espeak-ng/build/
