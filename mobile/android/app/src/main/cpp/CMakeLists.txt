@@ -129,6 +129,182 @@ else()
     )
 endif()
 # =============================================
+# SentencePiece 配置
+# =============================================
+set(SENTENCEPIECE_DIR "${PROJECT_ROOT}/third_party/sentencepiece")
+
+if(EXISTS "${SENTENCEPIECE_DIR}/src/sentencepiece_processor.cc")
+    message(STATUS "Found SentencePiece at: ${SENTENCEPIECE_DIR}")
+    
+    # SentencePiece 源文件 (仅包含推理所需的源文件)
+    set(SP_SOURCES
+        "${SENTENCEPIECE_DIR}/src/sentencepiece_processor.cc"
+        # "${SENTENCEPIECE_DIR}/src/sentencepiece_model.proto" # 使用内置 pb.cc
+        # "${SENTENCEPIECE_DIR}/src/sentencepiece_trainer.cc" # 不需要训练
+        # "${SENTENCEPIECE_DIR}/src/trainer_interface.cc"
+        "${SENTENCEPIECE_DIR}/src/unigram_model.cc"
+        # "${SENTENCEPIECE_DIR}/src/unigram_model_trainer.cc"
+        "${SENTENCEPIECE_DIR}/src/bpe_model.cc"
+        # "${SENTENCEPIECE_DIR}/src/bpe_model_trainer.cc"
+        "${SENTENCEPIECE_DIR}/src/word_model.cc"
+        # "${SENTENCEPIECE_DIR}/src/word_model_trainer.cc"
+        "${SENTENCEPIECE_DIR}/src/char_model.cc"
+        # "${SENTENCEPIECE_DIR}/src/char_model_trainer.cc"
+        "${SENTENCEPIECE_DIR}/src/model_interface.cc"
+        "${SENTENCEPIECE_DIR}/src/model_factory.cc"
+        "${SENTENCEPIECE_DIR}/src/normalizer.cc"
+        "${SENTENCEPIECE_DIR}/src/util.cc"
+        "${SENTENCEPIECE_DIR}/src/filesystem.cc"
+        "${SENTENCEPIECE_DIR}/src/error.cc"
+        # 内置 Protobuf 实现
+        "${SENTENCEPIECE_DIR}/src/builtin_pb/sentencepiece_model.pb.cc"
+        "${SENTENCEPIECE_DIR}/src/builtin_pb/sentencepiece.pb.cc"
+    )
+    
+    # Protobuf Lite 配置
+    set(PROTOBUF_LITE_DIR "${SENTENCEPIECE_DIR}/third_party/protobuf-lite")
+    
+    set(PROTOBUF_LITE_SOURCES
+        "${PROTOBUF_LITE_DIR}/arena.cc"
+        "${PROTOBUF_LITE_DIR}/arenastring.cc"
+        "${PROTOBUF_LITE_DIR}/bytestream.cc"
+        "${PROTOBUF_LITE_DIR}/coded_stream.cc"
+        "${PROTOBUF_LITE_DIR}/common.cc"
+        "${PROTOBUF_LITE_DIR}/extension_set.cc"
+        "${PROTOBUF_LITE_DIR}/generated_enum_util.cc"
+        "${PROTOBUF_LITE_DIR}/generated_message_table_driven_lite.cc"
+        "${PROTOBUF_LITE_DIR}/generated_message_util.cc"
+        "${PROTOBUF_LITE_DIR}/implicit_weak_message.cc"
+        "${PROTOBUF_LITE_DIR}/int128.cc"
+        "${PROTOBUF_LITE_DIR}/message_lite.cc"
+        "${PROTOBUF_LITE_DIR}/parse_context.cc"
+        "${PROTOBUF_LITE_DIR}/repeated_field.cc"
+        "${PROTOBUF_LITE_DIR}/status.cc"
+        "${PROTOBUF_LITE_DIR}/statusor.cc"
+        "${PROTOBUF_LITE_DIR}/stringpiece.cc"
+        "${PROTOBUF_LITE_DIR}/stringprintf.cc"
+        "${PROTOBUF_LITE_DIR}/structurally_valid.cc"
+        "${PROTOBUF_LITE_DIR}/strutil.cc"
+        "${PROTOBUF_LITE_DIR}/time.cc"
+        "${PROTOBUF_LITE_DIR}/wire_format_lite.cc"
+        "${PROTOBUF_LITE_DIR}/zero_copy_stream.cc"
+        "${PROTOBUF_LITE_DIR}/zero_copy_stream_impl.cc"
+        "${PROTOBUF_LITE_DIR}/zero_copy_stream_impl_lite.cc"
+    )
+
+    # Internal ABSL 配置 (仅需 flag.cc 和 log.cc)
+    set(ABSL_DIR "${SENTENCEPIECE_DIR}/third_party/absl")
+    set(ABSL_SOURCES
+        "${ABSL_DIR}/flags/flag.cc"
+        "${ABSL_DIR}/log/log.cc"
+    )
+
+    # 添加 SentencePiece 头文件目录
+    target_include_directories(
+        translation-lib
+        PRIVATE
+        "${SENTENCEPIECE_DIR}/src"
+        "${SENTENCEPIECE_DIR}/src/builtin_pb"
+        "${SENTENCEPIECE_DIR}"
+        "${SENTENCEPIECE_DIR}/third_party"  # for absl headers
+        "${PROTOBUF_LITE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include" # for config.h
+    )
+    
+    # 定义宏
+    target_compile_definitions(translation-lib PRIVATE 
+        _GLIBCXX_USE_CXX11_ABI=1
+        _USE_INTERNAL_PROTOBUF=1
+        _USE_INTERNAL_ABSL=1
+        HAVE_PTHREAD=1
+    )
+    
+    #添加 SentencePiece, Protobuf Lite 和 ABSL 源文件到库
+    target_sources(translation-lib PRIVATE 
+        ${SP_SOURCES}
+        ${PROTOBUF_LITE_SOURCES}
+        ${ABSL_SOURCES}
+    )
+    
+    # 定义 SentencePiece 可用
+    target_compile_definitions(translation-lib PRIVATE SENTENCEPIECE_AVAILABLE=1)
+    
+else()
+    message(WARNING "SentencePiece not found at: ${SENTENCEPIECE_DIR}")
+endif()
+
+# =============================================
+# espeak-ng 配置 (用于 Piper TTS)
+# =============================================
+set(ESPEAK_NG_DIR "${PROJECT_ROOT}/third_party/espeak-ng")
+if(EXISTS "${ESPEAK_NG_DIR}/src/libespeak-ng")
+    message(STATUS "Found espeak-ng at: ${ESPEAK_NG_DIR}")
+    
+    # espeak-ng 核心源文件
+    set(ESPEAK_SOURCES
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/common.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/mnemonics.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/error.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/ieee80.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/compiledict.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/compiledata.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/dictionary.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/encoding.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/intonation.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/langopts.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/numbers.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/phoneme.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/phonemelist.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/readclause.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/setlengths.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/soundicon.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/spect.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/ssml.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/synthdata.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/synthesize.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/tr_languages.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/translate.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/translateword.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/voices.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/wavegen.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/speech.c"
+        "${ESPEAK_NG_DIR}/src/libespeak-ng/espeak_api.c"
+        # ucd-tools
+        "${ESPEAK_NG_DIR}/src/ucd-tools/src/case.c"
+        "${ESPEAK_NG_DIR}/src/ucd-tools/src/categories.c"
+        "${ESPEAK_NG_DIR}/src/ucd-tools/src/ctype.c"
+        "${ESPEAK_NG_DIR}/src/ucd-tools/src/proplist.c"
+        "${ESPEAK_NG_DIR}/src/ucd-tools/src/scripts.c"
+        "${ESPEAK_NG_DIR}/src/ucd-tools/src/tostring.c"
+    )
+    
+    # espeak-ng 头文件目录
+    target_include_directories(
+        translation-lib
+        PRIVATE
+        "${ESPEAK_NG_DIR}/src/include"
+        "${ESPEAK_NG_DIR}/src/include/compat"
+        "${ESPEAK_NG_DIR}/src/ucd-tools/src/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"  # for espeak_config.h -> config.h
+    )
+    
+    # espeak-ng 编译定义
+    target_compile_definitions(translation-lib PRIVATE
+        ESPEAK_NG_AVAILABLE=1
+        LIBESPEAK_NG_EXPORT=1
+        # 数据路径将在运行时设置
+        PATH_ESPEAK_DATA="/data/data/com.allcallall/files/espeak-ng-data"
+    )
+    
+    # 添加 espeak-ng 源文件
+    target_sources(translation-lib PRIVATE ${ESPEAK_SOURCES})
+    
+    message(STATUS "espeak-ng configured for TTS phoneme conversion")
+else()
+    message(WARNING "espeak-ng not found at: ${ESPEAK_NG_DIR}")
+endif()
+
+# =============================================
 # 通用配置
 # =============================================
 
