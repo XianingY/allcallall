@@ -88,11 +88,43 @@ const SignalingContext = createContext<SignalingContextValue | undefined>(
 );
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
+  // Google STUN servers (免费，用于获取公网 IP)
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
-  { urls: "stun:stun2.l.google.com:19302" },
-  { urls: "stun:stun3.l.google.com:19302" },
-  { urls: "stun:stun4.l.google.com:19302" }
+
+  // OpenRelay TURN 服务器 (免费公共服务，用于 NAT 穿透)
+  {
+    urls: "turn:openrelay.metered.ca:80",
+    username: "openrelayproject",
+    credential: "openrelayproject"
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443",
+    username: "openrelayproject",
+    credential: "openrelayproject"
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443?transport=tcp",
+    username: "openrelayproject",
+    credential: "openrelayproject"
+  },
+
+  // Metered.ca 免费 TURN 服务器备用
+  {
+    urls: "turn:a.relay.metered.ca:80",
+    username: "e8dd65d92c62e9f15c0165f4",
+    credential: "uWdWNmkhvyqTmFWr"
+  },
+  {
+    urls: "turn:a.relay.metered.ca:443",
+    username: "e8dd65d92c62e9f15c0165f4",
+    credential: "uWdWNmkhvyqTmFWr"
+  },
+  {
+    urls: "turn:a.relay.metered.ca:443?transport=tcp",
+    username: "e8dd65d92c62e9f15c0165f4",
+    credential: "uWdWNmkhvyqTmFWr"
+  }
 ];
 
 const isSessionDescriptionPayload = (
