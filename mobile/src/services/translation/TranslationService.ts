@@ -1,7 +1,6 @@
 // mobile/src/services/translation/TranslationService.ts
 import { NativeModules } from 'react-native';
 import RNFS from 'react-native-fs';
-import ModelDownloader from './utils/ModelDownloader';
 
 const { TranslationModule } = NativeModules;
 
@@ -38,8 +37,8 @@ class TranslationService {
       // 复制 espeak-ng 数据（用于 TTS）
       await this.copyEspeakData();
 
-      // 检查并下载模型
-      await this.checkAndDownloadModels(config);
+      // 检查本地模型（不进行网络下载）
+      await this.checkModelsExist(config);
 
       // 初始化 Native Module
       if (TranslationModule) {
@@ -141,27 +140,39 @@ class TranslationService {
     }
   }
 
-  private async checkAndDownloadModels(config: TranslationConfig): Promise<void> {
-    const models = [
-      { name: 'whisper', path: await this.getModelPath('whisper') },
-      { name: 'opus', path: await this.getModelPath('opus') },
-      { name: 'tts', path: await this.getModelPath('tts') }
+  /**
+   * 检查模型是否存在，不进行网络下载
+   * 模型应该通过 adb push 或其他方式预先放置到设备上
+   */
+  private async checkModelsExist(config: TranslationConfig): Promise<void> {
+    console.log('[TranslationService] Checking local models...');
+
+    const modelChecks = [
+      { name: 'whisper', type: 'STT' },
+      { name: 'opus', type: 'Translation' },
+      { name: 'tts', type: 'TTS' },
     ];
 
-    for (const model of models) {
-      const exists = await RNFS.exists(model.path);
-      if (!exists) {
-        console.log(`[TranslationService] Model ${model.name} not found, downloading...`);
-        await this.downloadModel(model.name);
+    const missingModels: string[] = [];
+
+    for (const model of modelChecks) {
+      const path = await this.getModelPath(model.name);
+      const exists = await RNFS.exists(path);
+
+      if (exists) {
+        console.log(`[TranslationService] ✓ ${model.type} model found: ${path}`);
       } else {
-        console.log(`[TranslationService] Model ${model.name} already exists`);
+        console.warn(`[TranslationService] ✗ ${model.type} model NOT found: ${path}`);
+        missingModels.push(`${model.type} (${model.name})`);
       }
     }
-  }
 
-  private async downloadModel(modelName: string): Promise<void> {
-    const downloader = new ModelDownloader();
-    await downloader.download(modelName);
+    if (missingModels.length > 0) {
+      console.warn('[TranslationService] Missing models:', missingModels.join(', '));
+      console.warn('[TranslationService] 请将模型文件复制到设备上的正确路径');
+      console.warn('[TranslationService] 翻译功能可能无法正常工作');
+      // 不抛出错误，允许应用继续运行（使用占位符功能）
+    }
   }
 
   async translateAudio(
