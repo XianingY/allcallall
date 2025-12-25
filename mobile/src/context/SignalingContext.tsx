@@ -127,12 +127,12 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [iceServers, setIceServers] = useState<RTCIceServer[]>(DEFAULT_ICE_SERVERS);
-  
+
   // 视频通话状态
   const [isVideoEnabled, setIsVideoEnabled] = useState<boolean>(false);
   const [isAudioEnabled, setIsAudioEnabled] = useState<boolean>(true);
   const [cameraFacing, setCameraFacing] = useState<CameraFacing>("front");
-  
+
   // 翻译功能状态
   const [translationEnabled, setTranslationEnabled] = useState<boolean>(false);
   const [translationLanguage, setTranslationLanguage] = useState<string>("zh");
@@ -229,7 +229,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const ensureAudioPermission = useCallback(async () => {
     console.log("[ensureAudioPermission] Platform:", Platform.OS);
-    
+
     if (Platform.OS === "android") {
       try {
         const permissions: string[] = [
@@ -244,7 +244,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         permissions.push(PermissionsAndroid.PERMISSIONS.CAMERA);
 
         console.log("[ensureAudioPermission] Requesting permissions:", permissions);
-        
+
         // 直接请求权限，不使用超时（真机上应该正常工作）
         const result = await PermissionsAndroid.requestMultiple(permissions as any);
         console.log("[ensureAudioPermission] Permission result:", result);
@@ -252,7 +252,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         const allGranted = permissions.every(
           (permission) => (result as Record<string, any>)[permission] === PermissionsAndroid.RESULTS.GRANTED
         );
-        
+
         console.log("[ensureAudioPermission] All permissions granted:", allGranted);
         return allGranted;
       } catch (error) {
@@ -299,7 +299,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const sendMessage = useCallback((message: SignalMessage) => {
     const client = signalingRef.current;
     console.log("[sendMessage] Attempting to send message:", message.type, "to:", message.to);
-    
+
     if (!client) {
       console.warn("[sendMessage] No active signaling client, message dropped", message);
       if (message.type !== "ice.candidate") {
@@ -307,7 +307,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       }
       return;
     }
-    
+
     try {
       console.log("[sendMessage] Sending message via client.send()...");
       const sent = client.send(message);
@@ -380,8 +380,10 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
     (pc as any).onicecandidate = (event: any) => {
       if (!event.candidate) {
+        console.log("[PeerConnection] ICE gathering completed (null candidate)");
         return;
       }
+      console.log("[PeerConnection] ICE candidate:", event.candidate.type, event.candidate.address);
       const candidateInit: IceCandidatePayload = {
         candidate: event.candidate.candidate,
         sdpMid: event.candidate.sdpMid ?? undefined,
@@ -400,6 +402,16 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     };
 
+    // 添加 ICE 连接状态监控
+    (pc as any).oniceconnectionstatechange = () => {
+      console.log("[PeerConnection] ICE connection state:", pc.iceConnectionState);
+    };
+
+    // 添加 ICE gathering 状态监控
+    (pc as any).onicegatheringstatechange = () => {
+      console.log("[PeerConnection] ICE gathering state:", pc.iceGatheringState);
+    };
+
     (pc as any).ontrack = (event: any) => {
       const [stream] = event.streams;
       if (stream) {
@@ -408,12 +420,28 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     };
 
     (pc as any).onconnectionstatechange = () => {
-      if (
-        pc.connectionState === "failed" ||
-        pc.connectionState === "disconnected" ||
-        pc.connectionState === "closed"
-      ) {
+      const state = pc.connectionState;
+      console.log("[PeerConnection] Connection state changed:", state);
+
+      if (state === "failed" || state === "closed") {
+        // 这两个状态是不可恢复的，立即结束通话
+        console.log("[PeerConnection] Connection failed or closed, ending call");
         resetCallState();
+      } else if (state === "disconnected") {
+        // disconnected 是临时状态，可能会恢复
+        // 等待 5 秒，如果还是 disconnected 或变成 failed 才结束
+        console.log("[PeerConnection] Connection disconnected, waiting for recovery...");
+        setTimeout(() => {
+          const currentState = pc.connectionState;
+          if (currentState === "disconnected" || currentState === "failed") {
+            console.log("[PeerConnection] Connection did not recover after 5s, ending call");
+            resetCallState();
+          } else {
+            console.log("[PeerConnection] Connection recovered to:", currentState);
+          }
+        }, 5000);
+      } else if (state === "connected") {
+        console.log("[PeerConnection] Connection established successfully!");
       }
     };
 
@@ -507,9 +535,9 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           setSession((current) =>
             current
               ? {
-                  ...current,
-                  callId: message.call_id ?? current.callId
-                }
+                ...current,
+                callId: message.call_id ?? current.callId
+              }
               : current
           );
           if (sessionRef.current && message.call_id) {
@@ -582,13 +610,13 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const startCall = useCallback(
     async (email: string) => {
       console.log("[startCall] Starting call to:", email, "Current status:", status);
-      
+
       if (!user) {
         console.warn("[startCall] No user logged in");
         Alert.alert("错误 / Error", "请先登录 / Please log in first.");
         return;
       }
-      
+
       if (status !== "idle") {
         console.warn("[startCall] Call already in progress. Current status:", status);
         Alert.alert("提示 / Tip", "已有通话在进行中，请先结束该通话 / A call is already in progress. Please end it first.");
@@ -620,9 +648,9 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
         console.log("[startCall] Resetting peer resources...");
         resetPeerResources();
-        
+
         console.log("[startCall] Requesting media stream...");
-        
+
         if (!webrtcMediaDevices) {
           throw new Error("WebRTC mediaDevices not available. Please use 'expo run:android' to build a native app.");
         }
@@ -644,7 +672,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         stream.getTracks().forEach((track) => {
           console.log("[startCall] Track obtained - Kind:", track.kind, "Enabled:", track.enabled);
         });
-        
+
         setLocalStream(stream);
         setIsVideoEnabled(shouldEnableVideo);
         setIsAudioEnabled(shouldEnableAudio);
@@ -663,7 +691,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           offerToReceiveVideo: true
         });
         console.log("[startCall] Offer created, SDP length:", offer.sdp?.length);
-        
+
         console.log("[startCall] Setting local description...");
         await pc.setLocalDescription(offer);
         console.log("[startCall] Local description set");
@@ -671,7 +699,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         pendingTarget.current = email;
         setStatus("connecting");
         console.log("[startCall] Status changed to 'connecting'");
-        
+
         console.log("[startCall] Sending call.invite message...");
         sendMessage({
           type: "call.invite",
@@ -687,7 +715,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("[startCall] Error name:", (error as Error)?.name);
         console.error("[startCall] Error message:", (error as Error)?.message);
         const errorMsg = error instanceof Error ? error.message : String(error);
-          Alert.alert("错误 / Error", "请确认麦克风/摄像头未被占用或已授权 / Please ensure the microphone/camera is not in use or permissions are granted.");
+        Alert.alert("错误 / Error", "请确认麦克风/摄像头未被占用或已授权 / Please ensure the microphone/camera is not in use or permissions are granted.");
         resetPeerResources();
         setStatus("idle");
       }
@@ -724,7 +752,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       console.log("[acceptCall] Requesting media stream...");
-      
+
       if (!webrtcMediaDevices) {
         throw new Error("WebRTC mediaDevices not available. Please use 'expo run:android' to build a native app.");
       }
@@ -746,7 +774,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       stream.getTracks().forEach((track) => {
         console.log("[acceptCall] Track obtained - Kind:", track.kind, "Enabled:", track.enabled);
       });
-      
+
       setLocalStream(stream);
       setIsVideoEnabled(shouldEnableVideo);
       setIsAudioEnabled(shouldEnableAudio);
@@ -816,7 +844,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const toggleVideo = useCallback(async () => {
     try {
       console.log("[toggleVideo] Current video enabled:", isVideoEnabled);
-      
+
       if (!localStream) {
         console.warn("[toggleVideo] No local stream available");
         return;
@@ -846,7 +874,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           const videoTrack = newStream.getVideoTracks()[0];
           const senders = peerRef.current.getSenders();
           const videoSender = senders.find(sender => sender.track?.kind === "video");
-          
+
           if (videoSender) {
             await videoSender.replaceTrack(videoTrack);
           } else {
@@ -874,7 +902,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
    */
   const toggleAudio = useCallback(() => {
     console.log("[toggleAudio] Current audio enabled:", isAudioEnabled);
-    
+
     if (!localStream) {
       console.warn("[toggleAudio] No local stream available");
       return;
@@ -892,7 +920,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const switchCamera = useCallback(async () => {
     try {
       console.log("[switchCamera] Current facing:", cameraFacing);
-      
+
       if (!localStream || !isVideoEnabled) {
         console.warn("[switchCamera] No video stream or video not enabled");
         Alert.alert("提示 / Tip", "请先开启视频 / Please enable video first.");
@@ -900,13 +928,13 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       const newStream = await VideoService.switchCamera();
-      
+
       if (newStream && peerRef.current) {
         // 替换 peer connection 中的视频轨道
         const videoTrack = newStream.getVideoTracks()[0];
         const senders = peerRef.current.getSenders();
         const videoSender = senders.find(sender => sender.track?.kind === "video");
-        
+
         if (videoSender) {
           await videoSender.replaceTrack(videoTrack);
         }
@@ -928,7 +956,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       if (enabled) {
         // 启用翻译
         console.log("[toggleTranslation] Enabling translation");
-        
+
         // 初始化翻译服务
         if (!TranslationService.isReady()) {
           await TranslationService.initialize({
@@ -942,7 +970,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         if (localStream && status === "in_call") {
           const processor = new ParallelProcessor();
           processorRef.current = processor;
-          
+
           await processor.processAudioStream(
             localStream,
             (subtitle) => {
@@ -956,7 +984,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       } else {
         // 禁用翻译
         console.log("[toggleTranslation] Disabling translation");
-        
+
         if (processorRef.current) {
           processorRef.current.stopProcessing();
           processorRef.current = null;
@@ -973,7 +1001,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const handleSetTranslationLanguage = useCallback((language: string) => {
     setTranslationLanguage(language);
-    
+
     // 如果翻译功能开启，更新处理器的目标语言
     if (processorRef.current) {
       processorRef.current.setTargetLanguage(language);
