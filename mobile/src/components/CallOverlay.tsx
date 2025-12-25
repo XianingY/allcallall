@@ -1,5 +1,5 @@
-import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from "react-native";
+import React, { useCallback } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert } from "react-native";
 import { RTCView } from "react-native-webrtc";
 
 import { useSignaling } from "../context/SignalingContext";
@@ -38,6 +38,23 @@ const CallOverlay: React.FC = () => {
   const screenWidth = Dimensions.get("window").width;
   const screenHeight = Dimensions.get("window").height;
 
+  // 视频开关处理 - 添加带宽警告
+  const handleVideoToggle = useCallback(() => {
+    if (!isVideoEnabled) {
+      // 开启视频前显示警告
+      Alert.alert(
+        "视频通话提示 / Video Call Notice",
+        "视频通话需要较高带宽，可能导致通话不稳定或中断。建议使用 WiFi 网络。\n\nVideo calls require high bandwidth and may cause unstable connections. WiFi is recommended.",
+        [
+          { text: "取消 / Cancel", style: "cancel" },
+          { text: "开启视频 / Enable", onPress: () => toggleVideo() }
+        ]
+      );
+    } else {
+      toggleVideo();
+    }
+  }, [isVideoEnabled, toggleVideo]);
+
   return (
     <View style={styles.container}>
       {/* 远端视频（全屏） */}
@@ -73,8 +90,8 @@ const CallOverlay: React.FC = () => {
           {status === "connecting"
             ? `正在呼叫 / Calling ${session.peerEmail}`
             : status === "incoming"
-            ? `${session.peerEmail} 来电 / Incoming call`
-            : `通话中 / In call`}
+              ? `${session.peerEmail} 来电 / Incoming call`
+              : `通话中 / In call`}
         </Text>
         {!isAudioEnabled && (
           <View style={styles.mutedIndicator}>
@@ -123,7 +140,7 @@ const CallOverlay: React.FC = () => {
                 styles.controlButton,
                 !isVideoEnabled && styles.controlButtonDisabled
               ]}
-              onPress={toggleVideo}
+              onPress={handleVideoToggle}
             >
               <Text style={styles.controlButtonText}>
                 {isVideoEnabled ? "📹" : "🚫"}
@@ -160,7 +177,16 @@ const CallOverlay: React.FC = () => {
             language={translationLanguage}
             onClear={clearSubtitles}
           />
-          
+
+          {/* 翻译提示信息 (未开启时显示) */}
+          {!translationEnabled && (
+            <View style={styles.translationHint}>
+              <Text style={styles.translationHintText}>
+                💡 点击下方"实时翻译"开关开启翻译字幕
+              </Text>
+            </View>
+          )}
+
           {/* 翻译控制面板 */}
           <View style={styles.translationControlContainer}>
             <TranslationControl
@@ -319,6 +345,22 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 999
+  },
+  translationHint: {
+    position: "absolute",
+    bottom: 180,
+    left: 20,
+    right: 20,
+    backgroundColor: "rgba(59, 130, 246, 0.9)",
+    borderRadius: 12,
+    padding: 12,
+    zIndex: 998
+  },
+  translationHintText: {
+    color: "#fff",
+    fontSize: 14,
+    textAlign: "center",
+    fontWeight: "600"
   }
 });
 
