@@ -37,8 +37,8 @@ class TranslationService {
       // 复制 espeak-ng 数据（用于 TTS）
       await this.copyEspeakData();
 
-      // 检查本地模型（不进行网络下载）
-      await this.checkModelsExist(config);
+      // 从 assets 复制模型到 files 目录（首次启动）
+      await this.copyModelsFromAssets();
 
       // 初始化 Native Module
       if (TranslationModule) {
@@ -141,37 +141,72 @@ class TranslationService {
   }
 
   /**
-   * 检查模型是否存在，不进行网络下载
-   * 模型应该通过 adb push 或其他方式预先放置到设备上
+   * 从 APK assets 复制模型到 files 目录（首次启动时）
    */
-  private async checkModelsExist(config: TranslationConfig): Promise<void> {
-    console.log('[TranslationService] Checking local models...');
+  private async copyModelsFromAssets(): Promise<void> {
+    const modelsDir = `${RNFS.DocumentDirectoryPath}/models`;
 
-    const modelChecks = [
-      { name: 'whisper', type: 'STT' },
-      { name: 'opus', type: 'Translation' },
-      { name: 'tts', type: 'TTS' },
-    ];
-
-    const missingModels: string[] = [];
-
-    for (const model of modelChecks) {
-      const path = await this.getModelPath(model.name);
-      const exists = await RNFS.exists(path);
-
-      if (exists) {
-        console.log(`[TranslationService] ✓ ${model.type} model found: ${path}`);
-      } else {
-        console.warn(`[TranslationService] ✗ ${model.type} model NOT found: ${path}`);
-        missingModels.push(`${model.type} (${model.name})`);
-      }
+    // 检查是否已经复制过
+    const whisperPath = `${modelsDir}/whisper/ggml-small-q8.bin`;
+    const exists = await RNFS.exists(whisperPath);
+    if (exists) {
+      console.log('[TranslationService] Models already copied from assets');
+      return;
     }
 
-    if (missingModels.length > 0) {
-      console.warn('[TranslationService] Missing models:', missingModels.join(', '));
-      console.warn('[TranslationService] 请将模型文件复制到设备上的正确路径');
-      console.warn('[TranslationService] 翻译功能可能无法正常工作');
-      // 不抛出错误，允许应用继续运行（使用占位符功能）
+    console.log('[TranslationService] Copying models from assets (first run)...');
+    console.log('[TranslationService] This may take a few minutes...');
+
+    try {
+      // 创建目录结构
+      await RNFS.mkdir(modelsDir);
+      await RNFS.mkdir(`${modelsDir}/whisper`);
+      await RNFS.mkdir(`${modelsDir}/opus`);
+      await RNFS.mkdir(`${modelsDir}/tts`);
+      await RNFS.mkdir(`${modelsDir}/tts/en`);
+      await RNFS.mkdir(`${modelsDir}/tts/zh`);
+
+      // 复制 Whisper 模型
+      console.log('[TranslationService] Copying Whisper model...');
+      await RNFS.copyFileAssets(
+        'models/whisper/ggml-small-q8.bin',
+        `${modelsDir}/whisper/ggml-small-q8.bin`
+      );
+
+      // 复制 ONNX 翻译模型 (en-zh)
+      console.log('[TranslationService] Copying translation models (en-zh)...');
+      await this.copyAssetDir('models/opus/en-zh', `${modelsDir}/opus/en-zh`);
+
+      // 复制 ONNX 翻译模型 (zh-en)
+      console.log('[TranslationService] Copying translation models (zh-en)...');
+      await this.copyAssetDir('models/opus/zh-en', `${modelsDir}/opus/zh-en`);
+
+      // 复制 TTS 模型
+      console.log('[TranslationService] Copying TTS models...');
+      await this.copyAssetDir('models/tts/en', `${modelsDir}/tts/en`);
+      await this.copyAssetDir('models/tts/zh', `${modelsDir}/tts/zh`);
+
+      console.log('[TranslationService] ✓ All models copied successfully!');
+    } catch (error) {
+      console.error('[TranslationService] Error copying models:', error);
+      throw new Error('Failed to copy models from assets. Please reinstall the app.');
+    }
+  }
+
+  /**
+   * 复制 asset 目录下的所有文件
+   */
+  private async copyAssetDir(assetPath: string, destPath: string): Promise<void> {
+    await RNFS.mkdir(destPath);
+    const files = await RNFS.readDirAssets(assetPath);
+
+    for (const file of files) {
+      if (file.isFile()) {
+        await RNFS.copyFileAssets(
+          `${assetPath}/${file.name}`,
+          `${destPath}/${file.name}`
+        );
+      }
     }
   }
 

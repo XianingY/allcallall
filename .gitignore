@@ -202,3 +202,8 @@ mobile/android/react-settings-plugin/bin/
 
 # espeak-ng build artifacts
 third_party/espeak-ng/build/
+
+# Bundled models in Android assets (too large for git)
+mobile/android/app/src/main/assets/models/**/*.bin
+mobile/android/app/src/main/assets/models/**/*.onnx
+mobile/android/app/src/main/assets/models/**/*.spm
