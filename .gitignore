@@ -1,19 +1,79 @@
-# MacOS
-.DS_Store
+# ============================
+# AllCallAll Project .gitignore
+# ============================
 
-# IDE
+# ============================
+# System Files
+# ============================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ============================
+# IDE & Editor Files
+# ============================
 .qoder/
 .claude/
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
+# ============================
+# Virtual Environments
+# ============================
+.venv/
+venv/
+env/
+ENV/
+.env/
+
+# ============================
+# Python
+# ============================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ============================
 # Backend Go
+# ============================
 backend/.gocache/
 backend/.gomodcache/
 backend/.gopath/
 backend/server
+backend/*.exe
+backend/*.exe~
+backend/*.dll
+backend/*.so
+backend/*.dylib
 
-# Mobile
+# ============================
+# Mobile React Native
+# ============================
 mobile/node_modules/
 mobile/.expo/
 mobile/dist/
@@ -25,15 +85,130 @@ mobile/android/react-settings-plugin/build/
 mobile/AllCallAll.apk
 mobile/app/build/
 mobile/bugreport-*.zip
+mobile/coverage/
+mobile/.nyc_output/
 
+# ============================
 # Logs
+# ============================
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
 
-# Environment variables
+# ============================
+# Environment Variables
+# ============================
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
 
-# Assistant Docs
-docs/mobile/*.apk
+# ============================
+# AI Models & Assets
+# ============================
+# Ignore all model files (large binary files)
+models/**/*.bin
+models/**/*.onnx
+models/**/*.pt
+models/**/*.pth
+models/**/*.msgpack
+models/**/*.ot
+models/**/*.h5
+# Keep directory structure but ignore all model files
+!models/.gitkeep
+!models/*/.gitkeep
+!models/**/.gitkeep
+
+# ============================
+# Whisper.cpp Build Artifacts (submodule in third_party/)
+# ============================
+third_party/whisper.cpp/build/
+third_party/whisper.cpp/*.o
+third_party/whisper.cpp/*.a
+third_party/whisper.cpp/*.so
+third_party/whisper.cpp/*.dylib
+third_party/whisper.cpp/libwhisper.so
+
+# ============================
+# Temporary Files
+# ============================
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+
+# ============================
+# Build Artifacts
+# ============================
+build/
+dist/
+out/
+target/
+*.tgz
+*.tar.gz
+
+# ============================
+# Database
+# ============================
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# ============================
+# Test Coverage
+# ============================
+coverage/
+.nyc_output/
+lcov.info
+*.lcov
+
+# ============================
+# Miscellaneous
+# ============================
+*.pid
+*.seed
+*.pid.lock
+.npm
+.eslintcache
+.parcel-cache
+.cache
+.parcel-cache
+.next
+.nuxt
+.vuepress/dist
+.serverless
+.fusebox/
+
+# Android assets models (too large for git)
+mobile/android/app/src/main/assets/models/
+
+# ONNX Runtime extracted libraries (downloaded at build time)
+mobile/android/app/src/main/cpp/libs/onnxruntime/
+
+# Android signing keys (never commit)
+mobile/android/app/*.keystore
+
+# Mobile bundled assets (generated or large)
+mobile/assets/
+
+# React settings plugin build artifacts
+mobile/android/react-settings-plugin/bin/
+
+
+# espeak-ng build artifacts
+third_party/espeak-ng/build/
+
+# Bundled models in Android assets (too large for git)
+mobile/android/app/src/main/assets/models/**/*.bin
+mobile/android/app/src/main/assets/models/**/*.onnx
+mobile/android/app/src/main/assets/models/**/*.spm

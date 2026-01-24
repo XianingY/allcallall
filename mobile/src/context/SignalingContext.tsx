@@ -28,6 +28,9 @@ import AudioService from "../services/AudioServiceExpo";
 import VibrationService from "../services/VibrationService";
 import VideoService, { CameraFacing, VideoQuality } from "../services/VideoService";
 import CameraPermissionService from "../services/CameraPermissionService";
+import TranslationService from "../services/translation/TranslationService";
+import ParallelProcessor from "../services/translation/utils/ParallelProcessor";
+import { SubtitleItem } from "../components/translation/TranslationOverlay";
 
 type CallDirection = "incoming" | "outgoing";
 
@@ -61,6 +64,10 @@ interface SignalingContextValue {
   isVideoEnabled: boolean;
   isAudioEnabled: boolean;
   cameraFacing: CameraFacing;
+  // 翻译功能相关状态
+  translationEnabled: boolean;
+  translationLanguage: string;
+  subtitles: SubtitleItem[];
   // 通话控制函数
   startCall: (email: string) => Promise<void>;
   acceptCall: () => Promise<void>;
@@ -70,6 +77,10 @@ interface SignalingContextValue {
   toggleVideo: () => Promise<void>;
   toggleAudio: () => void;
   switchCamera: () => Promise<void>;
+  // 翻译控制函数
+  toggleTranslation: (enabled: boolean) => Promise<void>;
+  setTranslationLanguage: (language: string) => void;
+  clearSubtitles: () => void;
 }
 
 const SignalingContext = createContext<SignalingContextValue | undefined>(
@@ -77,11 +88,43 @@ const SignalingContext = createContext<SignalingContextValue | undefined>(
 );
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
+  // Google STUN servers (免费，用于获取公网 IP)
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
-  { urls: "stun:stun2.l.google.com:19302" },
-  { urls: "stun:stun3.l.google.com:19302" },
-  { urls: "stun:stun4.l.google.com:19302" }
+
+  // OpenRelay TURN 服务器 (免费公共服务，用于 NAT 穿透)
+  {
+    urls: "turn:openrelay.metered.ca:80",
+    username: "openrelayproject",
+    credential: "openrelayproject"
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443",
+    username: "openrelayproject",
+    credential: "openrelayproject"
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443?transport=tcp",
+    username: "openrelayproject",
+    credential: "openrelayproject"
+  },
+
+  // Metered.ca 免费 TURN 服务器备用
+  {
+    urls: "turn:a.relay.metered.ca:80",
+    username: "e8dd65d92c62e9f15c0165f4",
+    credential: "uWdWNmkhvyqTmFWr"
+  },
+  {
+    urls: "turn:a.relay.metered.ca:443",
+    username: "e8dd65d92c62e9f15c0165f4",
+    credential: "uWdWNmkhvyqTmFWr"
+  },
+  {
+    urls: "turn:a.relay.metered.ca:443?transport=tcp",
+    username: "e8dd65d92c62e9f15c0165f4",
+    credential: "uWdWNmkhvyqTmFWr"
+  }
 ];
 
 const isSessionDescriptionPayload = (
@@ -116,11 +159,17 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [iceServers, setIceServers] = useState<RTCIceServer[]>(DEFAULT_ICE_SERVERS);
-  
+
   // 视频通话状态
   const [isVideoEnabled, setIsVideoEnabled] = useState<boolean>(false);
   const [isAudioEnabled, setIsAudioEnabled] = useState<boolean>(true);
   const [cameraFacing, setCameraFacing] = useState<CameraFacing>("front");
+
+  // 翻译功能状态
+  const [translationEnabled, setTranslationEnabled] = useState<boolean>(false);
+  const [translationLanguage, setTranslationLanguage] = useState<string>("zh");
+  const [subtitles, setSubtitles] = useState<SubtitleItem[]>([]);
+  const processorRef = useRef<ParallelProcessor | null>(null);
 
   const signalingRef = useRef<SignalingClient | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
@@ -128,6 +177,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const pendingTarget = useRef<string | null>(null);
   const pendingLocalCandidates = useRef<IceCandidatePayload[]>([]);
   const pendingRemoteCandidates = useRef<IceCandidatePayload[]>([]);
+  const subtitlesDataChannelRef = useRef<any | null>(null);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -212,7 +262,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const ensureAudioPermission = useCallback(async () => {
     console.log("[ensureAudioPermission] Platform:", Platform.OS);
-    
+
     if (Platform.OS === "android") {
       try {
         const permissions: string[] = [
@@ -227,7 +277,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         permissions.push(PermissionsAndroid.PERMISSIONS.CAMERA);
 
         console.log("[ensureAudioPermission] Requesting permissions:", permissions);
-        
+
         // 直接请求权限，不使用超时（真机上应该正常工作）
         const result = await PermissionsAndroid.requestMultiple(permissions as any);
         console.log("[ensureAudioPermission] Permission result:", result);
@@ -235,7 +285,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         const allGranted = permissions.every(
           (permission) => (result as Record<string, any>)[permission] === PermissionsAndroid.RESULTS.GRANTED
         );
-        
+
         console.log("[ensureAudioPermission] All permissions granted:", allGranted);
         return allGranted;
       } catch (error) {
@@ -260,6 +310,15 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       peerRef.current = null;
     }
 
+    if (subtitlesDataChannelRef.current) {
+      try {
+        subtitlesDataChannelRef.current.close();
+      } catch (e) {
+        // ignore
+      }
+      subtitlesDataChannelRef.current = null;
+    }
+
     if (localStream) {
       localStream.getTracks().forEach((track) => track.stop());
     }
@@ -270,6 +329,43 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     setLocalStream(null);
     setRemoteStream(null);
   }, [localStream, remoteStream]);
+
+  const attachSubtitlesDataChannel = useCallback((dc: any) => {
+    if (!dc) return;
+    subtitlesDataChannelRef.current = dc;
+
+    dc.onopen = () => {
+      console.log('[SubtitlesDataChannel] open');
+    };
+    dc.onclose = () => {
+      console.log('[SubtitlesDataChannel] close');
+      if (subtitlesDataChannelRef.current === dc) {
+        subtitlesDataChannelRef.current = null;
+      }
+    };
+    dc.onerror = (err: any) => {
+      console.warn('[SubtitlesDataChannel] error', err);
+    };
+    dc.onmessage = (event: any) => {
+      try {
+        const parsed = JSON.parse(String(event?.data ?? ''));
+        if (!parsed || parsed.t !== 'subtitle') {
+          return;
+        }
+
+        const ts = typeof parsed.timestampMs === 'number' ? parsed.timestampMs : Date.now();
+        const subtitle: SubtitleItem = {
+          id: `subtitle-${ts}`,
+          original: typeof parsed.originalText === 'string' ? parsed.originalText : '',
+          translated: typeof parsed.translatedText === 'string' ? parsed.translatedText : '',
+          timestamp: ts,
+        };
+        setSubtitles((prev) => [...prev.slice(-9), subtitle]);
+      } catch (e) {
+        console.warn('[SubtitlesDataChannel] failed to parse message', e);
+      }
+    };
+  }, []);
 
   const resetCallState = useCallback(() => {
     pendingTarget.current = null;
@@ -282,7 +378,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const sendMessage = useCallback((message: SignalMessage) => {
     const client = signalingRef.current;
     console.log("[sendMessage] Attempting to send message:", message.type, "to:", message.to);
-    
+
     if (!client) {
       console.warn("[sendMessage] No active signaling client, message dropped", message);
       if (message.type !== "ice.candidate") {
@@ -290,7 +386,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       }
       return;
     }
-    
+
     try {
       console.log("[sendMessage] Sending message via client.send()...");
       const sent = client.send(message);
@@ -363,8 +459,10 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
     (pc as any).onicecandidate = (event: any) => {
       if (!event.candidate) {
+        console.log("[PeerConnection] ICE gathering completed (null candidate)");
         return;
       }
+      console.log("[PeerConnection] ICE candidate:", event.candidate.type, event.candidate.address);
       const candidateInit: IceCandidatePayload = {
         candidate: event.candidate.candidate,
         sdpMid: event.candidate.sdpMid ?? undefined,
@@ -383,6 +481,16 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     };
 
+    // 添加 ICE 连接状态监控
+    (pc as any).oniceconnectionstatechange = () => {
+      console.log("[PeerConnection] ICE connection state:", pc.iceConnectionState);
+    };
+
+    // 添加 ICE gathering 状态监控
+    (pc as any).onicegatheringstatechange = () => {
+      console.log("[PeerConnection] ICE gathering state:", pc.iceGatheringState);
+    };
+
     (pc as any).ontrack = (event: any) => {
       const [stream] = event.streams;
       if (stream) {
@@ -390,19 +498,44 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     };
 
+    // Subtitles over DataChannel (peer-to-peer).
+    (pc as any).ondatachannel = (event: any) => {
+      const dc = event?.channel;
+      console.log('[PeerConnection] ondatachannel', dc?.label);
+      if (dc && dc.label === 'subtitles') {
+        attachSubtitlesDataChannel(dc);
+      }
+    };
+
     (pc as any).onconnectionstatechange = () => {
-      if (
-        pc.connectionState === "failed" ||
-        pc.connectionState === "disconnected" ||
-        pc.connectionState === "closed"
-      ) {
+      const state = pc.connectionState;
+      console.log("[PeerConnection] Connection state changed:", state);
+
+      if (state === "failed" || state === "closed") {
+        // 这两个状态是不可恢复的，立即结束通话
+        console.log("[PeerConnection] Connection failed or closed, ending call");
         resetCallState();
+      } else if (state === "disconnected") {
+        // disconnected 是临时状态，可能会恢复
+        // 等待 5 秒，如果还是 disconnected 或变成 failed 才结束
+        console.log("[PeerConnection] Connection disconnected, waiting for recovery...");
+        setTimeout(() => {
+          const currentState = pc.connectionState;
+          if (currentState === "disconnected" || currentState === "failed") {
+            console.log("[PeerConnection] Connection did not recover after 5s, ending call");
+            resetCallState();
+          } else {
+            console.log("[PeerConnection] Connection recovered to:", currentState);
+          }
+        }, 5000);
+      } else if (state === "connected") {
+        console.log("[PeerConnection] Connection established successfully!");
       }
     };
 
     peerRef.current = pc;
     return pc;
-  }, [iceServers, resetCallState, sendMessage]);
+  }, [attachSubtitlesDataChannel, iceServers, resetCallState, sendMessage]);
 
   useEffect(() => {
     if (!token) {
@@ -490,9 +623,9 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           setSession((current) =>
             current
               ? {
-                  ...current,
-                  callId: message.call_id ?? current.callId
-                }
+                ...current,
+                callId: message.call_id ?? current.callId
+              }
               : current
           );
           if (sessionRef.current && message.call_id) {
@@ -565,13 +698,13 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const startCall = useCallback(
     async (email: string) => {
       console.log("[startCall] Starting call to:", email, "Current status:", status);
-      
+
       if (!user) {
         console.warn("[startCall] No user logged in");
         Alert.alert("错误 / Error", "请先登录 / Please log in first.");
         return;
       }
-      
+
       if (status !== "idle") {
         console.warn("[startCall] Call already in progress. Current status:", status);
         Alert.alert("提示 / Tip", "已有通话在进行中，请先结束该通话 / A call is already in progress. Please end it first.");
@@ -603,9 +736,9 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
         console.log("[startCall] Resetting peer resources...");
         resetPeerResources();
-        
+
         console.log("[startCall] Requesting media stream...");
-        
+
         if (!webrtcMediaDevices) {
           throw new Error("WebRTC mediaDevices not available. Please use 'expo run:android' to build a native app.");
         }
@@ -627,7 +760,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         stream.getTracks().forEach((track) => {
           console.log("[startCall] Track obtained - Kind:", track.kind, "Enabled:", track.enabled);
         });
-        
+
         setLocalStream(stream);
         setIsVideoEnabled(shouldEnableVideo);
         setIsAudioEnabled(shouldEnableAudio);
@@ -635,6 +768,20 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
         console.log("[startCall] Creating peer connection...");
         const pc = createPeerConnection();
+
+        // Create subtitles DataChannel on the offerer before creating offer.
+        try {
+          const dc = (pc as any).createDataChannel?.('subtitles', {
+            ordered: true,
+          });
+          if (dc) {
+            console.log('[startCall] Subtitles DataChannel created');
+            attachSubtitlesDataChannel(dc);
+          }
+        } catch (e) {
+          console.warn('[startCall] Failed to create subtitles DataChannel', e);
+        }
+
         stream.getTracks().forEach((track) => {
           console.log("[startCall] Adding track:", track.kind);
           pc.addTrack(track, stream);
@@ -646,7 +793,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           offerToReceiveVideo: true
         });
         console.log("[startCall] Offer created, SDP length:", offer.sdp?.length);
-        
+
         console.log("[startCall] Setting local description...");
         await pc.setLocalDescription(offer);
         console.log("[startCall] Local description set");
@@ -654,7 +801,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         pendingTarget.current = email;
         setStatus("connecting");
         console.log("[startCall] Status changed to 'connecting'");
-        
+
         console.log("[startCall] Sending call.invite message...");
         sendMessage({
           type: "call.invite",
@@ -670,12 +817,12 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("[startCall] Error name:", (error as Error)?.name);
         console.error("[startCall] Error message:", (error as Error)?.message);
         const errorMsg = error instanceof Error ? error.message : String(error);
-          Alert.alert("错误 / Error", "请确认麦克风/摄像头未被占用或已授权 / Please ensure the microphone/camera is not in use or permissions are granted.");
+        Alert.alert("错误 / Error", "请确认麦克风/摄像头未被占用或已授权 / Please ensure the microphone/camera is not in use or permissions are granted.");
         resetPeerResources();
         setStatus("idle");
       }
     },
-    [createPeerConnection, resetPeerResources, sendMessage, status, user, settings]
+    [attachSubtitlesDataChannel, createPeerConnection, resetPeerResources, sendMessage, status, user, settings]
   );
 
   const acceptCall = useCallback(async () => {
@@ -707,7 +854,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       console.log("[acceptCall] Requesting media stream...");
-      
+
       if (!webrtcMediaDevices) {
         throw new Error("WebRTC mediaDevices not available. Please use 'expo run:android' to build a native app.");
       }
@@ -729,7 +876,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       stream.getTracks().forEach((track) => {
         console.log("[acceptCall] Track obtained - Kind:", track.kind, "Enabled:", track.enabled);
       });
-      
+
       setLocalStream(stream);
       setIsVideoEnabled(shouldEnableVideo);
       setIsAudioEnabled(shouldEnableAudio);
@@ -799,7 +946,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const toggleVideo = useCallback(async () => {
     try {
       console.log("[toggleVideo] Current video enabled:", isVideoEnabled);
-      
+
       if (!localStream) {
         console.warn("[toggleVideo] No local stream available");
         return;
@@ -829,7 +976,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           const videoTrack = newStream.getVideoTracks()[0];
           const senders = peerRef.current.getSenders();
           const videoSender = senders.find(sender => sender.track?.kind === "video");
-          
+
           if (videoSender) {
             await videoSender.replaceTrack(videoTrack);
           } else {
@@ -857,7 +1004,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
    */
   const toggleAudio = useCallback(() => {
     console.log("[toggleAudio] Current audio enabled:", isAudioEnabled);
-    
+
     if (!localStream) {
       console.warn("[toggleAudio] No local stream available");
       return;
@@ -875,7 +1022,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const switchCamera = useCallback(async () => {
     try {
       console.log("[switchCamera] Current facing:", cameraFacing);
-      
+
       if (!localStream || !isVideoEnabled) {
         console.warn("[switchCamera] No video stream or video not enabled");
         Alert.alert("提示 / Tip", "请先开启视频 / Please enable video first.");
@@ -883,13 +1030,13 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       const newStream = await VideoService.switchCamera();
-      
+
       if (newStream && peerRef.current) {
         // 替换 peer connection 中的视频轨道
         const videoTrack = newStream.getVideoTracks()[0];
         const senders = peerRef.current.getSenders();
         const videoSender = senders.find(sender => sender.track?.kind === "video");
-        
+
         if (videoSender) {
           await videoSender.replaceTrack(videoTrack);
         }
@@ -905,6 +1052,111 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [cameraFacing, isVideoEnabled, localStream]);
 
+  // 翻译控制函数
+  const toggleTranslation = useCallback(async (enabled: boolean) => {
+    try {
+      if (enabled) {
+        // 启用翻译
+        console.log("[toggleTranslation] Enabling translation");
+
+        // 初始化翻译服务
+        if (!TranslationService.isReady()) {
+          await TranslationService.initialize({
+            whisperModel: 'small',
+            targetLanguage: translationLanguage,
+            quantization: 'int8'
+          });
+        }
+
+        setTranslationEnabled(true);
+      } else {
+        // 禁用翻译
+        console.log("[toggleTranslation] Disabling translation");
+
+        try {
+          await TranslationService.stopWebRTCCallMicTranslation();
+        } catch (e) {
+          console.warn('[toggleTranslation] stopWebRTCCallMicTranslation failed:', e);
+        }
+
+        if (processorRef.current) {
+          processorRef.current.stopProcessing();
+          processorRef.current = null;
+        }
+
+        setTranslationEnabled(false);
+        setSubtitles([]);
+      }
+    } catch (error) {
+      console.error("[toggleTranslation] Error:", error);
+      Alert.alert("错误 / Error", `翻译功能开关失败 / Failed to toggle translation: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [translationLanguage]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const start = async () => {
+      if (!translationEnabled) return;
+      if (status !== 'in_call') return;
+      if (!TranslationService.isReady()) return;
+
+      const currentSession = sessionRef.current;
+      if (!currentSession?.peerEmail) return;
+
+      try {
+        await TranslationService.startWebRTCCallMicTranslation(
+          translationLanguage,
+          (result) => {
+            if (cancelled) return;
+
+            const dc = subtitlesDataChannelRef.current;
+            if (!dc || dc.readyState !== 'open') {
+              // Privacy-first: do not fall back to signaling here.
+              console.warn('[translation] subtitles DataChannel not open; dropping subtitle');
+              return;
+            }
+
+            dc.send(
+              JSON.stringify({
+                t: 'subtitle',
+                originalText: result.originalText,
+                translatedText: result.translatedText,
+                timestampMs: result.timestampMs,
+              })
+            );
+          }
+        );
+      } catch (e) {
+        console.error('[translation] startWebRTCCallMicTranslation failed:', e);
+      }
+    };
+
+    start();
+
+    return () => {
+      cancelled = true;
+      if (translationEnabled) {
+        TranslationService.stopWebRTCCallMicTranslation().catch(() => undefined);
+      }
+    };
+  }, [translationEnabled, status, translationLanguage]);
+
+  const handleSetTranslationLanguage = useCallback((language: string) => {
+    setTranslationLanguage(language);
+
+    // 如果翻译功能开启，更新处理器的目标语言
+    if (processorRef.current) {
+      processorRef.current.setTargetLanguage(language);
+    }
+
+    console.log("[setTranslationLanguage] Language changed to:", language);
+  }, []);
+
+  const clearSubtitles = useCallback(() => {
+    setSubtitles([]);
+  }, []);
+
   const value = useMemo<SignalingContextValue>(
     () => ({
       status,
@@ -915,13 +1167,19 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       isVideoEnabled,
       isAudioEnabled,
       cameraFacing,
+      translationEnabled,
+      translationLanguage,
+      subtitles,
       startCall,
       acceptCall,
       rejectCall,
       endCall,
       toggleVideo,
       toggleAudio,
-      switchCamera
+      switchCamera,
+      toggleTranslation,
+      setTranslationLanguage: handleSetTranslationLanguage,
+      clearSubtitles
     }),
     [
       status,
@@ -932,13 +1190,19 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       isVideoEnabled,
       isAudioEnabled,
       cameraFacing,
+      translationEnabled,
+      translationLanguage,
+      subtitles,
       startCall,
       acceptCall,
       rejectCall,
       endCall,
       toggleVideo,
       toggleAudio,
-      switchCamera
+      switchCamera,
+      toggleTranslation,
+      handleSetTranslationLanguage,
+      clearSubtitles
     ]
   );
 

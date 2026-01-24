@@ -1,8 +1,10 @@
-import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from "react-native";
+import React, { useCallback } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert } from "react-native";
 import { RTCView } from "react-native-webrtc";
 
 import { useSignaling } from "../context/SignalingContext";
+import TranslationOverlay from "./translation/TranslationOverlay";
+import TranslationControl from "./translation/TranslationControl";
 
 const CallOverlay: React.FC = () => {
   const {
@@ -17,7 +19,13 @@ const CallOverlay: React.FC = () => {
     isAudioEnabled,
     toggleVideo,
     toggleAudio,
-    switchCamera
+    switchCamera,
+    translationEnabled,
+    translationLanguage,
+    subtitles,
+    toggleTranslation,
+    setTranslationLanguage,
+    clearSubtitles
   } = useSignaling();
 
   if (status === "idle" || !session) {
@@ -29,6 +37,23 @@ const CallOverlay: React.FC = () => {
   const hasLocalVideo = (localStream?.getVideoTracks().length ?? 0) > 0;
   const screenWidth = Dimensions.get("window").width;
   const screenHeight = Dimensions.get("window").height;
+
+  // 视频开关处理 - 添加带宽警告
+  const handleVideoToggle = useCallback(() => {
+    if (!isVideoEnabled) {
+      // 开启视频前显示警告
+      Alert.alert(
+        "视频通话提示 / Video Call Notice",
+        "视频通话需要较高带宽，可能导致通话不稳定或中断。建议使用 WiFi 网络。\n\nVideo calls require high bandwidth and may cause unstable connections. WiFi is recommended.",
+        [
+          { text: "取消 / Cancel", style: "cancel" },
+          { text: "开启视频 / Enable", onPress: () => toggleVideo() }
+        ]
+      );
+    } else {
+      toggleVideo();
+    }
+  }, [isVideoEnabled, toggleVideo]);
 
   return (
     <View style={styles.container}>
@@ -65,8 +90,8 @@ const CallOverlay: React.FC = () => {
           {status === "connecting"
             ? `正在呼叫 / Calling ${session.peerEmail}`
             : status === "incoming"
-            ? `${session.peerEmail} 来电 / Incoming call`
-            : `通话中 / In call`}
+              ? `${session.peerEmail} 来电 / Incoming call`
+              : `通话中 / In call`}
         </Text>
         {!isAudioEnabled && (
           <View style={styles.mutedIndicator}>
@@ -115,7 +140,7 @@ const CallOverlay: React.FC = () => {
                 styles.controlButton,
                 !isVideoEnabled && styles.controlButtonDisabled
               ]}
-              onPress={toggleVideo}
+              onPress={handleVideoToggle}
             >
               <Text style={styles.controlButtonText}>
                 {isVideoEnabled ? "📹" : "🚫"}
@@ -142,6 +167,37 @@ const CallOverlay: React.FC = () => {
           </>
         )}
       </View>
+
+      {/* 翻译字幕显示 */}
+      {status === "in_call" && (
+        <>
+          <TranslationOverlay
+            subtitles={subtitles}
+            isVisible={translationEnabled}
+            language={translationLanguage}
+            onClear={clearSubtitles}
+          />
+
+          {/* 翻译提示信息 (未开启时显示) */}
+          {!translationEnabled && (
+            <View style={styles.translationHint}>
+              <Text style={styles.translationHintText}>
+                💡 点击下方"实时翻译"开关开启翻译字幕
+              </Text>
+            </View>
+          )}
+
+          {/* 翻译控制面板 */}
+          <View style={styles.translationControlContainer}>
+            <TranslationControl
+              isEnabled={translationEnabled}
+              onToggle={toggleTranslation}
+              targetLanguage={translationLanguage}
+              onLanguageChange={setTranslationLanguage}
+            />
+          </View>
+        </>
+      )}
 
       {/* 音频流隐藏处理 */}
       <View style={styles.audioAttachments}>
@@ -282,6 +338,29 @@ const styles = StyleSheet.create({
     height: 1,
     top: 0,
     left: 0
+  },
+  translationControlContainer: {
+    position: "absolute",
+    bottom: 100,
+    left: 0,
+    right: 0,
+    zIndex: 999
+  },
+  translationHint: {
+    position: "absolute",
+    bottom: 180,
+    left: 20,
+    right: 20,
+    backgroundColor: "rgba(59, 130, 246, 0.9)",
+    borderRadius: 12,
+    padding: 12,
+    zIndex: 998
+  },
+  translationHintText: {
+    color: "#fff",
+    fontSize: 14,
+    textAlign: "center",
+    fontWeight: "600"
   }
 });
 
