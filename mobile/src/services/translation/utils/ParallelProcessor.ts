@@ -3,7 +3,7 @@ import { MediaStream } from 'react-native-webrtc';
 import TranslationService from '../TranslationService';
 import AudioProcessor, { AudioChunk } from './AudioProcessor';
 import PerformanceMonitor from './PerformanceMonitor';
-import { SubtitleItem } from '../../../components/translation/TranslationOverlay';
+import { SubtitleItem } from '../../../store/useSubtitleStore';
 
 class ParallelProcessor {
   private isProcessing = false;
