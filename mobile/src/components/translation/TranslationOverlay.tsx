@@ -8,12 +8,7 @@ import {
   Dimensions
 } from 'react-native';
 
-export interface SubtitleItem {
-  id: string;
-  original: string;
-  translated: string;
-  timestamp: number;
-}
+import { SubtitleItem } from '../../store/useSubtitleStore';
 
 interface TranslationOverlayProps {
   subtitles: SubtitleItem[];

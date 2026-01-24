@@ -4,6 +4,7 @@ import { RTCView } from "react-native-webrtc";
 import { activateKeepAwake, deactivateKeepAwake } from "expo-keep-awake";
 
 import { useSignaling } from "../context/SignalingContext";
+import { useSubtitleStore } from "../store/useSubtitleStore";
 import TranslationOverlay from "./translation/TranslationOverlay";
 import TranslationControl from "./translation/TranslationControl";
 
@@ -28,11 +29,12 @@ const CallOverlay: React.FC = () => {
     networkQuality,
     translationEnabled,
     translationLanguage,
-    subtitles,
     toggleTranslation,
-    setTranslationLanguage,
-    clearSubtitles
+    setTranslationLanguage
   } = useSignaling();
+
+  const subtitles = useSubtitleStore((state) => state.subtitles);
+  const clearSubtitles = useSubtitleStore((state) => state.clearSubtitles);
 
   useEffect(() => {
     const tag = "call-overlay";
