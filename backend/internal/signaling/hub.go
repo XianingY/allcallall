@@ -238,6 +238,12 @@ func (h *Hub) removeClient(cl *client) {
 		delete(conns, cl)
 		if len(conns) == 0 {
 			delete(h.clients, cl.email)
+
+			// 联动：当用户所有信号连接断开时，清理其 WebRTC 媒体会话
+			// Linkage: Clean up media sessions if no active signaling connections remain
+			if h.mediaEngine != nil {
+				go h.mediaEngine.CloseUserSessions(cl.email)
+			}
 		}
 	}
 	close(cl.send)
