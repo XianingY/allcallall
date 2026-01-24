@@ -27,6 +27,8 @@ import {
   SignalingClient,
   SignalMessage
 } from "../api/signaling";
+import { PollingSignalingClient } from "../api/signalingPoll";
+import { RESTRICTED_NETWORK_MODE, SIGNALING_TRANSPORT_MODE } from "../config";
 import { fetchWebRTCConfig } from "../api/webrtc";
 import { useAuthContext } from "./AuthContext";
 import { useSettings } from "./SettingsContext";
@@ -50,6 +52,28 @@ interface RTCIceServer {
   username?: string;
   credential?: string;
 }
+
+const preferRestrictedIceServers = (servers: RTCIceServer[]) => {
+  if (!RESTRICTED_NETWORK_MODE) return servers;
+
+  const urlsOf = (srv: RTCIceServer) => (Array.isArray(srv.urls) ? srv.urls : [srv.urls]);
+  const scoreUrl = (url: string) => {
+    const lower = url.toLowerCase();
+    if (lower.startsWith("turns:")) {
+      if (lower.includes("transport=tcp")) return 0;
+      return 1;
+    }
+    if (lower.startsWith("turn:")) {
+      if (lower.includes("transport=tcp")) return 2;
+      return 3;
+    }
+    if (lower.startsWith("stun:")) return 4;
+    return 5;
+  };
+
+  const scoreServer = (srv: RTCIceServer) => Math.min(...urlsOf(srv).map(scoreUrl));
+  return [...servers].sort((a, b) => scoreServer(a) - scoreServer(b));
+};
 
 interface CallSession {
   callId: string;
@@ -179,7 +203,24 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const [translationLanguage, setTranslationLanguage] = useState<string>("zh");
   const processorRef = useRef<ParallelProcessor | null>(null);
 
-  const signalingRef = useRef<SignalingClient | null>(null);
+  type SignalingEvents = {
+    open: undefined;
+    close: { code: number; reason?: string };
+    message: SignalMessage;
+    error: Error;
+  };
+
+  interface SignalingTransport {
+    connect: () => void;
+    disconnect: () => void;
+    on<T extends keyof SignalingEvents>(
+      event: T,
+      handler: (value: SignalingEvents[T]) => void
+    ): void;
+    send: (message: SignalMessage) => boolean;
+  }
+
+  const signalingRef = useRef<SignalingTransport | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const sessionRef = useRef<CallSession | null>(null);
   const statusRef = useRef<CallStatus>("idle");
@@ -223,7 +264,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         const config = await fetchWebRTCConfig(token);
         const servers = Array.isArray(config.ice_servers) ? config.ice_servers : [];
         if (!cancelled && servers.length) {
-          setIceServers(servers as RTCIceServer[]);
+          setIceServers(preferRestrictedIceServers(servers as RTCIceServer[]));
         } else if (!cancelled) {
           setIceServers(DEFAULT_ICE_SERVERS);
         }
@@ -497,11 +538,14 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       return;
     }
     const client = new SignalingClient(token);
-    signalingRef.current = client;
-    client.connect();
-    client.on("open", () => setConnectionReady(true));
-    client.on("close", () => { setConnectionReady(false); resetCallState(); });
-    client.on("message", async (msg: SignalMessage) => {
+    const pollingClient = new PollingSignalingClient(token);
+    const transport: SignalingTransport =
+      SIGNALING_TRANSPORT_MODE === "poll" ? pollingClient : client;
+    signalingRef.current = transport;
+    transport.connect();
+    transport.on("open", () => setConnectionReady(true));
+    transport.on("close", () => { setConnectionReady(false); resetCallState(); });
+    transport.on("message", async (msg: SignalMessage) => {
       switch (msg.type) {
         case "call.invite.ack":
           if (pendingTarget.current) {
@@ -564,7 +608,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           break;
       }
     });
-    return () => { client.disconnect(); signalingRef.current = null; };
+    return () => { transport.disconnect(); signalingRef.current = null; };
   }, [resetCallState, sendMessage, token]);
 
   const startCall = useCallback(async (email: string) => {

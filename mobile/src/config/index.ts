@@ -40,6 +40,27 @@ const getApiConfig = () => {
 // API Configuration
 const API_CONFIG = getApiConfig();
 
+const getEnv = (key: string): string | undefined => {
+  const value = process.env[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+};
+
+const normalizeTls = (value: string, scheme: "http" | "ws") => {
+  if (scheme === "http") return value.replace(/^http:\/\//, "https://");
+  return value.replace(/^ws:\/\//, "wss://");
+};
+
+const envHttp = getEnv("EXPO_PUBLIC_API_HTTP");
+const envWs = getEnv("EXPO_PUBLIC_API_WS");
+const forceTls = getEnv("EXPO_PUBLIC_FORCE_TLS") === "1";
+
+const httpBase = forceTls
+  ? normalizeTls(envHttp ?? API_CONFIG.HTTP, "http")
+  : envHttp ?? API_CONFIG.HTTP;
+const wsBase = forceTls
+  ? normalizeTls(envWs ?? API_CONFIG.WS, "ws")
+  : envWs ?? API_CONFIG.WS;
+
 // 环境信息日志
 // Environment information logging
 const getEnvDisplayName = () => {
@@ -78,9 +99,13 @@ console.log('='.repeat(50));
 export const API_HOST = API_CONFIG.HTTP;
 export const WS_HOST = API_CONFIG.WS;
 
-export const API_BASE_URL = `${API_HOST}/api/v1`;
-export const WS_URL = `${API_CONFIG.WS}/api/v1/ws`;
+export const API_BASE_URL = `${httpBase}/api/v1`;
+export const WS_URL = `${wsBase}/api/v1/ws`;
 export const REQUEST_TIMEOUT = 15_000; // 15秒超时，给邮件发送更多时间
+
+export const RESTRICTED_NETWORK_MODE = getEnv("EXPO_PUBLIC_RESTRICTED_NETWORK") === "1";
+export const SIGNALING_TRANSPORT_MODE = getEnv("EXPO_PUBLIC_SIGNALING_TRANSPORT") ?? "auto";
+export const SIGNALING_SHAPING_ENABLED = getEnv("EXPO_PUBLIC_SIGNALING_SHAPING") === "1";
 
 // 环境信息导出
 // Environment information exports
