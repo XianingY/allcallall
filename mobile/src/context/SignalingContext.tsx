@@ -177,6 +177,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const pendingTarget = useRef<string | null>(null);
   const pendingLocalCandidates = useRef<IceCandidatePayload[]>([]);
   const pendingRemoteCandidates = useRef<IceCandidatePayload[]>([]);
+  const subtitlesDataChannelRef = useRef<any | null>(null);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -309,6 +310,15 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       peerRef.current = null;
     }
 
+    if (subtitlesDataChannelRef.current) {
+      try {
+        subtitlesDataChannelRef.current.close();
+      } catch (e) {
+        // ignore
+      }
+      subtitlesDataChannelRef.current = null;
+    }
+
     if (localStream) {
       localStream.getTracks().forEach((track) => track.stop());
     }
@@ -319,6 +329,43 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     setLocalStream(null);
     setRemoteStream(null);
   }, [localStream, remoteStream]);
+
+  const attachSubtitlesDataChannel = useCallback((dc: any) => {
+    if (!dc) return;
+    subtitlesDataChannelRef.current = dc;
+
+    dc.onopen = () => {
+      console.log('[SubtitlesDataChannel] open');
+    };
+    dc.onclose = () => {
+      console.log('[SubtitlesDataChannel] close');
+      if (subtitlesDataChannelRef.current === dc) {
+        subtitlesDataChannelRef.current = null;
+      }
+    };
+    dc.onerror = (err: any) => {
+      console.warn('[SubtitlesDataChannel] error', err);
+    };
+    dc.onmessage = (event: any) => {
+      try {
+        const parsed = JSON.parse(String(event?.data ?? ''));
+        if (!parsed || parsed.t !== 'subtitle') {
+          return;
+        }
+
+        const ts = typeof parsed.timestampMs === 'number' ? parsed.timestampMs : Date.now();
+        const subtitle: SubtitleItem = {
+          id: `subtitle-${ts}`,
+          original: typeof parsed.originalText === 'string' ? parsed.originalText : '',
+          translated: typeof parsed.translatedText === 'string' ? parsed.translatedText : '',
+          timestamp: ts,
+        };
+        setSubtitles((prev) => [...prev.slice(-9), subtitle]);
+      } catch (e) {
+        console.warn('[SubtitlesDataChannel] failed to parse message', e);
+      }
+    };
+  }, []);
 
   const resetCallState = useCallback(() => {
     pendingTarget.current = null;
@@ -451,6 +498,15 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     };
 
+    // Subtitles over DataChannel (peer-to-peer).
+    (pc as any).ondatachannel = (event: any) => {
+      const dc = event?.channel;
+      console.log('[PeerConnection] ondatachannel', dc?.label);
+      if (dc && dc.label === 'subtitles') {
+        attachSubtitlesDataChannel(dc);
+      }
+    };
+
     (pc as any).onconnectionstatechange = () => {
       const state = pc.connectionState;
       console.log("[PeerConnection] Connection state changed:", state);
@@ -479,7 +535,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
     peerRef.current = pc;
     return pc;
-  }, [iceServers, resetCallState, sendMessage]);
+  }, [attachSubtitlesDataChannel, iceServers, resetCallState, sendMessage]);
 
   useEffect(() => {
     if (!token) {
@@ -712,6 +768,20 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
         console.log("[startCall] Creating peer connection...");
         const pc = createPeerConnection();
+
+        // Create subtitles DataChannel on the offerer before creating offer.
+        try {
+          const dc = (pc as any).createDataChannel?.('subtitles', {
+            ordered: true,
+          });
+          if (dc) {
+            console.log('[startCall] Subtitles DataChannel created');
+            attachSubtitlesDataChannel(dc);
+          }
+        } catch (e) {
+          console.warn('[startCall] Failed to create subtitles DataChannel', e);
+        }
+
         stream.getTracks().forEach((track) => {
           console.log("[startCall] Adding track:", track.kind);
           pc.addTrack(track, stream);
@@ -752,7 +822,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         setStatus("idle");
       }
     },
-    [createPeerConnection, resetPeerResources, sendMessage, status, user, settings]
+    [attachSubtitlesDataChannel, createPeerConnection, resetPeerResources, sendMessage, status, user, settings]
   );
 
   const acceptCall = useCallback(async () => {
@@ -998,24 +1068,16 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           });
         }
 
-        // 如果有活动的音频流，开始处理
-        if (localStream && status === "in_call") {
-          const processor = new ParallelProcessor();
-          processorRef.current = processor;
-
-          await processor.processAudioStream(
-            localStream,
-            (subtitle) => {
-              setSubtitles(prev => [...prev.slice(-9), subtitle]); // 只保留最后10条
-            },
-            translationLanguage
-          );
-        }
-
         setTranslationEnabled(true);
       } else {
         // 禁用翻译
         console.log("[toggleTranslation] Disabling translation");
+
+        try {
+          await TranslationService.stopWebRTCCallMicTranslation();
+        } catch (e) {
+          console.warn('[toggleTranslation] stopWebRTCCallMicTranslation failed:', e);
+        }
 
         if (processorRef.current) {
           processorRef.current.stopProcessing();
@@ -1029,7 +1091,56 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       console.error("[toggleTranslation] Error:", error);
       Alert.alert("错误 / Error", `翻译功能开关失败 / Failed to toggle translation: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [localStream, translationLanguage, status]);
+  }, [translationLanguage]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const start = async () => {
+      if (!translationEnabled) return;
+      if (status !== 'in_call') return;
+      if (!TranslationService.isReady()) return;
+
+      const currentSession = sessionRef.current;
+      if (!currentSession?.peerEmail) return;
+
+      try {
+        await TranslationService.startWebRTCCallMicTranslation(
+          translationLanguage,
+          (result) => {
+            if (cancelled) return;
+
+            const dc = subtitlesDataChannelRef.current;
+            if (!dc || dc.readyState !== 'open') {
+              // Privacy-first: do not fall back to signaling here.
+              console.warn('[translation] subtitles DataChannel not open; dropping subtitle');
+              return;
+            }
+
+            dc.send(
+              JSON.stringify({
+                t: 'subtitle',
+                originalText: result.originalText,
+                translatedText: result.translatedText,
+                timestampMs: result.timestampMs,
+              })
+            );
+          }
+        );
+      } catch (e) {
+        console.error('[translation] startWebRTCCallMicTranslation failed:', e);
+      }
+    };
+
+    start();
+
+    return () => {
+      cancelled = true;
+      if (translationEnabled) {
+        TranslationService.stopWebRTCCallMicTranslation().catch(() => undefined);
+      }
+    };
+  }, [translationEnabled, status, translationLanguage]);
 
   const handleSetTranslationLanguage = useCallback((language: string) => {
     setTranslationLanguage(language);
