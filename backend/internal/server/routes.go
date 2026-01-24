@@ -15,6 +15,7 @@ type RouteDependencies struct {
 	EmailHandler     *handlers.EmailHandler
 	UserHandler      *handlers.UserHandler
 	SignalingHandler *handlers.SignalingHandler
+	SignalingPoll    *handlers.SignalingPollHandler
 	WebRTCHandler    *handlers.WebRTCHandler
 	AuthMiddleware   gin.HandlerFunc
 }
@@ -41,6 +42,9 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 		userGroup := protected.Group("/users")
 		deps.UserHandler.RegisterRoutes(userGroup)
 		protected.GET("/ws", deps.SignalingHandler.Handle)
+		if deps.SignalingPoll != nil {
+			deps.SignalingPoll.RegisterRoutes(protected)
+		}
 		if deps.WebRTCHandler != nil {
 			deps.WebRTCHandler.RegisterRoutes(protected)
 		}

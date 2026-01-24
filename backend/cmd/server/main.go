@@ -143,12 +143,14 @@ func main() {
 	signalingHub.WithMediaEngine(mediaEngine)
 
 	signalingHandler := handlers.NewSignalingHandler(appLogger, signalingHub)
+	signalingPollHandler := handlers.NewSignalingPollHandler(appLogger, signalingHub)
 
 	server.RegisterRoutes(engine, server.RouteDependencies{
 		AuthHandler:      authHandler,
 		EmailHandler:     emailHandler,
 		UserHandler:      userHandler,
 		SignalingHandler: signalingHandler,
+		SignalingPoll:    signalingPollHandler,
 		WebRTCHandler:    webrtcHandler,
 		AuthMiddleware:   auth.Middleware(jwtManager),
 	})
