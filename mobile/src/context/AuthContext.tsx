@@ -9,7 +9,6 @@ import React, {
 import * as Keychain from "react-native-keychain";
 
 import * as authApi from "../api/auth";
-import * as usersApi from "../api/users";
 import { User } from "../api/users";
 import PushNotificationService from "../services/PushNotificationService";
 
@@ -42,12 +41,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     loading: true
   });
 
+  const authPrompt = useMemo<Keychain.AuthenticationPrompt>(
+    () => ({
+      title: "Unlock AllCallAll",
+      cancel: "Cancel"
+    }),
+    []
+  );
+
   const bootstrap = useCallback(async () => {
     try {
       // 从安全存储中读取 token 和 user 数据
       // Read token and user data from secure storage
       const credentials = await Keychain.getGenericPassword({
-        service: KEYCHAIN_SERVICE
+        service: KEYCHAIN_SERVICE,
+        authenticationPrompt: authPrompt
       });
 
       if (!credentials) {
@@ -55,11 +63,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         return;
       }
 
-      // username = 'user_session', password = JSON(token + user)
-      const parsed = JSON.parse(credentials.password) as {
-        token: string;
-        user: User;
-      };
+      let parsed: { token: string; user: User };
+      try {
+        parsed = JSON.parse(credentials.password) as { token: string; user: User };
+      } catch {
+        await Keychain.resetGenericPassword({ service: KEYCHAIN_SERVICE });
+        setState((current) => ({ ...current, loading: false }));
+        return;
+      }
+
       setState({
         token: parsed.token,
         user: parsed.user,
@@ -69,7 +81,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       console.warn("Failed to load auth state from secure storage", error);
       setState((current) => ({ ...current, loading: false }));
     }
-  }, []);
+  }, [authPrompt]);
 
   useEffect(() => {
     bootstrap();
@@ -80,15 +92,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     // 存储到安全存储（支持生物识别）
     // Store to secure storage (with biometric protection)
-    await Keychain.setGenericPassword(
-      "user_session",
-      JSON.stringify({ token, user }),
-      {
-        service: KEYCHAIN_SERVICE,
-        accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-        securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE
+    const secret = JSON.stringify({ token, user });
+    const baseOptions: Keychain.SetOptions = {
+      service: KEYCHAIN_SERVICE,
+      accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+      securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE
+    };
+
+    try {
+      const biometryType = await Keychain.getSupportedBiometryType();
+      if (biometryType) {
+        await Keychain.setGenericPassword("user_session", secret, {
+          ...baseOptions,
+          accessControl: Keychain.ACCESS_CONTROL.BIOMETRY_ANY_OR_DEVICE_PASSCODE,
+          storage: Keychain.STORAGE_TYPE.AES_GCM
+        });
+        return;
       }
-    );
+    } catch (error) {
+      console.warn(
+        "[AuthContext] Failed to enable biometric keychain storage; falling back",
+        error
+      );
+    }
+
+    await Keychain.setGenericPassword("user_session", secret, baseOptions);
   }, []);
 
   const clearState = useCallback(async () => {
