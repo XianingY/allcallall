@@ -7,6 +7,15 @@ export type SessionDescriptionPayload = {
   sdp: string;
 };
 
+export type SdpRenegotiationPayload = SessionDescriptionPayload & {
+  iceEpoch?: number;
+};
+
+export type MediaUpdatePayload = {
+  audioEnabled: boolean;
+  videoEnabled: boolean;
+};
+
 export type SignalMessageType =
   | "call.invite"
   | "call.invite.ack"
@@ -14,6 +23,10 @@ export type SignalMessageType =
   | "call.reject"
   | "call.end"
   | "ice.candidate"
+  | "call.sdp.offer"
+  | "call.sdp.answer"
+  | "call.ice-restart.request"
+  | "call.media_update"
   | "call.error";
 
 export interface SignalMessage {
@@ -21,7 +34,12 @@ export interface SignalMessage {
   call_id?: string;
   to: string;
   from?: string;
-  payload?: Record<string, unknown> | RTCIceCandidateInit | SessionDescriptionPayload | null;
+  payload?:
+    | Record<string, unknown>
+    | RTCIceCandidateInit
+    | SdpRenegotiationPayload
+    | MediaUpdatePayload
+    | null;
 }
 
 type Events = {

@@ -17,10 +17,16 @@ import {
   RTCPeerConnection,
   RTCIceCandidate,
   RTCSessionDescription,
-  mediaDevices as webrtcMediaDevices
+  mediaDevices as webrtcMediaDevices,
+  type RTCRtpTransceiver
 } from "react-native-webrtc";
 
-import { SignalingClient, SignalMessage } from "../api/signaling";
+import {
+  MediaUpdatePayload,
+  SdpRenegotiationPayload,
+  SignalingClient,
+  SignalMessage
+} from "../api/signaling";
 import { fetchWebRTCConfig } from "../api/webrtc";
 import { useAuthContext } from "./AuthContext";
 import { useSettings } from "./SettingsContext";
@@ -36,7 +42,7 @@ type CallDirection = "incoming" | "outgoing";
 
 type SessionDescriptionPayload = RTCSessionDescriptionInit;
 
-type IceCandidatePayload = RTCIceCandidateInit;
+type IceCandidatePayload = RTCIceCandidateInit & { iceEpoch?: number };
 
 // RTCIceServer 类型定义
 interface RTCIceServer {
@@ -54,15 +60,20 @@ interface CallSession {
 
 type CallStatus = "idle" | "connecting" | "incoming" | "in_call";
 
+export type NetworkQuality = "excellent" | "good" | "poor" | "bad" | "unknown";
+
 interface SignalingContextValue {
   status: CallStatus;
   session: CallSession | null;
   connectionReady: boolean;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
+  networkQuality: NetworkQuality;
   // 视频通话相关状态
   isVideoEnabled: boolean;
   isAudioEnabled: boolean;
+  isRemoteVideoEnabled: boolean;
+  isRemoteAudioEnabled: boolean;
   cameraFacing: CameraFacing;
   // 翻译功能相关状态
   translationEnabled: boolean;
@@ -77,6 +88,14 @@ interface SignalingContextValue {
   toggleVideo: () => Promise<void>;
   toggleAudio: () => void;
   switchCamera: () => Promise<void>;
+  toggleSpeaker: () => Promise<void>;
+  isSpeakerOn: boolean;
+
+  // Video bitrate/quality controls
+  videoQuality: VideoQuality;
+  setVideoQuality: (quality: VideoQuality) => void;
+  videoMaxBitrateKbps: number;
+  setVideoMaxBitrateKbps: (kbps: number) => void;
   // 翻译控制函数
   toggleTranslation: (enabled: boolean) => Promise<void>;
   setTranslationLanguage: (language: string) => void;
@@ -127,6 +146,12 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   }
 ];
 
+const VIDEO_QUALITY_PRESETS: Record<VideoQuality, { width: number; height: number; frameRate: number }> = {
+  low: { width: 320, height: 240, frameRate: 15 },
+  medium: { width: 640, height: 480, frameRate: 24 },
+  high: { width: 1280, height: 720, frameRate: 30 }
+};
+
 const isSessionDescriptionPayload = (
   value: unknown
 ): value is SessionDescriptionPayload => {
@@ -163,7 +188,15 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   // 视频通话状态
   const [isVideoEnabled, setIsVideoEnabled] = useState<boolean>(false);
   const [isAudioEnabled, setIsAudioEnabled] = useState<boolean>(true);
+  const [isRemoteVideoEnabled, setIsRemoteVideoEnabled] = useState<boolean>(true);
+  const [isRemoteAudioEnabled, setIsRemoteAudioEnabled] = useState<boolean>(true);
   const [cameraFacing, setCameraFacing] = useState<CameraFacing>("front");
+  const [isSpeakerOn, setIsSpeakerOn] = useState<boolean>(false);
+  const [networkQuality, setNetworkQuality] = useState<NetworkQuality>("unknown");
+
+  const [videoQuality, setVideoQuality] = useState<VideoQuality>("medium");
+  const [videoMaxBitrateKbps, setVideoMaxBitrateKbps] = useState<number>(900);
+  const videoAdaptiveBitrateEnabledRef = useRef<boolean>(false);
 
   // 翻译功能状态
   const [translationEnabled, setTranslationEnabled] = useState<boolean>(false);
@@ -174,14 +207,48 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const signalingRef = useRef<SignalingClient | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const sessionRef = useRef<CallSession | null>(null);
+  const statusRef = useRef<CallStatus>("idle");
+  const isAudioEnabledRef = useRef<boolean>(true);
+  const isVideoEnabledRef = useRef<boolean>(false);
+  const videoMaxBitrateKbpsRef = useRef<number>(900);
   const pendingTarget = useRef<string | null>(null);
   const pendingLocalCandidates = useRef<IceCandidatePayload[]>([]);
   const pendingRemoteCandidates = useRef<IceCandidatePayload[]>([]);
   const subtitlesDataChannelRef = useRef<any | null>(null);
 
+  const iceEpochRef = useRef<number>(0);
+  const iceRestartAttemptsRef = useRef<number>(0);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disconnectDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const remoteVideoLastBytesRef = useRef<number | null>(null);
+  const remoteVideoStallCountRef = useRef<number>(0);
+  const remoteVideoLastRestartAtMsRef = useRef<number>(0);
+
+  useEffect(() => {
+    // Sync initial speaker state
+    setIsSpeakerOn(AudioService.getSpeakerphone());
+  }, []);
+
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  useEffect(() => {
+    isAudioEnabledRef.current = isAudioEnabled;
+  }, [isAudioEnabled]);
+
+  useEffect(() => {
+    isVideoEnabledRef.current = isVideoEnabled;
+  }, [isVideoEnabled]);
+
+  useEffect(() => {
+    videoMaxBitrateKbpsRef.current = videoMaxBitrateKbps;
+  }, [videoMaxBitrateKbps]);
 
   useEffect(() => {
     let cancelled = false;
@@ -302,6 +369,21 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     pendingLocalCandidates.current = [];
     pendingRemoteCandidates.current = [];
 
+    iceEpochRef.current = 0;
+    iceRestartAttemptsRef.current = 0;
+
+    remoteVideoLastBytesRef.current = null;
+    remoteVideoStallCountRef.current = 0;
+    remoteVideoLastRestartAtMsRef.current = 0;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    if (disconnectDeadlineRef.current) {
+      clearTimeout(disconnectDeadlineRef.current);
+      disconnectDeadlineRef.current = null;
+    }
+
     if (peerRef.current) {
       (peerRef.current as any).onicecandidate = null;
       (peerRef.current as any).ontrack = null;
@@ -328,6 +410,9 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
     setLocalStream(null);
     setRemoteStream(null);
+
+    setIsRemoteVideoEnabled(true);
+    setIsRemoteAudioEnabled(true);
   }, [localStream, remoteStream]);
 
   const attachSubtitlesDataChannel = useCallback((dc: any) => {
@@ -403,7 +488,314 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
+  const sendMediaUpdate = useCallback(
+    (callId: string, peerEmail: string, update: MediaUpdatePayload) => {
+      sendMessage({
+        type: "call.media_update",
+        call_id: callId,
+        to: peerEmail,
+        payload: update
+      });
+    },
+    [sendMessage]
+  );
+
+  const setVideoSenderMaxBitrate = useCallback(async (kbps: number) => {
+    const pc = peerRef.current;
+    if (!pc) return;
+
+    const senders = pc.getSenders();
+    const sender = senders.find((s: any) => s?.track?.kind === "video");
+    if (!sender) return;
+
+    try {
+      const params = sender.getParameters();
+      if (!params.encodings || params.encodings.length === 0) {
+        params.encodings = [{ active: true }];
+      }
+      params.encodings[0].maxBitrate = kbps * 1000;
+      await sender.setParameters(params);
+    } catch (e) {
+      console.warn("[webrtc] Failed to set video sender maxBitrate", e);
+    }
+  }, []);
+
+  const applyCurrentVideoBitrate = useCallback(async () => {
+    const kbps = videoMaxBitrateKbpsRef.current;
+    if (kbps <= 0) return;
+    await setVideoSenderMaxBitrate(kbps);
+  }, [setVideoSenderMaxBitrate]);
+
+  useEffect(() => {
+    const clampKbps = (kbps: number) => {
+      if (!Number.isFinite(kbps)) return 900;
+      return Math.max(100, Math.min(2500, Math.trunc(kbps)));
+    };
+
+    if (settings?.videoQuality) {
+      setVideoQuality(settings.videoQuality);
+    }
+    if (typeof settings?.videoMaxBitrateKbps === "number") {
+      const kbps = clampKbps(settings.videoMaxBitrateKbps);
+      setVideoMaxBitrateKbps(kbps);
+      if (statusRef.current === "in_call" && isVideoEnabledRef.current) {
+        applyCurrentVideoBitrate();
+      }
+    }
+    videoAdaptiveBitrateEnabledRef.current =
+      typeof settings?.videoAdaptiveBitrateEnabled === "boolean"
+        ? settings.videoAdaptiveBitrateEnabled
+        : false;
+  }, [applyCurrentVideoBitrate, settings]);
+
+  const requestIceRestart = useCallback(
+    (callId: string, peerEmail: string, reason: string) => {
+      sendMessage({
+        type: "call.ice-restart.request",
+        call_id: callId,
+        to: peerEmail,
+        payload: { reason, iceEpoch: iceEpochRef.current }
+      });
+    },
+    [sendMessage]
+  );
+
+  const startIceRestartAsCaller = useCallback(async () => {
+    const current = sessionRef.current;
+    const pc = peerRef.current;
+    if (!current || !pc) return;
+    if (current.direction !== "outgoing") return;
+
+    if (iceRestartAttemptsRef.current >= 2) {
+      console.warn("[webrtc] ICE restart attempt limit reached");
+      return;
+    }
+
+    iceRestartAttemptsRef.current += 1;
+    iceEpochRef.current += 1;
+    pendingRemoteCandidates.current = [];
+
+    try {
+      const offer = await pc.createOffer({ iceRestart: true } as any);
+      await pc.setLocalDescription(offer);
+      sendMessage({
+        type: "call.sdp.offer",
+        call_id: current.callId,
+        to: current.peerEmail,
+        payload: { sdp: offer.sdp, type: offer.type, iceEpoch: iceEpochRef.current } as SdpRenegotiationPayload
+      });
+    } catch (e) {
+      console.error("[webrtc] ICE restart failed", e);
+    }
+  }, [sendMessage]);
+
+  useEffect(() => {
+    if (status !== "in_call") {
+      return;
+    }
+
+    const pc = peerRef.current;
+    if (!pc) {
+      return;
+    }
+
+    let cancelled = false;
+    let lastAppliedKbps: number | null = null;
+
+    const clampKbps = (kbps: number) => {
+      if (!Number.isFinite(kbps)) return 900;
+      return Math.max(100, Math.min(2500, Math.trunc(kbps)));
+    };
+
+    const timer = setInterval(async () => {
+      if (cancelled) return;
+      if (statusRef.current !== "in_call") return;
+      if (!isVideoEnabledRef.current) return;
+      if (!videoAdaptiveBitrateEnabledRef.current) return;
+
+        try {
+        const report = await pc.getStats();
+        let availableOutgoingBitrateBps: number | null = null;
+        let currentRtt: number | null = null;
+
+        report.forEach((stat: unknown) => {
+          const s = stat as Record<string, unknown>;
+          const type = typeof s.type === "string" ? s.type : "";
+          if (type !== "candidate-pair") return;
+
+          const selected =
+            typeof s.selected === "boolean"
+              ? s.selected
+              : typeof s.nominated === "boolean"
+                ? s.nominated
+                : false;
+          if (!selected) return;
+
+          // 获取可用带宽
+          const raw = s.availableOutgoingBitrate;
+          const bps =
+            typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
+          if (Number.isFinite(bps) && bps > 0) {
+            availableOutgoingBitrateBps = bps;
+          }
+
+          // 获取 RTT
+          const rttRaw = s.currentRoundTripTime;
+          const rtt = typeof rttRaw === "number" ? rttRaw : typeof rttRaw === "string" ? Number(rttRaw) : NaN;
+          if (Number.isFinite(rtt)) {
+             currentRtt = rtt;
+          }
+        });
+
+        // 计算网络质量
+        let quality: NetworkQuality = "unknown";
+        if (currentRtt !== null) {
+          // RTT thresholds: <0.1s excellent, <0.3s good, <0.5s poor, >=0.5s bad
+          if (currentRtt < 0.1) quality = "excellent";
+          else if (currentRtt < 0.3) quality = "good";
+          else if (currentRtt < 0.5) quality = "poor";
+          else quality = "bad";
+        }
+        setNetworkQuality(quality);
+
+        if (!availableOutgoingBitrateBps) {
+          return;
+        }
+
+        const userMaxKbps = clampKbps(videoMaxBitrateKbpsRef.current);
+        const targetKbps = clampKbps(Math.min(userMaxKbps, (availableOutgoingBitrateBps * 0.85) / 1000));
+
+        if (lastAppliedKbps !== null) {
+          const delta = Math.abs(targetKbps - lastAppliedKbps) / Math.max(1, lastAppliedKbps);
+          if (delta < 0.1) {
+            return;
+          }
+        }
+
+        lastAppliedKbps = targetKbps;
+        await setVideoSenderMaxBitrate(targetKbps);
+      } catch (e) {
+        console.warn("[webrtc] adaptive bitrate polling failed", e);
+      }
+    }, 4000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [setVideoSenderMaxBitrate, status]);
+
+  useEffect(() => {
+    if (status !== "in_call") {
+      remoteVideoLastBytesRef.current = null;
+      remoteVideoStallCountRef.current = 0;
+      remoteVideoLastRestartAtMsRef.current = 0;
+      return;
+    }
+
+    const pc = peerRef.current;
+    if (!pc) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const timer = setInterval(async () => {
+      if (cancelled) return;
+      if (statusRef.current !== "in_call") return;
+
+      const current = sessionRef.current;
+      if (!current?.callId) return;
+      if (!isRemoteVideoEnabled) {
+        remoteVideoLastBytesRef.current = null;
+        remoteVideoStallCountRef.current = 0;
+        return;
+      }
+
+      const hasRemoteVideoTrack = (remoteStream?.getVideoTracks().length ?? 0) > 0;
+      if (!hasRemoteVideoTrack) {
+        remoteVideoLastBytesRef.current = null;
+        remoteVideoStallCountRef.current = 0;
+        return;
+      }
+
+      try {
+        const report = await pc.getStats();
+        let maxBytesReceived = 0;
+        report.forEach((stat: unknown) => {
+          const s = stat as unknown as Record<string, unknown>;
+          const type = typeof s.type === "string" ? s.type : "";
+          if (type !== "inbound-rtp") return;
+
+          const kind = typeof s.kind === "string" ? s.kind : undefined;
+          const mediaType = typeof s.mediaType === "string" ? s.mediaType : undefined;
+          const isVideo = kind === "video" || mediaType === "video";
+          if (!isVideo) return;
+
+          const bytesReceivedRaw = s.bytesReceived;
+          const bytesReceived =
+            typeof bytesReceivedRaw === "number"
+              ? bytesReceivedRaw
+              : typeof bytesReceivedRaw === "string"
+                ? Number(bytesReceivedRaw)
+                : 0;
+          if (Number.isFinite(bytesReceived)) {
+            maxBytesReceived = Math.max(maxBytesReceived, bytesReceived);
+          }
+        });
+
+        if (maxBytesReceived <= 0) {
+          return;
+        }
+
+        const last = remoteVideoLastBytesRef.current;
+        if (last === null) {
+          remoteVideoLastBytesRef.current = maxBytesReceived;
+          remoteVideoStallCountRef.current = 0;
+          return;
+        }
+
+        if (maxBytesReceived > last) {
+          remoteVideoLastBytesRef.current = maxBytesReceived;
+          remoteVideoStallCountRef.current = 0;
+          return;
+        }
+
+        remoteVideoStallCountRef.current += 1;
+        if (remoteVideoStallCountRef.current < 3) {
+          return;
+        }
+        remoteVideoStallCountRef.current = 0;
+
+        const now = Date.now();
+        if (now - remoteVideoLastRestartAtMsRef.current < 15000) {
+          return;
+        }
+        remoteVideoLastRestartAtMsRef.current = now;
+
+        console.warn("[webrtc] Remote video appears frozen; triggering ICE restart");
+        if (current.direction === "outgoing") {
+          startIceRestartAsCaller();
+        } else {
+          requestIceRestart(current.callId, current.peerEmail, "remote_video_frozen");
+        }
+      } catch (e) {
+        console.warn("[webrtc] getStats polling failed", e);
+      }
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [isRemoteVideoEnabled, remoteStream, requestIceRestart, startIceRestartAsCaller, status]);
+
   const enqueueRemoteCandidate = useCallback((candidate: IceCandidatePayload) => {
+    const expectedEpoch = iceEpochRef.current;
+    const candidateEpoch = typeof candidate.iceEpoch === "number" ? candidate.iceEpoch : 0;
+    if (candidateEpoch !== expectedEpoch) {
+      return;
+    }
     const alreadyQueued = pendingRemoteCandidates.current.some(
       (item) =>
         item.candidate === candidate.candidate &&
@@ -441,7 +833,12 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     }
     const items = [...pendingRemoteCandidates.current];
     pendingRemoteCandidates.current = [];
+    const expectedEpoch = iceEpochRef.current;
     for (const candidate of items) {
+      const candidateEpoch = typeof candidate.iceEpoch === "number" ? candidate.iceEpoch : 0;
+      if (candidateEpoch !== expectedEpoch) {
+        continue;
+      }
       try {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
       } catch (error) {
@@ -466,7 +863,8 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       const candidateInit: IceCandidatePayload = {
         candidate: event.candidate.candidate,
         sdpMid: event.candidate.sdpMid ?? undefined,
-        sdpMLineIndex: event.candidate.sdpMLineIndex ?? undefined
+        sdpMLineIndex: event.candidate.sdpMLineIndex ?? undefined,
+        iceEpoch: iceEpochRef.current
       };
       const current = sessionRef.current;
       if (current?.callId) {
@@ -483,7 +881,21 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
     // 添加 ICE 连接状态监控
     (pc as any).oniceconnectionstatechange = () => {
-      console.log("[PeerConnection] ICE connection state:", pc.iceConnectionState);
+      const iceState = pc.iceConnectionState;
+      console.log("[PeerConnection] ICE connection state:", iceState);
+
+      const current = sessionRef.current;
+      if (!current || statusRef.current !== "in_call") {
+        return;
+      }
+
+      if (iceState === "failed") {
+        if (current.direction === "outgoing") {
+          startIceRestartAsCaller();
+        } else {
+          requestIceRestart(current.callId, current.peerEmail, "ice_failed");
+        }
+      }
     };
 
     // 添加 ICE gathering 状态监控
@@ -495,6 +907,20 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       const [stream] = event.streams;
       if (stream) {
         setRemoteStream(stream);
+
+        stream.getTracks().forEach((track: any) => {
+          track.onmute = () => {
+            if (track.kind === "video") setIsRemoteVideoEnabled(false);
+            if (track.kind === "audio") setIsRemoteAudioEnabled(false);
+          };
+          track.onunmute = () => {
+            if (track.kind === "video") setIsRemoteVideoEnabled(true);
+            if (track.kind === "audio") setIsRemoteAudioEnabled(true);
+          };
+
+          if (track.kind === "video") setIsRemoteVideoEnabled(track.enabled && !track.muted);
+          if (track.kind === "audio") setIsRemoteAudioEnabled(track.enabled && !track.muted);
+        });
       }
     };
 
@@ -512,24 +938,51 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       console.log("[PeerConnection] Connection state changed:", state);
 
       if (state === "failed" || state === "closed") {
-        // 这两个状态是不可恢复的，立即结束通话
-        console.log("[PeerConnection] Connection failed or closed, ending call");
-        resetCallState();
-      } else if (state === "disconnected") {
-        // disconnected 是临时状态，可能会恢复
-        // 等待 5 秒，如果还是 disconnected 或变成 failed 才结束
-        console.log("[PeerConnection] Connection disconnected, waiting for recovery...");
-        setTimeout(() => {
-          const currentState = pc.connectionState;
-          if (currentState === "disconnected" || currentState === "failed") {
-            console.log("[PeerConnection] Connection did not recover after 5s, ending call");
-            resetCallState();
+        const current = sessionRef.current;
+        if (current && statusRef.current === "in_call") {
+          if (current.direction === "outgoing") {
+            startIceRestartAsCaller();
           } else {
-            console.log("[PeerConnection] Connection recovered to:", currentState);
+            requestIceRestart(current.callId, current.peerEmail, "connection_failed");
           }
-        }, 5000);
+          if (disconnectDeadlineRef.current) clearTimeout(disconnectDeadlineRef.current);
+          disconnectDeadlineRef.current = setTimeout(() => {
+            resetCallState();
+          }, 10000);
+        } else {
+          console.log("[PeerConnection] Connection failed or closed, ending call");
+          resetCallState();
+        }
+      } else if (state === "disconnected") {
+        const current = sessionRef.current;
+        if (current && statusRef.current === "in_call") {
+          if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+          restartTimerRef.current = setTimeout(() => {
+            if (current.direction === "outgoing") {
+              startIceRestartAsCaller();
+            } else {
+              requestIceRestart(current.callId, current.peerEmail, "disconnected");
+            }
+          }, 1500);
+
+          if (disconnectDeadlineRef.current) clearTimeout(disconnectDeadlineRef.current);
+          disconnectDeadlineRef.current = setTimeout(() => {
+            const currentState = pc.connectionState;
+            if (currentState === "disconnected" || currentState === "failed") {
+              resetCallState();
+            }
+          }, 10000);
+        }
       } else if (state === "connected") {
         console.log("[PeerConnection] Connection established successfully!");
+        if (restartTimerRef.current) {
+          clearTimeout(restartTimerRef.current);
+          restartTimerRef.current = null;
+        }
+        if (disconnectDeadlineRef.current) {
+          clearTimeout(disconnectDeadlineRef.current);
+          disconnectDeadlineRef.current = null;
+        }
       }
     };
 
@@ -565,7 +1018,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       resetCallState();
     };
 
-    const handleMessage = async (message: SignalMessage) => {
+  const handleMessage = async (message: SignalMessage) => {
       console.log("[SignalingContext] Received message:", message.type, "from:", message.from);
       switch (message.type) {
         case "call.invite.ack":
@@ -636,7 +1089,84 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
             sessionRef.current = current;
             flushPendingLocalCandidates(current.callId, current.peerEmail);
           }
+
+          if (sessionRef.current?.callId) {
+            sendMediaUpdate(sessionRef.current.callId, sessionRef.current.peerEmail, {
+              audioEnabled: isAudioEnabledRef.current,
+              videoEnabled: isVideoEnabledRef.current
+            });
+          }
           break;
+        case "call.media_update":
+          if (message.payload && typeof message.payload === "object") {
+            const payload = message.payload as any;
+            if (typeof payload.videoEnabled === "boolean") {
+              setIsRemoteVideoEnabled(payload.videoEnabled);
+            }
+            if (typeof payload.audioEnabled === "boolean") {
+              setIsRemoteAudioEnabled(payload.audioEnabled);
+            }
+          }
+          break;
+        case "call.ice-restart.request": {
+          const current = sessionRef.current;
+          if (!current || statusRef.current !== "in_call") {
+            break;
+          }
+          if (current.direction === "outgoing") {
+            startIceRestartAsCaller();
+          }
+          break;
+        }
+        case "call.sdp.offer": {
+          if (!isSessionDescriptionPayload(message.payload)) {
+            break;
+          }
+          const pc = peerRef.current;
+          const current = sessionRef.current;
+          if (!pc || !current || statusRef.current !== "in_call") {
+            break;
+          }
+
+          const payload = message.payload as any;
+          const incomingEpoch = typeof payload.iceEpoch === "number" ? payload.iceEpoch : 0;
+          if (incomingEpoch > iceEpochRef.current) {
+            iceEpochRef.current = incomingEpoch;
+            pendingRemoteCandidates.current = [];
+          }
+
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(payload));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            sendMessage({
+              type: "call.sdp.answer",
+              call_id: current.callId,
+              to: current.peerEmail,
+              payload: { sdp: answer.sdp, type: answer.type, iceEpoch: iceEpochRef.current } as SdpRenegotiationPayload
+            });
+            await drainRemoteCandidates();
+          } catch (e) {
+            console.warn("Failed to apply renegotiation offer", e);
+          }
+          break;
+        }
+        case "call.sdp.answer": {
+          if (!isSessionDescriptionPayload(message.payload)) {
+            break;
+          }
+          const pc = peerRef.current;
+          if (!pc || statusRef.current !== "in_call") {
+            break;
+          }
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(message.payload as any));
+            await drainRemoteCandidates();
+          } catch (e) {
+            console.warn("Failed to apply renegotiation answer", e);
+          }
+          break;
+        }
         case "call.reject":
           Alert.alert("Call rejected", `${message.from} declined the call.`);
           resetCallState();
@@ -745,11 +1275,20 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
         // 使用 VideoService 获取媒体流
         await VideoService.initialize();
+        const clampKbps = (kbps: number) => Math.max(100, Math.min(2500, Math.trunc(kbps)));
+        const initialQuality: VideoQuality = settings.videoQuality ?? "medium";
+        const initialMaxKbps =
+          typeof settings.videoMaxBitrateKbps === "number"
+            ? clampKbps(settings.videoMaxBitrateKbps)
+            : 900;
+        setVideoQuality(initialQuality);
+        setVideoMaxBitrateKbps(initialMaxKbps);
+
         const stream = await VideoService.getLocalStream(
           shouldEnableAudio,
           shouldEnableVideo,
           defaultCameraFacing,
-          "medium"
+          initialQuality
         );
 
         if (!stream) {
@@ -768,6 +1307,22 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
         console.log("[startCall] Creating peer connection...");
         const pc = createPeerConnection();
+
+        // Ensure we always have a video m-line so we can toggle video later via replaceTrack
+        // without renegotiation (as long as the remote also supports it).
+        if (stream.getVideoTracks().length === 0) {
+          try {
+            const transceivers = pc.getTransceivers();
+            const hasVideo = transceivers.some(
+              (t) => t?.receiver?.track?.kind === "video"
+            );
+            if (!hasVideo) {
+              pc.addTransceiver("video", { direction: "sendrecv" });
+            }
+          } catch (e) {
+            console.warn("[webrtc] Failed to ensure video transceiver", e);
+          }
+        }
 
         // Create subtitles DataChannel on the offerer before creating offer.
         try {
@@ -798,6 +1353,10 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         await pc.setLocalDescription(offer);
         console.log("[startCall] Local description set");
 
+        if (shouldEnableVideo) {
+          await applyCurrentVideoBitrate();
+        }
+
         pendingTarget.current = email;
         setStatus("connecting");
         console.log("[startCall] Status changed to 'connecting'");
@@ -822,7 +1381,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         setStatus("idle");
       }
     },
-    [attachSubtitlesDataChannel, createPeerConnection, resetPeerResources, sendMessage, status, user, settings]
+    [applyCurrentVideoBitrate, attachSubtitlesDataChannel, createPeerConnection, resetPeerResources, sendMessage, status, user, settings]
   );
 
   const acceptCall = useCallback(async () => {
@@ -860,12 +1419,21 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       // 使用 VideoService 获取媒体流
+       const clampKbps = (kbps: number) => Math.max(100, Math.min(2500, Math.trunc(kbps)));
+       const initialQuality: VideoQuality = settings.videoQuality ?? "medium";
+       const initialMaxKbps =
+         typeof settings.videoMaxBitrateKbps === "number"
+           ? clampKbps(settings.videoMaxBitrateKbps)
+           : 900;
+       setVideoQuality(initialQuality);
+       setVideoMaxBitrateKbps(initialMaxKbps);
+
       await VideoService.initialize();
       const stream = await VideoService.getLocalStream(
         shouldEnableAudio,
         shouldEnableVideo,
         defaultCameraFacing,
-        "medium"
+        initialQuality
       );
 
       if (!stream) {
@@ -908,13 +1476,22 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       });
 
+      if (shouldEnableVideo) {
+        await applyCurrentVideoBitrate();
+      }
+
+      sendMediaUpdate(session.callId, session.peerEmail, {
+        audioEnabled: shouldEnableAudio,
+        videoEnabled: shouldEnableVideo
+      });
+
       setStatus("in_call");
     } catch (error) {
       console.error("acceptCall error", error);
       Alert.alert("无法接通 / Failed to Answer", "请确认麦克风/摄像头权限已授权 / Please ensure microphone/camera permissions are granted.");
       resetCallState();
     }
-  }, [createPeerConnection, drainRemoteCandidates, resetCallState, sendMessage, session, settings]);
+  }, [applyCurrentVideoBitrate, createPeerConnection, drainRemoteCandidates, resetCallState, sendMediaUpdate, sendMessage, session, settings]);
 
   const rejectCall = useCallback(() => {
     if (!session) {
@@ -954,6 +1531,32 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
       const newVideoEnabled = !isVideoEnabled;
 
+      const pc = peerRef.current;
+      if (!pc) {
+        return;
+      }
+
+      const buildVideoConstraints = (facing: CameraFacing, quality: VideoQuality) => {
+        const preset = VIDEO_QUALITY_PRESETS[quality];
+        return {
+          width: { ideal: preset.width },
+          height: { ideal: preset.height },
+          frameRate: { ideal: preset.frameRate },
+          facingMode: facing === "front" ? "user" : "environment"
+        };
+      };
+
+      const findVideoTransceiver = () => {
+        try {
+          const transceivers = pc.getTransceivers();
+          return (
+            transceivers.find((t) => t?.receiver?.track?.kind === "video") ?? null
+          );
+        } catch {
+          return null;
+        }
+      };
+
       if (newVideoEnabled) {
         // 开启视频：需要检查权限并重新获取流
         const permissionResult = await CameraPermissionService.checkPermissions();
@@ -962,42 +1565,74 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           return;
         }
 
-        // 重新获取带视频的流
-        await VideoService.initialize();
-        const newStream = await VideoService.getLocalStream(
-          isAudioEnabled,
-          true,
-          cameraFacing,
-          "medium"
-        );
+        const oldVideoTracks = localStream.getVideoTracks();
 
-        if (newStream && peerRef.current) {
-          // 替换 peer connection 中的轨道
-          const videoTrack = newStream.getVideoTracks()[0];
-          const senders = peerRef.current.getSenders();
-          const videoSender = senders.find(sender => sender.track?.kind === "video");
-
-          if (videoSender) {
-            await videoSender.replaceTrack(videoTrack);
-          } else {
-            peerRef.current.addTrack(videoTrack, newStream);
-          }
-
-          setLocalStream(newStream);
-          setIsVideoEnabled(true);
-          console.log("[toggleVideo] Video enabled successfully");
+        const videoStream = await webrtcMediaDevices.getUserMedia({
+          audio: false,
+          video: buildVideoConstraints(cameraFacing, videoQuality)
+        });
+        const videoTrack = videoStream.getVideoTracks()[0];
+        if (!videoTrack) {
+          throw new Error("Failed to acquire video track");
         }
+
+        const videoTransceiver = findVideoTransceiver();
+        if (!videoTransceiver) {
+          videoTrack.stop();
+          Alert.alert(
+            "提示 / Tip",
+            "当前通话未协商视频轨道，需要重新拨号开启视频 / Video was not negotiated for this call; please restart the call with video enabled."
+          );
+          return;
+        }
+
+        await videoTransceiver.sender.replaceTrack(videoTrack);
+
+        const nextStream = new MediaStream();
+        localStream.getAudioTracks().forEach((t) => nextStream.addTrack(t));
+        nextStream.addTrack(videoTrack);
+        setLocalStream(nextStream);
+        setIsVideoEnabled(true);
+        await applyCurrentVideoBitrate();
+
+        oldVideoTracks.forEach((t) => t.stop());
+
+        const current = sessionRef.current;
+        if (current?.callId && statusRef.current === "in_call") {
+          sendMediaUpdate(current.callId, current.peerEmail, {
+            audioEnabled: isAudioEnabledRef.current,
+            videoEnabled: true
+          });
+        }
+        console.log("[toggleVideo] Video enabled successfully");
       } else {
         // 关闭视频：直接禁用轨道
-        VideoService.toggleVideoTrack(false);
+        const videoTransceiver = findVideoTransceiver();
+        if (videoTransceiver) {
+          await videoTransceiver.sender.replaceTrack(null);
+        }
+
+        localStream.getVideoTracks().forEach((track) => track.stop());
+
+        const nextStream = new MediaStream();
+        localStream.getAudioTracks().forEach((t) => nextStream.addTrack(t));
+        setLocalStream(nextStream);
         setIsVideoEnabled(false);
+
+        const current = sessionRef.current;
+        if (current?.callId && statusRef.current === "in_call") {
+          sendMediaUpdate(current.callId, current.peerEmail, {
+            audioEnabled: isAudioEnabledRef.current,
+            videoEnabled: false
+          });
+        }
         console.log("[toggleVideo] Video disabled");
       }
     } catch (error) {
       console.error("[toggleVideo] Error:", error);
       Alert.alert("错误 / Error", "无法切换视频状态 / Failed to toggle video.");
     }
-  }, [isVideoEnabled, isAudioEnabled, cameraFacing, localStream]);
+  }, [applyCurrentVideoBitrate, cameraFacing, isVideoEnabled, localStream, sendMediaUpdate, videoQuality]);
 
   /**
    * 切换麦克风开关
@@ -1013,8 +1648,16 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     const newAudioEnabled = !isAudioEnabled;
     VideoService.toggleAudioTrack(newAudioEnabled);
     setIsAudioEnabled(newAudioEnabled);
+
+    const current = sessionRef.current;
+    if (current?.callId && status === "in_call") {
+      sendMediaUpdate(current.callId, current.peerEmail, {
+        audioEnabled: newAudioEnabled,
+        videoEnabled: isVideoEnabled
+      });
+    }
     console.log(`[toggleAudio] Audio ${newAudioEnabled ? "enabled" : "disabled"}`);
-  }, [isAudioEnabled, localStream]);
+  }, [isAudioEnabled, isVideoEnabled, localStream, sendMediaUpdate, status]);
 
   /**
    * 切换摄像头（前置/后置）
@@ -1029,28 +1672,71 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         return;
       }
 
-      const newStream = await VideoService.switchCamera();
-
-      if (newStream && peerRef.current) {
-        // 替换 peer connection 中的视频轨道
-        const videoTrack = newStream.getVideoTracks()[0];
-        const senders = peerRef.current.getSenders();
-        const videoSender = senders.find(sender => sender.track?.kind === "video");
-
-        if (videoSender) {
-          await videoSender.replaceTrack(videoTrack);
-        }
-
-        setLocalStream(newStream);
-        const newFacing = cameraFacing === "front" ? "back" : "front";
-        setCameraFacing(newFacing);
-        console.log("[switchCamera] Camera switched to:", newFacing);
+      const pc = peerRef.current;
+      if (!pc) {
+        return;
       }
+
+      const newFacing: CameraFacing = cameraFacing === "front" ? "back" : "front";
+
+      const preset = VIDEO_QUALITY_PRESETS[videoQuality];
+      const videoStream = await webrtcMediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          width: { ideal: preset.width },
+          height: { ideal: preset.height },
+          frameRate: { ideal: preset.frameRate },
+          facingMode: newFacing === "front" ? "user" : "environment"
+        }
+      });
+      const newVideoTrack = videoStream.getVideoTracks()[0];
+      if (!newVideoTrack) {
+        throw new Error("Failed to acquire video track");
+      }
+
+      let videoTransceiver: RTCRtpTransceiver | null = null;
+      try {
+        videoTransceiver =
+          pc.getTransceivers().find((t) => t?.receiver?.track?.kind === "video") ?? null;
+      } catch {
+        videoTransceiver = null;
+      }
+      if (!videoTransceiver) {
+        newVideoTrack.stop();
+        Alert.alert(
+          "提示 / Tip",
+          "当前通话未协商视频轨道，需要重新拨号开启视频 / Video was not negotiated for this call; please restart the call with video enabled."
+        );
+        return;
+      }
+
+      const oldVideoTracks = localStream.getVideoTracks();
+      await videoTransceiver.sender.replaceTrack(newVideoTrack);
+
+      const nextStream = new MediaStream();
+      localStream.getAudioTracks().forEach((t) => nextStream.addTrack(t));
+      nextStream.addTrack(newVideoTrack);
+      setLocalStream(nextStream);
+      setCameraFacing(newFacing);
+      await applyCurrentVideoBitrate();
+
+      oldVideoTracks.forEach((t) => t.stop());
+
+      console.log("[switchCamera] Camera switched to:", newFacing);
     } catch (error) {
       console.error("[switchCamera] Error:", error);
       Alert.alert("错误 / Error", "无法切换摄像头 / Failed to switch camera.");
     }
-  }, [cameraFacing, isVideoEnabled, localStream]);
+  }, [applyCurrentVideoBitrate, cameraFacing, isVideoEnabled, localStream, videoQuality]);
+
+  /**
+   * 切换扬声器/听筒
+   */
+  const toggleSpeaker = useCallback(async () => {
+    const newState = !isSpeakerOn;
+    setIsSpeakerOn(newState);
+    await AudioService.setSpeakerphone(newState);
+  }, [isSpeakerOn]);
 
   // 翻译控制函数
   const toggleTranslation = useCallback(async (enabled: boolean) => {
@@ -1164,9 +1850,16 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       connectionReady,
       localStream,
       remoteStream,
+      networkQuality,
       isVideoEnabled,
       isAudioEnabled,
+      isRemoteVideoEnabled,
+      isRemoteAudioEnabled,
       cameraFacing,
+      videoQuality,
+      setVideoQuality,
+      videoMaxBitrateKbps,
+      setVideoMaxBitrateKbps,
       translationEnabled,
       translationLanguage,
       subtitles,
@@ -1177,6 +1870,8 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       toggleVideo,
       toggleAudio,
       switchCamera,
+      toggleSpeaker,
+      isSpeakerOn,
       toggleTranslation,
       setTranslationLanguage: handleSetTranslationLanguage,
       clearSubtitles
@@ -1187,9 +1882,16 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       connectionReady,
       localStream,
       remoteStream,
+      networkQuality,
       isVideoEnabled,
       isAudioEnabled,
+      isRemoteVideoEnabled,
+      isRemoteAudioEnabled,
       cameraFacing,
+      videoQuality,
+      setVideoQuality,
+      videoMaxBitrateKbps,
+      setVideoMaxBitrateKbps,
       translationEnabled,
       translationLanguage,
       subtitles,
@@ -1200,6 +1902,8 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       toggleVideo,
       toggleAudio,
       switchCamera,
+      toggleSpeaker,
+      isSpeakerOn,
       toggleTranslation,
       handleSetTranslationLanguage,
       clearSubtitles

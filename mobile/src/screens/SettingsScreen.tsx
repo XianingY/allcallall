@@ -5,11 +5,14 @@ import {
   StyleSheet,
   Switch,
   ScrollView,
-  SafeAreaView
+  SafeAreaView,
+  TextInput,
+  TouchableOpacity
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import { useSettings } from "../context/SettingsContext";
+import type { VideoQuality } from "../services/VideoService";
 import AudioService from "../services/AudioServiceExpo";
 import VibrationService from "../services/VibrationService";
 import PushNotificationService from "../services/PushNotificationService";
@@ -24,8 +27,17 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     updatePushNotifications,
     updateDefaultVideoEnabled,
     updateDefaultAudioEnabled,
-    updateCameraFacing
+    updateCameraFacing,
+    updateVideoQuality,
+    updateVideoMaxBitrateKbps,
+    updateVideoAdaptiveBitrateEnabled
   } = useSettings();
+
+  const [bitrateInput, setBitrateInput] = React.useState(settings.videoMaxBitrateKbps.toString());
+
+  React.useEffect(() => {
+    setBitrateInput(settings.videoMaxBitrateKbps.toString());
+  }, [settings.videoMaxBitrateKbps]);
 
   const handleAudioToggle = (value: boolean) => {
     updateAudioNotifications(value);
@@ -52,6 +64,16 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleCameraFacingToggle = (value: boolean) => {
     updateCameraFacing(value ? "back" : "front");
+  };
+
+  const handleBitrateBlur = () => {
+    let val = parseInt(bitrateInput, 10);
+    if (isNaN(val)) val = 900;
+    if (val < 100) val = 100;
+    if (val > 2500) val = 2500;
+    
+    setBitrateInput(val.toString());
+    updateVideoMaxBitrateKbps(val);
   };
 
   return (
@@ -160,6 +182,67 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
             />
           </View>
 
+          <View style={styles.settingItem}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>自适应码率 / Adaptive Bitrate</Text>
+              <Text style={styles.settingDescription}>
+                根据网络状况自动调整视频质量
+              </Text>
+            </View>
+            <Switch
+              trackColor={{ false: "#767577", true: "#81b0ff" }}
+              thumbColor={settings.videoAdaptiveBitrateEnabled ? "#f5dd4b" : "#f4f3f4"}
+              onValueChange={updateVideoAdaptiveBitrateEnabled}
+              value={settings.videoAdaptiveBitrateEnabled}
+            />
+          </View>
+
+          <View style={styles.settingItem}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>视频最大码率 / Max Bitrate (kbps)</Text>
+              <Text style={styles.settingDescription}>
+                限制最大视频带宽 (100-2500)
+              </Text>
+            </View>
+            <TextInput
+              style={styles.input}
+              keyboardType="numeric"
+              value={bitrateInput}
+              onChangeText={setBitrateInput}
+              onBlur={handleBitrateBlur}
+              maxLength={4}
+              returnKeyType="done"
+            />
+          </View>
+
+          <View style={[styles.settingItem, { flexDirection: "column", alignItems: "stretch" }]}>
+            <View style={{ marginBottom: 12 }}>
+              <Text style={styles.settingTitle}>视频质量 / Video Quality</Text>
+              <Text style={styles.settingDescription}>
+                设置视频清晰度优先策略
+              </Text>
+            </View>
+            <View style={styles.qualityContainer}>
+              {(["low", "medium", "high"] as VideoQuality[]).map((q) => (
+                <TouchableOpacity
+                  key={q}
+                  style={[
+                    styles.qualityButton,
+                    settings.videoQuality === q && styles.qualityButtonActive
+                  ]}
+                  onPress={() => updateVideoQuality(q)}
+                >
+                  <Text style={[
+                    styles.qualityButtonText,
+                    settings.videoQuality === q && styles.qualityButtonTextActive
+                  ]}>
+                    {q === "low" ? "Low" : q === "medium" ? "Medium" : "High"}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
           <View style={styles.infoBox}>
             <Text style={styles.infoText}>
               ℹ️ 视频和麦克风可在通话过程中随时开关
@@ -261,6 +344,45 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 12,
     color: "#9ca3af"
+  },
+  input: {
+    height: 40,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    minWidth: 80,
+    textAlign: "center",
+    color: "#111827",
+    backgroundColor: "#fff"
+  },
+  qualityContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 4
+  },
+  qualityButton: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    marginHorizontal: 4,
+    backgroundColor: "#f9fafb"
+  },
+  qualityButtonActive: {
+    backgroundColor: "#eff6ff",
+    borderColor: "#3b82f6"
+  },
+  qualityButtonText: {
+    fontSize: 14,
+    color: "#4b5563",
+    fontWeight: "500"
+  },
+  qualityButtonTextActive: {
+    color: "#2563eb",
+    fontWeight: "600"
   }
 });
 

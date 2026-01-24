@@ -1,6 +1,7 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert } from "react-native";
 import { RTCView } from "react-native-webrtc";
+import { activateKeepAwake, deactivateKeepAwake } from "expo-keep-awake";
 
 import { useSignaling } from "../context/SignalingContext";
 import TranslationOverlay from "./translation/TranslationOverlay";
@@ -17,9 +18,14 @@ const CallOverlay: React.FC = () => {
     remoteStream,
     isVideoEnabled,
     isAudioEnabled,
+    isRemoteVideoEnabled,
+    isRemoteAudioEnabled,
     toggleVideo,
     toggleAudio,
     switchCamera,
+    toggleSpeaker,
+    isSpeakerOn,
+    networkQuality,
     translationEnabled,
     translationLanguage,
     subtitles,
@@ -27,6 +33,19 @@ const CallOverlay: React.FC = () => {
     setTranslationLanguage,
     clearSubtitles
   } = useSignaling();
+
+  useEffect(() => {
+    const tag = "call-overlay";
+    if (status !== "idle" && session) {
+      activateKeepAwake(tag);
+    } else {
+      deactivateKeepAwake(tag);
+    }
+
+    return () => {
+      deactivateKeepAwake(tag);
+    };
+  }, [session, status]);
 
   if (status === "idle" || !session) {
     return null;
@@ -55,10 +74,20 @@ const CallOverlay: React.FC = () => {
     }
   }, [isVideoEnabled, toggleVideo]);
 
+  const getNetworkQualityColor = (quality: string) => {
+    switch (quality) {
+      case "excellent": return "#22c55e"; // Green
+      case "good": return "#84cc16";      // Lime
+      case "poor": return "#f59e0b";      // Amber
+      case "bad": return "#ef4444";       // Red
+      default: return "#9ca3af";          // Gray
+    }
+  };
+
   return (
     <View style={styles.container}>
       {/* 远端视频（全屏） */}
-      {hasRemoteVideo && remoteStream ? (
+      {hasRemoteVideo && remoteStream && isRemoteVideoEnabled ? (
         <RTCView
           streamURL={remoteStream.toURL()}
           style={styles.remoteVideo}
@@ -67,22 +96,38 @@ const CallOverlay: React.FC = () => {
         />
       ) : (
         <View style={styles.audioOnlyBackground}>
-          <Text style={styles.audioOnlyText}>语音通话 / Audio Call</Text>
+          <Text style={styles.audioOnlyText}>
+            {!isRemoteVideoEnabled && hasRemoteVideo
+              ? "对方已关闭摄像头 / Camera Off"
+              : "语音通话 / Audio Call"}
+          </Text>
           <Text style={styles.peerEmail}>{session.peerEmail}</Text>
         </View>
       )}
 
-      {/* 本地视频（小窗口） */}
-      {hasLocalVideo && localStream && isVideoEnabled ? (
-        <View style={styles.localVideoContainer}>
-          <RTCView
-            streamURL={localStream.toURL()}
-            style={styles.localVideo}
-            objectFit="cover"
-            mirror={true}
-          />
-        </View>
-      ) : null}
+        {/* 本地视频（小窗口） */}
+        {hasLocalVideo && localStream && isVideoEnabled ? (
+          <View style={styles.localVideoContainer}>
+            <RTCView
+              streamURL={localStream.toURL()}
+              style={styles.localVideo}
+              objectFit="cover"
+              mirror={true}
+            />
+          </View>
+        ) : null}
+      
+      {/* 网络质量指示器 */}
+      <View style={styles.networkIndicator}>
+        <View style={[styles.networkDot, { backgroundColor: getNetworkQualityColor(networkQuality) }]} />
+        <Text style={styles.networkText}>
+          {networkQuality === "excellent" ? "网络极佳 / Excellent" :
+           networkQuality === "good" ? "网络良好 / Good" :
+           networkQuality === "poor" ? "网络较差 / Poor" :
+           networkQuality === "bad" ? "网络极差 / Bad" :
+           "检测中... / Detecting..."}
+        </Text>
+      </View>
 
       {/* 状态信息 */}
       <View style={styles.statusBar}>
@@ -96,6 +141,11 @@ const CallOverlay: React.FC = () => {
         {!isAudioEnabled && (
           <View style={styles.mutedIndicator}>
             <Text style={styles.mutedText}>🎙️ 麦克风已关闭 / Muted</Text>
+          </View>
+        )}
+        {!isRemoteAudioEnabled && (
+          <View style={[styles.mutedIndicator, { backgroundColor: "rgba(245,158,11,0.8)" }]}>
+            <Text style={styles.mutedText}>🔇 对方已静音 / Remote Muted</Text>
           </View>
         )}
       </View>
@@ -131,6 +181,19 @@ const CallOverlay: React.FC = () => {
             >
               <Text style={styles.controlButtonText}>
                 {isAudioEnabled ? "🎙️" : "🔇"}
+              </Text>
+            </TouchableOpacity>
+
+            {/* 扬声器开关 */}
+            <TouchableOpacity
+              style={[
+                styles.controlButton,
+                !isSpeakerOn && { backgroundColor: "rgba(255,255,255,0.3)" }
+              ]}
+              onPress={toggleSpeaker}
+            >
+              <Text style={styles.controlButtonText}>
+                {isSpeakerOn ? "🔊" : "👂"}
               </Text>
             </TouchableOpacity>
 
@@ -260,6 +323,27 @@ const styles = StyleSheet.create({
   localVideo: {
     width: "100%",
     height: "100%"
+  },
+  networkIndicator: {
+    position: "absolute",
+    top: 60,
+    left: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    padding: 8,
+    borderRadius: 8
+  },
+  networkDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6
+  },
+  networkText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600"
   },
   statusBar: {
     position: "absolute",
