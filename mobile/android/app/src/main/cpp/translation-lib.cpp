@@ -21,6 +21,8 @@ static OnnxModel* g_opus_zh_en = nullptr;
 static PiperTTS* g_tts_zh = nullptr;
 static PiperTTS* g_tts_en = nullptr;
 
+static bool g_models_ready = false;
+
 // Helper function declarations
 std::vector<float> base64_decode_to_float(const char* input);
 std::string build_result_json(const std::string& original, const std::string& translation, 
@@ -55,21 +57,31 @@ Java_com_allcallall_TranslationModule_nativeInitialize(
     }
 
     // Load translation models (Opus-MT)
-    std::string opus_path = std::string(opus_dir);
-    g_opus_en_zh = new OnnxModel(opus_path + "/opus-mt-en-zh-q8.onnx");
-    g_opus_zh_en = new OnnxModel(opus_path + "/opus-mt-zh-en-q8.onnx");
+    // JS side copies assets into:
+    //   <opus_dir>/en-zh/opus-mt-en-zh-q8.onnx (+ source.spm/target.spm)
+    //   <opus_dir>/zh-en/opus-mt-zh-en-q8.onnx (+ source.spm/target.spm)
+    const std::string opus_path = std::string(opus_dir);
+    g_opus_en_zh = new OnnxModel(opus_path + "/en-zh/opus-mt-en-zh-q8.onnx");
+    g_opus_zh_en = new OnnxModel(opus_path + "/zh-en/opus-mt-zh-en-q8.onnx");
 
     // Load TTS models (Piper)
-    std::string tts_path = std::string(tts_dir);
-    g_tts_zh = new PiperTTS(tts_path + "/zh_CN-huayan-medium.onnx");
-    g_tts_en = new PiperTTS(tts_path + "/en_US-amy-medium.onnx");
+    // JS side copies assets into:
+    //   <tts_dir>/zh/zh_CN-huayan-medium.onnx (+ .json)
+    //   <tts_dir>/en/en_US-amy-medium.onnx (+ .json)
+    const std::string tts_path = std::string(tts_dir);
+    g_tts_zh = new PiperTTS(tts_path + "/zh/zh_CN-huayan-medium.onnx");
+    g_tts_en = new PiperTTS(tts_path + "/en/en_US-amy-medium.onnx");
 
     env->ReleaseStringUTFChars(whisperPath, whisper_model);
     env->ReleaseStringUTFChars(opusPath, opus_dir);
     env->ReleaseStringUTFChars(ttsPath, tts_dir);
     env->ReleaseStringUTFChars(quantization, quant_type);
 
-    LOGI("Translation models initialized successfully");
+    g_models_ready = (g_whisper_ctx != nullptr);
+    g_models_ready = g_models_ready && (g_opus_en_zh != nullptr) && (g_opus_zh_en != nullptr);
+    g_models_ready = g_models_ready && (g_tts_zh != nullptr) && (g_tts_en != nullptr);
+
+    LOGI("Translation models initialized (ready=%s)", g_models_ready ? "true" : "false");
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -79,9 +91,9 @@ Java_com_allcallall_TranslationModule_nativeTranslateAudio(
     jstring audioDataBase64,
     jstring targetLanguage
 ) {
-    if (!g_whisper_ctx) {
-        LOGE("Whisper model not initialized");
-        return env->NewStringUTF("{\"error\": \"Whisper model not initialized\"}");
+    if (!g_models_ready || !g_whisper_ctx) {
+        LOGE("Translation models not initialized");
+        return env->NewStringUTF("{\"error\":\"Translation models not initialized\"}");
     }
 
     const char* audio_b64 = env->GetStringUTFChars(audioDataBase64, 0);

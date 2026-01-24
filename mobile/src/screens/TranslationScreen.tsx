@@ -19,6 +19,10 @@ const TranslationScreen: React.FC = () => {
   const [isInitializing, setIsInitializing] = useState(false);
   const [translationEnabled, setTranslationEnabled] = useState(false);
   const [targetLanguage, setTargetLanguage] = useState('zh');
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [originalText, setOriginalText] = useState('');
+  const [translatedText, setTranslatedText] = useState('');
+  const [lastLatencyMs, setLastLatencyMs] = useState<number | null>(null);
   const [modelsStatus, setModelsStatus] = useState({
     whisper: false,
     opus: false,
@@ -48,6 +52,7 @@ const TranslationScreen: React.FC = () => {
         quantization: 'int8'
       });
       setIsInitialized(true);
+      await checkModelsStatus();
       Alert.alert('成功', '翻译服务已初始化');
     } catch (error) {
       console.error('Failed to initialize translation:', error);
@@ -70,6 +75,36 @@ const TranslationScreen: React.FC = () => {
     Alert.alert('性能报告', report);
   };
 
+  const recordAndTranslateOnce = async () => {
+    if (!isInitialized) {
+      Alert.alert('提示', '请先初始化翻译服务');
+      return;
+    }
+
+    setIsTranslating(true);
+    setOriginalText('');
+    setTranslatedText('');
+    setLastLatencyMs(null);
+
+    const startedAt = Date.now();
+    try {
+      // Android-only: native mic capture -> offline translation.
+      const result = await TranslationService.recordAndTranslate(3000, targetLanguage);
+      setOriginalText(result.originalText);
+      setTranslatedText(result.translatedText);
+      setLastLatencyMs(Date.now() - startedAt);
+      PerformanceMonitor.recordTranslation(result);
+    } catch (error) {
+      console.error('recordAndTranslateOnce failed:', error);
+      Alert.alert(
+        '错误',
+        `录音翻译失败: ${error instanceof Error ? error.message : String(error)}`
+      );
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.section}>
@@ -77,7 +112,7 @@ const TranslationScreen: React.FC = () => {
         <View style={styles.statusContainer}>
           <StatusItem label="Whisper" status={modelsStatus.whisper} />
           <StatusItem label="Opus-MT" status={modelsStatus.opus} />
-          <StatusItem label="VITS" status={modelsStatus.tts} />
+          <StatusItem label="TTS (Piper)" status={modelsStatus.tts} />
         </View>
       </View>
 
@@ -107,7 +142,28 @@ const TranslationScreen: React.FC = () => {
             onToggle={handleToggleTranslation}
             targetLanguage={targetLanguage}
             onLanguageChange={setTargetLanguage}
+            originalText={originalText}
+            translatedText={translatedText}
+            isTranslating={isTranslating}
           />
+        )}
+
+        {isInitialized && (
+          <TouchableOpacity
+            style={[styles.button, isTranslating && styles.buttonDisabled]}
+            onPress={recordAndTranslateOnce}
+            disabled={isTranslating}
+          >
+            {isTranslating ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>录音 3 秒并翻译（验证）</Text>
+            )}
+          </TouchableOpacity>
+        )}
+
+        {isInitialized && lastLatencyMs != null && (
+          <Text style={styles.infoText}>本次耗时: {lastLatencyMs}ms</Text>
         )}
       </View>
 
@@ -126,7 +182,7 @@ const TranslationScreen: React.FC = () => {
           实时翻译功能基于离线AI模型，包括：{'\n'}
           • Whisper-small: 语音识别{'\n'}
           • Opus-MT: 文本翻译{'\n'}
-          • VITS: 语音合成{'\n\n'}
+          • Piper: 语音合成{'\n\n'}
           总模型大小: ~264MB{'\n'}
           目标延迟: &lt;500ms
         </Text>

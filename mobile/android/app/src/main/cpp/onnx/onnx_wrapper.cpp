@@ -354,62 +354,78 @@ public:
             LOGE("Model not ready");
             return "";
         }
-        
+
         LOGI("Translating: %s", text.c_str());
-        
+
 #if defined(SENTENCEPIECE_AVAILABLE) && defined(ONNX_RUNTIME_AVAILABLE)
         if (sp_source && sp_target && session) {
             // Step 1: Tokenize input text
             std::vector<int> input_ids_int;
             sp_source->Encode(text, &input_ids_int);
-            
+
             if (input_ids_int.empty()) {
                 LOGW("Tokenization produced empty result");
                 return "";
             }
-            
+
             LOGI("Input tokens: %zu", input_ids_int.size());
-            
+
             // 转换为 int64_t
             std::vector<int64_t> input_ids(input_ids_int.begin(), input_ids_int.end());
-            std::vector<int64_t> attention_mask(input_ids.size(), 1);
-            
+            std::vector<int64_t> encoder_attention(input_ids.size(), 1);
+
             // Step 2: Autoregressive decoding
-            std::vector<int64_t> decoder_ids = {PAD_TOKEN_ID};  // 起始 token
+            // MarianMT 使用 PAD (0) 作为 decoder_start_token_id
+            std::vector<int64_t> decoder_input = {0};  // 起始 token = PAD = 0
             std::vector<int> output_tokens;
-            
+
             for (int step = 0; step < MAX_LENGTH; step++) {
-                std::vector<int64_t> next_tokens = runOnnxInference(input_ids, attention_mask, decoder_ids);
-                
+                // Decoder attention mask (只关注已生成的内容)
+                std::vector<int64_t> decoder_attention(decoder_input.size(), 1);
+
+                // 运行推理
+                std::vector<int64_t> next_tokens = runOnnxInference(
+                    input_ids, encoder_attention, decoder_input);
+
                 if (next_tokens.empty()) {
                     LOGE("Inference returned empty result at step %d", step);
                     break;
                 }
-                
+
                 int64_t next_token = next_tokens[0];
-                
-                // 检查是否为 EOS
-                if (next_token == EOS_TOKEN_ID) {
+
+                // EOS token 是 0
+                if (next_token == 0) {
                     LOGI("EOS reached at step %d", step);
                     break;
                 }
-                
+
                 output_tokens.push_back(static_cast<int>(next_token));
-                decoder_ids.push_back(next_token);
-                
+                decoder_input.push_back(next_token);
+
                 // 防止过长
-                if (decoder_ids.size() > MAX_LENGTH) {
+                if (decoder_input.size() > MAX_LENGTH) {
                     LOGW("Max length reached");
                     break;
                 }
+
+                // 每 10 步打印一次进度
+                if (step % 10 == 0) {
+                    LOGI("Generation step %d, decoder length: %zu", step, decoder_input.size());
+                }
             }
-            
+
             LOGI("Generated %zu output tokens", output_tokens.size());
-            
+
+            if (output_tokens.empty()) {
+                LOGW("No output tokens generated");
+                return "";
+            }
+
             // Step 3: Decode tokens to text
             std::string result;
             sp_target->Decode(output_tokens, &result);
-            
+
             if (!result.empty()) {
                 LOGI("Translation result: %s", result.c_str());
                 return result;

@@ -23,18 +23,20 @@ def test_bidirectional_translation():
         print("请先运行: source .venv/bin/activate && pip install transformers")
         return False
 
-    # 路径
-    en_zh_dir = Path("assets/models/opus/en-zh")
-    zh_en_dir = Path("assets/models/opus/zh-en")
+    # 路径 - 使用 mobile/assets/models/ 目录
+    base_dir = Path("mobile/assets/models/opus")
+    en_zh_dir = base_dir / "en-zh"
+    zh_en_dir = base_dir / "zh-en"
 
     print("检查模型目录...")
     if not en_zh_dir.exists():
         print(f"❌ {en_zh_dir} 不存在")
+        print("提示: 请确保模型文件已复制到 mobile/assets/models/")
         return False
 
     if not zh_en_dir.exists():
         print(f"❌ {zh_en_dir} 不存在")
-        print("请先运行: python3 scripts/translation/download_zh_en_model.py")
+        print("提示: 请确保模型文件已复制到 mobile/assets/models/")
         return False
 
     print(f"  ✅ {en_zh_dir}")

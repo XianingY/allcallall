@@ -10,96 +10,70 @@ export interface DownloadProgress {
 export type ProgressCallback = (progress: DownloadProgress) => void;
 
 class ModelDownloader {
-  private modelUrls: { [key: string]: string } = {
-    whisper: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q8_0.bin',
-    opus: 'https://huggingface.co/Helsinki-NLP/opus-mt-en-zh/resolve/main/model.onnx',
-    tts: 'https://huggingface.co/coqui/VITS/resolve/main/model.bin'
-  };
+  // Note: In this repo the preferred path is to bundle models into APK assets and
+  // copy them on first run via `TranslationService.initialize()`.
+  // This helper is primarily used for inspecting whether models are installed.
 
   async download(
     modelName: string,
     onProgress?: ProgressCallback
   ): Promise<string> {
-    const url = this.modelUrls[modelName];
-    if (!url) {
-      throw new Error(`Unknown model: ${modelName}`);
-    }
-
-    const modelDir = `${RNFS.DocumentDirectoryPath}/models/${modelName}`;
-    const fileName = this.getFileName(modelName);
-    const filePath = `${modelDir}/${fileName}`;
-
-    console.log(`[ModelDownloader] Starting download: ${modelName}`);
-    console.log(`[ModelDownloader] URL: ${url}`);
-    console.log(`[ModelDownloader] Destination: ${filePath}`);
-
-    // 创建目录
-    const dirExists = await RNFS.exists(modelDir);
-    if (!dirExists) {
-      await RNFS.mkdir(modelDir);
-    }
-
-    try {
-      // 下载文件
-      const downloadResult = await RNFS.downloadFile({
-        fromUrl: url,
-        toFile: filePath,
-        progress: (res) => {
-          if (onProgress) {
-            onProgress({
-              bytesWritten: res.bytesWritten,
-              contentLength: res.contentLength,
-              progress: res.bytesWritten / res.contentLength
-            });
-          }
-        }
-      }).promise;
-
-      if (downloadResult.statusCode === 200) {
-        console.log(`[ModelDownloader] Download complete: ${modelName}`);
-        return filePath;
-      } else {
-        throw new Error(`Download failed with status: ${downloadResult.statusCode}`);
-      }
-    } catch (error) {
-      console.error(`[ModelDownloader] Download error:`, error);
-      // 清理失败的下载
-      const exists = await RNFS.exists(filePath);
-      if (exists) {
-        await RNFS.unlink(filePath);
-      }
-      throw error;
-    }
+    void onProgress;
+    throw new Error(
+      `Direct download is not supported in-app for '${modelName}'. ` +
+        'Install bundled models by running TranslationService.initialize() (copies from APK assets).'
+    );
   }
 
-  private getFileName(modelName: string): string {
-    const fileNames: { [key: string]: string } = {
-      whisper: 'ggml-small-q8.bin',
-      opus: 'opus-mt-en-zh-q8.onnx',
-      tts: 'vits-zh-en.bin'
-    };
-    return fileNames[modelName] || 'model.bin';
+  private getExpectedPaths(modelName: string): string[] {
+    const base = `${RNFS.DocumentDirectoryPath}/models`;
+
+    switch (modelName) {
+      case 'whisper':
+        return [`${base}/whisper/ggml-small-q8.bin`];
+
+      case 'opus':
+        return [
+          `${base}/opus/en-zh/opus-mt-en-zh-q8.onnx`,
+          `${base}/opus/en-zh/source.spm`,
+          `${base}/opus/en-zh/target.spm`,
+          `${base}/opus/zh-en/opus-mt-zh-en-q8.onnx`,
+          `${base}/opus/zh-en/source.spm`,
+          `${base}/opus/zh-en/target.spm`,
+        ];
+
+      case 'tts':
+        return [
+          `${base}/tts/zh/zh_CN-huayan-medium.onnx`,
+          `${base}/tts/zh/zh_CN-huayan-medium.onnx.json`,
+          `${base}/tts/en/en_US-amy-medium.onnx`,
+          `${base}/tts/en/en_US-amy-medium.onnx.json`,
+        ];
+
+      default:
+        throw new Error(`Unknown model: ${modelName}`);
+    }
   }
 
   async checkModelExists(modelName: string): Promise<boolean> {
-    const modelDir = `${RNFS.DocumentDirectoryPath}/models/${modelName}`;
-    const fileName = this.getFileName(modelName);
-    const filePath = `${modelDir}/${fileName}`;
-    return await RNFS.exists(filePath);
+    const paths = this.getExpectedPaths(modelName);
+    for (const path of paths) {
+      const exists = await RNFS.exists(path);
+      if (!exists) return false;
+    }
+    return true;
   }
 
   async getModelSize(modelName: string): Promise<number> {
-    const modelDir = `${RNFS.DocumentDirectoryPath}/models/${modelName}`;
-    const fileName = this.getFileName(modelName);
-    const filePath = `${modelDir}/${fileName}`;
-    
+    // Size is meaningful for single-file models only.
+    if (modelName !== 'whisper') return 0;
+
+    const [filePath] = this.getExpectedPaths(modelName);
     const exists = await RNFS.exists(filePath);
-    if (!exists) {
-      return 0;
-    }
+    if (!exists) return 0;
 
     const stat = await RNFS.stat(filePath);
-    return parseInt(stat.size, 10);
+    return typeof stat.size === 'string' ? parseInt(stat.size, 10) : stat.size;
   }
 
   async deleteModel(modelName: string): Promise<void> {
