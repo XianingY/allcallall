@@ -190,11 +190,16 @@ lcov.info
 .fusebox/
 
 # Android assets models (too large for git)
-mobile/android/app/src/main/assets/models/**/*.bin
-mobile/android/app/src/main/assets/models/**/*.onnx
+mobile/android/app/src/main/assets/models/
 
 # ONNX Runtime extracted libraries (downloaded at build time)
 mobile/android/app/src/main/cpp/libs/onnxruntime/
+
+# Android signing keys (never commit)
+mobile/android/app/*.keystore
+
+# Mobile bundled assets (generated or large)
+mobile/assets/
 
 # React settings plugin build artifacts
 mobile/android/react-settings-plugin/bin/
