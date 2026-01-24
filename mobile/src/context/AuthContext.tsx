@@ -6,14 +6,14 @@ import React, {
   useMemo,
   useState
 } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Keychain from "react-native-keychain";
 
 import * as authApi from "../api/auth";
 import * as usersApi from "../api/users";
 import { User } from "../api/users";
 import PushNotificationService from "../services/PushNotificationService";
 
-const STORAGE_KEY = "allcallall.auth";
+const KEYCHAIN_SERVICE = "com.allcallall.auth";
 
 interface AuthState {
   token: string | null;
@@ -44,19 +44,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const bootstrap = useCallback(async () => {
     try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
-      if (!stored) {
+      // 从安全存储中读取 token 和 user 数据
+      // Read token and user data from secure storage
+      const credentials = await Keychain.getGenericPassword({
+        service: KEYCHAIN_SERVICE
+      });
+
+      if (!credentials) {
         setState((current) => ({ ...current, loading: false }));
         return;
       }
-      const parsed = JSON.parse(stored) as { token: string; user: User };
+
+      // username = 'user_session', password = JSON(token + user)
+      const parsed = JSON.parse(credentials.password) as {
+        token: string;
+        user: User;
+      };
       setState({
         token: parsed.token,
         user: parsed.user,
         loading: false
       });
     } catch (error) {
-      console.warn("Failed to load auth state", error);
+      console.warn("Failed to load auth state from secure storage", error);
       setState((current) => ({ ...current, loading: false }));
     }
   }, []);
@@ -67,15 +77,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const persistState = useCallback(async (token: string, user: User) => {
     setState({ token, user, loading: false });
-    await AsyncStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ token, user })
+
+    // 存储到安全存储（支持生物识别）
+    // Store to secure storage (with biometric protection)
+    await Keychain.setGenericPassword(
+      "user_session",
+      JSON.stringify({ token, user }),
+      {
+        service: KEYCHAIN_SERVICE,
+        accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+        securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE
+      }
     );
   }, []);
 
   const clearState = useCallback(async () => {
     setState({ token: null, user: null, loading: false });
-    await AsyncStorage.removeItem(STORAGE_KEY);
+    await Keychain.resetGenericPassword({ service: KEYCHAIN_SERVICE });
   }, []);
 
   const login = useCallback(
