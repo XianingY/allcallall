@@ -17,6 +17,9 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# 部署路径配置 (可通过环境变量覆盖)
+DEPLOY_DIR="${DEPLOY_DIR:-/opt/allcallall}"
+
 # 日志函数
 log_info() {
   echo -e "${GREEN}[INFO]${NC} $1"
@@ -93,7 +96,7 @@ fi
 log_info "初始化项目..."
 
 # 创建 .env 文件
-cat > /opt/AllCallAll/infra/.env.production << EOF
+cat > "${DEPLOY_DIR}/infra/.env.production" << EOF
 # 数据库配置
 MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD}
 MYSQL_PASSWORD=${MYSQL_PASSWORD}
@@ -116,7 +119,7 @@ log_info ".env.production 文件已创建"
 
 log_info "启动 Docker 容器..."
 
-cd /opt/AllCallAll/infra
+cd "${DEPLOY_DIR}/infra"
 
 # 使用默认配置启动
 docker-compose up -d
@@ -165,7 +168,7 @@ cat > /etc/cloudflared/credentials.json
 chmod 600 /etc/cloudflared/credentials.json
 
 # 配置 cloudflared
-cp /opt/AllCallAll/infra/cloudflared-config.yml /etc/cloudflared/config.yml
+cp "${DEPLOY_DIR}/infra/cloudflared-config.yml" /etc/cloudflared/config.yml
 sed -i "s/api\.allcallall\.example\.com/${DOMAIN}/g" /etc/cloudflared/config.yml
 
 log_info "Cloudflare Tunnel 配置已完成"
@@ -209,7 +212,7 @@ log_info "配置备份脚本..."
 
 mkdir -p /opt/backups
 
-cat > /opt/AllCallAll/scripts/backup.sh << 'EOF'
+cat > "${DEPLOY_DIR}/scripts/backup.sh" << 'EOF'
 #!/bin/bash
 
 BACKUP_DIR="/opt/backups"
@@ -227,10 +230,10 @@ find $BACKUP_DIR -name "allcallall_db_*.sql.gz" -mtime +7 -delete
 echo "数据库备份完成: $(ls -lh $BACKUP_DIR | tail -1)"
 EOF
 
-chmod +x /opt/AllCallAll/scripts/backup.sh
+chmod +x "${DEPLOY_DIR}/scripts/backup.sh"
 
 # 添加定时任务
-(crontab -l 2>/dev/null; echo "0 2 * * * /opt/AllCallAll/scripts/backup.sh") | crontab -
+(crontab -l 2>/dev/null; echo "0 2 * * * ${DEPLOY_DIR}/scripts/backup.sh") | crontab -
 
 log_info "备份脚本已配置"
 
@@ -289,7 +292,7 @@ echo "  - 备份目录: /opt/backups"
 echo "  - 每日自动备份时间: 凌晨 2 点"
 echo ""
 echo "⚠️  安全提示:"
-echo "  1. 修改所有默认密码（见 /opt/AllCallAll/infra/.env.production）"
+echo "  1. 修改所有默认密码（见 ${DEPLOY_DIR}/infra/.env.production）"
 echo "  2. 定期备份数据库"
 echo "  3. 监控服务日志"
 echo "  4. 定期更新系统和依赖"

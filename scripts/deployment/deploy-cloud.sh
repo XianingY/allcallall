@@ -16,14 +16,16 @@ NC='\033[0m' # No Color
 
 # 参数检查
 if [ $# -lt 1 ]; then
-    echo -e "${RED}使用方法: bash deploy-cloud.sh <server-ip> [domain-name]${NC}"
-    echo -e "${YELLOW}示例: bash deploy-cloud.sh 81.68.168.207 api.allcall.com${NC}"
+    echo -e "${RED}使用方法: bash deploy-cloud.sh <server-ip> [domain-name] [work-dir]${NC}"
+    echo -e "${YELLOW}示例: bash deploy-cloud.sh 81.68.168.207 api.allcall.com /opt/myapp${NC}"
+    echo -e "${YELLOW}也可通过环境变量设置: WORK_DIR=/opt/myapp bash deploy-cloud.sh 81.68.168.207${NC}"
     exit 1
 fi
 
 SERVER_IP=$1
 DOMAIN_NAME=${2:-""}
-WORK_DIR="/opt/allcall"
+# 优先级: 命令行参数 > 环境变量 > 默认值
+WORK_DIR=${3:-${WORK_DIR:-"/opt/allcallall"}}
 
 echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║        🚀 AllCallAll 云服务器自动部署脚本                    ║${NC}"

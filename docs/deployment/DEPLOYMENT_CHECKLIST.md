@@ -103,8 +103,8 @@
 - [ ] **克隆项目代码**
   ```bash
   cd /opt
-  sudo mkdir -p /opt/allcall
-  cd /opt/allcall
+  sudo mkdir -p /opt/allcallall
+  cd /opt/allcallall
   git clone https://github.com/yourusername/allcall.git .
   ```
 
@@ -125,7 +125,7 @@
 
 - [ ] **编辑 .env 文件**
   ```bash
-  nano /opt/allcall/.env
+  nano /opt/allcallallall/.env
   ```
 
 - [ ] **修改所有密码**
@@ -149,7 +149,7 @@
 
 - [ ] **启动所有容器**
   ```bash
-  cd /opt/allcall/infra
+  cd /opt/allcallallall/infra
   docker-compose up -d
   ```
 
@@ -341,7 +341,7 @@
 
 - [ ] **磁盘空间充足**
   ```bash
-  df -h /opt/allcall
+  df -h /opt/allcallall
   # 应该显示 > 10GB 可用空间
   ```
 

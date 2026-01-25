@@ -55,13 +55,13 @@ ssh -i your-key.pem ubuntu@81.68.168.207
 
 ### 2. 运行部署脚本
 ```bash
-cd /opt/allcall
+cd /opt/allcallall
 bash scripts/deploy-cloud.sh 81.68.168.207 api.allcall.com
 ```
 
 ### 3. 配置环境变量
 ```bash
-nano /opt/allcall/.env
+nano /opt/allcallallall/.env
 # 修改以下内容:
 # MAIL_PASSWORD=your_qq_auth_code
 # 其他密钥会自动生成
@@ -69,7 +69,7 @@ nano /opt/allcall/.env
 
 ### 4. 启动所有服务
 ```bash
-cd /opt/allcall/infra
+cd /opt/allcallallall/infra
 docker-compose up -d
 
 # 查看服务状态
@@ -209,7 +209,7 @@ docker-compose exec mysql mysql -u allcallall -p allcallall_db -e "SELECT 1"
 docker-compose exec redis redis-cli ping
 
 # 4. 查看配置文件
-cat /opt/allcall/backend/configs/config.yaml
+cat /opt/allcallallall/backend/configs/config.yaml
 ```
 
 ### 数据库连接错误
@@ -300,7 +300,7 @@ htop
 
 # 查看磁盘使用
 df -h
-du -sh /opt/allcall
+du -sh /opt/allcallall
 ```
 
 ### 数据库备份
@@ -342,11 +342,11 @@ docker-compose logs nginx | grep "error"
 ### 3. 备份重要数据
 ```bash
 # 定时备份脚本
-0 2 * * * /opt/allcall/scripts/backup.sh
+0 2 * * * /opt/allcallallall/scripts/backup.sh
 
 # 创建 backup.sh
 #!/bin/bash
-BACKUP_DIR="/opt/allcall/backups"
+BACKUP_DIR="/opt/allcallallall/backups"
 DATE=$(date +%Y%m%d_%H%M%S)
 docker-compose exec -T mysql mysqldump -uroot -prootpass allcallall_db > "$BACKUP_DIR/backup_$DATE.sql"
 ```

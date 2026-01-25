@@ -250,7 +250,7 @@ fcm:
 
 **环境变量**:
 ```bash
-export FCM_SERVICE_ACCOUNT_PATH="/opt/allcall/secrets/firebase-key.json"
+export FCM_SERVICE_ACCOUNT_PATH="/opt/allcallall/secrets/firebase-key.json"
 ```
 
 **当前状态**:

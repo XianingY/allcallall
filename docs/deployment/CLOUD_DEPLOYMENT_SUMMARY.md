@@ -35,7 +35,7 @@
         │         │           │
         └─────────┴───────────┘
               Docker Compose
-              (在 /opt/allcall/infra)
+              (在 /opt/allcallallall/infra)
 
 ┌──────────────────────────────────────────────────────┐
 │         移动应用 (Mobile App - Android/iOS)          │
@@ -127,7 +127,7 @@ sudo apt update && sudo apt upgrade -y
 
 **一键部署**：
 ```bash
-cd /opt/allcall
+cd /opt/allcallall
 bash scripts/deploy-cloud.sh 81.68.168.207 api.allcall.com
 ```
 
@@ -144,7 +144,7 @@ bash scripts/deploy-cloud.sh 81.68.168.207 api.allcall.com
 
 **编辑 .env 文件**：
 ```bash
-nano /opt/allcall/.env
+nano /opt/allcallallall/.env
 ```
 
 **必须修改的字段**：
@@ -162,7 +162,7 @@ MAIL_PASSWORD=your_qq_email_auth_code
 
 **启动容器**：
 ```bash
-cd /opt/allcall/infra
+cd /opt/allcallallall/infra
 docker-compose up -d
 
 # 查看状态
@@ -377,7 +377,7 @@ docker-compose restart mysql
 docker-compose logs backend --tail=50
 
 # 检查 .env 文件配置
-cat /opt/allcall/.env
+cat /opt/allcallallall/.env
 
 # 重新构建镜像
 docker-compose build --no-cache backend
@@ -440,7 +440,7 @@ htop
 
 # 查看磁盘使用
 df -h
-du -sh /opt/allcall
+du -sh /opt/allcallall
 
 # 查看实时日志
 docker-compose logs -f backend --tail=100
@@ -460,7 +460,7 @@ docker-compose logs -f backend --tail=100
 ```bash
 #!/bin/bash
 # backup.sh
-BACKUP_DIR="/opt/allcall/backups"
+BACKUP_DIR="/opt/allcallallall/backups"
 mkdir -p "$BACKUP_DIR"
 DATE=$(date +%Y%m%d_%H%M%S)
 
