@@ -1,5 +1,7 @@
 # 移动端文件整理完成报告
 
+> **注意**: 本文档描述的 `mobile/docs/` 目录已于 2026-01-25 迁移至 `docs/mobile/`。请参考新的位置。
+
 **完成时间**: 2025-12-16  
 **整理类型**: Mobile 端项目文件结构优化
 
@@ -26,13 +28,13 @@ mobile/scripts/               - 脚本目录 (已存在，新增使用指南)
 
 | 文件名 | 原位置 | 新位置 | 分类 |
 |--------|--------|--------|------|
-| AUDIO_FILES_SETUP.md | mobile/ | docs/setup/ | 设置 |
-| APP_ENV_USAGE.md | mobile/ | docs/setup/ | 设置 |
-| AUTO_ENV_DETECTION.md | mobile/ | docs/setup/ | 设置 |
-| ALARM_ENHANCEMENTS_SUMMARY.md | mobile/ | docs/features/ | 功能 |
-| MP3_FORMAT_UPDATE.md | mobile/ | docs/features/ | 功能 |
-| IMPLEMENTATION_STATUS.md | mobile/ | docs/guides/ | 指南 |
-| MODIFICATION_SUMMARY.md | mobile/ | docs/guides/ | 指南 |
+| audio-files-setup.md | mobile/ | docs/setup/ | 设置 |
+| app-env-usage.md | mobile/ | docs/setup/ | 设置 |
+| auto-env-detection.md | mobile/ | docs/setup/ | 设置 |
+| alarm-enhancements-summary.md | mobile/ | docs/features/ | 功能 |
+| mp3-format-update.md | mobile/ | docs/features/ | 功能 |
+| implementation-status.md | mobile/ | docs/guides/ | 指南 |
+| modification-summary.md | mobile/ | docs/guides/ | 指南 |
 
 **脚本文件** (2 个文件 → 已分类):
 
@@ -97,15 +99,15 @@ mobile/
 ├── docs/                            📚 文档目录 (NEW)
 │   ├── README.md                    - 文档导航中心
 │   ├── setup/                       - 设置和初始化
-│   │   ├── AUDIO_FILES_SETUP.md    - 音频文件配置
-│   │   ├── APP_ENV_USAGE.md        - 环境变量使用
-│   │   └── AUTO_ENV_DETECTION.md   - 自动环境检测
+│   │   ├── audio-files-setup.md    - 音频文件配置
+│   │   ├── app-env-usage.md        - 环境变量使用
+│   │   └── auto-env-detection.md   - 自动环境检测
 │   ├── features/                    - 功能特性
-│   │   ├── ALARM_ENHANCEMENTS_SUMMARY.md  - Alarm 增强
-│   │   └── MP3_FORMAT_UPDATE.md     - MP3 格式更新
+│   │   ├── alarm-enhancements-summary.md  - Alarm 增强
+│   │   └── mp3-format-update.md     - MP3 格式更新
 │   ├── guides/                      - 使用指南
-│   │   ├── IMPLEMENTATION_STATUS.md - 实现状态
-│   │   └── MODIFICATION_SUMMARY.md  - 修改总结
+│   │   ├── implementation-status.md - 实现状态
+│   │   └── modification-summary.md  - 修改总结
 │   └── troubleshooting/             - 故障排除 (预留)
 ├── scripts/                         🔧 脚本目录
 │   ├── README.md                    - 脚本使用指南 (NEW)
@@ -137,10 +139,10 @@ mobile/
 cat mobile/docs/README.md
 
 # 快速查找音频配置
-cat mobile/docs/setup/AUDIO_FILES_SETUP.md
+cat mobile/docs/setup/audio-files-setup.md
 
 # 查看功能增强说明
-cat mobile/docs/features/ALARM_ENHANCEMENTS_SUMMARY.md
+cat mobile/docs/features/alarm-enhancements-summary.md
 ```
 
 ### 使用脚本
@@ -199,7 +201,7 @@ cat mobile/scripts/README.md
 
 ## 🔗 相关文档
 
-- [主项目整理报告](../../docs/maintenance/PROJECT_REORGANIZATION_COMPLETED.md)
+- [主项目整理报告](../../docs/maintenance/project-reorganization-completed.md)
 - [Mobile 文档导航](./README.md)
 - [Scripts 使用指南](../scripts/README.md)
 

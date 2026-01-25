@@ -167,14 +167,14 @@ mobile/src/
 │   └── sounds/                      📁 音频文件目录
 │       ├── incoming_call.mp3        📄 来电铃声（需添加）
 │       └── ringback.mp3             📄 回铃音（需添加）
-└── AUDIO_FILES_SETUP.md             ✅ 音频文件设置指南
+└── audio-files-setup.md             ✅ 音频文件设置指南
 ```
 
 ## 🚀 使用方法
 
 ### 1. 添加音频文件
 
-按照 `AUDIO_FILES_SETUP.md` 指南添加真实的音频文件到 `assets/sounds/` 目录。
+按照 `audio-files-setup.md` 指南添加真实的音频文件到 `assets/sounds/` 目录。
 
 ### 2. 配置推送通知
 

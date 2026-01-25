@@ -32,19 +32,19 @@
 
 ### 3. 文档更新
 
-#### AUDIO_FILES_SETUP.md
+#### audio-files-setup.md
 - ✅ 更新音频文件列表（移除outgoing_dial.mp3）
 - ✅ 更新代码示例
 - ✅ 更新音频加载日志示例
 - ✅ 更新文件结构说明
 
-#### ALARM_ENHANCEMENTS_SUMMARY.md
+#### alarm-enhancements-summary.md
 - ✅ 更新震动模式列表
 - ✅ 更新联动逻辑说明
 - ✅ 更新文件结构
 - ✅ 更新测试步骤
 
-#### IMPLEMENTATION_STATUS.md
+#### implementation-status.md
 - ✅ 更新震动模式数量（5种→4种）
 - ✅ 更新通话状态联动说明
 - ✅ 更新目录结构
@@ -71,9 +71,9 @@
 
 ### 文档文件修改
 - **更新的文档**: 5个
-  - AUDIO_FILES_SETUP.md
-  - ALARM_ENHANCEMENTS_SUMMARY.md
-  - IMPLEMENTATION_STATUS.md
+  - audio-files-setup.md
+  - alarm-enhancements-summary.md
+  - implementation-status.md
   - src/assets/sounds/README.md
   - verify-alarm-setup.sh
 
@@ -136,9 +136,9 @@ bash verify-alarm-setup.sh
 
 ## 📚 相关文档
 
-- `ALARM_ENHANCEMENTS_SUMMARY.md` - 完整技术文档
-- `AUDIO_FILES_SETUP.md` - 音频设置指南
-- `IMPLEMENTATION_STATUS.md` - 实现状态报告
+- `alarm-enhancements-summary.md` - 完整技术文档
+- `audio-files-setup.md` - 音频设置指南
+- `implementation-status.md` - 实现状态报告
 - `verify-alarm-setup.sh` - 配置验证脚本
 
 ## ✅ 总结

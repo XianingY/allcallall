@@ -30,7 +30,7 @@ name: "incoming_call.mp3"
 
 #### 📚 更新的文档列表
 
-1. **AUDIO_FILES_SETUP.md**
+1. **audio-files-setup.md**
    - ✅ 推荐格式：MP3 (推荐) 或 WAV
    - ✅ 添加MP3比特率说明：64-128 kbps
    - ✅ 更新文件列表表格
@@ -38,10 +38,10 @@ name: "incoming_call.mp3"
    - ✅ 更新代码示例
    - ✅ 更新音频加载日志
 
-2. **ALARM_ENHANCEMENTS_SUMMARY.md**
+2. **alarm-enhancements-summary.md**
    - ✅ 更新文件结构中的扩展名
 
-3. **IMPLEMENTATION_STATUS.md**
+3. **implementation-status.md**
    - ✅ 更新文件列表
    - ✅ 更新待完成事项
 
@@ -51,7 +51,7 @@ name: "incoming_call.mp3"
    - ✅ 添加MP3比特率建议
    - ✅ 强调使用.mp3扩展名
 
-5. **MODIFICATION_SUMMARY.md**
+5. **modification-summary.md**
    - ✅ 更新所有.wav引用为.mp3
 
 ### 3. 验证脚本增强
@@ -203,8 +203,8 @@ bash verify-alarm-setup.sh
 
 ## 📚 相关文档
 
-- `AUDIO_FILES_SETUP.md` - 详细的音频设置指南
-- `ALARM_ENHANCEMENTS_SUMMARY.md` - 完整功能文档
+- `audio-files-setup.md` - 详细的音频设置指南
+- `alarm-enhancements-summary.md` - 完整功能文档
 - `verify-alarm-setup.sh` - 配置验证脚本
 
 ## ✅ 总结

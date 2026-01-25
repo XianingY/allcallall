@@ -77,8 +77,8 @@
 ### 5. 文档和指南
 
 #### 📚 文档文件
-- ✅ `ALARM_ENHANCEMENTS_SUMMARY.md` - 完整实现总结
-- ✅ `AUDIO_FILES_SETUP.md` - 音频文件设置指南
+- ✅ `alarm-enhancements-summary.md` - 完整实现总结
+- ✅ `audio-files-setup.md` - 音频文件设置指南
 - ✅ `src/assets/sounds/README.md` - 音频目录说明
 - ✅ `verify-alarm-setup.sh` - 配置验证脚本
 
@@ -195,8 +195,8 @@ bash verify-alarm-setup.sh
 ## 📞 支持
 
 如有问题，请参考:
-- `ALARM_ENHANCEMENTS_SUMMARY.md` - 详细技术文档
-- `AUDIO_FILES_SETUP.md` - 音频文件设置指南
+- `alarm-enhancements-summary.md` - 详细技术文档
+- `audio-files-setup.md` - 音频文件设置指南
 - `verify-alarm-setup.sh` - 配置验证脚本
 
 ---
