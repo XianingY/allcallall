@@ -80,13 +80,15 @@ fi
 sudo mkdir -p "$WORK_DIR"
 sudo chown -R $USER:$USER "$WORK_DIR"
 
-# 4. 克隆项目代码
+# 4. 克隆项目代码（完整仓库，包含所有分支）
 echo -e "${BLUE}[4/8] 克隆项目代码...${NC}"
 cd "$WORK_DIR"
 if [ -d ".git" ]; then
-    echo -e "${YELLOW}⚠ 已存在 git 仓库，跳过 clone${NC}"
+    echo -e "${YELLOW}⚠ 已存在 git 仓库，执行 fetch 获取全部分支${NC}"
+    git remote set-url origin "$REPO_URL" || true
+    git fetch --all --prune
 else
-    if ! git clone --depth 1 "$REPO_URL" .; then
+    if ! git clone "$REPO_URL" .; then
         echo -e "${YELLOW}⚠ clone 失败（通常是 SSH key 未配置或无权限）。${NC}"
         echo -e "${YELLOW}  你可以先配置 SSH key，然后重试：git clone $REPO_URL .${NC}"
         exit 1
