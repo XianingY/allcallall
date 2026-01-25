@@ -56,9 +56,9 @@ cd infra && docker-compose down
 ```
 
 ## 📚 详细文档
-- 完整启动指南: `docs/DOCKER_STARTUP_GUIDE.md`
-- API文档: `docs/API_DOCUMENTATION.md`
-- 数据库文档: `docs/DATABASE.md`
+- 完整启动指南: `docs/docker-startup-guide.md`
+- API文档: `docs/api-documentation.md`
+- 数据库文档: `docs/database.md`
 
 ---
 
