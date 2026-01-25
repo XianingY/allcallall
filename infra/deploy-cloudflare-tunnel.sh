@@ -1,12 +1,19 @@
 #!/bin/bash
 
 #############################################################################
-# AllCallAll 一键部署脚本
-# 用于在云服务器上快速部署 AllCallAll 应用
+# AllCallAll Cloudflare Tunnel 部署脚本
+# 专用于通过 Cloudflare Tunnel 在云服务器上部署 AllCallAll 应用
+#
+# 使用场景:
+#   - 需要 Cloudflare Tunnel 代理的部署
+#   - 不想直接暴露服务器 IP 的场景
 #
 # 使用方法:
-#   chmod +x deploy.sh
-#   sudo ./deploy.sh
+#   chmod +x deploy-cloudflare-tunnel.sh
+#   sudo ./deploy-cloudflare-tunnel.sh
+#
+# 注意: 如果不需要 Cloudflare Tunnel，请使用:
+#   scripts/deployment/deploy-cloud.sh
 #############################################################################
 
 set -e
