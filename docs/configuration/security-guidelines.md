@@ -511,10 +511,10 @@ bind 127.0.0.1 10.0.0.0/8
 
 ## 📝 相关文档
 
-- [API 文档](../api/API_DOCUMENTATION.md)
-- [配置说明](./CONFIGURATION.md)
-- [数据库文档](../api/DATABASE.md)
-- [部署指南](../deployment/DEPLOYMENT_GUIDE.md)
+- [API 文档](../api/api-documentation.md)
+- [配置说明](./configuration.md)
+- [数据库文档](../api/database.md)
+- [部署指南](../deployment/deployment-guide.md)
 
 ---
 

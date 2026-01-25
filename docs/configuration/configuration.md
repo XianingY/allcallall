@@ -539,7 +539,7 @@ logging:
 
 ## 🔗 相关文档
 
-- [API 文档](./API_DOCUMENTATION.md)
-- [数据库文档](./DATABASE.md)
-- [部署指南](./DEPLOYMENT_GUIDE.md)
-- [安全指南](./SECURITY_GUIDELINES.md)
+- [API 文档](./api-documentation.md)
+- [数据库文档](./database.md)
+- [部署指南](./deployment-guide.md)
+- [安全指南](./security-guidelines.md)
