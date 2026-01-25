@@ -430,10 +430,10 @@ curl -X POST http://192.168.1.46:8080/api/v1/auth/register \
 
 ## 📚 相关文档
 
-- [部署成功总结](./DEPLOYMENT_SUCCESS_SUMMARY.md)
-- [Docker启动指南](./DOCKER_STARTUP_GUIDE.md)
-- [生产环境完整指南](./PRODUCTION_SETUP_AND_APK_BUILD.md)
-- [统一环境配置指南](./UNIFIED_ENV_CONFIG.md)
+- [部署成功总结](../archive/deployment-success-summary.md)
+- [Docker启动指南](../getting-started/docker-startup-guide.md)
+- [生产环境完整指南](../deployment/production-setup-and-apk-build.md)
+- [统一环境配置指南](../getting-started/unified-env-config.md)
 
 ---
 

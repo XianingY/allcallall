@@ -494,7 +494,7 @@ SET GLOBAL long_query_time = 2;
 
 ## 📝 相关文档
 
-- [API 文档](./API_DOCUMENTATION.md)
-- [配置说明](./CONFIGURATION.md)
-- [部署指南](./DEPLOYMENT_GUIDE.md)
-- [安全指南](../configuration/SECURITY_GUIDELINES.md)
+- [API 文档](./api-documentation.md)
+- [配置说明](./configuration.md)
+- [部署指南](./deployment-guide.md)
+- [安全指南](../configuration/security-guidelines.md)

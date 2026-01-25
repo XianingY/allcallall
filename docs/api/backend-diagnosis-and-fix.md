@@ -310,8 +310,8 @@ docker-compose -f docker-compose.production.yml up -d
 
 ## 📚 相关文档
 
-- [Docker Compose启动指南](../docs/DOCKER_STARTUP_GUIDE.md)
-- [生产环境完整指南](../docs/PRODUCTION_SETUP_AND_APK_BUILD.md)
+- [Docker Compose启动指南](../docs/docker-startup-guide.md)
+- [生产环境完整指南](../docs/production-setup-and-apk-build.md)
 - [快速参考](../APK_BUILD_QUICK_REFERENCE.md)
 
 ---
