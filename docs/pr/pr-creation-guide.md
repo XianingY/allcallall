@@ -37,11 +37,11 @@
 - SettingsScreen.tsx - 中英双语UI界面
 
 #### 📚 文档
-- ALARM_ENHANCEMENTS_SUMMARY.md - 完整功能文档
-- AUDIO_FILES_SETUP.md - 音频设置指南
-- MODIFICATION_SUMMARY.md - 修改总结
-- MP3_FORMAT_UPDATE.md - MP3格式更新指南
-- IMPLEMENTATION_STATUS.md - 实现状态报告
+- alarm-enhancements-summary.md - 完整功能文档
+- audio-files-setup.md - 音频设置指南
+- modification-summary.md - 修改总结
+- mp3-format-update.md - MP3格式更新指南
+- implementation-status.md - 实现状态报告
 
 #### 🔧 工具
 - verify-alarm-setup.sh - 配置验证脚本
@@ -96,9 +96,9 @@ feat: 添加Alarm功能增强 - 音频、震动、推送通知
 
 ## 📚 文档
 
-- `ALARM_ENHANCEMENTS_SUMMARY.md` - 完整功能文档
-- `AUDIO_FILES_SETUP.md` - 音频设置指南
-- `MP3_FORMAT_UPDATE.md` - MP3格式更新指南
+- `alarm-enhancements-summary.md` - 完整功能文档
+- `audio-files-setup.md` - 音频设置指南
+- `mp3-format-update.md` - MP3格式更新指南
 - `verify-alarm-setup.sh` - 配置验证脚本
 
 ## ✅ 验证
@@ -149,10 +149,10 @@ feat: 合并Alarm功能增强到dev分支
 - 🔄 完整的集成和联动
 
 📚 文档:
-- ALARM_ENHANCEMENTS_SUMMARY.md
-- AUDIO_FILES_SETUP.md
-- MODIFICATION_SUMMARY.md
-- MP3_FORMAT_UPDATE.md
+- alarm-enhancements-summary.md
+- audio-files-setup.md
+- modification-summary.md
+- mp3-format-update.md
 
 🎯 技术特性:
 - 真实音频文件播放

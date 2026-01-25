@@ -31,7 +31,7 @@ docs/
 ```
 
 **要移动的文件**:
-- ✏️ `QUICK_START.md` → `docs/getting-started/`
+- ✏️ `quick-start.md` → `docs/getting-started/`
 - ✏️ `APK_BUILD_QUICK_REFERENCE.md` → `docs/deployment/`
 - ✏️ 其他 docs 内的文件进行分类
 
@@ -77,7 +77,7 @@ scripts/
 | `scripts/query-verification-code.sh` | 0 KB | 空文件 | 🟢 零 |
 
 **可选删除**:
-- `docs/DOCUMENT_MOVE_SUMMARY.md` (历史文档)
+- `docs/document-move-summary.md` (历史文档)
 - `docs/check.md` (内容不清)
 
 ---
@@ -115,7 +115,7 @@ scripts/
 ### 🟡 按计划执行（中优先级）
 
 4. **分类移动文档** ⏱️ 15 分钟
-   - 从根目录: QUICK_START.md, APK_BUILD_QUICK_REFERENCE.md
+   - 从根目录: quick-start.md, APK_BUILD_QUICK_REFERENCE.md
    - 在 docs 内: 按功能重新分类
 
 5. **重新组织脚本** ⏱️ 10 分钟
@@ -152,7 +152,7 @@ scripts/
 - 您还需要这个脚本吗?
 - 如果需要，我可以修复路径错误后移动
 
-### ❓ 问题 3: `docs/DOCUMENT_MOVE_SUMMARY.md`
+### ❓ 问题 3: `docs/document-move-summary.md`
 - 这个历史文档是否还需要保留?
 
 ### ❓ 问题 4: `docs/check.md`
@@ -184,12 +184,12 @@ scripts/
 
 如果需要了解更多细节，请查看:
 
-1. **完整计划**: `docs/FILE_ORGANIZATION_PLAN.md`
+1. **完整计划**: `docs/file-organization-plan.md`
    - 详细的目录结构
    - 每个文件的具体操作
    - 实施步骤和验证方法
 
-2. **删除清单**: `docs/CLEANUP_CHECKLIST.md`
+2. **删除清单**: `docs/cleanup-checklist.md`
    - 每个要删除的文件的详细说明
    - 删除风险分析
    - 最终确认检查表

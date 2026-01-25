@@ -35,25 +35,25 @@
 ```
 docs/offline-translation/
 ├── README.md                                    # 文档索引 (新增)
-├── IMPLEMENTATION_ROADMAP.md                   # 5周实施计划 (移入)
-├── REAL_TIME_TRANSLATION_PLAN.md               # 功能设计 (移入)
-├── ENVIRONMENT_STATUS.md                       # 环境状态 (移入)
+├── implementation-roadmap.md                   # 5周实施计划 (移入)
+├── real-time-translation-plan.md               # 功能设计 (移入)
+├── environment-status.md                       # 环境状态 (移入)
 ├── setup/                                      # 设置指南 (新建目录)
-│   ├── MODEL_DOWNLOAD_GUIDE.md                 # 下载指南 (移入)
-│   ├── MANUAL_DOWNLOAD_INSTRUCTIONS.md         # 手动下载 (移入)
-│   └── MODEL_SETUP_README.md                   # 快速开始 (移入)
+│   ├── model-download-guide.md                 # 下载指南 (移入)
+│   ├── manual-download-instructions.md         # 手动下载 (移入)
+│   └── model-setup-readme.md                   # 快速开始 (移入)
 └── guides/                                     # 技术指南 (新建目录)
-    └── QUANTIZATION_AND_RN_INTEGRATION.md      # 技术深度 (移入)
+    └── quantization-and-rn-integration.md      # 技术深度 (移入)
 ```
 
 **移动文件列表**：
-- IMPLEMENTATION_ROADMAP.md (26KB) → docs/offline-translation/
-- MODEL_DOWNLOAD_GUIDE.md (5KB) → docs/offline-translation/setup/
-- MANUAL_DOWNLOAD_INSTRUCTIONS.md (3KB) → docs/offline-translation/setup/
-- MODEL_SETUP_README.md (3KB) → docs/offline-translation/setup/
-- ENVIRONMENT_STATUS.md (3KB) → docs/offline-translation/
-- QUANTIZATION_AND_RN_INTEGRATION.md (45KB) → docs/offline-translation/guides/
-- REAL_TIME_TRANSLATION_PLAN.md (19KB) → docs/offline-translation/
+- implementation-roadmap.md (26KB) → docs/offline-translation/
+- model-download-guide.md (5KB) → docs/offline-translation/setup/
+- manual-download-instructions.md (3KB) → docs/offline-translation/setup/
+- model-setup-readme.md (3KB) → docs/offline-translation/setup/
+- environment-status.md (3KB) → docs/offline-translation/
+- quantization-and-rn-integration.md (45KB) → docs/offline-translation/guides/
+- real-time-translation-plan.md (19KB) → docs/offline-translation/
 
 #### 脚本工具归档 (scripts/translation/)
 
@@ -124,13 +124,13 @@ assets/models/
 ### Before (整理前)
 ```
 根目录/
-├── IMPLEMENTATION_ROADMAP.md
-├── MODEL_DOWNLOAD_GUIDE.md
-├── MANUAL_DOWNLOAD_INSTRUCTIONS.md
-├── MODEL_SETUP_README.md
-├── ENVIRONMENT_STATUS.md
-├── QUANTIZATION_AND_RN_INTEGRATION.md
-├── REAL_TIME_TRANSLATION_PLAN.md
+├── implementation-roadmap.md
+├── model-download-guide.md
+├── manual-download-instructions.md
+├── model-setup-readme.md
+├── environment-status.md
+├── quantization-and-rn-integration.md
+├── real-time-translation-plan.md
 ├── download_models.sh
 ├── quantize_opus.py
 └── verify_setup.py
@@ -143,15 +143,15 @@ assets/models/
 ├── .gitignore (更新)
 └── docs/offline-translation/
     ├── README.md (新增)
-    ├── IMPLEMENTATION_ROADMAP.md
-    ├── REAL_TIME_TRANSLATION_PLAN.md
-    ├── ENVIRONMENT_STATUS.md
+    ├── implementation-roadmap.md
+    ├── real-time-translation-plan.md
+    ├── environment-status.md
     ├── setup/
-    │   ├── MODEL_DOWNLOAD_GUIDE.md
-    │   ├── MANUAL_DOWNLOAD_INSTRUCTIONS.md
-    │   └── MODEL_SETUP_README.md
+    │   ├── model-download-guide.md
+    │   ├── manual-download-instructions.md
+    │   └── model-setup-readme.md
     └── guides/
-        └── QUANTIZATION_AND_RN_INTEGRATION.md
+        └── quantization-and-rn-integration.md
 
 scripts/translation/
 ├── download_models.sh
@@ -191,8 +191,8 @@ assets/models/
 
 ### 1. 文档维护
 - 定期更新离线翻译文档
-- 保持 IMPLEMENTATION_ROADMAP.md 与实际进度同步
-- 及时更新 ENVIRONMENT_STATUS.md
+- 保持 implementation-roadmap.md 与实际进度同步
+- 及时更新 environment-status.md
 
 ### 2. 脚本优化
 - 为脚本添加执行权限 (chmod +x)

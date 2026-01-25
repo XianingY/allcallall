@@ -35,7 +35,7 @@ d63160d feat: 完善alarm功能并添加音频提醒增强
 
 ### 已删除的环境检测文件
 
-- ❌ mobile/AUTO_ENV_DETECTION.md
+- ❌ mobile/auto-env-detection.md
 - ❌ mobile/ENV_DETECTION_SUMMARY.md
 - ❌ mobile/src/config/auto-config.ts
 - ❌ mobile/src/config/constants-config.ts

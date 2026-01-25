@@ -128,7 +128,7 @@ curl -s http://localhost:8080/api/v1/health  # 改为本机 localhost
 
 ## 第四组：可选删除的文档（低优先级）
 
-### 📄 `docs/DOCUMENT_MOVE_SUMMARY.md`
+### 📄 `docs/document-move-summary.md`
 - **类型**: 历史性文档
 - **内容**: 描述之前的文档迁移工作
 - **重要性**: 较低（仅作为历史参考）
@@ -251,8 +251,8 @@ rm -f scripts/query-verification-code.sh
 - [ ] 删除 `restart-services.sh`
 
 ### 历史文档处理确认
-- [ ] 删除 `docs/DOCUMENT_MOVE_SUMMARY.md`
-- [ ] 保留 `docs/DOCUMENT_MOVE_SUMMARY.md`（作为历史记录）
+- [ ] 删除 `docs/document-move-summary.md`
+- [ ] 保留 `docs/document-move-summary.md`（作为历史记录）
 
 ### 检查清单处理确认
 - [ ] 删除 `docs/check.md`（已确认无用）

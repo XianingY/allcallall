@@ -8,26 +8,26 @@
 ### 移动的文档文件
 
 #### 🎵 Alarm 功能文档 (docs/alarm/)
-1. ✅ ALARM_ONLY_PR_GUIDE.md
-   - 原始位置: `/Users/byzantium/github/allcallall/ALARM_ONLY_PR_GUIDE.md`
-   - 新位置: `/Users/byzantium/github/allcallall/docs/alarm/ALARM_ONLY_PR_GUIDE.md`
+1. ✅ alarm-only-pr-guide.md
+   - 原始位置: `/Users/byzantium/github/allcallall/alarm-only-pr-guide.md`
+   - 新位置: `/Users/byzantium/github/allcallall/docs/alarm/alarm-only-pr-guide.md`
 
-2. ✅ FINAL_RESET_STATUS.md
-   - 原始位置: `/Users/byzantium/github/allcallall/FINAL_RESET_STATUS.md`
-   - 新位置: `/Users/byzantium/github/allcallall/docs/alarm/FINAL_RESET_STATUS.md`
+2. ✅ final-reset-status.md
+   - 原始位置: `/Users/byzantium/github/allcallall/final-reset-status.md`
+   - 新位置: `/Users/byzantium/github/allcallall/docs/alarm/final-reset-status.md`
 
-3. ✅ REVERT_STATUS.md
-   - 原始位置: `/Users/byzantium/github/allcallall/REVERT_STATUS.md`
-   - 新位置: `/Users/byzantium/github/allcallall/docs/alarm/REVERT_STATUS.md`
+3. ✅ revert-status.md
+   - 原始位置: `/Users/byzantium/github/allcallall/revert-status.md`
+   - 新位置: `/Users/byzantium/github/allcallall/docs/alarm/revert-status.md`
 
 #### 📝 Pull Request 文档 (docs/pr/)
-4. ✅ PR_CREATION_GUIDE.md
-   - 原始位置: `/Users/byzantium/github/allcallall/PR_CREATION_GUIDE.md`
-   - 新位置: `/Users/byzantium/github/allcallall/docs/pr/PR_CREATION_GUIDE.md`
+4. ✅ pr-creation-guide.md
+   - 原始位置: `/Users/byzantium/github/allcallall/pr-creation-guide.md`
+   - 新位置: `/Users/byzantium/github/allcallall/docs/pr/pr-creation-guide.md`
 
-5. ✅ PR_DESCRIPTION_TEMPLATE.md
-   - 原始位置: `/Users/byzantium/github/allcallall/PR_DESCRIPTION_TEMPLATE.md`
-   - 新位置: `/Users/byzantium/github/allcallall/docs/pr/PR_DESCRIPTION_TEMPLATE.md`
+5. ✅ pr-description-template.md
+   - 原始位置: `/Users/byzantium/github/allcallall/pr-description-template.md`
+   - 新位置: `/Users/byzantium/github/allcallall/docs/pr/pr-description-template.md`
 
 #### 📱 移动端文档 (docs/mobile/)
 6. ✅ README.md
@@ -48,20 +48,20 @@
 docs/
 ├── README.md (新增)
 ├── alarm/
-│   ├── ALARM_ONLY_PR_GUIDE.md
-│   ├── FINAL_RESET_STATUS.md
-│   └── REVERT_STATUS.md
+│   ├── alarm-only-pr-guide.md
+│   ├── final-reset-status.md
+│   └── revert-status.md
 ├── pr/
-│   ├── PR_CREATION_GUIDE.md
-│   └── PR_DESCRIPTION_TEMPLATE.md
+│   ├── pr-creation-guide.md
+│   └── pr-description-template.md
 ├── mobile/
 │   └── README.md
-├── CLAUDE.md
+├── claude.md
 ├── CLOUD_DEPLOYMENT_SUMMARY.md
-├── DEPLOYMENT_CHECKLIST.md
-├── DEPLOYMENT_GUIDE.md
+├── deployment-checklist.md
+├── deployment-guide.md
 ├── DEPLOYMENT_QUICK_REFERENCE.md
-├── SECURITY_GUIDELINES.md
+├── security-guidelines.md
 ├── check.md
 └── testing-plan.md
 ```
@@ -87,7 +87,7 @@ docs/
 - **安全文档** - 直接放在docs/根目录
 
 ### 📝 命名规范
-- 使用大写字母和下划线 (如: ALARM_ONLY_PR_GUIDE.md)
+- 使用大写字母和下划线 (如: alarm-only-pr-guide.md)
 - 简洁明了的文件名
 - 统一使用 .md 扩展名
 

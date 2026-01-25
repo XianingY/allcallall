@@ -14,7 +14,7 @@
 ### 当前状态
 项目根目录有 3 个 .md 文件散落：
 - `README.md` (主要文档)
-- `QUICK_START.md` (快速开始)
+- `quick-start.md` (快速开始)
 - `APK_BUILD_QUICK_REFERENCE.md` (APK 构建参考)
 
 docs 目录内有 25 个 .md 文件，部分已有合理分类，部分需要重新组织。
@@ -26,24 +26,24 @@ docs/
 ├── README.md                          (总入口，保持在docs根目录)
 │
 ├── getting-started/                   (快速开始文档组)
-│   ├── QUICK_START.md                (快速启动指南 - 从根目录移动)
-│   ├── DOCKER_STARTUP_GUIDE.md       (现有，位置可保持)
-│   └── UNIFIED_ENV_CONFIG.md         (环境变量配置)
+│   ├── quick-start.md                (快速启动指南 - 从根目录移动)
+│   ├── docker-startup-guide.md       (现有，位置可保持)
+│   └── unified-env-config.md         (环境变量配置)
 │
 ├── deployment/                        (部署相关文档组)
-│   ├── DEPLOYMENT_GUIDE.md
-│   ├── DEPLOYMENT_CHECKLIST.md
+│   ├── deployment-guide.md
+│   ├── deployment-checklist.md
 │   ├── DEPLOYMENT_QUICK_REFERENCE.md
 │   ├── DEPLOYMENT_SUCCESS_SUMMARY.md
 │   ├── CLOUD_DEPLOYMENT_SUMMARY.md
-│   ├── PRODUCTION_SETUP_AND_APK_BUILD.md
+│   ├── production-setup-and-apk-build.md
 │   └── APK_BUILD_QUICK_REFERENCE.md  (从根目录移动)
 │
 ├── api/                               (API 和后端相关文档)
-│   ├── API_DOCUMENTATION.md
-│   ├── BACKEND_CONNECTION_TEST_REPORT.md
-│   ├── BACKEND_DIAGNOSIS_AND_FIX.md
-│   └── DATABASE.md
+│   ├── api-documentation.md
+│   ├── backend-connection-test-report.md
+│   ├── backend-diagnosis-and-fix.md
+│   └── database.md
 │
 ├── mobile/                            (移动端相关文档 - 目录已存在)
 │   ├── README.md                      (已存在)
@@ -53,38 +53,38 @@ docs/
 │
 ├── features/                          (功能特性相关文档)
 │   ├── push-notifications/
-│   │   ├── FCM_IMPLEMENTATION_SUMMARY.md
-│   │   ├── FCM_TESTING_GUIDE.md
-│   │   ├── FCM_QUICK_REFERENCE.md
-│   │   ├── FIREBASE_INTEGRATION_GUIDE.md
-│   │   └── PUSH_NOTIFICATION_FIX_GUIDE.md
+│   │   ├── fcm-implementation-summary.md
+│   │   ├── fcm-testing-guide.md
+│   │   ├── fcm-quick-reference.md
+│   │   ├── firebase-integration-guide.md
+│   │   └── push-notification-fix-guide.md
 │   │
 │   └── alarm/                         (目录已存在)
-│       ├── ALARM_ONLY_PR_GUIDE.md
-│       ├── FINAL_RESET_STATUS.md
-│       └── REVERT_STATUS.md
+│       ├── alarm-only-pr-guide.md
+│       ├── final-reset-status.md
+│       └── revert-status.md
 │
 ├── configuration/                     (配置相关文档)
-│   ├── CONFIGURATION.md
-│   └── SECURITY_GUIDELINES.md
+│   ├── configuration.md
+│   └── security-guidelines.md
 │
 ├── reference/                         (参考资料)
 │   ├── AGENTS.MD                      (AI 助手指南)
-│   ├── CLAUDE.md                      (项目概览)
+│   ├── claude.md                      (项目概览)
 │   └── README.md                      (docs/目录说明)
 │
 └── maintenance/                       (维护和清理相关)
-    ├── DOCUMENT_MOVE_SUMMARY.md
+    ├── document-move-summary.md
     ├── check.md
     ├── testing-plan.md
-    └── FILE_ORGANIZATION_PLAN.md      (本文件)
+    └── file-organization-plan.md      (本文件)
 ```
 
 ### 具体移动操作
 
 #### 📌 从根目录移动到 docs 的文件：
 
-1. **QUICK_START.md** → `docs/getting-started/QUICK_START.md`
+1. **quick-start.md** → `docs/getting-started/quick-start.md`
 2. **APK_BUILD_QUICK_REFERENCE.md** → `docs/deployment/APK_BUILD_QUICK_REFERENCE.md`
 
 #### 📌 docs 内部的重新分类：
@@ -101,14 +101,14 @@ docs/
    ```
 
 2. **移动文件**
-   - DOCKER_STARTUP_GUIDE.md → `docs/getting-started/`
-   - UNIFIED_ENV_CONFIG.md → `docs/getting-started/`
+   - docker-startup-guide.md → `docs/getting-started/`
+   - unified-env-config.md → `docs/getting-started/`
    - 所有 DEPLOYMENT_*.md → `docs/deployment/`
-   - API_DOCUMENTATION.md, BACKEND_*.md, DATABASE.md → `docs/api/`
+   - api-documentation.md, BACKEND_*.md, database.md → `docs/api/`
    - MOBILE_AUDIO_*.md → `docs/mobile/`
    - 所有 FCM_*.md, FIREBASE_*, PUSH_* → `docs/features/push-notifications/`
-   - CONFIGURATION.md, SECURITY_* → `docs/configuration/`
-   - AGENTS.MD, CLAUDE.md → `docs/reference/`
+   - configuration.md, SECURITY_* → `docs/configuration/`
+   - AGENTS.MD, claude.md → `docs/reference/`
    - 其他维护相关文件 → `docs/maintenance/`
 
 ---
@@ -245,17 +245,17 @@ scripts/
 | 文件/目录 | 类型 | 删除理由 | 保留条件 |
 |---------|------|--------|--------|
 | `restart-services.sh` | 脚本 | 有严重的路径错误（`/Users/byzantium/github/allcall` 应为 `/Users/byzantium/github/allcallall`），需修复后再使用 | 修复后移动到 scripts/development/ |
-| `docs/DOCUMENT_MOVE_SUMMARY.md` | 文档 | 历史性文档，描述之前的文档迁移工作 | 仅作为历史参考，可以归档 |
+| `docs/document-move-summary.md` | 文档 | 历史性文档，描述之前的文档迁移工作 | 仅作为历史参考，可以归档 |
 | `docs/check.md` | 文档 | 内容不清楚，可能是临时检查清单 | 如确认无用，可删除 |
 
 ### 低优先级清单（保留但可优化）
 
 | 文件/目录 | 建议 |
 |---------|------|
-| `docs/CLAUDE.md` | 移动到 `docs/reference/CLAUDE.md`，作为项目概览参考 |
+| `docs/claude.md` | 移动到 `docs/reference/claude.md`，作为项目概览参考 |
 | `docs/AGENTS.MD` | 移动到 `docs/reference/AGENTS.MD`，作为 AI 助手指南 |
 | `README.md` (根目录) | 保留，可添加指向 docs/ 的快速导航链接 |
-| `QUICK_START.md` (根目录) | 移动到 `docs/getting-started/QUICK_START.md` |
+| `quick-start.md` (根目录) | 移动到 `docs/getting-started/quick-start.md` |
 | `APK_BUILD_QUICK_REFERENCE.md` (根目录) | 移动到 `docs/deployment/APK_BUILD_QUICK_REFERENCE.md` |
 
 ---
@@ -324,12 +324,12 @@ mkdir -p scripts/testing
 
 ```bash
 # 从根目录移动
-mv QUICK_START.md docs/getting-started/
+mv quick-start.md docs/getting-started/
 mv APK_BUILD_QUICK_REFERENCE.md docs/deployment/
 
 # docs 目录内的重新分类（使用 mv 命令逐个移动）
-mv docs/DOCKER_STARTUP_GUIDE.md docs/getting-started/
-mv docs/UNIFIED_ENV_CONFIG.md docs/getting-started/
+mv docs/docker-startup-guide.md docs/getting-started/
+mv docs/unified-env-config.md docs/getting-started/
 # ... 等等
 ```
 
@@ -354,7 +354,7 @@ mv scripts/test-change-password.sh scripts/testing/
 - 更新 README.md 中的文档链接
 - 更新脚本中的相对路径引用
 - 创建 docs/README.md 和 scripts/README.md
-- 更新 docs/maintenance/FILE_ORGANIZATION_PLAN.md
+- 更新 docs/maintenance/file-organization-plan.md
 
 ### 第六阶段：验证和提交（10 分钟）
 

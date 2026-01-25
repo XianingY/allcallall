@@ -49,55 +49,55 @@ scripts/
 ### 移动的文件
 
 #### 根目录 → docs/
-- ✅ `QUICK_START.md` → `docs/getting-started/QUICK_START.md`
+- ✅ `quick-start.md` → `docs/getting-started/quick-start.md`
 - ✅ `APK_BUILD_QUICK_REFERENCE.md` → `docs/deployment/APK_BUILD_QUICK_REFERENCE.md`
 
 #### docs 内部重新分类 (23 个文件)
 
 **getting-started/**
-- QUICK_START.md (from root)
-- DOCKER_STARTUP_GUIDE.md
-- UNIFIED_ENV_CONFIG.md
+- quick-start.md (from root)
+- docker-startup-guide.md
+- unified-env-config.md
 
 **deployment/**
 - APK_BUILD_QUICK_REFERENCE.md (from root)
-- DEPLOYMENT_GUIDE.md
-- DEPLOYMENT_CHECKLIST.md
+- deployment-guide.md
+- deployment-checklist.md
 - DEPLOYMENT_QUICK_REFERENCE.md
 - DEPLOYMENT_SUCCESS_SUMMARY.md
 - CLOUD_DEPLOYMENT_SUMMARY.md
-- PRODUCTION_SETUP_AND_APK_BUILD.md
+- production-setup-and-apk-build.md
 
 **api/**
-- API_DOCUMENTATION.md
-- BACKEND_CONNECTION_TEST_REPORT.md
-- BACKEND_DIAGNOSIS_AND_FIX.md
-- DATABASE.md
+- api-documentation.md
+- backend-connection-test-report.md
+- backend-diagnosis-and-fix.md
+- database.md
 
 **mobile/**
 - MOBILE_AUDIO_SETUP.md
 - MOBILE_AUDIO_IMPLEMENTATION.md
 
 **features/push-notifications/**
-- FCM_IMPLEMENTATION_SUMMARY.md
-- FCM_TESTING_GUIDE.md
-- FCM_QUICK_REFERENCE.md
-- FIREBASE_INTEGRATION_GUIDE.md
-- PUSH_NOTIFICATION_FIX_GUIDE.md
+- fcm-implementation-summary.md
+- fcm-testing-guide.md
+- fcm-quick-reference.md
+- firebase-integration-guide.md
+- push-notification-fix-guide.md
 
 **configuration/**
-- CONFIGURATION.md
-- SECURITY_GUIDELINES.md
+- configuration.md
+- security-guidelines.md
 
 **reference/**
-- CLAUDE.md
+- claude.md
 - AGENTS.MD
 
 **maintenance/**
-- DOCUMENT_MOVE_SUMMARY.md
-- FILE_ORGANIZATION_PLAN.md
-- CLEANUP_CHECKLIST.md
-- ORGANIZATION_QUICK_SUMMARY.md
+- document-move-summary.md
+- file-organization-plan.md
+- cleanup-checklist.md
+- organization-quick-summary.md
 - check.md
 - testing-plan.md
 
@@ -158,9 +158,9 @@ scripts/
 ### 快速链接
 
 **新用户入门**
-1. [快速启动指南](docs/getting-started/QUICK_START.md)
-2. [Docker 启动指南](docs/getting-started/DOCKER_STARTUP_GUIDE.md)
-3. [项目概览](docs/reference/CLAUDE.md)
+1. [快速启动指南](docs/getting-started/quick-start.md)
+2. [Docker 启动指南](docs/getting-started/docker-startup-guide.md)
+3. [项目概览](docs/reference/claude.md)
 
 **常用脚本**
 ```bash
@@ -178,10 +178,10 @@ scripts/
 ```
 
 **常用文档**
-- API 开发: [API 文档](docs/api/API_DOCUMENTATION.md)
+- API 开发: [API 文档](docs/api/api-documentation.md)
 - 移动端: [移动端文档](docs/mobile/README.md)
-- 部署: [部署指南](docs/deployment/DEPLOYMENT_GUIDE.md)
-- 推送通知: [FCM 实现](docs/features/push-notifications/FCM_IMPLEMENTATION_SUMMARY.md)
+- 部署: [部署指南](docs/deployment/deployment-guide.md)
+- 推送通知: [FCM 实现](docs/features/push-notifications/fcm-implementation-summary.md)
 
 ---
 
@@ -241,7 +241,7 @@ git commit -m "refactor: reorganize project files structure
 
 - Create 8 new subdirectories in docs/ for better organization
 - Create 3 new subdirectories in scripts/ for script management
-- Move QUICK_START.md and APK_BUILD_QUICK_REFERENCE.md to docs/
+- Move quick-start.md and APK_BUILD_QUICK_REFERENCE.md to docs/
 - Reclassify 23 markdown documents by functionality"
 
 # 第三步：修复和更新

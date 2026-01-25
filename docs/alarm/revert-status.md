@@ -9,7 +9,7 @@
 ## ✅ 已删除的环境检测文件
 
 以下文件已被revert (删除):
-- ❌ mobile/AUTO_ENV_DETECTION.md
+- ❌ mobile/auto-env-detection.md
 - ❌ mobile/ENV_DETECTION_SUMMARY.md
 - ❌ mobile/src/config/auto-config.ts
 - ❌ mobile/src/config/constants-config.ts

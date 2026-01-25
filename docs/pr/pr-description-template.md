@@ -65,11 +65,11 @@ feat: 添加Alarm功能增强 - 音频、震动、推送通知系统
 
 ## 📚 文档和工具
 
-- **ALARM_ENHANCEMENTS_SUMMARY.md** - 完整功能技术文档
-- **AUDIO_FILES_SETUP.md** - 音频文件设置指南
-- **MP3_FORMAT_UPDATE.md** - MP3格式更新指南
-- **MODIFICATION_SUMMARY.md** - 功能精简修改总结
-- **IMPLEMENTATION_STATUS.md** - 详细实现状态报告
+- **alarm-enhancements-summary.md** - 完整功能技术文档
+- **audio-files-setup.md** - 音频文件设置指南
+- **mp3-format-update.md** - MP3格式更新指南
+- **modification-summary.md** - 功能精简修改总结
+- **implementation-status.md** - 详细实现状态报告
 - **verify-alarm-setup.sh** - 配置验证脚本
 - **src/assets/sounds/README.md** - 音频目录说明
 

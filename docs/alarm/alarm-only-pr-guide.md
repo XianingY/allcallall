@@ -17,7 +17,7 @@ https://github.com/XianingY/AllCallAll/pull/new/pr/alarm-feature-only
 - ❌ mobile/src/config/auto-config.ts
 - ❌ mobile/src/config/constants-config.ts
 - ❌ mobile/src/config/simple-auto.ts
-- ❌ mobile/AUTO_ENV_DETECTION.md
+- ❌ mobile/auto-env-detection.md
 - ❌ mobile/ENV_DETECTION_SUMMARY.md
 - ❌ mobile/test-env.js
 - ❌ mobile/src/config/index.ts 的环境检测部分
@@ -50,11 +50,11 @@ https://github.com/XianingY/AllCallAll/pull/new/pr/alarm-feature-only
 - ✅ 根据通话状态自动播放音频/震动
 
 ### 📚 文档
-- ✅ ALARM_ENHANCEMENTS_SUMMARY.md - 完整功能文档 (9.7KB)
-- ✅ AUDIO_FILES_SETUP.md - 音频设置指南 (5.5KB)
-- ✅ MODIFICATION_SUMMARY.md - 修改总结 (4.3KB)
-- ✅ MP3_FORMAT_UPDATE.md - MP3格式更新指南 (5.2KB)
-- ✅ IMPLEMENTATION_STATUS.md - 实现状态报告 (5.3KB)
+- ✅ alarm-enhancements-summary.md - 完整功能文档 (9.7KB)
+- ✅ audio-files-setup.md - 音频设置指南 (5.5KB)
+- ✅ modification-summary.md - 修改总结 (4.3KB)
+- ✅ mp3-format-update.md - MP3格式更新指南 (5.2KB)
+- ✅ implementation-status.md - 实现状态报告 (5.3KB)
 - ✅ src/assets/sounds/README.md - 音频目录说明
 
 ### 🔧 工具
@@ -141,9 +141,9 @@ feat: 添加Alarm功能增强 - 音频、震动、推送通知
 
 ## 📚 文档
 
-- ALARM_ENHANCEMENTS_SUMMARY.md - 完整功能文档
-- AUDIO_FILES_SETUP.md - 音频设置指南
-- MP3_FORMAT_UPDATE.md - MP3格式更新指南
+- alarm-enhancements-summary.md - 完整功能文档
+- audio-files-setup.md - 音频设置指南
+- mp3-format-update.md - MP3格式更新指南
 - verify-alarm-setup.sh - 配置验证脚本
 
 ## ✅ 验证
