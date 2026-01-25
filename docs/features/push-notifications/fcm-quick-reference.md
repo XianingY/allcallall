@@ -88,9 +88,9 @@ backend/
 │   └── server/
 │       └── main.go                   [已修改] 初始化 FCM Manager
 └── docs/
-    ├── FCM_IMPLEMENTATION_SUMMARY.md  [新建] 实现总结
-    ├── FCM_TESTING_GUIDE.md           [新建] 测试指南
-    ├── FIREBASE_INTEGRATION_GUIDE.md  [新建] Firebase 集成指南
+    ├── fcm-implementation-summary.md  [新建] 实现总结
+    ├── fcm-testing-guide.md           [新建] 测试指南
+    ├── firebase-integration-guide.md  [新建] Firebase 集成指南
     └── FCM_IMPLEMENTATION_QUICK_REF.md [本文件] 快速参考
 ```
 
@@ -278,9 +278,9 @@ go run ./cmd/server 2>&1 | grep "user@example.com"
 
 ## 相关文档
 
-- [FCM 实现总结](./FCM_IMPLEMENTATION_SUMMARY.md) - 详细的实现说明
-- [测试指南](./FCM_TESTING_GUIDE.md) - 如何测试推送通知功能
-- [Firebase 集成指南](./FIREBASE_INTEGRATION_GUIDE.md) - Firebase Admin SDK 集成步骤
+- [FCM 实现总结](./fcm-implementation-summary.md) - 详细的实现说明
+- [测试指南](./fcm-testing-guide.md) - 如何测试推送通知功能
+- [Firebase 集成指南](./firebase-integration-guide.md) - Firebase Admin SDK 集成步骤
 
 ## 支持和问题
 
