@@ -125,7 +125,7 @@
 
 - [ ] **编辑 .env 文件**
   ```bash
-  nano /opt/allcallallall/.env
+  nano /opt/allcallall/.env
   ```
 
 - [ ] **修改所有密码**
@@ -149,7 +149,7 @@
 
 - [ ] **启动所有容器**
   ```bash
-  cd /opt/allcallallall/infra
+  cd /opt/allcallall/infra
   docker-compose up -d
   ```
 
@@ -532,7 +532,7 @@ ________________________________________________________________
 
 ## 📞 如需帮助
 
-1. 查看详细部署指南: `cat DEPLOYMENT_GUIDE.md`
+1. 查看详细部署指南: `cat deployment-guide.md`
 2. 查看快速参考: `cat DEPLOYMENT_QUICK_REFERENCE.md`
 3. 查看方案总结: `cat CLOUD_DEPLOYMENT_SUMMARY.md`
 4. 查看服务日志: `docker-compose logs -f backend`

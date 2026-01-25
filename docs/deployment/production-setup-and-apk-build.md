@@ -591,13 +591,106 @@ adb shell df
 
 ## 🔗 相关文档
 
-- [Docker Compose快速启动](./DOCKER_STARTUP_GUIDE.md)
-- [API文档](./API_DOCUMENTATION.md)
-- [数据库文档](./DATABASE.md)
-- [移动端音频实现](./MOBILE_AUDIO_IMPLEMENTATION.md)
+- [Docker Compose快速启动](../getting-started/docker-startup-guide.md)
+- [API文档](../api/api-documentation.md)
+- [数据库文档](../api/database.md)
 
 ---
 
-**最后更新**: 2025-12-14
-**IP地址**: 10.136.17.108
+## 📋 APK 构建快速参考
+
+### 环境信息
+- **应用包名**: `com.allcallall.mobile`
+- **Java版本**: OpenJDK 17+
+
+### 使用 Gradle 本地构建（推荐用于测试）
+
+```bash
+cd /Users/byzantium/github/allcallall/mobile
+
+# 1. 安装依赖
+npm install
+
+# 2. 进入 Android 目录
+cd android
+
+# 3. 构建 APK
+# Debug版本
+./gradlew assembleDebug
+
+# Release版本
+./gradlew assembleRelease
+
+# APK位置:
+# Debug: app/build/outputs/apk/debug/app-debug.apk
+# Release: app/build/outputs/apk/release/app-release.apk
+```
+
+### 使用 EAS CLI 构建
+
+```bash
+cd /Users/byzantium/github/allcallall/mobile
+
+# 安装 EAS CLI
+npm install -g eas-cli
+
+# 登录 EAS
+eas login
+
+# 构建 APK
+eas build --platform android --profile=development
+```
+
+### 安装 APK 到设备
+
+```bash
+# 启用 USB 调试
+# 设置 > 关于手机 > Build Number (连续点击7次)
+# 开发者选项 > USB调试
+
+# 验证设备连接
+adb devices
+
+# 安装 APK
+adb install -r app-debug.apk
+
+# 或使用 Gradle 安装
+cd android && ./gradlew installDebug
+
+# 验证安装
+adb shell pm list packages | grep allcallall
+```
+
+### 启动应用
+
+```bash
+# 启动应用
+adb shell am start -n com.allcallall.mobile/.MainActivity
+
+# 查看日志
+adb logcat | grep -i allcallall
+```
+
+### Gradle 常用命令
+
+```bash
+# 构建 Debug APK
+./gradlew assembleDebug
+
+# 构建 Release APK
+./gradlew assembleRelease
+
+# 清除构建缓存
+./gradlew clean
+
+# 安装到连接的设备
+./gradlew installDebug
+
+# 查看详细错误日志
+./gradlew assembleDebug --stacktrace
+```
+
+---
+
+**最后更新**: 2025-01-25
 **环境**: macOS + Docker + Android开发环境
