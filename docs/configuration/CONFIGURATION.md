@@ -234,7 +234,50 @@ webrtc:
 - `stun:stun.rixtelecom.se` - Rixtelecom
 - `stun:stun.schlund.de` - Schlund
 
-### 7. 日志配置 (logging)
+### 8. FCM 配置 (fcm) - 可选
+
+> ⚠️ **功能状态**: 即将推出 - 待 Firebase Admin SDK 集成
+
+```yaml
+fcm:
+  service_account_path: "${FCM_SERVICE_ACCOUNT_PATH}"
+  enabled: true
+```
+
+**参数说明**:
+- `service_account_path`: Firebase 服务账号 JSON 文件绝对路径
+- `enabled`: 是否启用 FCM (未配置 service_account_path 时自动禁用)
+
+**环境变量**:
+```bash
+export FCM_SERVICE_ACCOUNT_PATH="/opt/allcall/secrets/firebase-key.json"
+```
+
+**当前状态**:
+后端 FCM 模块 (`backend/internal/fcm/manager.go`) 已就位，日志将显示:
+```
+call notification would be sent (Firebase SDK not yet configured)
+```
+
+### 9. 信令配置 (signaling)
+
+```yaml
+signaling:
+  ws_ping_interval: 30s       # WebSocket ping 间隔
+  ws_pong_wait: 60s           # 等待 pong 响应时间
+  poll_timeout_ms: 25000      # HTTP long-poll 超时 (毫秒)
+```
+
+**后端信令端点**:
+| 端点 | 方法 | 说明 |
+|-----|------|------|
+| `/api/v1/ws?token=...` | GET | WebSocket 连接 (主通道) |
+| `/api/v1/signaling/send` | POST | 发送信令消息 (备用) |
+| `/api/v1/signaling/poll?timeout_ms=...` | GET | 轮询信令消息 (备用) |
+
+> 📌 HTTP Poll 端点需要 JWT 认证 (`Authorization: Bearer <token>`)
+
+### 10. 日志配置 (logging)
 
 ```yaml
 logging:
@@ -261,16 +304,59 @@ logging:
 
 ## 🔧 环境变量覆盖
 
-以下配置项可以通过环境变量覆盖：
+### 后端环境变量
 
 ```bash
-export MAIL_PASSWORD="your_mail_auth_code"
-export JWT_SECRET="your_jwt_secret"
-export DB_PASSWORD="your_db_password"
-export REDIS_PASSWORD="your_redis_password"
-export TURN_USERNAME="your_turn_username"
-export TURN_PASSWORD="your_turn_password"
+# 数据库
+export DB_DSN="user:pass@tcp(host:3306)/db"
+export MYSQL_ROOT_PASSWORD="..."
+export MYSQL_PASSWORD="..."
+
+# Redis
+export REDIS_ADDR="localhost:6379"
+export REDIS_PASSWORD="..."
+
+# 认证
+export JWT_SECRET="..."
+export MAIL_PASSWORD="..."
+
+# WebRTC
+export TURN_USERNAME="..."
+export TURN_PASSWORD="..."
+export WEBRTC_ICE_SERVERS_JSON='[...]'
+
+# FCM 推送 (新增)
+export FCM_SERVICE_ACCOUNT_PATH="/path/to/firebase-key.json"
+
+# WebSocket (新增)
+export WS_PING_INTERVAL="30s"
+export WS_PONG_WAIT="60s"
 ```
+
+### 移动端环境变量 (EXPO_PUBLIC_*)
+
+```bash
+# API 配置
+EXPO_PUBLIC_API_HTTP="https://api.example.com"
+EXPO_PUBLIC_API_WS="wss://api.example.com"
+EXPO_PUBLIC_FORCE_TLS="1"
+
+# 受限网络配置
+EXPO_PUBLIC_RESTRICTED_NETWORK="1"
+EXPO_PUBLIC_SIGNALING_TRANSPORT="auto"  # auto | poll
+EXPO_PUBLIC_SIGNALING_SHAPING="1"
+```
+
+### 移动端环境变量完整参考
+
+| 变量名 | 默认值 | 说明 |
+|-------|-------|------|
+| `EXPO_PUBLIC_API_HTTP` | (config) | API 基础地址 |
+| `EXPO_PUBLIC_API_WS` | (config) | WebSocket 基础地址 |
+| `EXPO_PUBLIC_FORCE_TLS` | `0` | `1` = 强制 HTTPS/WSS |
+| `EXPO_PUBLIC_RESTRICTED_NETWORK` | `0` | `1` = 优先 TURNS on 443 |
+| `EXPO_PUBLIC_SIGNALING_TRANSPORT` | `auto` | `auto` 或 `poll` |
+| `EXPO_PUBLIC_SIGNALING_SHAPING` | `0` | `1` = 启用 WS keepalive |
 
 ## 📦 多环境配置
 

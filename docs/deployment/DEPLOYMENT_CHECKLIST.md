@@ -52,6 +52,20 @@
   - 发件人邮箱: _______________
   - 授权码/密码: _______________
 
+### Firebase Cloud Messaging (可选)
+
+- [ ] **Firebase 项目已创建**
+  - 项目名称: _______________
+  - 项目 ID: _______________
+
+- [ ] **Android 配置文件已获取**
+  - `google-services.json` 已下载
+  - 已放置到 `mobile/android/app/google-services.json`
+
+- [ ] **服务账号密钥已生成（后端推送）**
+  - JSON 密钥文件路径: _______________
+  - 将配置 `FCM_SERVICE_ACCOUNT_PATH` 环境变量
+
 ### 项目代码
 
 - [ ] **项目代码已提交到 Git**
@@ -415,6 +429,69 @@
   - 通话连接建立
   - 语音/视频传输正常
   - 通话结束正常
+
+### E2EE 加密验证
+
+- [ ] **密钥交换成功**
+  - 两用户建立通话
+  - 查看日志: `[E2EE] session established`
+  - 无密钥泄露到日志
+
+- [ ] **指纹验证**
+  - 应用界面显示安全指纹
+  - 格式: `XXXX XXXX XXXX XXXX ...`
+  - 双方指纹相同
+
+- [ ] **DataChannel 正常工作**
+  ```bash
+  adb logcat | grep -i "e2ee-key-exchange"
+  ```
+
+### 混合信令测试（受限网络）
+
+- [ ] **WebSocket 模式正常**
+  - 日志显示 WebSocket connected
+
+- [ ] **HTTP Poll 模式测试**
+  ```bash
+  # 设置环境变量
+  EXPO_PUBLIC_SIGNALING_TRANSPORT=poll
+  # 验证信令消息可正常收发
+  ```
+
+- [ ] **后端 Poll 端点验证**
+  ```bash
+  curl -X POST https://api.example.com/api/v1/signaling/send \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"type":"ping"}'
+
+  curl "https://api.example.com/api/v1/signaling/poll?timeout_ms=5000" \
+    -H "Authorization: Bearer $TOKEN"
+  ```
+
+### FCM 推送验证 (即将推出)
+
+- [ ] **Token 注册成功**
+  ```bash
+  curl -X POST https://api.example.com/api/v1/users/fcm-token \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"token":"fcm_device_token"}'
+  ```
+
+- [ ] **推送通知接收** (待 Firebase SDK 集成)
+
+### TURN/TURNS 验证
+
+- [ ] **TURN 连接成功**
+  - 两用户在不同网络
+  - 通话建立成功
+
+- [ ] **TURNS on 443 测试（可选）**
+  ```bash
+  EXPO_PUBLIC_RESTRICTED_NETWORK=1
+  ```
 
 ---
 

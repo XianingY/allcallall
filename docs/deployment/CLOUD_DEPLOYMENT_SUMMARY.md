@@ -42,7 +42,9 @@
 │  • 通过公网 IP 或域名连接                            │
 │  • HTTPS API 调用                                   │
 │  • WSS WebSocket 信令连接                           │
+│  • HTTPS Long-Poll 信令 (备用通道)                  │
 │  • WebRTC 点对点视频通话                            │
+│  • E2EE 密钥交换 (DataChannel)                      │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -75,8 +77,31 @@ WS: wss://api.allcall.com
 - ✅ JWT 令牌认证
 - ✅ 防火墙端口限制
 - ✅ 数据库不对外开放
+- ✅ E2EE 端到端加密（应用层密钥交换，密钥不经过服务器）
+- ✅ 混合信令（WebSocket + HTTP Poll 备用）
 
 ---
+
+## 🆕 新功能速览
+
+### E2EE 端到端加密
+- 密钥交换通过 WebRTC DataChannel 完成
+- 服务器永不接触加密密钥
+- 用户可通过指纹验证通话安全性
+
+### 混合信令 (Hybrid Signaling)
+- **主通道**: WebSocket (`/api/v1/ws`)
+- **备用通道**: HTTP Long-Poll (`/api/v1/signaling/poll`)
+- 自动或手动切换 (`EXPO_PUBLIC_SIGNALING_TRANSPORT`)
+
+### FCM 推送通知 (即将推出)
+- 离线来电通知
+- 后端已预留接口 (`POST /api/v1/users/fcm-token`)
+- 待 Firebase Admin SDK 集成
+
+### TURNS on 443
+- 适用于仅允许 HTTPS 的企业网络
+- 配置: `infra/docker-compose.turn.yml`
 
 ## 📋 完整部署流程
 
