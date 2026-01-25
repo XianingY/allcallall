@@ -21,9 +21,9 @@
 ### 4. 脚本和文档
 - ✓ download_models.sh (可执行)
 - ✓ quantize_opus.py
-- ✓ IMPLEMENTATION_ROADMAP.md (AI优化5周计划)
-- ✓ MODEL_DOWNLOAD_GUIDE.md (详细指南)
-- ✓ MANUAL_DOWNLOAD_INSTRUCTIONS.md (手动下载方案)
+- ✓ implementation-roadmap.md (AI优化5周计划)
+- ✓ model-download-guide.md (详细指南)
+- ✓ manual-download-instructions.md (手动下载方案)
 - ✓ verify_setup.py (环境验证脚本)
 
 ## ⚠️ 待完成
@@ -48,7 +48,7 @@
 ### 可以立即开始的工作
 
 1. **Week 1: 项目初始化**
-   - 使用 `IMPLEMENTATION_ROADMAP.md` 中的 `AI_PROMPT_001`
+   - 使用 `implementation-roadmap.md` 中的 `AI_PROMPT_001`
    - 生成项目结构
    - 创建基础 TypeScript 文件
 
@@ -64,7 +64,7 @@
 ## 📋 下一步行动
 
 ### 方案一：手动下载模型 (推荐)
-1. 查看 `MANUAL_DOWNLOAD_INSTRUCTIONS.md`
+1. 查看 `manual-download-instructions.md`
 2. 使用浏览器或下载工具下载模型文件
 3. 保存到对应目录
 4. 重新运行 `python3 verify_setup.py` 验证
@@ -83,12 +83,12 @@
 
 | 文档 | 用途 |
 |------|------|
-| IMPLEMENTATION_ROADMAP.md | 5周开发计划 (AI优化) |
-| MODEL_DOWNLOAD_GUIDE.md | 模型下载详细指南 |
-| MANUAL_DOWNLOAD_INSTRUCTIONS.md | 手动下载方案 |
+| implementation-roadmap.md | 5周开发计划 (AI优化) |
+| model-download-guide.md | 模型下载详细指南 |
+| manual-download-instructions.md | 手动下载方案 |
 | verify_setup.py | 环境验证脚本 |
-| REAL_TIME_TRANSLATION_PLAN.md | 功能设计文档 |
-| QUANTIZATION_AND_RN_INTEGRATION.md | 技术深度解析 |
+| real-time-translation-plan.md | 功能设计文档 |
+| quantization-and-rn-integration.md | 技术深度解析 |
 
 ## 💡 AI 辅助提示
 
@@ -109,7 +109,7 @@ AI_PROMPT_005: 测试套件生成
 python3 verify_setup.py
 
 # 查看计划
-cat IMPLEMENTATION_ROADMAP.md
+cat implementation-roadmap.md
 
 # 开始 Week 1
 # 使用 AI_PROMPT_001 与 AI 助手交互

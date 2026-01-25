@@ -3,7 +3,7 @@
 ## 📋 已创建的文件
 
 ### 1. 核心实施文档
-- **IMPLEMENTATION_ROADMAP.md** - AI优化的5周实施计划
+- **implementation-roadmap.md** - AI优化的5周实施计划
   - WEEK 1: 项目初始化
   - WEEK 2: Android JNI 开发
   - WEEK 3: UI 集成
@@ -21,14 +21,14 @@
   python3 quantize_opus.py
   ```
 
-- **MODEL_DOWNLOAD_GUIDE.md** - 详细的下载与设置指南
+- **model-download-guide.md** - 详细的下载与设置指南
   - 模型列表与大小对比
   - 依赖安装说明
   - 故障排除指南
 
 ### 3. 技术设计文档
-- **REAL_TIME_TRANSLATION_PLAN.md** - 实时翻译功能完整设计
-- **QUANTIZATION_AND_RN_INTEGRATION.md** - 模型量化与React Native集成详解
+- **real-time-translation-plan.md** - 实时翻译功能完整设计
+- **quantization-and-rn-integration.md** - 模型量化与React Native集成详解
 
 ## 🚀 快速开始
 
@@ -56,7 +56,7 @@ python3 quantize_opus.py  # 转换 Opus-MT
 ```
 
 ### 第三步：开始开发
-查看 `IMPLEMENTATION_ROADMAP.md` 并使用提供的 AI_PROMPT 模板开始 Week 1 的开发。
+查看 `implementation-roadmap.md` 并使用提供的 AI_PROMPT 模板开始 Week 1 的开发。
 
 ## 📦 模型配置
 
@@ -77,10 +77,10 @@ python3 quantize_opus.py  # 转换 Opus-MT
 
 ## 📚 文档索引
 
-1. **IMPLEMENTATION_ROADMAP.md** - 主要实施计划
-2. **MODEL_DOWNLOAD_GUIDE.md** - 模型下载详细指南
-3. **REAL_TIME_TRANSLATION_PLAN.md** - 功能设计文档
-4. **QUANTIZATION_AND_RN_INTEGRATION.md** - 技术深度解析
+1. **implementation-roadmap.md** - 主要实施计划
+2. **model-download-guide.md** - 模型下载详细指南
+3. **real-time-translation-plan.md** - 功能设计文档
+4. **quantization-and-rn-integration.md** - 技术深度解析
 
 ## 🎯 下一步行动
 

@@ -97,7 +97,7 @@ python3 quantize_opus.py
 
 模型下载完成后，你可以：
 
-1. **开始开发**: 按照 `IMPLEMENTATION_ROADMAP.md` 进行 Week 1 开发
+1. **开始开发**: 按照 `implementation-roadmap.md` 进行 Week 1 开发
 2. **运行测试**: 使用提供的测试脚本验证模型
 3. **集成到应用**: 将模型文件复制到 React Native 项目
 
@@ -115,7 +115,7 @@ python3 quantize_opus.py
 1. 检查网络连接
 2. 尝试使用 VPN 或代理
 3. 使用不同的下载工具（如 IDM、FDM 等）
-4. 参考 `MODEL_DOWNLOAD_GUIDE.md` 中的故障排除部分
+4. 参考 `model-download-guide.md` 中的故障排除部分
 
 ---
 

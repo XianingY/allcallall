@@ -216,10 +216,10 @@ pip install huggingface_hub onnxruntime transformers
 
 模型下载完成后，可以开始：
 
-1. **Week 1**: 项目初始化 (IMPLEMENTATION_ROADMAP.md)
+1. **Week 1**: 项目初始化 (implementation-roadmap.md)
 2. **Week 2**: Android JNI 开发
 3. **Week 3**: UI 组件集成
 4. **Week 4**: 性能优化
 5. **Week 5**: 测试与部署
 
-查看 `IMPLEMENTATION_ROADMAP.md` 获取详细实施计划。
+查看 `implementation-roadmap.md` 获取详细实施计划。

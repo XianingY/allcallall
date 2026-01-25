@@ -8,23 +8,24 @@
 
 | 文档 | 描述 | 大小 |
 |------|------|------|
-| [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) | **AI优化的5周实施计划** - 包含完整的开发路线图和代码模板 | 26KB |
-| [REAL_TIME_TRANSLATION_PLAN.md](REAL_TIME_TRANSLATION_PLAN.md) | **实时翻译功能完整设计** - 详细的功能需求和技术架构 | 19KB |
-| [ENVIRONMENT_STATUS.md](ENVIRONMENT_STATUS.md) | **环境配置状态报告** - 当前开发环境状态和下一步行动 | 3KB |
+| [implementation-roadmap.md](implementation-roadmap.md) | **AI优化的5周实施计划** - 包含完整的开发路线图和代码模板 | 26KB |
+| [requirements.md](requirements.md) | **功能需求文档** - 原始需求规格说明 | - |
+| [real-time-translation-plan.md](real-time-translation-plan.md) | **实时翻译功能完整设计** - 详细的功能需求和技术架构 | 19KB |
+| [environment-status.md](environment-status.md) | **环境配置状态报告** - 当前开发环境状态和下一步行动 | 3KB |
 
 ### 🔧 设置指南 (setup/)
 
 | 文档 | 描述 |
 |------|------|
-| [MODEL_DOWNLOAD_GUIDE.md](setup/MODEL_DOWNLOAD_GUIDE.md) | 模型下载详细指南 - 包含所有依赖安装和下载步骤 |
-| [MANUAL_DOWNLOAD_INSTRUCTIONS.md](setup/MANUAL_DOWNLOAD_INSTRUCTIONS.md) | 手动下载方案 - 网络限制时的备用下载方法 |
-| [MODEL_SETUP_README.md](setup/MODEL_SETUP_README.md) | 快速开始指南 - 模型设置完成后的快速启动 |
+| [model-download-guide.md](setup/model-download-guide.md) | 模型下载详细指南 - 包含所有依赖安装和下载步骤 |
+| [manual-download-instructions.md](setup/manual-download-instructions.md) | 手动下载方案 - 网络限制时的备用下载方法 |
+| [model-setup-readme.md](setup/model-setup-readme.md) | 快速开始指南 - 模型设置完成后的快速启动 |
 
 ### 📖 技术指南 (guides/)
 
 | 文档 | 描述 |
 |------|------|
-| [QUANTIZATION_AND_RN_INTEGRATION.md](guides/QUANTIZATION_AND_RN_INTEGRATION.md) | 模型量化与React Native集成详解 - 深度技术文档 |
+| [quantization-and-rn-integration.md](guides/quantization-and-rn-integration.md) | 模型量化与React Native集成详解 - 深度技术文档 |
 
 ## 🚀 快速开始
 
@@ -40,13 +41,13 @@ python3 scripts/translation/verify_setup.py
 ./scripts/translation/download_models.sh
 
 # 或手动下载
-# 查看 setup/MANUAL_DOWNLOAD_INSTRUCTIONS.md
+# 查看 setup/manual-download-instructions.md
 ```
 
 ### 3. 开始开发
 ```bash
 # 查看实施计划
-cat docs/offline-translation/IMPLEMENTATION_ROADMAP.md
+cat docs/offline-translation/implementation-roadmap.md
 
 # 使用 AI_PROMPT_001 开始 Week 1 开发
 ```
@@ -110,7 +111,7 @@ assets/models/
 | Week 4 | 性能优化 | 并行处理、缓存 |
 | Week 5 | 测试部署 | 测试套件、上线 |
 
-**查看**: [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md)
+**查看**: [implementation-roadmap.md](implementation-roadmap.md)
 
 ## 💡 AI 辅助开发
 
@@ -131,15 +132,15 @@ AI_PROMPT_005: 测试套件生成
 ```
 docs/offline-translation/
 ├── README.md                           (本文档)
-├── IMPLEMENTATION_ROADMAP.md           (核心实施计划)
-├── REAL_TIME_TRANSLATION_PLAN.md       (功能设计)
-├── ENVIRONMENT_STATUS.md               (环境状态)
+├── implementation-roadmap.md           (核心实施计划)
+├── real-time-translation-plan.md       (功能设计)
+├── environment-status.md               (环境状态)
 ├── setup/
-│   ├── MODEL_DOWNLOAD_GUIDE.md         (下载指南)
-│   ├── MANUAL_DOWNLOAD_INSTRUCTIONS.md (手动下载)
-│   └── MODEL_SETUP_README.md           (快速开始)
+│   ├── model-download-guide.md         (下载指南)
+│   ├── manual-download-instructions.md (手动下载)
+│   └── model-setup-readme.md           (快速开始)
 └── guides/
-    └── QUANTIZATION_AND_RN_INTEGRATION.md (技术深度解析)
+    └── quantization-and-rn-integration.md (技术深度解析)
 
 scripts/translation/
 ├── download_models.sh                  (下载脚本)
@@ -159,8 +160,8 @@ whisper.cpp/                            (编译工具集)
 
 - [AllCallAll 主项目 README](../../README.md)
 - [移动端开发文档](../mobile/README.md)
-- [API 文档](../api/API_DOCUMENTATION.md)
-- [部署指南](../deployment/DEPLOYMENT_GUIDE.md)
+- [API 文档](../api/api-documentation.md)
+- [部署指南](../deployment/deployment-guide.md)
 
 ## 📝 更新日志
 
