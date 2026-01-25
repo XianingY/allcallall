@@ -8,15 +8,15 @@
 
 初始化和配置移动端开发环境。
 
-- **[AUDIO_FILES_SETUP.md](./setup/AUDIO_FILES_SETUP.md)** - 音频文件配置
+- **[audio-files-setup.md](./setup/audio-files-setup.md)** - 音频文件配置
   - 音频资源的设置和验证
   - 铃声和背景音乐配置
 
-- **[APP_ENV_USAGE.md](./setup/APP_ENV_USAGE.md)** - 应用环境变量使用
+- **[app-env-usage.md](./setup/app-env-usage.md)** - 应用环境变量使用
   - 开发/测试/生产环境配置
   - 环境检测机制
 
-- **[AUTO_ENV_DETECTION.md](./setup/AUTO_ENV_DETECTION.md)** - 自动环境检测
+- **[auto-env-detection.md](./setup/auto-env-detection.md)** - 自动环境检测
   - 应用启动时的自动环境检测
   - 配置文件的自动选择
 
@@ -24,11 +24,11 @@
 
 移动端特定功能的实现和优化。
 
-- **[ALARM_ENHANCEMENTS_SUMMARY.md](./features/ALARM_ENHANCEMENTS_SUMMARY.md)** - Alarm 功能增强
+- **[alarm-enhancements-summary.md](./features/alarm-enhancements-summary.md)** - Alarm 功能增强
   - 来电铃声和震动
   - 通话状态音效
 
-- **[MP3_FORMAT_UPDATE.md](./features/MP3_FORMAT_UPDATE.md)** - MP3 格式更新
+- **[mp3-format-update.md](./features/mp3-format-update.md)** - MP3 格式更新
   - 音频文件格式支持
   - 兼容性和性能优化
 
@@ -36,11 +36,11 @@
 
 实现细节和使用说明。
 
-- **[IMPLEMENTATION_STATUS.md](./guides/IMPLEMENTATION_STATUS.md)** - 实现状态
+- **[implementation-status.md](./guides/implementation-status.md)** - 实现状态
   - 功能完成情况
   - 已知问题
 
-- **[MODIFICATION_SUMMARY.md](./guides/MODIFICATION_SUMMARY.md)** - 修改总结
+- **[modification-summary.md](./guides/modification-summary.md)** - 修改总结
   - 最近的代码修改
   - 变更日志
 
@@ -48,7 +48,7 @@
 
 常见问题和解决方案。
 
-（待补充）
+- **[故障排除指南](./troubleshooting/README.md)** - 依赖、构建和环境问题的解决方案
 
 ---
 
@@ -143,11 +143,41 @@ cd android && ./gradlew assembleRelease
 
 ---
 
+## 🛠️ 故障排除
+
+### 依赖冲突
+
+```bash
+# 清除 node_modules 重新安装
+rm -rf node_modules package-lock.json
+npm install
+```
+
+### 构建失败
+
+```bash
+# 清除 Gradle 缓存
+cd android && ./gradlew clean
+
+# 重新构建
+./gradlew assembleDebug
+```
+
+### 环境检测失败
+
+```bash
+# 运行环境验证脚本
+./scripts/verify-app-env.sh
+./scripts/verify-alarm-setup.sh
+```
+
+---
+
 ## 🔗 相关链接
 
 - [主项目文档](../README.md)
-- [API 文档](../api/API_DOCUMENTATION.md)
-- [部署指南](../deployment/DEPLOYMENT_GUIDE.md)
+- [API 文档](../api/api-documentation.md)
+- [部署指南](../deployment/deployment-guide.md)
 - [移动端脚本](../../mobile/scripts/README.md)
 
 ---
