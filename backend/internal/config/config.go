@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -171,9 +172,20 @@ func (c *Config) postProcess() error {
 	// 支持环境变量覆盖 ICE/TURN 配置，格式为 JSON 数组：
 	// [{"urls":["stun:stun.l.google.com:19302"]},{"urls":["turn:1.2.3.4:3478"],"username":"user","credential":"pass"}]
 	if iceServersJSON := os.Getenv("WEBRTC_ICE_SERVERS_JSON"); iceServersJSON != "" {
+		// Docker Compose / env files sometimes preserve surrounding quotes.
+		// Example (broken JSON): '[{"urls":["stun:..."]}]'
+		iceServersJSON = strings.Trim(iceServersJSON, "\"'")
+
 		var servers []ICEServer
 		if err := json.Unmarshal([]byte(iceServersJSON), &servers); err != nil {
-			return fmt.Errorf("config: invalid WEBRTC_ICE_SERVERS_JSON: %w", err)
+			// Backward/compat: some configs use an object wrapper: {"ice_servers": [...]}
+			var wrapper struct {
+				ICEServers []ICEServer `json:"ice_servers"`
+			}
+			if err2 := json.Unmarshal([]byte(iceServersJSON), &wrapper); err2 != nil {
+				return fmt.Errorf("config: invalid WEBRTC_ICE_SERVERS_JSON: %w", err)
+			}
+			servers = wrapper.ICEServers
 		}
 		if len(servers) > 0 {
 			c.WebRTC.ICEServers = servers

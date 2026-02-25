@@ -17,10 +17,18 @@ import {
   RTCPeerConnection,
   RTCIceCandidate,
   RTCSessionDescription,
-  mediaDevices as webrtcMediaDevices
+  mediaDevices as webrtcMediaDevices,
+  type RTCRtpTransceiver
 } from "react-native-webrtc";
 
-import { SignalingClient, SignalMessage } from "../api/signaling";
+import {
+  MediaUpdatePayload,
+  SdpRenegotiationPayload,
+  SignalingClient,
+  SignalMessage
+} from "../api/signaling";
+import { PollingSignalingClient } from "../api/signalingPoll";
+import { RESTRICTED_NETWORK_MODE, SIGNALING_TRANSPORT_MODE } from "../config";
 import { fetchWebRTCConfig } from "../api/webrtc";
 import { useAuthContext } from "./AuthContext";
 import { useSettings } from "./SettingsContext";
@@ -28,12 +36,17 @@ import AudioService from "../services/AudioServiceExpo";
 import VibrationService from "../services/VibrationService";
 import VideoService, { CameraFacing, VideoQuality } from "../services/VideoService";
 import CameraPermissionService from "../services/CameraPermissionService";
+import TranslationService from "../services/translation/TranslationService";
+import ParallelProcessor from "../services/translation/utils/ParallelProcessor";
+import { useSubtitleStore } from "../store/useSubtitleStore";
+import { E2EEKeyExchange, type E2EEKeyExchangeCallbacks, type KeyExchangeRole } from "../services/e2ee/E2EEKeyExchange";
+import type { E2EESessionKey } from "../services/e2ee/E2EEService";
 
 type CallDirection = "incoming" | "outgoing";
 
 type SessionDescriptionPayload = RTCSessionDescriptionInit;
 
-type IceCandidatePayload = RTCIceCandidateInit;
+type IceCandidatePayload = RTCIceCandidateInit & { iceEpoch?: number };
 
 // RTCIceServer 类型定义
 interface RTCIceServer {
@@ -41,6 +54,28 @@ interface RTCIceServer {
   username?: string;
   credential?: string;
 }
+
+const preferRestrictedIceServers = (servers: RTCIceServer[]) => {
+  if (!RESTRICTED_NETWORK_MODE) return servers;
+
+  const urlsOf = (srv: RTCIceServer) => (Array.isArray(srv.urls) ? srv.urls : [srv.urls]);
+  const scoreUrl = (url: string) => {
+    const lower = url.toLowerCase();
+    if (lower.startsWith("turns:")) {
+      if (lower.includes("transport=tcp")) return 0;
+      return 1;
+    }
+    if (lower.startsWith("turn:")) {
+      if (lower.includes("transport=tcp")) return 2;
+      return 3;
+    }
+    if (lower.startsWith("stun:")) return 4;
+    return 5;
+  };
+
+  const scoreServer = (srv: RTCIceServer) => Math.min(...urlsOf(srv).map(scoreUrl));
+  return [...servers].sort((a, b) => scoreServer(a) - scoreServer(b));
+};
 
 interface CallSession {
   callId: string;
@@ -51,16 +86,28 @@ interface CallSession {
 
 type CallStatus = "idle" | "connecting" | "incoming" | "in_call";
 
+export type NetworkQuality = "excellent" | "good" | "poor" | "bad" | "unknown";
+
 interface SignalingContextValue {
   status: CallStatus;
   session: CallSession | null;
   connectionReady: boolean;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
+  networkQuality: NetworkQuality;
   // 视频通话相关状态
   isVideoEnabled: boolean;
   isAudioEnabled: boolean;
+  isRemoteVideoEnabled: boolean;
+  isRemoteAudioEnabled: boolean;
   cameraFacing: CameraFacing;
+  // E2EE 端到端加密状态
+  e2eeEnabled: boolean;
+  e2eeFingerprint: string | null;
+  e2eeSessionEstablished: boolean;
+  // 翻译功能相关状态
+  translationEnabled: boolean;
+  translationLanguage: string;
   // 通话控制函数
   startCall: (email: string) => Promise<void>;
   acceptCall: () => Promise<void>;
@@ -70,6 +117,17 @@ interface SignalingContextValue {
   toggleVideo: () => Promise<void>;
   toggleAudio: () => void;
   switchCamera: () => Promise<void>;
+  toggleSpeaker: () => Promise<void>;
+  isSpeakerOn: boolean;
+
+  // Video bitrate/quality controls
+  videoQuality: VideoQuality;
+  setVideoQuality: (quality: VideoQuality) => void;
+  videoMaxBitrateKbps: number;
+  setVideoMaxBitrateKbps: (kbps: number) => void;
+  // 翻译控制函数
+  toggleTranslation: (enabled: boolean) => Promise<void>;
+  setTranslationLanguage: (language: string) => void;
 }
 
 const SignalingContext = createContext<SignalingContextValue | undefined>(
@@ -79,10 +137,28 @@ const SignalingContext = createContext<SignalingContextValue | undefined>(
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
-  { urls: "stun:stun2.l.google.com:19302" },
-  { urls: "stun:stun3.l.google.com:19302" },
-  { urls: "stun:stun4.l.google.com:19302" }
+  {
+    urls: "turn:openrelay.metered.ca:80",
+    username: "openrelayproject",
+    credential: "openrelayproject"
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443",
+    username: "openrelayproject",
+    credential: "openrelayproject"
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443?transport=tcp",
+    username: "openrelayproject",
+    credential: "openrelayproject"
+  }
 ];
+
+const VIDEO_QUALITY_PRESETS: Record<VideoQuality, { width: number; height: number; frameRate: number }> = {
+  low: { width: 320, height: 240, frameRate: 15 },
+  medium: { width: 640, height: 480, frameRate: 24 },
+  high: { width: 1280, height: 720, frameRate: 30 }
+};
 
 const isSessionDescriptionPayload = (
   value: unknown
@@ -116,22 +192,78 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [iceServers, setIceServers] = useState<RTCIceServer[]>(DEFAULT_ICE_SERVERS);
-  
-  // 视频通话状态
+
   const [isVideoEnabled, setIsVideoEnabled] = useState<boolean>(false);
   const [isAudioEnabled, setIsAudioEnabled] = useState<boolean>(true);
+  const [isRemoteVideoEnabled, setIsRemoteVideoEnabled] = useState<boolean>(true);
+  const [isRemoteAudioEnabled, setIsRemoteAudioEnabled] = useState<boolean>(true);
   const [cameraFacing, setCameraFacing] = useState<CameraFacing>("front");
+  const [isSpeakerOn, setIsSpeakerOn] = useState<boolean>(false);
+  const [networkQuality, setNetworkQuality] = useState<NetworkQuality>("unknown");
 
-  const signalingRef = useRef<SignalingClient | null>(null);
+  const [videoQuality, setVideoQuality] = useState<VideoQuality>("medium");
+  const [videoMaxBitrateKbps, setVideoMaxBitrateKbps] = useState<number>(900);
+  const videoAdaptiveBitrateEnabledRef = useRef<boolean>(false);
+
+  const [translationEnabled, setTranslationEnabled] = useState<boolean>(false);
+  const [translationLanguage, setTranslationLanguage] = useState<string>("zh");
+  const processorRef = useRef<ParallelProcessor | null>(null);
+
+  const [e2eeEnabled, setE2eeEnabled] = useState<boolean>(false);
+  const [e2eeFingerprint, setE2eeFingerprint] = useState<string | null>(null);
+  const [e2eeSessionEstablished, setE2eeSessionEstablished] = useState<boolean>(false);
+  const e2eeKeyExchangeRef = useRef<E2EEKeyExchange | null>(null);
+  const e2eeDataChannelRef = useRef<any | null>(null);
+
+  type SignalingEvents = {
+    open: undefined;
+    close: { code: number; reason?: string };
+    message: SignalMessage;
+    error: Error;
+  };
+
+  interface SignalingTransport {
+    connect: () => void;
+    disconnect: () => void;
+    on<T extends keyof SignalingEvents>(
+      event: T,
+      handler: (value: SignalingEvents[T]) => void
+    ): void;
+    send: (message: SignalMessage) => boolean;
+  }
+
+  const signalingRef = useRef<SignalingTransport | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const sessionRef = useRef<CallSession | null>(null);
+  const statusRef = useRef<CallStatus>("idle");
+  const isAudioEnabledRef = useRef<boolean>(true);
+  const isVideoEnabledRef = useRef<boolean>(false);
+  const videoMaxBitrateKbpsRef = useRef<number>(900);
   const pendingTarget = useRef<string | null>(null);
   const pendingLocalCandidates = useRef<IceCandidatePayload[]>([]);
   const pendingRemoteCandidates = useRef<IceCandidatePayload[]>([]);
+  const subtitlesDataChannelRef = useRef<any | null>(null);
+
+  const iceEpochRef = useRef<number>(0);
+  const iceRestartAttemptsRef = useRef<number>(0);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disconnectDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const remoteVideoLastBytesRef = useRef<number | null>(null);
+  const remoteVideoStallCountRef = useRef<number>(0);
+  const remoteVideoLastRestartAtMsRef = useRef<number>(0);
+
+  useEffect(() => {
+    setIsSpeakerOn(AudioService.getSpeakerphone());
+  }, []);
 
   useEffect(() => {
     sessionRef.current = session;
-  }, [session]);
+    statusRef.current = status;
+    isAudioEnabledRef.current = isAudioEnabled;
+    isVideoEnabledRef.current = isVideoEnabled;
+    videoMaxBitrateKbpsRef.current = videoMaxBitrateKbps;
+  }, [session, status, isAudioEnabled, isVideoEnabled, videoMaxBitrateKbps]);
 
   useEffect(() => {
     let cancelled = false;
@@ -144,113 +276,65 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         const config = await fetchWebRTCConfig(token);
         const servers = Array.isArray(config.ice_servers) ? config.ice_servers : [];
         if (!cancelled && servers.length) {
-          setIceServers(servers as RTCIceServer[]);
-          console.log("[SignalingContext] Using ICE servers from backend", servers);
+          setIceServers(preferRestrictedIceServers(servers as RTCIceServer[]));
         } else if (!cancelled) {
           setIceServers(DEFAULT_ICE_SERVERS);
         }
       } catch (error) {
-        console.warn("[SignalingContext] Failed to load ICE servers, fallback to defaults", error);
-        if (!cancelled) {
-          setIceServers(DEFAULT_ICE_SERVERS);
-        }
+        if (!cancelled) setIceServers(DEFAULT_ICE_SERVERS);
       }
     };
     loadIceServers();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [token]);
 
-  // 监听通话状态变化，播放相应的音频和震动提醒
   useEffect(() => {
-    console.log("[SignalingContext] Status changed to:", status, "Session:", session?.direction);
-
     switch (status) {
       case "incoming":
-        // 接到来电，播放来电铃声和震动
-        console.log("[SignalingContext] Playing incoming call ringtone with vibration");
-        if (settings.audioNotificationsEnabled) {
-          AudioService.play("incoming_call");
-        }
-        if (settings.vibrationEnabled) {
-          VibrationService.vibrate("incoming_call");
-        }
+        if (settings.audioNotificationsEnabled) AudioService.play("incoming_call");
+        if (settings.vibrationEnabled) VibrationService.vibrate("incoming_call");
         break;
-
       case "connecting":
-        // 正在呼叫，播放回铃音和震动
-        console.log("[SignalingContext] Connecting to remote peer, playing ringback");
-        if (settings.audioNotificationsEnabled) {
-          AudioService.play("ringback");
-        }
-        if (settings.vibrationEnabled) {
-          VibrationService.vibrate("ringback");
-        }
+        if (settings.audioNotificationsEnabled) AudioService.play("ringback");
+        if (settings.vibrationEnabled) VibrationService.vibrate("ringback");
         break;
-
       case "in_call":
-        // 通话接通，停止所有音频和震动
-        console.log("[SignalingContext] Call connected, stopping all audio and vibration");
         AudioService.stopAll();
         VibrationService.cancel();
-        if (settings.vibrationEnabled) {
-          VibrationService.vibrate("call_connected"); // 通话接通提示音
-        }
+        if (settings.vibrationEnabled) VibrationService.vibrate("call_connected");
         break;
-
       case "idle":
-        // 通话结束，停止所有音频和震动
-        // 仅在从非idle状态改变到idle时才播放结束提示
-        console.log("[SignalingContext] Call ended/idle, stopping all audio and vibration");
         AudioService.stopAll();
         VibrationService.cancel();
-        // 只有当通话真实结束时才提示（由其他地方触发），避免应用启动时的误触
         break;
     }
   }, [status, session, settings.audioNotificationsEnabled, settings.vibrationEnabled]);
 
   const ensureAudioPermission = useCallback(async () => {
-    console.log("[ensureAudioPermission] Platform:", Platform.OS);
-    
     if (Platform.OS === "android") {
       try {
-        const permissions: string[] = [
-          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO
-        ];
-
-        if (Platform.Version >= 31) {
-          permissions.push(PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT);
-        }
-
-        // 部分厂商在仅采集音频时也会检查摄像头权限，提前申请避免崩溃
+        const permissions: string[] = [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO];
+        if (Platform.Version >= 31) permissions.push(PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT);
         permissions.push(PermissionsAndroid.PERMISSIONS.CAMERA);
-
-        console.log("[ensureAudioPermission] Requesting permissions:", permissions);
-        
-        // 直接请求权限，不使用超时（真机上应该正常工作）
         const result = await PermissionsAndroid.requestMultiple(permissions as any);
-        console.log("[ensureAudioPermission] Permission result:", result);
-
-        const allGranted = permissions.every(
-          (permission) => (result as Record<string, any>)[permission] === PermissionsAndroid.RESULTS.GRANTED
-        );
-        
-        console.log("[ensureAudioPermission] All permissions granted:", allGranted);
-        return allGranted;
+        return permissions.every((p) => (result as any)[p] === PermissionsAndroid.RESULTS.GRANTED);
       } catch (error) {
-        console.error("[ensureAudioPermission] Permission request error:", error);
-        Alert.alert("权限错误 / Permission Error", `无法获取权限: ${error instanceof Error ? error.message : String(error)} / Failed to get permissions.`);
         return false;
       }
     }
-    console.log("[ensureAudioPermission] iOS platform, returning true");
     return true;
   }, []);
 
   const resetPeerResources = useCallback(() => {
     pendingLocalCandidates.current = [];
     pendingRemoteCandidates.current = [];
+    iceEpochRef.current = 0;
+    iceRestartAttemptsRef.current = 0;
+    remoteVideoLastBytesRef.current = null;
+    remoteVideoStallCountRef.current = 0;
+    remoteVideoLastRestartAtMsRef.current = 0;
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    if (disconnectDeadlineRef.current) clearTimeout(disconnectDeadlineRef.current);
 
     if (peerRef.current) {
       (peerRef.current as any).onicecandidate = null;
@@ -259,700 +343,479 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       peerRef.current.close();
       peerRef.current = null;
     }
-
-    if (localStream) {
-      localStream.getTracks().forEach((track) => track.stop());
+    if (subtitlesDataChannelRef.current) {
+      try { subtitlesDataChannelRef.current.close(); } catch (e) {}
+      subtitlesDataChannelRef.current = null;
     }
-    if (remoteStream) {
-      remoteStream.getTracks().forEach((track) => track.stop());
+    if (e2eeDataChannelRef.current) {
+      try { e2eeDataChannelRef.current.close(); } catch (e) {}
+      e2eeDataChannelRef.current = null;
     }
-
+    if (e2eeKeyExchangeRef.current) {
+      e2eeKeyExchangeRef.current.destroy();
+      e2eeKeyExchangeRef.current = null;
+    }
+    setE2eeEnabled(false);
+    setE2eeFingerprint(null);
+    setE2eeSessionEstablished(false);
+    if (localStream) localStream.getTracks().forEach((track) => track.stop());
+    if (remoteStream) remoteStream.getTracks().forEach((track) => track.stop());
     setLocalStream(null);
     setRemoteStream(null);
+    setIsRemoteVideoEnabled(true);
+    setIsRemoteAudioEnabled(true);
   }, [localStream, remoteStream]);
 
-  const resetCallState = useCallback(() => {
-    pendingTarget.current = null;
-    setSession(null);
-    sessionRef.current = null;
-    setStatus("idle");
-    resetPeerResources();
-  }, [resetPeerResources]);
+  const attachSubtitlesDataChannel = useCallback((dc: any) => {
+    if (!dc) return;
+    subtitlesDataChannelRef.current = dc;
+    dc.onmessage = (event: any) => {
+      try {
+        const parsed = JSON.parse(String(event?.data ?? ''));
+        if (!parsed || parsed.t !== 'subtitle') return;
+        const ts = typeof parsed.timestampMs === 'number' ? parsed.timestampMs : Date.now();
+        useSubtitleStore.getState().addSubtitle({
+          id: `subtitle-${ts}`,
+          original: typeof parsed.originalText === 'string' ? parsed.originalText : '',
+          translated: typeof parsed.translatedText === 'string' ? parsed.translatedText : '',
+          timestamp: ts,
+        });
+      } catch (e) {}
+    };
+  }, []);
+
+  const initializeE2EEKeyExchange = useCallback((role: KeyExchangeRole) => {
+    const current = sessionRef.current;
+    if (!current) return;
+
+    const callbacks: E2EEKeyExchangeCallbacks = {
+      onSessionEstablished: (session: E2EESessionKey) => {
+        setE2eeFingerprint(session.fingerprint);
+        setE2eeSessionEstablished(true);
+        console.log(`[E2EE] Session established, fingerprint: ${session.fingerprint.slice(0, 16)}...`);
+      },
+      onError: (error: Error) => {
+        console.error("[E2EE] Key exchange error:", error);
+        setE2eeEnabled(false);
+        Alert.alert("E2EE Error", `Failed to establish encrypted session: ${error.message}`);
+      }
+    };
+
+    const keyExchange = new E2EEKeyExchange(role, current.callId, callbacks);
+    e2eeKeyExchangeRef.current = keyExchange;
+    setE2eeEnabled(true);
+
+    keyExchange.initialize().then(() => {
+      if (e2eeDataChannelRef.current) {
+        keyExchange.attachDataChannel(e2eeDataChannelRef.current);
+        if (role === "initiator") {
+          keyExchange.sendPublicKey();
+        }
+      }
+    });
+  }, []);
 
   const sendMessage = useCallback((message: SignalMessage) => {
     const client = signalingRef.current;
-    console.log("[sendMessage] Attempting to send message:", message.type, "to:", message.to);
-    
-    if (!client) {
-      console.warn("[sendMessage] No active signaling client, message dropped", message);
-      if (message.type !== "ice.candidate") {
-        Alert.alert("错误 / Connection Issue", "信令服务未连接 / Signaling service not connected.");
-      }
-      return;
-    }
-    
-    try {
-      console.log("[sendMessage] Sending message via client.send()...");
-      const sent = client.send(message);
-      if (!sent) {
-        console.debug("[sendMessage] Signaling message queued until connection recovers", message.type);
-      } else {
-        console.log("[sendMessage] Message sent successfully");
-      }
-    } catch (error) {
-      console.error("[sendMessage] Failed to send signaling message", error);
+    if (!client) return;
+    try { client.send(message); } catch (error) {
       if (message.type !== "ice.candidate") {
         Alert.alert("错误 / Connection Issue", "无法发送信令消息 / Failed to send signaling message.");
       }
     }
   }, []);
 
-  const enqueueRemoteCandidate = useCallback((candidate: IceCandidatePayload) => {
-    const alreadyQueued = pendingRemoteCandidates.current.some(
-      (item) =>
-        item.candidate === candidate.candidate &&
-        item.sdpMid === candidate.sdpMid &&
-        item.sdpMLineIndex === candidate.sdpMLineIndex
-    );
-    if (!alreadyQueued) {
-      pendingRemoteCandidates.current.push(candidate);
-    }
-  }, []);
+  const resetCallState = useCallback(() => {
+    pendingTarget.current = null;
+    setSession(null);
+    setStatus("idle");
+    resetPeerResources();
+  }, [resetPeerResources]);
 
-  const flushPendingLocalCandidates = useCallback(
-    (callId: string, peerEmail: string) => {
-      if (!pendingLocalCandidates.current.length) {
-        return;
-      }
-      const items = [...pendingLocalCandidates.current];
-      pendingLocalCandidates.current = [];
-      items.forEach((candidate) =>
-        sendMessage({
-          type: "ice.candidate",
-          call_id: callId,
-          to: peerEmail,
-          payload: candidate
-        })
-      );
+  const rejectCall = useCallback(() => {
+    if (!session) return;
+    sendMessage({ type: "call.reject", call_id: session.callId, to: session.peerEmail });
+    resetCallState();
+  }, [resetCallState, sendMessage, session]);
+
+  const endCall = useCallback(() => {
+    if (!session) return;
+    sendMessage({ type: "call.end", call_id: session.callId, to: session.peerEmail });
+    resetCallState();
+  }, [resetCallState, sendMessage, session]);
+
+  const sendMediaUpdate = useCallback(
+    (callId: string, peerEmail: string, update: MediaUpdatePayload) => {
+      sendMessage({ type: "call.media_update", call_id: callId, to: peerEmail, payload: update });
     },
     [sendMessage]
   );
 
-  const drainRemoteCandidates = useCallback(async () => {
+  const setVideoSenderMaxBitrate = useCallback(async (kbps: number) => {
     const pc = peerRef.current;
-    if (!pc || !pendingRemoteCandidates.current.length) {
-      return;
-    }
-    const items = [...pendingRemoteCandidates.current];
-    pendingRemoteCandidates.current = [];
-    for (const candidate of items) {
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (error) {
-        console.warn("Failed to add queued ICE candidate", error);
-      }
-    }
+    if (!pc) return;
+    const sender = pc.getSenders().find((s: any) => s?.track?.kind === "video");
+    if (!sender) return;
+    try {
+      const params = sender.getParameters();
+      if (!params.encodings || params.encodings.length === 0) params.encodings = [{ active: true }];
+      params.encodings[0].maxBitrate = kbps * 1000;
+      await sender.setParameters(params);
+    } catch (e) {}
   }, []);
 
-  const createPeerConnection = useCallback(() => {
-    const pc = new RTCPeerConnection({
-      iceServers,
-      bundlePolicy: "max-bundle",
-      iceTransportPolicy: "all"
-    } as any);
+  const applyCurrentVideoBitrate = useCallback(async () => {
+    const kbps = videoMaxBitrateKbpsRef.current;
+    if (kbps > 0) await setVideoSenderMaxBitrate(kbps);
+  }, [setVideoSenderMaxBitrate]);
 
-    (pc as any).onicecandidate = (event: any) => {
-      if (!event.candidate) {
-        return;
-      }
-      const candidateInit: IceCandidatePayload = {
-        candidate: event.candidate.candidate,
-        sdpMid: event.candidate.sdpMid ?? undefined,
-        sdpMLineIndex: event.candidate.sdpMLineIndex ?? undefined
-      };
-      const current = sessionRef.current;
-      if (current?.callId) {
-        sendMessage({
-          type: "ice.candidate",
-          call_id: current.callId,
-          to: current.peerEmail,
-          payload: candidateInit as any
+  useEffect(() => {
+    if (settings?.videoQuality) setVideoQuality(settings.videoQuality);
+    if (typeof settings?.videoMaxBitrateKbps === "number") {
+      setVideoMaxBitrateKbps(Math.max(100, Math.min(2500, Math.trunc(settings.videoMaxBitrateKbps))));
+    }
+    videoAdaptiveBitrateEnabledRef.current = !!settings?.videoAdaptiveBitrateEnabled;
+  }, [settings]);
+
+  const requestIceRestart = useCallback((callId: string, peerEmail: string, reason: string) => {
+    sendMessage({ type: "call.ice-restart.request", call_id: callId, to: peerEmail, payload: { reason, iceEpoch: iceEpochRef.current } });
+  }, [sendMessage]);
+
+  const startIceRestartAsCaller = useCallback(async () => {
+    const current = sessionRef.current;
+    const pc = peerRef.current;
+    if (!current || !pc || current.direction !== "outgoing" || iceRestartAttemptsRef.current >= 2) return;
+    iceRestartAttemptsRef.current += 1;
+    iceEpochRef.current += 1;
+    pendingRemoteCandidates.current = [];
+    try {
+      const offer = await pc.createOffer({ iceRestart: true } as any);
+      await pc.setLocalDescription(offer);
+      sendMessage({ type: "call.sdp.offer", call_id: current.callId, to: current.peerEmail, payload: { sdp: offer.sdp, type: offer.type, iceEpoch: iceEpochRef.current } as SdpRenegotiationPayload });
+    } catch (e) {}
+  }, [sendMessage]);
+
+  useEffect(() => {
+    if (status !== "in_call") return;
+    const pc = peerRef.current;
+    if (!pc) return;
+    let lastAppliedKbps: number | null = null;
+    const timer = setInterval(async () => {
+      if (statusRef.current !== "in_call" || !isVideoEnabledRef.current || !videoAdaptiveBitrateEnabledRef.current) return;
+      try {
+        const report = await pc.getStats();
+        let availableBps: number | null = null;
+        let currentRtt: number | null = null;
+        report.forEach((stat: any) => {
+          if (stat.type === "candidate-pair" && (stat.selected || stat.nominated)) {
+            availableBps = stat.availableOutgoingBitrate;
+            currentRtt = stat.currentRoundTripTime;
+          }
         });
-      } else {
-        pendingLocalCandidates.current.push(candidateInit);
+        if (currentRtt !== null) {
+          if (currentRtt < 0.1) setNetworkQuality("excellent");
+          else if (currentRtt < 0.3) setNetworkQuality("good");
+          else if (currentRtt < 0.5) setNetworkQuality("poor");
+          else setNetworkQuality("bad");
+        }
+        if (availableBps) {
+          const userMaxKbps = videoMaxBitrateKbpsRef.current;
+          const targetKbps = Math.max(100, Math.min(userMaxKbps, (availableBps * 0.85) / 1000));
+          if (lastAppliedKbps === null || Math.abs(targetKbps - lastAppliedKbps) / lastAppliedKbps > 0.1) {
+            lastAppliedKbps = targetKbps;
+            await setVideoSenderMaxBitrate(targetKbps);
+          }
+        }
+      } catch (e) {}
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [setVideoSenderMaxBitrate, status]);
+
+  const createPeerConnection = useCallback(() => {
+    const pc = new RTCPeerConnection({ iceServers, bundlePolicy: "max-bundle" } as any);
+    (pc as any).onicecandidate = (event: any) => {
+      if (!event.candidate) return;
+      const candidateInit = { candidate: event.candidate.candidate, sdpMid: event.candidate.sdpMid, sdpMLineIndex: event.candidate.sdpMLineIndex, iceEpoch: iceEpochRef.current };
+      const current = sessionRef.current;
+      if (current?.callId) sendMessage({ type: "ice.candidate", call_id: current.callId, to: current.peerEmail, payload: candidateInit as any });
+      else pendingLocalCandidates.current.push(candidateInit);
+    };
+    (pc as any).oniceconnectionstatechange = () => {
+      const current = sessionRef.current;
+      if (pc.iceConnectionState === "failed" && current && statusRef.current === "in_call") {
+        if (current.direction === "outgoing") startIceRestartAsCaller();
+        else requestIceRestart(current.callId, current.peerEmail, "ice_failed");
       }
     };
-
     (pc as any).ontrack = (event: any) => {
       const [stream] = event.streams;
       if (stream) {
         setRemoteStream(stream);
+        stream.getTracks().forEach((track: any) => {
+          track.onmute = () => {
+            if (track.kind === "video") setIsRemoteVideoEnabled(false);
+            if (track.kind === "audio") setIsRemoteAudioEnabled(false);
+          };
+          track.onunmute = () => {
+            if (track.kind === "video") setIsRemoteVideoEnabled(true);
+            if (track.kind === "audio") setIsRemoteAudioEnabled(true);
+          };
+        });
       }
     };
-
+    (pc as any).ondatachannel = (event: any) => {
+      if (event.channel?.label === 'subtitles') {
+        attachSubtitlesDataChannel(event.channel);
+      } else if (event.channel?.label === 'e2ee-key-exchange') {
+        e2eeDataChannelRef.current = event.channel;
+        event.channel.onopen = () => {
+          console.log("[E2EE] Data Channel opened (responder)");
+          initializeE2EEKeyExchange("responder");
+        };
+      }
+    };
     (pc as any).onconnectionstatechange = () => {
-      if (
-        pc.connectionState === "failed" ||
-        pc.connectionState === "disconnected" ||
-        pc.connectionState === "closed"
-      ) {
-        resetCallState();
+      const state = pc.connectionState;
+      const current = sessionRef.current;
+      if ((state === "failed" || state === "closed" || state === "disconnected") && current && statusRef.current === "in_call") {
+        if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = setTimeout(() => {
+          if (current.direction === "outgoing") startIceRestartAsCaller();
+          else requestIceRestart(current.callId, current.peerEmail, "connection_lost");
+        }, state === "disconnected" ? 1500 : 0);
+        if (!disconnectDeadlineRef.current) disconnectDeadlineRef.current = setTimeout(resetCallState, 10000);
+      } else if (state === "connected") {
+        if (restartTimerRef.current) { clearTimeout(restartTimerRef.current); restartTimerRef.current = null; }
+        if (disconnectDeadlineRef.current) { clearTimeout(disconnectDeadlineRef.current); disconnectDeadlineRef.current = null; }
       }
     };
-
     peerRef.current = pc;
     return pc;
-  }, [iceServers, resetCallState, sendMessage]);
+  }, [iceServers, resetCallState, sendMessage, attachSubtitlesDataChannel, startIceRestartAsCaller, requestIceRestart]);
 
   useEffect(() => {
     if (!token) {
-      console.log("[SignalingContext] No token available, disconnecting");
       signalingRef.current?.disconnect();
       signalingRef.current = null;
       setConnectionReady(false);
       resetCallState();
       return;
     }
-
-    console.log("[SignalingContext] Token available, initializing signaling client", {
-      tokenLength: token.length,
-      tokenPrefix: token.substring(0, 20) + "..."
-    });
     const client = new SignalingClient(token);
-    signalingRef.current = client;
-    client.connect();
-
-    const handleOpen = () => {
-      console.log("[SignalingContext] Signaling connection opened successfully!");
-      setConnectionReady(true);
-    };
-    const handleClose = () => {
-      console.warn("[SignalingContext] Signaling connection closed");
-      setConnectionReady(false);
-      resetCallState();
-    };
-
-    const handleMessage = async (message: SignalMessage) => {
-      console.log("[SignalingContext] Received message:", message.type, "from:", message.from);
-      switch (message.type) {
+    const pollingClient = new PollingSignalingClient(token);
+    const transport: SignalingTransport =
+      SIGNALING_TRANSPORT_MODE === "poll" ? pollingClient : client;
+    signalingRef.current = transport;
+    transport.connect();
+    transport.on("open", () => setConnectionReady(true));
+    transport.on("close", () => { setConnectionReady(false); resetCallState(); });
+    transport.on("message", async (msg: SignalMessage) => {
+      switch (msg.type) {
         case "call.invite.ack":
-          console.log("[SignalingContext] Received call.invite.ack, callId:", message.call_id, "pendingTarget:", pendingTarget.current);
           if (pendingTarget.current) {
-            const newSession: CallSession = {
-              callId: message.call_id ?? "",
-              peerEmail: pendingTarget.current,
-              direction: "outgoing"
-            };
-            console.log("[SignalingContext] Creating new session:", newSession);
-            sessionRef.current = newSession;
-            setSession(newSession);
-            setStatus("connecting");
-            if (newSession.callId) {
-              console.log("[SignalingContext] Flushing pending local candidates");
-              flushPendingLocalCandidates(
-                newSession.callId,
-                newSession.peerEmail
-              );
-            }
+            const sess = { callId: msg.call_id ?? "", peerEmail: pendingTarget.current, direction: "outgoing" as CallDirection };
+            setSession(sess); setStatus("connecting");
+            pendingLocalCandidates.current.forEach(c => sendMessage({ type: "ice.candidate", call_id: sess.callId, to: sess.peerEmail, payload: c as any }));
+            pendingLocalCandidates.current = [];
             pendingTarget.current = null;
-          } else {
-            console.warn("[SignalingContext] Received call.invite.ack but no pending target");
           }
           break;
         case "call.invite":
-          if (!message.from || !isSessionDescriptionPayload(message.payload)) {
-            Alert.alert("呼叫错误", "收到无效的呼叫请求");
-            break;
-          }
-          setSession({
-            callId: message.call_id ?? "",
-            peerEmail: message.from,
-            direction: "incoming",
-            offer: message.payload as SessionDescriptionPayload
-          });
+          setSession({ callId: msg.call_id ?? "", peerEmail: msg.from ?? "", direction: "incoming", offer: msg.payload as any });
           setStatus("incoming");
           break;
         case "call.accept":
-          if (isSessionDescriptionPayload(message.payload)) {
-            const pc = peerRef.current;
-            if (pc && message.payload.sdp) {
-              try {
-                await pc.setRemoteDescription(
-                  new RTCSessionDescription(message.payload as any)
-                );
-                await drainRemoteCandidates();
-              } catch (error) {
-                console.warn("Failed to apply remote answer", error);
-              }
+          if (peerRef.current && (msg.payload as any)?.sdp) {
+            await peerRef.current.setRemoteDescription(new RTCSessionDescription(msg.payload as any));
+            while (pendingRemoteCandidates.current.length) {
+              const c = pendingRemoteCandidates.current.shift();
+              if (c && c.iceEpoch === iceEpochRef.current) await peerRef.current.addIceCandidate(new RTCIceCandidate(c));
             }
           }
           setStatus("in_call");
-          setSession((current) =>
-            current
-              ? {
-                  ...current,
-                  callId: message.call_id ?? current.callId
-                }
-              : current
-          );
-          if (sessionRef.current && message.call_id) {
-            const current = {
-              ...sessionRef.current,
-              callId: message.call_id
-            };
-            sessionRef.current = current;
-            flushPendingLocalCandidates(current.callId, current.peerEmail);
+          sendMediaUpdate(msg.call_id ?? "", msg.from ?? "", { audioEnabled: isAudioEnabledRef.current, videoEnabled: isVideoEnabledRef.current });
+          break;
+        case "call.media_update":
+          const p = msg.payload as any;
+          if (typeof p?.videoEnabled === "boolean") setIsRemoteVideoEnabled(p.videoEnabled);
+          if (typeof p?.audioEnabled === "boolean") setIsRemoteAudioEnabled(p.audioEnabled);
+          break;
+        case "call.ice-restart.request":
+          if (statusRef.current === "in_call" && sessionRef.current?.direction === "outgoing") startIceRestartAsCaller();
+          break;
+        case "call.sdp.offer":
+          if (peerRef.current && statusRef.current === "in_call") {
+            const payload = msg.payload as any;
+            if ((payload.iceEpoch ?? 0) > iceEpochRef.current) { iceEpochRef.current = payload.iceEpoch; pendingRemoteCandidates.current = []; }
+            await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload));
+            const answer = await peerRef.current.createAnswer();
+            await peerRef.current.setLocalDescription(answer);
+            sendMessage({ type: "call.sdp.answer", call_id: sessionRef.current?.callId ?? "", to: msg.from ?? "", payload: { sdp: answer.sdp, type: answer.type, iceEpoch: iceEpochRef.current } as any });
           }
           break;
-        case "call.reject":
-          Alert.alert("Call rejected", `${message.from} declined the call.`);
-          resetCallState();
+        case "call.sdp.answer":
+          if (peerRef.current && statusRef.current === "in_call") await peerRef.current.setRemoteDescription(new RTCSessionDescription(msg.payload as any));
           break;
+        case "call.reject":
         case "call.end":
-          Alert.alert("Call ended", `${message.from ?? "Peer"} ended the call.`);
+          Alert.alert("Call " + (msg.type === "call.reject" ? "rejected" : "ended"), `${msg.from ?? "Peer"} ${msg.type === "call.reject" ? "declined" : "ended"} the call.`);
           resetCallState();
           break;
         case "ice.candidate":
-          if (isIceCandidatePayload(message.payload)) {
-            const pc = peerRef.current;
-            if (pc) {
-              const hasRemoteDescription =
-                pc.remoteDescription !== null &&
-                typeof pc.remoteDescription?.type === "string";
-              if (hasRemoteDescription) {
-                try {
-                  await pc.addIceCandidate(
-                    new RTCIceCandidate(message.payload)
-                  );
-                } catch (error) {
-                  console.warn("Failed to add ICE candidate", error);
-                }
-              } else {
-                enqueueRemoteCandidate(message.payload);
-              }
-            } else {
-              enqueueRemoteCandidate(message.payload);
-            }
-          }
+          const cand = msg.payload as any;
+          if (peerRef.current?.remoteDescription) await peerRef.current.addIceCandidate(new RTCIceCandidate(cand));
+          else pendingRemoteCandidates.current.push(cand);
           break;
         case "call.error":
-          if (message.payload && typeof message.payload === "object" && "reason" in message.payload) {
-            Alert.alert("Call error", String((message.payload as any).reason ?? "Error"));
-          } else {
-            Alert.alert("Call error", "Error");
-          }
+          Alert.alert("Call error", (msg.payload as any)?.reason ?? "Error");
           resetCallState();
           break;
-        default:
-          break;
       }
-    };
+    });
+    return () => { transport.disconnect(); signalingRef.current = null; };
+  }, [resetCallState, sendMessage, token]);
 
-    client.on("open", handleOpen);
-    client.on("close", handleClose);
-    client.on("message", handleMessage);
-    client.on("error", (err) => console.warn("signaling error", err));
-
-    return () => {
-      client.off("open", handleOpen);
-      client.off("close", handleClose);
-      client.off("message", handleMessage);
-      client.disconnect();
-      signalingRef.current = null;
-    };
-  }, [flushPendingLocalCandidates, resetCallState, drainRemoteCandidates, enqueueRemoteCandidate, token]);
-
-  const startCall = useCallback(
-    async (email: string) => {
-      console.log("[startCall] Starting call to:", email, "Current status:", status);
-      
-      if (!user) {
-        console.warn("[startCall] No user logged in");
-        Alert.alert("错误 / Error", "请先登录 / Please log in first.");
-        return;
+  const startCall = useCallback(async (email: string) => {
+    if (status !== "idle") return;
+    try {
+      const perms = await ensureAudioPermission();
+      if (!perms) return;
+      resetPeerResources();
+      await VideoService.initialize();
+      const stream = await VideoService.getLocalStream(settings.defaultAudioEnabled, settings.defaultVideoEnabled, settings.cameraFacing, settings.videoQuality ?? "medium");
+      if (!stream) throw new Error("No stream");
+      setLocalStream(stream); setIsVideoEnabled(settings.defaultVideoEnabled); setIsAudioEnabled(settings.defaultAudioEnabled); setCameraFacing(settings.cameraFacing);
+      const pc = createPeerConnection();
+      if (stream.getVideoTracks().length === 0) pc.addTransceiver("video", { direction: "sendrecv" });
+      const dc = (pc as any).createDataChannel?.('subtitles', { ordered: true });
+      if (dc) attachSubtitlesDataChannel(dc);
+      const e2eeDc = (pc as any).createDataChannel?.('e2ee-key-exchange', { ordered: true });
+      if (e2eeDc) {
+        e2eeDataChannelRef.current = e2eeDc;
+        e2eeDc.onopen = () => {
+          console.log("[E2EE] Data Channel opened (initiator)");
+          initializeE2EEKeyExchange("initiator");
+        };
       }
-      
-      if (status !== "idle") {
-        console.warn("[startCall] Call already in progress. Current status:", status);
-        Alert.alert("提示 / Tip", "已有通话在进行中，请先结束该通话 / A call is already in progress. Please end it first.");
-        return;
-      }
-
-      try {
-        // 从设置中获取默认值
-        const shouldEnableVideo = settings.defaultVideoEnabled;
-        const shouldEnableAudio = settings.defaultAudioEnabled;
-        const defaultCameraFacing = settings.cameraFacing;
-
-        console.log("[startCall] Media settings:", {
-          video: shouldEnableVideo,
-          audio: shouldEnableAudio,
-          camera: defaultCameraFacing
-        });
-
-        // 检查权限
-        const permissionResult = await CameraPermissionService.checkPermissions();
-        if (!permissionResult.microphone) {
-          Alert.alert("需要麦克风权限 / Microphone Permission Required", "请在系统设置中授予麦克风权限 / Please grant microphone permission in system settings.");
-          return;
-        }
-        if (shouldEnableVideo && !permissionResult.camera) {
-          Alert.alert("需要摄像头权限 / Camera Permission Required", "请在系统设置中授予摄像头权限 / Please grant camera permission in system settings.");
-          return;
-        }
-
-        console.log("[startCall] Resetting peer resources...");
-        resetPeerResources();
-        
-        console.log("[startCall] Requesting media stream...");
-        
-        if (!webrtcMediaDevices) {
-          throw new Error("WebRTC mediaDevices not available. Please use 'expo run:android' to build a native app.");
-        }
-
-        // 使用 VideoService 获取媒体流
-        await VideoService.initialize();
-        const stream = await VideoService.getLocalStream(
-          shouldEnableAudio,
-          shouldEnableVideo,
-          defaultCameraFacing,
-          "medium"
-        );
-
-        if (!stream) {
-          throw new Error("Failed to get media stream");
-        }
-
-        console.log("[startCall] Media stream obtained:", stream.getTracks().length, "tracks");
-        stream.getTracks().forEach((track) => {
-          console.log("[startCall] Track obtained - Kind:", track.kind, "Enabled:", track.enabled);
-        });
-        
-        setLocalStream(stream);
-        setIsVideoEnabled(shouldEnableVideo);
-        setIsAudioEnabled(shouldEnableAudio);
-        setCameraFacing(defaultCameraFacing);
-
-        console.log("[startCall] Creating peer connection...");
-        const pc = createPeerConnection();
-        stream.getTracks().forEach((track) => {
-          console.log("[startCall] Adding track:", track.kind);
-          pc.addTrack(track, stream);
-        });
-
-        console.log("[startCall] Creating offer...");
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: true
-        });
-        console.log("[startCall] Offer created, SDP length:", offer.sdp?.length);
-        
-        console.log("[startCall] Setting local description...");
-        await pc.setLocalDescription(offer);
-        console.log("[startCall] Local description set");
-
-        pendingTarget.current = email;
-        setStatus("connecting");
-        console.log("[startCall] Status changed to 'connecting'");
-        
-        console.log("[startCall] Sending call.invite message...");
-        sendMessage({
-          type: "call.invite",
-          to: email,
-          payload: {
-            sdp: offer.sdp,
-            type: offer.type
-          }
-        });
-        console.log("[startCall] call.invite message sent");
-      } catch (error) {
-        console.error("[startCall] Error occurred:", error);
-        console.error("[startCall] Error name:", (error as Error)?.name);
-        console.error("[startCall] Error message:", (error as Error)?.message);
-        const errorMsg = error instanceof Error ? error.message : String(error);
-          Alert.alert("错误 / Error", "请确认麦克风/摄像头未被占用或已授权 / Please ensure the microphone/camera is not in use or permissions are granted.");
-        resetPeerResources();
-        setStatus("idle");
-      }
-    },
-    [createPeerConnection, resetPeerResources, sendMessage, status, user, settings]
-  );
+      stream.getTracks().forEach(t => pc.addTrack(t, stream));
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+      await pc.setLocalDescription(offer);
+      if (settings.defaultVideoEnabled) await applyCurrentVideoBitrate();
+      pendingTarget.current = email; setStatus("connecting");
+      sendMessage({ type: "call.invite", to: email, payload: { sdp: offer.sdp, type: offer.type } });
+    } catch (e) { resetCallState(); }
+  }, [ensureAudioPermission, resetPeerResources, settings, createPeerConnection, attachSubtitlesDataChannel, applyCurrentVideoBitrate, sendMessage, resetCallState, status]);
 
   const acceptCall = useCallback(async () => {
-    if (!session || session.direction !== "incoming" || !session.offer) {
-      return;
-    }
-
+    if (!session || session.direction !== "incoming" || !session.offer) return;
     try {
-      // 从设置中获取默认值
-      const shouldEnableVideo = settings.defaultVideoEnabled;
-      const shouldEnableAudio = settings.defaultAudioEnabled;
-      const defaultCameraFacing = settings.cameraFacing;
-
-      console.log("[acceptCall] Media settings:", {
-        video: shouldEnableVideo,
-        audio: shouldEnableAudio,
-        camera: defaultCameraFacing
-      });
-
-      // 检查权限
-      const permissionResult = await CameraPermissionService.checkPermissions();
-      if (!permissionResult.microphone) {
-        Alert.alert("需要麦克风权限 / Microphone Permission Required", "请在系统设置中授予麦克风权限 / Please grant microphone permission in system settings.");
-        return;
-      }
-      if (shouldEnableVideo && !permissionResult.camera) {
-        Alert.alert("需要摄像头权限 / Camera Permission Required", "请在系统设置中授予摄像头权限 / Please grant camera permission in system settings.");
-        return;
-      }
-
-      console.log("[acceptCall] Requesting media stream...");
-      
-      if (!webrtcMediaDevices) {
-        throw new Error("WebRTC mediaDevices not available. Please use 'expo run:android' to build a native app.");
-      }
-
-      // 使用 VideoService 获取媒体流
+      const perms = await ensureAudioPermission();
+      if (!perms) return;
       await VideoService.initialize();
-      const stream = await VideoService.getLocalStream(
-        shouldEnableAudio,
-        shouldEnableVideo,
-        defaultCameraFacing,
-        "medium"
-      );
-
-      if (!stream) {
-        throw new Error("Failed to get media stream");
-      }
-
-      console.log("[acceptCall] Media stream obtained:", stream.getTracks().length, "tracks");
-      stream.getTracks().forEach((track) => {
-        console.log("[acceptCall] Track obtained - Kind:", track.kind, "Enabled:", track.enabled);
-      });
-      
-      setLocalStream(stream);
-      setIsVideoEnabled(shouldEnableVideo);
-      setIsAudioEnabled(shouldEnableAudio);
-      setCameraFacing(defaultCameraFacing);
-
+      const stream = await VideoService.getLocalStream(settings.defaultAudioEnabled, settings.defaultVideoEnabled, settings.cameraFacing, settings.videoQuality ?? "medium");
+      if (!stream) throw new Error("No stream");
+      setLocalStream(stream); setIsVideoEnabled(settings.defaultVideoEnabled); setIsAudioEnabled(settings.defaultAudioEnabled); setCameraFacing(settings.cameraFacing);
       const pc = createPeerConnection();
-      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-
-      try {
-        await pc.setRemoteDescription(new RTCSessionDescription(session.offer as any));
-      } catch (error) {
-        console.warn("setRemoteDescription failed", error);
-        Alert.alert("呼叫错误 / Call Error", "无法解析对方的连接请求 / Failed to parse the remote call request.");
-        resetCallState();
-        return;
-      }
-
+      stream.getTracks().forEach(t => pc.addTrack(t, stream));
+      await pc.setRemoteDescription(new RTCSessionDescription(session.offer as any));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      await drainRemoteCandidates();
-
-      sendMessage({
-        type: "call.accept",
-        call_id: session.callId,
-        to: session.peerEmail,
-        payload: {
-          sdp: answer.sdp,
-          type: answer.type
-        }
-      });
-
+      if (settings.defaultVideoEnabled) await applyCurrentVideoBitrate();
+      sendMessage({ type: "call.accept", call_id: session.callId, to: session.peerEmail, payload: { sdp: answer.sdp, type: answer.type } });
+      sendMediaUpdate(session.callId, session.peerEmail, { audioEnabled: settings.defaultAudioEnabled, videoEnabled: settings.defaultVideoEnabled });
       setStatus("in_call");
-    } catch (error) {
-      console.error("acceptCall error", error);
-      Alert.alert("无法接通 / Failed to Answer", "请确认麦克风/摄像头权限已授权 / Please ensure microphone/camera permissions are granted.");
-      resetCallState();
-    }
-  }, [createPeerConnection, drainRemoteCandidates, resetCallState, sendMessage, session, settings]);
+    } catch (e) { resetCallState(); }
+  }, [session, ensureAudioPermission, settings, createPeerConnection, applyCurrentVideoBitrate, sendMessage, sendMediaUpdate, resetCallState]);
 
-  const rejectCall = useCallback(() => {
-    if (!session) {
-      return;
-    }
-    sendMessage({
-      type: "call.reject",
-      call_id: session.callId,
-      to: session.peerEmail
-    });
-    resetCallState();
-  }, [resetCallState, sendMessage, session]);
-
-  const endCall = useCallback(() => {
-    if (!session) {
-      return;
-    }
-    sendMessage({
-      type: "call.end",
-      call_id: session.callId,
-      to: session.peerEmail
-    });
-    resetCallState();
-  }, [resetCallState, sendMessage, session]);
-
-  /**
-   * 切换视频开关
-   */
   const toggleVideo = useCallback(async () => {
+    if (!localStream || !peerRef.current) return;
+    const next = !isVideoEnabled;
     try {
-      console.log("[toggleVideo] Current video enabled:", isVideoEnabled);
-      
-      if (!localStream) {
-        console.warn("[toggleVideo] No local stream available");
-        return;
-      }
-
-      const newVideoEnabled = !isVideoEnabled;
-
-      if (newVideoEnabled) {
-        // 开启视频：需要检查权限并重新获取流
-        const permissionResult = await CameraPermissionService.checkPermissions();
-        if (!permissionResult.camera) {
-          Alert.alert("权限不足 / Permission Required", "需要摄像头权限才能开启视频 / Camera permission is required to enable video.");
-          return;
-        }
-
-        // 重新获取带视频的流
-        await VideoService.initialize();
-        const newStream = await VideoService.getLocalStream(
-          isAudioEnabled,
-          true,
-          cameraFacing,
-          "medium"
-        );
-
-        if (newStream && peerRef.current) {
-          // 替换 peer connection 中的轨道
-          const videoTrack = newStream.getVideoTracks()[0];
-          const senders = peerRef.current.getSenders();
-          const videoSender = senders.find(sender => sender.track?.kind === "video");
-          
-          if (videoSender) {
-            await videoSender.replaceTrack(videoTrack);
-          } else {
-            peerRef.current.addTrack(videoTrack, newStream);
-          }
-
-          setLocalStream(newStream);
-          setIsVideoEnabled(true);
-          console.log("[toggleVideo] Video enabled successfully");
+      if (next) {
+        const perms = await CameraPermissionService.checkPermissions();
+        if (!perms.camera) return;
+        const videoStream = await webrtcMediaDevices.getUserMedia({ audio: false, video: { facingMode: cameraFacing === "front" ? "user" : "environment" } });
+        const track = videoStream.getVideoTracks()[0];
+        const tx = peerRef.current.getTransceivers().find(t => t.receiver?.track?.kind === "video");
+        if (tx) {
+          await tx.sender.replaceTrack(track);
+          const nextStream = new MediaStream(); localStream.getAudioTracks().forEach(t => nextStream.addTrack(t)); nextStream.addTrack(track);
+          setLocalStream(nextStream); setIsVideoEnabled(true); await applyCurrentVideoBitrate();
+          localStream.getVideoTracks().forEach(t => t.stop());
+          if (sessionRef.current) sendMediaUpdate(sessionRef.current.callId, sessionRef.current.peerEmail, { audioEnabled: isAudioEnabledRef.current, videoEnabled: true });
         }
       } else {
-        // 关闭视频：直接禁用轨道
-        VideoService.toggleVideoTrack(false);
-        setIsVideoEnabled(false);
-        console.log("[toggleVideo] Video disabled");
+        const tx = peerRef.current.getTransceivers().find(t => t.receiver?.track?.kind === "video");
+        if (tx) await tx.sender.replaceTrack(null);
+        localStream.getVideoTracks().forEach(t => t.stop());
+        const nextStream = new MediaStream(); localStream.getAudioTracks().forEach(t => nextStream.addTrack(t));
+        setLocalStream(nextStream); setIsVideoEnabled(false);
+        if (sessionRef.current) sendMediaUpdate(sessionRef.current.callId, sessionRef.current.peerEmail, { audioEnabled: isAudioEnabledRef.current, videoEnabled: false });
       }
-    } catch (error) {
-      console.error("[toggleVideo] Error:", error);
-      Alert.alert("错误 / Error", "无法切换视频状态 / Failed to toggle video.");
-    }
-  }, [isVideoEnabled, isAudioEnabled, cameraFacing, localStream]);
+    } catch (e) {}
+  }, [localStream, isVideoEnabled, cameraFacing, applyCurrentVideoBitrate, sendMediaUpdate]);
 
-  /**
-   * 切换麦克风开关
-   */
   const toggleAudio = useCallback(() => {
-    console.log("[toggleAudio] Current audio enabled:", isAudioEnabled);
-    
-    if (!localStream) {
-      console.warn("[toggleAudio] No local stream available");
-      return;
-    }
+    const next = !isAudioEnabled;
+    VideoService.toggleAudioTrack(next); setIsAudioEnabled(next);
+    if (sessionRef.current && status === "in_call") sendMediaUpdate(sessionRef.current.callId, sessionRef.current.peerEmail, { audioEnabled: next, videoEnabled: isVideoEnabled });
+  }, [isAudioEnabled, isVideoEnabled, status, sendMediaUpdate]);
 
-    const newAudioEnabled = !isAudioEnabled;
-    VideoService.toggleAudioTrack(newAudioEnabled);
-    setIsAudioEnabled(newAudioEnabled);
-    console.log(`[toggleAudio] Audio ${newAudioEnabled ? "enabled" : "disabled"}`);
-  }, [isAudioEnabled, localStream]);
-
-  /**
-   * 切换摄像头（前置/后置）
-   */
   const switchCamera = useCallback(async () => {
+    if (!localStream || !isVideoEnabled || !peerRef.current) return;
+    const nextFacing: CameraFacing = cameraFacing === "front" ? "back" : "front";
     try {
-      console.log("[switchCamera] Current facing:", cameraFacing);
-      
-      if (!localStream || !isVideoEnabled) {
-        console.warn("[switchCamera] No video stream or video not enabled");
-        Alert.alert("提示 / Tip", "请先开启视频 / Please enable video first.");
-        return;
+      const videoStream = await webrtcMediaDevices.getUserMedia({ audio: false, video: { facingMode: nextFacing === "front" ? "user" : "environment" } });
+      const track = videoStream.getVideoTracks()[0];
+      const tx = peerRef.current.getTransceivers().find(t => t.receiver?.track?.kind === "video");
+      if (tx) {
+        await tx.sender.replaceTrack(track);
+        const nextStream = new MediaStream(); localStream.getAudioTracks().forEach(t => nextStream.addTrack(t)); nextStream.addTrack(track);
+        setLocalStream(nextStream); setCameraFacing(nextFacing); await applyCurrentVideoBitrate();
+        localStream.getVideoTracks().forEach(t => t.stop());
       }
+    } catch (e) {}
+  }, [localStream, isVideoEnabled, cameraFacing, applyCurrentVideoBitrate]);
 
-      const newStream = await VideoService.switchCamera();
-      
-      if (newStream && peerRef.current) {
-        // 替换 peer connection 中的视频轨道
-        const videoTrack = newStream.getVideoTracks()[0];
-        const senders = peerRef.current.getSenders();
-        const videoSender = senders.find(sender => sender.track?.kind === "video");
-        
-        if (videoSender) {
-          await videoSender.replaceTrack(videoTrack);
-        }
+  const toggleSpeaker = useCallback(async () => {
+    const next = !isSpeakerOn; setIsSpeakerOn(next); await AudioService.setSpeakerphone(next);
+  }, [isSpeakerOn]);
 
-        setLocalStream(newStream);
-        const newFacing = cameraFacing === "front" ? "back" : "front";
-        setCameraFacing(newFacing);
-        console.log("[switchCamera] Camera switched to:", newFacing);
+  const toggleTranslation = useCallback(async (enabled: boolean) => {
+    try {
+      setTranslationEnabled(enabled);
+      if (!enabled) {
+        useSubtitleStore.getState().clearSubtitles();
+        await TranslationService.stopWebRTCCallMicTranslation();
+        if (processorRef.current) { processorRef.current.stopProcessing(); processorRef.current = null; }
       }
-    } catch (error) {
-      console.error("[switchCamera] Error:", error);
-      Alert.alert("错误 / Error", "无法切换摄像头 / Failed to switch camera.");
+    } catch (e) {}
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (translationEnabled && status === 'in_call' && TranslationService.isReady() && sessionRef.current?.peerEmail) {
+      TranslationService.startWebRTCCallMicTranslation(translationLanguage, (res) => {
+        if (cancelled) return;
+        const dc = subtitlesDataChannelRef.current;
+        if (dc?.readyState === 'open') dc.send(JSON.stringify({ t: 'subtitle', originalText: res.originalText, translatedText: res.translatedText, timestampMs: res.timestampMs }));
+      }).catch(() => {});
     }
-  }, [cameraFacing, isVideoEnabled, localStream]);
+    return () => { cancelled = true; TranslationService.stopWebRTCCallMicTranslation().catch(() => {}); };
+  }, [translationEnabled, status, translationLanguage]);
 
-  const value = useMemo<SignalingContextValue>(
-    () => ({
-      status,
-      session,
-      connectionReady,
-      localStream,
-      remoteStream,
-      isVideoEnabled,
-      isAudioEnabled,
-      cameraFacing,
-      startCall,
-      acceptCall,
-      rejectCall,
-      endCall,
-      toggleVideo,
-      toggleAudio,
-      switchCamera
-    }),
-    [
-      status,
-      session,
-      connectionReady,
-      localStream,
-      remoteStream,
-      isVideoEnabled,
-      isAudioEnabled,
-      cameraFacing,
-      startCall,
-      acceptCall,
-      rejectCall,
-      endCall,
-      toggleVideo,
-      toggleAudio,
-      switchCamera
-    ]
-  );
+  const value = useMemo<SignalingContextValue>(() => ({
+    status, session, connectionReady, localStream, remoteStream, networkQuality, isVideoEnabled, isAudioEnabled, isRemoteVideoEnabled, isRemoteAudioEnabled, cameraFacing,
+    videoQuality, setVideoQuality, videoMaxBitrateKbps, setVideoMaxBitrateKbps, e2eeEnabled, e2eeFingerprint, e2eeSessionEstablished, translationEnabled, translationLanguage,
+    startCall, acceptCall, rejectCall, endCall, toggleVideo, toggleAudio, switchCamera, toggleSpeaker, isSpeakerOn, toggleTranslation, setTranslationLanguage: setTranslationLanguage
+  }), [status, session, connectionReady, localStream, remoteStream, networkQuality, isVideoEnabled, isAudioEnabled, isRemoteVideoEnabled, isRemoteAudioEnabled, cameraFacing,
+    videoQuality, videoMaxBitrateKbps, e2eeEnabled, e2eeFingerprint, e2eeSessionEstablished, translationEnabled, translationLanguage, startCall, acceptCall, rejectCall, endCall, toggleVideo, toggleAudio, switchCamera, toggleSpeaker, isSpeakerOn, toggleTranslation]);
 
-  return (
-    <SignalingContext.Provider value={value}>
-      {children}
-    </SignalingContext.Provider>
-  );
+  return <SignalingContext.Provider value={value}>{children}</SignalingContext.Provider>;
 };
 
 export const useSignaling = () => {
   const ctx = useContext(SignalingContext);
-  if (!ctx) {
-    throw new Error("useSignaling must be used within SignalingProvider");
-  }
+  if (!ctx) throw new Error("useSignaling must be used within SignalingProvider");
   return ctx;
 };

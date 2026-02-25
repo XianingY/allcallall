@@ -1,0 +1,144 @@
+diff --git a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java
+index 996648c..78d296b 100644
+--- a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java
++++ b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java
+@@ -1,6 +1,7 @@
+ package com.oney.WebRTCModule;
+ 
+ import android.util.Log;
++import android.util.Base64;
+ import android.util.Pair;
+ import android.util.SparseArray;
+ 
+@@ -35,6 +36,7 @@ import java.util.Map;
+ import java.util.Objects;
+ import java.util.concurrent.Callable;
+ import java.util.concurrent.ExecutionException;
++import java.util.Arrays;
+ 
+ @ReactModule(name = "WebRTCModule")
+ public class WebRTCModule extends ReactContextBaseJavaModule {
+@@ -45,6 +47,14 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
+     VideoDecoderFactory mVideoDecoderFactory;
+     AudioDeviceModule mAudioDeviceModule;
+ 
++    private final Object audioCaptureLock = new Object();
++    private boolean audioCaptureEnabled = false;
++    private int audioCaptureChunkMs = 2000;
++    private int audioCaptureSampleRate = 0;
++    private int audioCaptureChannels = 0;
++    private byte[] audioCaptureBuffer = new byte[0];
++    private int audioCaptureLen = 0;
++
+     // Need to expose the peer connection codec factories here to get capabilities
+     private final SparseArray<PeerConnectionObserver> mPeerConnectionObservers;
+     final Map<String, MediaStream> localStreams;
+@@ -90,7 +100,12 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
+         }
+ 
+         if (adm == null) {
+-            adm = JavaAudioDeviceModule.builder(reactContext).setEnableVolumeLogger(false).createAudioDeviceModule();
++            adm = JavaAudioDeviceModule
++                    .builder(reactContext)
++                    .setEnableVolumeLogger(false)
++                    .setSamplesReadyCallback(
++                            this::onAudioRecordSamples)
++                    .createAudioDeviceModule();
+         }
+ 
+         Log.d(TAG, "Using video encoder factory: " + encoderFactory.getClass().getCanonicalName());
+@@ -113,6 +128,66 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
+         getUserMediaImpl = new GetUserMediaImpl(this, reactContext);
+     }
+ 
++    private void onAudioRecordSamples(JavaAudioDeviceModule.AudioSamples audioSamples) {
++        if (audioSamples == null) {
++            return;
++        }
++
++        final byte[] data = audioSamples.getData();
++        if (data == null || data.length == 0) {
++            return;
++        }
++
++        final int sampleRate = audioSamples.getSampleRate();
++        final int channels = audioSamples.getChannelCount();
++
++        final byte[] chunk;
++        synchronized (audioCaptureLock) {
++            if (!audioCaptureEnabled) {
++                return;
++            }
++
++            if (audioCaptureSampleRate != sampleRate || audioCaptureChannels != channels) {
++                audioCaptureSampleRate = sampleRate;
++                audioCaptureChannels = channels;
++                audioCaptureLen = 0;
++                audioCaptureBuffer = new byte[0];
++            }
++
++            // PCM16 bytes.
++            final int chunkBytes = Math.max(1, (sampleRate * channels * 2 * audioCaptureChunkMs) / 1000);
++            final int needed = audioCaptureLen + data.length;
++            if (needed > audioCaptureBuffer.length) {
++                int newCap = Math.max(needed, Math.max(chunkBytes, audioCaptureBuffer.length * 2));
++                audioCaptureBuffer = Arrays.copyOf(audioCaptureBuffer, newCap);
++            }
++            System.arraycopy(data, 0, audioCaptureBuffer, audioCaptureLen, data.length);
++            audioCaptureLen += data.length;
++
++            if (audioCaptureLen < chunkBytes) {
++                return;
++            }
++
++            chunk = Arrays.copyOfRange(audioCaptureBuffer, 0, chunkBytes);
++            audioCaptureLen -= chunkBytes;
++            if (audioCaptureLen > 0) {
++                System.arraycopy(audioCaptureBuffer, chunkBytes, audioCaptureBuffer, 0, audioCaptureLen);
++            }
++        }
++
++        try {
++            String b64 = Base64.encodeToString(chunk, Base64.NO_WRAP);
++            WritableMap params = Arguments.createMap();
++            params.putString("pcm16Base64", b64);
++            params.putInt("sampleRate", sampleRate);
++            params.putInt("channels", channels);
++            params.putDouble("timestampMs", (double) System.currentTimeMillis());
++            sendEvent("webrtcAudioChunk", params);
++        } catch (Exception e) {
++            Log.w(TAG, "Failed to emit webrtcAudioChunk", e);
++        }
++    }
++
+     @NonNull
+     @Override
+     public String getName() {
+@@ -1418,6 +1493,27 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
+         });
+     }
+ 
++    @ReactMethod
++    public void startLocalAudioCapture(int chunkMs) {
++        synchronized (audioCaptureLock) {
++            audioCaptureEnabled = true;
++            if (chunkMs >= 500) {
++                audioCaptureChunkMs = chunkMs;
++            }
++            audioCaptureLen = 0;
++            audioCaptureBuffer = new byte[0];
++        }
++    }
++
++    @ReactMethod
++    public void stopLocalAudioCapture() {
++        synchronized (audioCaptureLock) {
++            audioCaptureEnabled = false;
++            audioCaptureLen = 0;
++            audioCaptureBuffer = new byte[0];
++        }
++    }
++
+     @ReactMethod
+     public void addListener(String eventName) {
+         // Keep: Required for RN built in Event Emitter Calls.

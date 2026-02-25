@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+import type { VideoQuality } from "../services/VideoService";
+
 interface Settings {
   audioNotificationsEnabled: boolean;
   vibrationEnabled: boolean;
@@ -9,6 +11,11 @@ interface Settings {
   defaultVideoEnabled: boolean; // 默认开启视频
   defaultAudioEnabled: boolean; // 默认开启麦克风
   cameraFacing: "front" | "back"; // 默认摄像头方向
+
+  // Video bitrate/quality
+  videoQuality: VideoQuality;
+  videoMaxBitrateKbps: number;
+  videoAdaptiveBitrateEnabled: boolean;
 }
 
 interface SettingsContextValue {
@@ -20,6 +27,10 @@ interface SettingsContextValue {
   updateDefaultVideoEnabled: (enabled: boolean) => void;
   updateDefaultAudioEnabled: (enabled: boolean) => void;
   updateCameraFacing: (facing: "front" | "back") => void;
+
+  updateVideoQuality: (quality: VideoQuality) => void;
+  updateVideoMaxBitrateKbps: (kbps: number) => void;
+  updateVideoAdaptiveBitrateEnabled: (enabled: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | undefined>(
@@ -38,7 +49,11 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     // 视频通话默认设置
     defaultVideoEnabled: false, // 默认关闭视频
     defaultAudioEnabled: true, // 默认开启麦克风
-    cameraFacing: "front" // 默认前置摄像头
+    cameraFacing: "front", // 默认前置摄像头
+
+    videoQuality: "medium",
+    videoMaxBitrateKbps: 900,
+    videoAdaptiveBitrateEnabled: false
   });
   const [loaded, setLoaded] = useState(false);
 
@@ -55,7 +70,11 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
             pushNotificationsEnabled: parsed.pushNotificationsEnabled ?? true,
             defaultVideoEnabled: parsed.defaultVideoEnabled ?? false,
             defaultAudioEnabled: parsed.defaultAudioEnabled ?? true,
-            cameraFacing: parsed.cameraFacing ?? "front"
+            cameraFacing: parsed.cameraFacing ?? "front",
+
+            videoQuality: parsed.videoQuality ?? "medium",
+            videoMaxBitrateKbps: parsed.videoMaxBitrateKbps ?? 900,
+            videoAdaptiveBitrateEnabled: parsed.videoAdaptiveBitrateEnabled ?? false
           });
           console.log("[SettingsContext] Loaded settings from storage:", parsed);
         }
@@ -129,6 +148,36 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     console.log("[SettingsContext] Camera facing updated:", facing);
   };
 
+  const updateVideoQuality = async (quality: VideoQuality) => {
+    const newSettings = {
+      ...settings,
+      videoQuality: quality
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+    console.log("[SettingsContext] Video quality updated:", quality);
+  };
+
+  const updateVideoMaxBitrateKbps = async (kbps: number) => {
+    const newSettings = {
+      ...settings,
+      videoMaxBitrateKbps: kbps
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+    console.log("[SettingsContext] Video max bitrate updated (kbps):", kbps);
+  };
+
+  const updateVideoAdaptiveBitrateEnabled = async (enabled: boolean) => {
+    const newSettings = {
+      ...settings,
+      videoAdaptiveBitrateEnabled: enabled
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+    console.log("[SettingsContext] Video adaptive bitrate updated:", enabled);
+  };
+
   const saveSettings = async (newSettings: Settings) => {
     try {
       await AsyncStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
@@ -152,7 +201,10 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         updatePushNotifications,
         updateDefaultVideoEnabled,
         updateDefaultAudioEnabled,
-        updateCameraFacing
+        updateCameraFacing,
+        updateVideoQuality,
+        updateVideoMaxBitrateKbps,
+        updateVideoAdaptiveBitrateEnabled
       }}
     >
       {children}

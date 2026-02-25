@@ -238,7 +238,7 @@ const EmailVerificationScreen: React.FC<Props> = ({ navigation, route }) => {
 
           <PrimaryButton
             title={loading ? "验证中..." : "确认验证 / Verify"}
-            onPress={handleVerifyCode}
+            onPress={() => handleVerifyCode()}
             disabled={loading || code.length !== 6}
           />
 

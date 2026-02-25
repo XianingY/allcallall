@@ -10,7 +10,7 @@
  * - 后台播放
  */
 
-import { Audio } from "expo-av";
+import { Audio, AVPlaybackStatus } from "expo-av";
 import { Platform } from "react-native";
 
 export type AudioType = "incoming_call" | "ringback";
@@ -27,6 +27,7 @@ class AudioServiceExpo {
   private soundObjects: Map<AudioType, Audio.Sound> = new Map();
   private initialized: boolean = false;
   private loading: boolean = false;
+  private isSpeakerOn: boolean = false;
 
   // 音频文件配置 - 支持MP3格式，推荐使用MP3以减小文件大小
   private readonly audioFiles: AudioFile[] = [
@@ -290,7 +291,7 @@ class AudioServiceExpo {
   /**
    * 获取当前播放状态
    */
-  public async getStatus(audioType: AudioType): Promise<Audio.SoundStatus | null> {
+  public async getStatus(audioType: AudioType): Promise<AVPlaybackStatus | null> {
     try {
       const sound = this.soundObjects.get(audioType);
       if (sound) {
@@ -341,6 +342,32 @@ class AudioServiceExpo {
     });
 
     return result;
+  }
+
+  /**
+   * 设置免提/扬声器状态
+   */
+  public async setSpeakerphone(on: boolean): Promise<void> {
+    try {
+      this.isSpeakerOn = on;
+      console.log(`[AudioService] Setting speakerphone: ${on}`);
+      
+      await Audio.setAudioModeAsync({
+        staysActiveInBackground: true,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: !on // true=earpiece, false=speaker
+      });
+    } catch (error) {
+      console.error("[AudioService] Failed to set speakerphone:", error);
+    }
+  }
+
+  /**
+   * 获取当前免提状态
+   */
+  public getSpeakerphone(): boolean {
+    return this.isSpeakerOn;
   }
 
   /**

@@ -11,12 +11,14 @@
 ### ✨ 特性
 
 - 🎤 **实时音视频通话** - 基于 Pion WebRTC 的点对点音频通话
+- 🌍 **实时翻译** - 离线本地 AI 模型，语音识别 + 文本翻译 + 语音合成 (Whisper + Opus-MT + VITS)
 - 👥 **联系人管理** - 添加、搜索和管理通讯录
 - 🟢 **在线状态** - 实时显示用户在线状态和最后在线时间
 - 🔐 **用户认证** - JWT 令牌认证和会话管理
 - 📱 **跨平台** - Android 原生应用支持，iOS 开发中
 - 🚀 **高性能** - Redis 缓存、连接池优化、异步 WebSocket 信令
 - 🔄 **自动重连** - 网络异常自动重新连接
+- 🔒 **隐私保护** - 完全离线翻译，数据不上传云端
 
 ### 🛠 技术栈
 
@@ -37,6 +39,9 @@
 - **WebRTC**: react-native-webrtc 124.0.0
 - **HTTP**: Axios
 - **状态管理**: React Context API
+- **离线翻译**: Whisper (ASR) + Opus-MT (翻译) + VITS (TTS)
+- **模型量化**: INT8 (70% 大小减少)
+- **原生集成**: Android JNI + C++
 
 #### 基础设施
 - **容器化**: Docker & Docker Compose
@@ -515,10 +520,11 @@ curl -X POST http://localhost:8080/api/v1/email/send-verification-code \
 
 ### 分支策略
 
-- `main` - 稳定发布版本
-- `develop` - 开发分支
-- `feature/*` - 功能分支
-- `bugfix/*` - 修复分支
+- `main` - 稳定发布版本（唯一长期主干）
+- `feature/*` - 功能分支（从 `main` 切出）
+- `hotfix/*` - 紧急修复分支（从 `main` 切出）
+
+PR 流程：`feature/*` / `hotfix/*` 直接提交到 `main`（Trunk-based）。
 
 ### 🤝 贡献指南
 
@@ -1029,10 +1035,27 @@ curl -X POST http://localhost:8080/api/v1/email/send-verification-code \
 
 #### Branch Strategy
 
-- `main` - Stable release version
-- `develop` - Development branch
-- `feature/*` - Feature branches
-- `bugfix/*` - Fix branches
+- `main` - Stable release version (single long-lived trunk)
+- `feature/*` - Feature branches (branched from `main`)
+- `hotfix/*` - Emergency fix branches (branched from `main`)
+
+PR flow: open PRs from `feature/*` / `hotfix/*` directly to `main` (Trunk-based).
+
+### 🌍 Offline Translation Feature
+
+The offline translation feature enables **real-time speech translation** using local AI models, ensuring complete privacy and zero operational costs.
+
+#### Key Technologies
+- **Whisper-small** (INT8): Speech Recognition
+- **Opus-MT-en-zh** (INT8): Text Translation
+- **VITS**: Text-to-Speech Synthesis
+- **Total Size**: ~264MB (INT8 quantized)
+- **Performance**: <500ms latency, >88% accuracy
+
+#### Documentation
+- **[Offline Translation Guide](docs/offline-translation/README.md)** - Complete documentation
+- **[Implementation Roadmap](docs/offline-translation/implementation-roadmap.md)** - 5-week development plan
+- **[Model Download Guide](docs/offline-translation/setup/model-download-guide.md)** - Setup instructions
 
 ### 🤝 Contributing
 

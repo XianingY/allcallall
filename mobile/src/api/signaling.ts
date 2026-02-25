@@ -1,10 +1,22 @@
 import mitt from "mitt";
 
-import { WS_URL } from "../config";
+import {
+  SIGNALING_SHAPING_ENABLED,
+  WS_URL
+} from "../config";
 
 export type SessionDescriptionPayload = {
   type: "offer" | "answer";
   sdp: string;
+};
+
+export type SdpRenegotiationPayload = SessionDescriptionPayload & {
+  iceEpoch?: number;
+};
+
+export type MediaUpdatePayload = {
+  audioEnabled: boolean;
+  videoEnabled: boolean;
 };
 
 export type SignalMessageType =
@@ -14,14 +26,25 @@ export type SignalMessageType =
   | "call.reject"
   | "call.end"
   | "ice.candidate"
-  | "call.error";
+  | "call.sdp.offer"
+  | "call.sdp.answer"
+  | "call.ice-restart.request"
+  | "call.media_update"
+  | "call.error"
+  | "client.ping"
+  | "server.pong";
 
 export interface SignalMessage {
   type: SignalMessageType;
   call_id?: string;
   to: string;
   from?: string;
-  payload?: Record<string, unknown> | RTCIceCandidateInit | SessionDescriptionPayload | null;
+  payload?:
+    | Record<string, unknown>
+    | RTCIceCandidateInit
+    | SdpRenegotiationPayload
+    | MediaUpdatePayload
+    | null;
 }
 
 type Events = {
@@ -36,6 +59,7 @@ export class SignalingClient {
   private ws: WebSocket | null = null;
   private emitter = mitt<Events>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private shouldReconnect = true;
   private pendingMessages: SignalMessage[] = [];
   private static readonly MAX_PENDING_MESSAGES = 50;
@@ -62,7 +86,7 @@ export class SignalingClient {
     for (let index = 0; index < queue.length; index += 1) {
       const message = queue[index];
       try {
-        this.ws?.send(JSON.stringify(message));
+        this.sendWithShaping(message);
       } catch (error) {
         console.warn("Failed to flush signaling message", error);
         const remaining = queue.slice(index);
@@ -87,11 +111,13 @@ export class SignalingClient {
 
     this.ws.onopen = () => {
       this.emitter.emit("open", undefined);
+      this.startKeepalive();
       this.flushPendingMessages();
     };
 
     this.ws.onclose = (event) => {
       this.emitter.emit("close", { code: event.code, reason: event.reason });
+      this.stopKeepalive();
       this.cleanup();
       if (this.shouldReconnect) {
         this.reconnectTimer = setTimeout(() => this.openSocket(), 3000);
@@ -113,6 +139,29 @@ export class SignalingClient {
     };
   }
 
+  private startKeepalive() {
+    if (!SIGNALING_SHAPING_ENABLED) return;
+    if (this.keepaliveTimer) return;
+    this.keepaliveTimer = setInterval(() => {
+      try {
+        this.sendWithShaping({ type: "client.ping", to: "_", payload: null });
+      } catch (error) {
+        console.warn("[SignalingClient] keepalive send failed", error);
+      }
+    }, 25_000);
+  }
+
+  private stopKeepalive() {
+    if (!this.keepaliveTimer) return;
+    clearInterval(this.keepaliveTimer);
+    this.keepaliveTimer = null;
+  }
+
+  private sendWithShaping(message: SignalMessage) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify(message));
+  }
+
   send(message: SignalMessage): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       if (this.pendingMessages.length >= SignalingClient.MAX_PENDING_MESSAGES) {
@@ -124,7 +173,7 @@ export class SignalingClient {
       }
       return false;
     }
-    this.ws.send(JSON.stringify(message));
+    this.sendWithShaping(message);
     return true;
   }
 
@@ -136,6 +185,7 @@ export class SignalingClient {
     }
     if (this.ws) {
       this.ws.close();
+      this.stopKeepalive();
       this.cleanup();
     }
     this.pendingMessages = [];

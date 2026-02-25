@@ -52,6 +52,13 @@ const (
 	TypeCallReject    = "call.reject"
 	TypeCallEnd       = "call.end"
 	TypeIceCandidate  = "ice.candidate"
+	TypeClientPing    = "client.ping"
+	TypeServerPong    = "server.pong"
+)
+
+const (
+	signalQueuePrefix = "signalq:"
+	signalQueueMaxLen = 200
 )
 
 type client struct {
@@ -149,10 +156,10 @@ func (h *Hub) handleIncoming(ctx context.Context, fromClient *client, data []byt
 	if err := json.Unmarshal(data, &msg); err != nil {
 		return fmt.Errorf("decode message: %w", err)
 	}
-	if msg.To == "" {
+	msg.From = fromClient.email
+	if msg.Type != TypeClientPing && msg.To == "" {
 		return fmt.Errorf("missing target 'to'")
 	}
-	msg.From = fromClient.email
 
 	ackMsg, err := h.applyProtocolRules(&msg)
 	if err != nil {
@@ -164,7 +171,10 @@ func (h *Hub) handleIncoming(ctx context.Context, fromClient *client, data []byt
 		return err
 	}
 
-	h.dispatchLocal(msg.To, encoded)
+	if msg.Type != TypeClientPing {
+		h.dispatchLocal(msg.To, encoded)
+		h.enqueue(ctx, msg.To, encoded)
+	}
 
 	envBytes, err := json.Marshal(redisEnvelope{
 		NodeID: h.nodeID,
@@ -177,6 +187,7 @@ func (h *Hub) handleIncoming(ctx context.Context, fromClient *client, data []byt
 	if ackMsg != nil {
 		if ackBytes, err := json.Marshal(ackMsg); err == nil {
 			h.dispatchLocal(msg.From, ackBytes)
+			h.enqueue(ctx, msg.From, ackBytes)
 		} else {
 			h.logger.Warn().Err(err).Msg("failed to marshal ack message")
 		}
@@ -188,11 +199,81 @@ func (h *Hub) handleIncoming(ctx context.Context, fromClient *client, data []byt
 		h.sendCallNotification(ctx, msg.To, msg.From)
 	}
 
+	if msg.Type == TypeClientPing {
+		return nil
+	}
+
+	return h.redis.Publish(ctx, h.channelName(msg.To), envBytes).Err()
+}
+
+func (h *Hub) HandleHTTPMessage(ctx context.Context, fromEmail string, data []byte) error {
+	if h.presence != nil {
+		if err := h.presence.UpdateLastSeen(ctx, fromEmail); err != nil {
+			h.logger.Debug().Err(err).Str("email", fromEmail).Msg("failed to refresh last seen")
+		}
+	}
+
+	var msg SignalMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return fmt.Errorf("decode message: %w", err)
+	}
+	msg.From = fromEmail
+	if msg.Type != TypeClientPing && msg.To == "" {
+		return fmt.Errorf("missing target 'to'")
+	}
+
+	ackMsg, err := h.applyProtocolRules(&msg)
+	if err != nil {
+		return err
+	}
+
+	encoded, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+
+	if msg.Type != TypeClientPing {
+		h.enqueue(ctx, msg.To, encoded)
+		h.dispatchLocal(msg.To, encoded)
+	}
+
+	if ackMsg != nil {
+		if ackBytes, err := json.Marshal(ackMsg); err == nil {
+			h.enqueue(ctx, msg.From, ackBytes)
+			h.dispatchLocal(msg.From, ackBytes)
+		} else {
+			h.logger.Warn().Err(err).Msg("failed to marshal ack message")
+		}
+	}
+
+	if msg.Type == TypeCallInvite {
+		h.sendCallNotification(ctx, msg.To, msg.From)
+	}
+
+	if msg.Type == TypeClientPing {
+		return nil
+	}
+
+	envBytes, err := json.Marshal(redisEnvelope{
+		NodeID: h.nodeID,
+		Data:   encoded,
+	})
+	if err != nil {
+		return err
+	}
+
 	return h.redis.Publish(ctx, h.channelName(msg.To), envBytes).Err()
 }
 
 func (h *Hub) applyProtocolRules(msg *SignalMessage) (*SignalMessage, error) {
 	switch msg.Type {
+	case TypeClientPing:
+		return &SignalMessage{
+			Type:    TypeServerPong,
+			To:      msg.From,
+			From:    msg.From,
+			Payload: json.RawMessage("null"),
+		}, nil
 	case TypeCallInvite:
 		if msg.CallID == "" {
 			msg.CallID = uuid.NewString()
@@ -221,6 +302,42 @@ func (h *Hub) applyProtocolRules(msg *SignalMessage) (*SignalMessage, error) {
 	return nil, nil
 }
 
+func (h *Hub) enqueue(ctx context.Context, target string, payload []byte) {
+	if h.redis == nil {
+		return
+	}
+	key := signalQueuePrefix + target
+	pipe := h.redis.Pipeline()
+	pipe.LPush(ctx, key, payload)
+	pipe.LTrim(ctx, key, 0, signalQueueMaxLen-1)
+	pipe.Expire(ctx, key, time.Hour)
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		h.logger.Debug().Err(err).Str("email", target).Msg("failed to enqueue signaling payload")
+	}
+}
+
+func (h *Hub) Poll(ctx context.Context, email string, timeout time.Duration) ([]byte, bool, error) {
+	if h.redis == nil {
+		return nil, false, nil
+	}
+	if timeout <= 0 {
+		timeout = 25 * time.Second
+	}
+	key := signalQueuePrefix + email
+	res, err := h.redis.BRPop(ctx, timeout, key).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	if len(res) != 2 {
+		return nil, false, nil
+	}
+	return []byte(res[1]), true, nil
+}
+
 func (h *Hub) addClient(cl *client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -238,6 +355,12 @@ func (h *Hub) removeClient(cl *client) {
 		delete(conns, cl)
 		if len(conns) == 0 {
 			delete(h.clients, cl.email)
+
+			// 联动：当用户所有信号连接断开时，清理其 WebRTC 媒体会话
+			// Linkage: Clean up media sessions if no active signaling connections remain
+			if h.mediaEngine != nil {
+				go h.mediaEngine.CloseUserSessions(cl.email)
+			}
 		}
 	}
 	close(cl.send)

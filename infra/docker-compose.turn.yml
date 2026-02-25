@@ -1,0 +1,13 @@
+services:
+  coturn:
+    image: coturn/coturn:latest
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    ports:
+      - "3478:3478"
+      - "3478:3478/udp"
+      - "443:443"
+      - "49152-49200:49152-49200/udp"
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - ./ssl:/etc/coturn/ssl:ro
+    restart: unless-stopped

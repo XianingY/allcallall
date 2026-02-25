@@ -188,6 +188,24 @@ func (e *Engine) ClosePeerConnection(callID, localEmail, remoteEmail string) err
 	return nil
 }
 
+// CloseUserSessions 关闭与特定用户相关的所有对等连接
+// CloseUserSessions closes all peer connections associated with a specific user email
+func (e *Engine) CloseUserSessions(email string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	for id, peerConn := range e.peerConnections {
+		if peerConn.LocalEmail == email || peerConn.RemoteEmail == email {
+			peerConn.State = CallStateEnded
+			if err := peerConn.PC.Close(); err != nil {
+				e.logger.Warn().Err(err).Str("email", email).Str("connection_id", id).Msg("error closing peer connection for disconnected user")
+			}
+			delete(e.peerConnections, id)
+			e.logger.Info().Str("email", email).Str("connection_id", id).Msg("closed session for disconnected user")
+		}
+	}
+}
+
 // GetPeerConnection 获取对等连接
 // GetPeerConnection retrieves a peer connection by ID
 func (e *Engine) GetPeerConnection(callID, localEmail, remoteEmail string) (*PeerConnection, error) {
