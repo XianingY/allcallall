@@ -533,8 +533,8 @@ ________________________________________________________________
 ## 📞 如需帮助
 
 1. 查看详细部署指南: `cat deployment-guide.md`
-2. 查看快速参考: `cat DEPLOYMENT_QUICK_REFERENCE.md`
-3. 查看方案总结: `cat CLOUD_DEPLOYMENT_SUMMARY.md`
+2. 查看受限网络配置: `cat restricted-network-setup.md`
+3. 查看生产部署补充说明: `cat production-setup-and-apk-build.md`
 4. 查看服务日志: `docker compose logs -f backend`
 5. 提交 GitHub Issue
 

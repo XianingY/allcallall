@@ -287,9 +287,11 @@ allcall/
 │   ├── docker-compose.yml      # 本地开发环境
 │   ├── docker-compose.production.yml  # 生产环境
 │   ├── cloudflared-config.yml  # Cloudflare Tunnel 配置
-│   └── deploy.sh               # 云服务器部署脚本
+│   └── deploy-cloudflare-tunnel.sh  # Cloudflare Tunnel 部署脚本
 │
-└── start.sh                    # 快速启动脚本
+└── scripts/development/        # 开发辅助脚本
+    ├── start-services.sh       # 启动本地 MySQL/Redis
+    └── restart-services.sh     # 重启数据库与后端
 ```
 
 ### 🔧 开发调试
@@ -802,9 +804,11 @@ allcall/
 │   ├── docker-compose.yml      # Local development environment
 │   ├── docker-compose.production.yml  # Production environment
 │   ├── cloudflared-config.yml  # Cloudflare Tunnel configuration
-│   └── deploy.sh               # Cloud server deployment script
+│   └── deploy-cloudflare-tunnel.sh  # Cloudflare Tunnel deployment script
 │
-└── start.sh                    # Quick start script
+└── scripts/development/        # Development helper scripts
+    ├── start-services.sh       # Start local MySQL/Redis
+    └── restart-services.sh     # Restart database and backend
 ```
 
 ### 🔧 Development & Debugging

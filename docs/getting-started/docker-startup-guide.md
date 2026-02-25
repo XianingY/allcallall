@@ -3,7 +3,7 @@
 ## 🖥️ 当前环境信息
 
 ### 网络配置
-- **本机局域网IP**: `10.136.17.108`
+- **本机局域网IP**: `<YOUR_LAN_IP>`
 - **后端API端口**: `8080`
 - **后端WebSocket端口**: `8080`
 - **移动端开发服务器端口**: `8081`
@@ -19,7 +19,7 @@
 cd /Users/byzantium/github/allcallall
 
 # 运行启动脚本（仅启动MySQL和Redis）
-./start.sh
+bash scripts/development/start-services.sh
 ```
 
 **脚本会自动执行**：
@@ -35,10 +35,10 @@ cd /Users/byzantium/github/allcallall
 cd infra
 
 # 启动所有服务（MySQL、Redis、Backend可选）
-docker-compose up -d
+docker compose up -d
 
 # 或仅启动数据库服务
-docker-compose up -d mysql redis
+docker compose up -d mysql redis
 ```
 
 ## 📦 Docker Compose 配置详解
@@ -47,7 +47,7 @@ docker-compose up -d mysql redis
 ```yaml
 Database: allcallall_db
 Username: allcallall
-Password: allcallallpass
+Password: ${MYSQL_PASSWORD}
 Port: 3306
 ```
 
@@ -71,7 +71,7 @@ Database: 0
 ```bash
 # 必需的环境变量
 export MAIL_PASSWORD="你的QQ邮箱授权码"
-export DB_DSN="allcallall:allcallallpass@tcp(localhost:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local"
+export DB_DSN="allcallall:${MYSQL_PASSWORD}@tcp(localhost:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local"
 export REDIS_ADDR="localhost:6379"
 ```
 
@@ -81,14 +81,14 @@ export REDIS_ADDR="localhost:6379"
 # 方式1：设置环境变量后启动
 cd /Users/byzantium/github/allcallall/backend
 export MAIL_PASSWORD="你的QQ邮箱授权码"
-export DB_DSN="allcallall:allcallallpass@tcp(localhost:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local"
+export DB_DSN="allcallall:${MYSQL_PASSWORD}@tcp(localhost:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local"
 export REDIS_ADDR="localhost:6379"
 go run cmd/server/main.go
 
 # 方式2：一行命令启动
 cd /Users/byzantium/github/allcallall/backend && \
 export MAIL_PASSWORD="你的QQ邮箱授权码" && \
-export DB_DSN="allcallall:allcallallpass@tcp(localhost:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local" && \
+export DB_DSN="allcallall:${MYSQL_PASSWORD}@tcp(localhost:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local" && \
 export REDIS_ADDR="localhost:6379" && \
 go run cmd/server/main.go
 ```
@@ -97,8 +97,8 @@ go run cmd/server/main.go
 
 ```bash
 # 测试健康检查端点
-curl http://localhost:8080/ping
-# 期望响应: {"message":"pong"}
+curl http://localhost:8080/api/v1/health
+# 期望响应: {"status":"ok"}
 ```
 
 ## 📱 移动端开发服务器启动
@@ -120,50 +120,50 @@ npm start
 1. 在安卓真机上安装 **Expo Go** 应用
 2. 确保手机和开发机在同一WiFi网络中
 3. 方式一：扫描终端显示的QR码
-4. 方式二：手动输入 `exp://10.136.17.108:8081`
+4. 方式二：手动输入 `exp://<YOUR_LAN_IP>:8081`
 
 ## 🔍 Docker Compose 常用命令
 
 ### 查看服务状态
 ```bash
 cd infra
-docker-compose ps
+docker compose ps
 ```
 
 ### 查看服务日志
 ```bash
 # 查看所有日志
-docker-compose logs -f
+docker compose logs -f
 
 # 查看MySQL日志
-docker-compose logs -f mysql
+docker compose logs -f mysql
 
 # 查看Redis日志
-docker-compose logs -f redis
+docker compose logs -f redis
 
 # 查看Backend日志
-docker-compose logs -f backend
+docker compose logs -f backend
 ```
 
 ### 停止服务
 ```bash
 # 停止所有服务（保留数据）
-docker-compose stop
+docker compose stop
 
 # 停止并删除容器（保留数据卷）
-docker-compose down
+docker compose down
 
 # 停止并删除所有数据
-docker-compose down -v
+docker compose down -v
 ```
 
 ### 重启服务
 ```bash
 # 重启单个服务
-docker-compose restart mysql
+docker compose restart mysql
 
 # 重启所有服务
-docker-compose restart
+docker compose restart
 ```
 
 ## 📋 完整启动流程（一步步指南）
@@ -171,7 +171,7 @@ docker-compose restart
 ### 终端1：启动数据库服务
 ```bash
 cd /Users/byzantium/github/allcallall
-./start.sh
+bash scripts/development/start-services.sh
 ```
 等待输出：
 ```
@@ -185,7 +185,7 @@ redis          ...     Up 10 seconds (health: healthy)
 ```bash
 cd /Users/byzantium/github/allcallall/backend
 export MAIL_PASSWORD="你的QQ邮箱授权码"
-export DB_DSN="allcallall:allcallallpass@tcp(localhost:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local"
+export DB_DSN="allcallall:${MYSQL_PASSWORD}@tcp(localhost:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local"
 export REDIS_ADDR="localhost:6379"
 go run cmd/server/main.go
 ```
@@ -203,15 +203,15 @@ npm run start
 ```
 等待输出：
 ```
-› Metro waiting on exp://10.136.17.108:8081
+› Metro waiting on exp://<YOUR_LAN_IP>:8081
 › Scan the QR code above with Expo Go
 ```
 
 ## 🔐 移动端配置信息
 
 ### 已配置的API地址
-- **开发环境**: `http://10.136.17.108:8080`
-- **WebSocket**: `ws://10.136.17.108:8080`
+- **开发环境**: `http://<YOUR_LAN_IP>:8080`
+- **WebSocket**: `ws://<YOUR_LAN_IP>:8080`
 - **API基础路径**: `/api/v1`
 
 ### 配置文件位置
@@ -232,34 +232,34 @@ docker info
 
 # 查看容器日志
 cd infra
-docker-compose logs mysql
+docker compose logs mysql
 
 # 重新构建并启动
-docker-compose down -v
-docker-compose up -d
+docker compose down -v
+docker compose up -d
 ```
 
 ### 问题2：手机无法连接后端服务
 **检查清单**：
-- ✅ 后端服务是否正常运行：`curl http://localhost:8080/ping`
+- ✅ 后端服务是否正常运行：`curl http://localhost:8080/api/v1/health`
 - ✅ 手机是否连接正确的WiFi网络
 - ✅ 防火墙是否阻止8080端口
-- ✅ `mobile/src/config/index.ts` 中的IP地址是否正确为 `10.136.17.108`
+- ✅ `mobile/src/config/index.ts` 中的IP地址是否正确为 `<YOUR_LAN_IP>`
 
 ### 问题3：MySQL连接错误
 ```bash
 # 检查MySQL是否就绪
-docker-compose exec mysql mysql -uallcallall -pallcallallpass -e "SELECT 1;"
+docker compose exec mysql mysql -uallcallall -p"${MYSQL_PASSWORD}" -e "SELECT 1;"
 
 # 等待健康检查完成（可能需要30秒）
 sleep 30
-docker-compose ps
+docker compose ps
 ```
 
 ### 问题4：Redis连接错误
 ```bash
 # 检查Redis是否就绪
-docker-compose exec redis redis-cli ping
+docker compose exec redis redis-cli ping
 # 期望响应: PONG
 ```
 
@@ -289,7 +289,7 @@ docker-compose exec redis redis-cli ping
 - [ ] 移动端开发服务器正常启动（端口8081可访问）
 - [ ] 手机Expo Go应用已安装
 - [ ] 手机和开发机在同一WiFi网络
-- [ ] `mobile/src/config/index.ts` 中的IP地址为 `10.136.17.108`
+- [ ] `mobile/src/config/index.ts` 中的IP地址为 `<YOUR_LAN_IP>`
 - [ ] 可以在手机上扫描QR码或输入URL连接到开发服务器
 
 ---

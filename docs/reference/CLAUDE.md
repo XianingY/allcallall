@@ -15,7 +15,7 @@ AllCallAll is a real-time audio/video communication platform built with:
 
 ```bash
 # Start database services (MySQL + Redis)
-./start.sh
+bash scripts/development/start-services.sh
 
 # Set environment variables and start backend
 cd backend
@@ -161,7 +161,7 @@ cd mobile && npm install && cd ..
 
 ```bash
 # 1. Start databases
-./start.sh
+bash scripts/development/start-services.sh
 
 # 2. Configure email (one-time setup)
 cd backend
@@ -214,7 +214,7 @@ bash scripts/dev-client-debug.sh
 2. Manual fix: preserve `.expo/.virtual-metro-entry.js` during cache clean
 
 ### Backend won't start (MySQL connection error)
-1. Ensure databases running: `./start.sh`
+1. Ensure databases running: `bash scripts/development/start-services.sh`
 2. Check MySQL: `docker compose -f infra/docker-compose.yml ps`
 
 ### Email verification not working

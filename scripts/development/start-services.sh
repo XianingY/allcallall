@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # AllCallAll 项目启动脚本
-# Usage: ./start.sh
+# Usage: bash scripts/development/start-services.sh
 
 set -e
 
