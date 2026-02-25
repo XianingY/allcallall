@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   TouchableOpacity
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
+import axios from "axios";
 
 import { useAuthContext } from "../context/AuthContext";
 import {
@@ -32,6 +33,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "Contacts">;
 const ContactsScreen: React.FC<Props> = ({ navigation }) => {
   const { user, token, logout } = useAuthContext();
   const { startCall, connectionReady } = useSignaling();
+  const sessionExpiredHandledRef = useRef(false);
 
   const [contacts, setContacts] = useState<User[]>([]);
   const [presence, setPresence] = useState<Record<string, PresenceRecord>>({});
@@ -39,6 +41,29 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [isAddModalVisible, setAddModalVisible] = useState(false);
   const [newContactEmail, setNewContactEmail] = useState("");
+
+  const handleSessionExpired = useCallback(() => {
+    if (sessionExpiredHandledRef.current) {
+      return;
+    }
+    sessionExpiredHandledRef.current = true;
+    Alert.alert(
+      "登录已过期 / Session Expired",
+      "登录状态已过期，请重新登录 / Your session has expired. Please log in again.",
+      [
+        {
+          text: "重新登录 / Login Again",
+          onPress: () => {
+            void logout();
+          }
+        }
+      ]
+    );
+  }, [logout]);
+
+  const isUnauthorizedError = useCallback((error: unknown): boolean => {
+    return axios.isAxiosError(error) && error.response?.status === 401;
+  }, []);
 
   const loadContacts = useCallback(async () => {
     if (!token) {
@@ -50,11 +75,15 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
       setContacts(data);
     } catch (error) {
       console.error(error);
+      if (isUnauthorizedError(error)) {
+        handleSessionExpired();
+        return;
+      }
       Alert.alert("拉取联系人失败 / Failed to load contacts", "无法加载联系人列表，请重试 / Please try again later.");
     } finally {
       setLoadingContacts(false);
     }
-  }, [token]);
+  }, [handleSessionExpired, isUnauthorizedError, token]);
 
   const loadPresence = useCallback(async () => {
     if (!token) {
@@ -76,9 +105,13 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
       });
       setPresence(map);
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        handleSessionExpired();
+        return;
+      }
       console.warn("presence load failed", error);
     }
-  }, [contacts, token, user?.email]);
+  }, [contacts, handleSessionExpired, isUnauthorizedError, token, user?.email]);
 
   useEffect(() => {
     loadContacts();
@@ -118,9 +151,13 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
       Alert.alert("联系人已添加 / Contact Added", `${target} 已加入联系人 / ${target} has been added to your contacts.`);
     } catch (error) {
       console.error(error);
+      if (isUnauthorizedError(error)) {
+        handleSessionExpired();
+        return;
+      }
       Alert.alert("添加失败 / Failed to add", "无法添加联系人，可能已存在或输入有误 / This contact may already exist or the email is invalid.");
     }
-  }, [loadContacts, loadPresence, newContactEmail, token]);
+  }, [handleSessionExpired, isUnauthorizedError, loadContacts, loadPresence, newContactEmail, token]);
 
   const handleRemoveContact = useCallback(
     (contact: User) => {
@@ -140,6 +177,10 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
                 await loadPresence();
               } catch (error) {
                 console.error(error);
+                if (isUnauthorizedError(error)) {
+                  handleSessionExpired();
+                  return;
+                }
                 Alert.alert("删除失败 / Failed to delete", "请稍后再试 / Please try again later.");
               }
             }
@@ -147,7 +188,7 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
         ]
       );
     },
-    [loadContacts, loadPresence, token]
+    [handleSessionExpired, isUnauthorizedError, loadContacts, loadPresence, token]
   );
 
   const handleStartCall = useCallback(
