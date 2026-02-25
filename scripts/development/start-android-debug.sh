@@ -6,10 +6,12 @@
 set -e
 
 # 配置
-ADB_PATH="/Users/byzantium/Library/Android/sdk/platform-tools/adb"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ADB_PATH_DEFAULT="$(command -v adb || true)"
+ADB_PATH="${ADB_PATH:-$ADB_PATH_DEFAULT}"
 BACKEND_PORT=8080
 METRO_PORT=8081
-MOBILE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )/mobile"
+MOBILE_DIR="$PROJECT_ROOT/mobile"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -27,12 +29,12 @@ echo ""
 # 步骤 1: 检查 ADB 是否可用
 # ============================================================================
 echo -e "${YELLOW}[1/5] 检查 ADB 环境...${NC}"
-if [ ! -f "$ADB_PATH" ]; then
-  echo -e "${RED}❌ ADB 不存在于: $ADB_PATH${NC}"
-  echo "请检查 Android SDK 安装路径"
+if [ -z "$ADB_PATH" ] || [ ! -x "$ADB_PATH" ]; then
+  echo -e "${RED}❌ 未找到可执行的 adb 命令${NC}"
+  echo "请安装 Android Platform Tools，或通过环境变量 ADB_PATH 指定 adb 路径"
   exit 1
 fi
-echo -e "${GREEN}✓ ADB 路径正确: $ADB_PATH${NC}"
+echo -e "${GREEN}✓ ADB 可用: $ADB_PATH${NC}"
 echo ""
 
 # ============================================================================
@@ -129,4 +131,3 @@ npx expo start --dev-client
 # 清理（如果脚本被中断）
 # ============================================================================
 trap "echo -e \"\n${YELLOW}清理资源...${NC}\"; exit 0" SIGINT SIGTERM
-

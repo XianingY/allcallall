@@ -12,7 +12,8 @@ export GOPROXY=https://goproxy.cn,direct
 echo "✅ Go proxy set to: $GOPROXY"
 
 # 进入 infra 目录并启动数据库服务
-cd "$(dirname "$0")/infra"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$PROJECT_ROOT/infra"
 echo "📦 Starting Docker services (MySQL, Redis)..."
 docker compose up -d mysql redis
 

@@ -22,34 +22,29 @@ transport:
 # 处理健康检查流量
 metrics: 0.0.0.0:16010
 healthcheck:
-  uri: http://127.0.0.1:8080/health
+  uri: http://127.0.0.1:8080/api/v1/health
   interval: 30s
 
 # 入站规则定义
 ingress:
-  # 后端 API 服务 (HTTP/HTTPS)
+  # WebSocket 信令服务
   - hostname: api.allcallall.example.com
+    path: /api/v1/ws*
     service: http://127.0.0.1:8080
     tlsSkipVerify: false
     
-    # 自定义头部
     originRequest:
       httpHostHeader: api.allcallall.example.com
       originServerName: api.allcallall.example.com
   
-  # WebSocket 信令服务
+  # 后端 API 服务 (HTTP/HTTPS)
   - hostname: api.allcallall.example.com
-    path: /ws*
+    path: /api/v1/*
     service: http://127.0.0.1:8080
     
     originRequest:
       httpHostHeader: api.allcallall.example.com
-      websocketOriginHeader: true
-  
-  # 健康检查端点
-  - hostname: api.allcallall.example.com
-    path: /health*
-    service: http://127.0.0.1:8080
+      originServerName: api.allcallall.example.com
   
   # 防护措施：404 响应所有其他请求
   - service: http_status:404

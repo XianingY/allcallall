@@ -16,7 +16,7 @@
 #   scripts/deployment/deploy-cloud.sh
 #############################################################################
 
-set -e
+set -Eeuo pipefail
 
 # 颜色输出
 RED='\033[0;31m'
@@ -102,8 +102,8 @@ fi
 
 log_info "初始化项目..."
 
-# 创建 .env 文件
-cat > "${DEPLOY_DIR}/infra/.env.production" << EOF
+# 创建生产环境变量文件（供 docker compose 读取）
+cat > "${DEPLOY_DIR}/.env" << EOF
 # 数据库配置
 MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD}
 MYSQL_PASSWORD=${MYSQL_PASSWORD}
@@ -114,11 +114,17 @@ REDIS_PASSWORD=${REDIS_PASSWORD}
 # JWT 配置
 JWT_SECRET=${JWT_SECRET}
 
+# 邮件配置（请按需手动修改）
+MAIL_PASSWORD=your_qq_email_auth_code
+
 # 应用配置
 APP_ENV=production
 EOF
 
-log_info ".env.production 文件已创建"
+# 让在 infra/ 目录执行 compose 时也能读取到同一份环境变量
+ln -sf ../.env "${DEPLOY_DIR}/infra/.env" 2>/dev/null || true
+
+log_info ".env 文件已创建: ${DEPLOY_DIR}/.env"
 
 #############################################################################
 # 启动服务
@@ -128,8 +134,8 @@ log_info "启动 Docker 容器..."
 
 cd "${DEPLOY_DIR}/infra"
 
-# 使用默认配置启动
-docker compose up -d
+# 使用生产配置启动
+docker compose -f docker-compose.production.yml up -d --build
 
 # 等待服务启动
 log_info "等待服务启动..."
@@ -219,22 +225,29 @@ log_info "配置备份脚本..."
 
 mkdir -p /opt/backups
 
-cat > "${DEPLOY_DIR}/scripts/backup.sh" << 'EOF'
+cat > "${DEPLOY_DIR}/scripts/backup.sh" << EOF
 #!/bin/bash
 
+set -Eeuo pipefail
+
 BACKUP_DIR="/opt/backups"
-MYSQL_PASSWORD=${MYSQL_PASSWORD}
-mkdir -p $BACKUP_DIR
+PROJECT_DIR="${DEPLOY_DIR}/infra"
+mkdir -p "\$BACKUP_DIR"
+
+cd "\$PROJECT_DIR"
+set -a
+source ../.env
+set +a
 
 # 备份 MySQL
-docker exec infra-mysql-1 mysqldump -u allcallall \
-  --password=${MYSQL_PASSWORD} allcallall_db \
-  | gzip > "$BACKUP_DIR/allcallall_db_$(date +%Y%m%d_%H%M%S).sql.gz"
+docker compose -f docker-compose.production.yml exec -T mysql \
+  mysqldump -uroot -p"\${MYSQL_ROOT_PASSWORD}" allcallall_db \
+  | gzip > "\$BACKUP_DIR/allcallall_db_\$(date +%Y%m%d_%H%M%S).sql.gz"
 
 # 保留最近7天的备份
-find $BACKUP_DIR -name "allcallall_db_*.sql.gz" -mtime +7 -delete
+find "\$BACKUP_DIR" -name "allcallall_db_*.sql.gz" -mtime +7 -delete
 
-echo "数据库备份完成: $(ls -lh $BACKUP_DIR | tail -1)"
+echo "数据库备份完成: \$(ls -lh "\$BACKUP_DIR" | tail -1)"
 EOF
 
 chmod +x "${DEPLOY_DIR}/scripts/backup.sh"
@@ -258,10 +271,10 @@ echo ""
 
 # 检查后端服务
 log_info "检查后端服务..."
-if curl -s http://localhost:8080/health | grep -q "ok"; then
+if curl -fsS http://localhost:8080/api/v1/health | grep -q '"status":"ok"'; then
   log_info "✓ 后端服务正常"
 else
-  log_warn "✗ 后端服务异常，请检查日志: docker compose logs backend"
+  log_warn "✗ 后端服务异常，请检查日志: docker compose -f docker-compose.production.yml logs backend"
 fi
 
 # 检查 Cloudflare Tunnel
@@ -287,11 +300,11 @@ echo "  - MySQL 用户: allcallall"
 echo "  - Cloudflare Tunnel 状态: $(systemctl is-active cloudflared)"
 echo ""
 echo "🔗 访问地址:"
-echo "  - 后端 API: https://${DOMAIN}"
-echo "  - WebSocket: wss://${DOMAIN}/ws"
+echo "  - 后端 API: https://${DOMAIN}/api/v1"
+echo "  - WebSocket: wss://${DOMAIN}/api/v1/ws"
 echo ""
 echo "📊 日志查看:"
-echo "  - 后端日志: docker compose logs -f backend"
+echo "  - 后端日志: docker compose -f docker-compose.production.yml logs -f backend"
 echo "  - Tunnel 日志: journalctl -u cloudflared -f"
 echo ""
 echo "💾 备份管理:"
@@ -299,7 +312,7 @@ echo "  - 备份目录: /opt/backups"
 echo "  - 每日自动备份时间: 凌晨 2 点"
 echo ""
 echo "⚠️  安全提示:"
-echo "  1. 修改所有默认密码（见 ${DEPLOY_DIR}/infra/.env.production）"
+echo "  1. 修改所有默认密码（见 ${DEPLOY_DIR}/.env）"
 echo "  2. 定期备份数据库"
 echo "  3. 监控服务日志"
 echo "  4. 定期更新系统和依赖"
