@@ -1,9 +1,13 @@
 # ✅ Alarm功能PR - 仅包含Alarm功能
 
+> ⚠️ 历史记录：本文件记录的是当时以 `dev` 为目标分支的流程。  
+> 当前仓库已切换为 Trunk-based，请使用 `feature/* -> main`。  
+> 现行通用流程见：`docs/pr/pr-creation-guide.md`
+
 ## 📋 PR信息
 
 **分支名**: `pr/alarm-feature-only`  
-**目标分支**: `dev`  
+**目标分支**: `dev`（历史）  
 **源分支**: `feature/alarm` (仅alarm相关提交)
 
 **PR创建链接**:

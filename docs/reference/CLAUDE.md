@@ -278,10 +278,11 @@ Auto-migrated models (via GORM in main.go):
 
 ## Branch Strategy
 
-- `main` - Stable release version
-- `develop` - Development branch
-- `feature/*` - Feature branches
-- `bugfix/*` - Bug fix branches
+- `main` - Stable release version (single trunk branch)
+- `feature/*` - Feature branches (from `main`)
+- `hotfix/*` - Bug fix branches (from `main`)
+
+PR flow: `feature/*` / `hotfix/*` -> `main` (Trunk-based).
 
 ## Technology Choices
 

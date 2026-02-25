@@ -520,10 +520,11 @@ curl -X POST http://localhost:8080/api/v1/email/send-verification-code \
 
 ### 分支策略
 
-- `main` - 稳定发布版本
-- `develop` - 开发分支
-- `feature/*` - 功能分支
-- `bugfix/*` - 修复分支
+- `main` - 稳定发布版本（唯一长期主干）
+- `feature/*` - 功能分支（从 `main` 切出）
+- `hotfix/*` - 紧急修复分支（从 `main` 切出）
+
+PR 流程：`feature/*` / `hotfix/*` 直接提交到 `main`（Trunk-based）。
 
 ### 🤝 贡献指南
 
@@ -1034,10 +1035,11 @@ curl -X POST http://localhost:8080/api/v1/email/send-verification-code \
 
 #### Branch Strategy
 
-- `main` - Stable release version
-- `develop` - Development branch
-- `feature/*` - Feature branches
-- `bugfix/*` - Fix branches
+- `main` - Stable release version (single long-lived trunk)
+- `feature/*` - Feature branches (branched from `main`)
+- `hotfix/*` - Emergency fix branches (branched from `main`)
+
+PR flow: open PRs from `feature/*` / `hotfix/*` directly to `main` (Trunk-based).
 
 ### 🌍 Offline Translation Feature
 
