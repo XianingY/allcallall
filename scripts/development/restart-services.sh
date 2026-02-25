@@ -17,14 +17,14 @@ echo ""
 echo "【步骤 1】停止现有服务..."
 pkill -f "go run.*server" 2>/dev/null || true
 cd "$PROJECT_ROOT/infra"
-docker-compose down 2>/dev/null || true
+docker compose down 2>/dev/null || true
 sleep 2
 echo "✅ 已停止所有服务"
 
 echo ""
 echo "【步骤 2】启动数据库 (MySQL + Redis)..."
 cd "$PROJECT_ROOT/infra"
-docker-compose up -d mysql redis
+docker compose up -d mysql redis
 echo "✅ Docker 容器已启动"
 
 echo ""
@@ -95,6 +95,6 @@ echo "  后端进程 ID: $BACKEND_PID"
 echo ""
 echo "📋 查看日志："
 echo "  后端日志: tail -f backend/backend.log"
-echo "  数据库日志: cd infra && docker-compose logs -f mysql"
+echo "  数据库日志: cd infra && docker compose logs -f mysql"
 echo ""
 echo "✅ 所有服务已就绪，可以继续真机调试！"

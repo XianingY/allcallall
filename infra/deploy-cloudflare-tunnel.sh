@@ -51,8 +51,8 @@ if ! command -v docker &> /dev/null; then
   exit 1
 fi
 
-if ! command -v docker-compose &> /dev/null; then
-  log_error "Docker Compose 未安装"
+if ! docker compose version >/dev/null 2>&1; then
+  log_error "Docker Compose V2 未安装 (docker compose)"
   exit 1
 fi
 
@@ -129,14 +129,14 @@ log_info "启动 Docker 容器..."
 cd "${DEPLOY_DIR}/infra"
 
 # 使用默认配置启动
-docker-compose up -d
+docker compose up -d
 
 # 等待服务启动
 log_info "等待服务启动..."
 sleep 10
 
 # 检查服务状态
-if docker-compose ps | grep -q "healthy"; then
+if docker compose ps | grep -q "healthy"; then
   log_info "✓ 所有服务已启动"
 else
   log_warn "某些服务可能仍在启动中，请稍候..."
@@ -261,7 +261,7 @@ log_info "检查后端服务..."
 if curl -s http://localhost:8080/health | grep -q "ok"; then
   log_info "✓ 后端服务正常"
 else
-  log_warn "✗ 后端服务异常，请检查日志: docker-compose logs backend"
+  log_warn "✗ 后端服务异常，请检查日志: docker compose logs backend"
 fi
 
 # 检查 Cloudflare Tunnel
@@ -291,7 +291,7 @@ echo "  - 后端 API: https://${DOMAIN}"
 echo "  - WebSocket: wss://${DOMAIN}/ws"
 echo ""
 echo "📊 日志查看:"
-echo "  - 后端日志: docker-compose logs -f backend"
+echo "  - 后端日志: docker compose logs -f backend"
 echo "  - Tunnel 日志: journalctl -u cloudflared -f"
 echo ""
 echo "💾 备份管理:"

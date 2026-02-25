@@ -33,10 +33,6 @@ detect_compose_cmd() {
         echo "docker compose"
         return 0
     fi
-    if command -v docker-compose >/dev/null 2>&1; then
-        echo "docker-compose"
-        return 0
-    fi
     return 1
 }
 
@@ -109,15 +105,15 @@ else
 fi
 
 if ! detect_compose_cmd >/dev/null 2>&1; then
-    sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    sudo chmod +x /usr/local/bin/docker-compose
+    # Docker Compose V2 插件（集成到 docker CLI）
+    sudo apt install -y docker-compose-plugin || true
 else
     echo -e "${GREEN}✓ Docker Compose 已安装${NC}"
 fi
 
 COMPOSE_CMD="$(detect_compose_cmd || true)"
 if [ -z "$COMPOSE_CMD" ]; then
-    echo -e "${RED}✗ 未找到可用的 Docker Compose 命令 (docker compose / docker-compose)${NC}"
+    echo -e "${RED}✗ 未找到 Docker Compose V2 命令 (docker compose)${NC}"
     exit 1
 fi
 
