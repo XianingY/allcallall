@@ -8,6 +8,7 @@ import { SignalingProvider } from "./src/context/SignalingContext";
 import { SettingsProvider } from "./src/context/SettingsContext";
 import AppNavigator from "./src/navigation/AppNavigator";
 import PushNotificationService from "./src/services/PushNotificationService";
+import CallOverlay from "./src/components/CallOverlay";
 
 const App = () => {
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
@@ -28,6 +29,7 @@ const App = () => {
           <SignalingProvider>
             <NavigationContainer ref={navigationRef}>
               <AppNavigator />
+              <CallOverlay />
               <StatusBar style="auto" />
             </NavigationContainer>
           </SignalingProvider>

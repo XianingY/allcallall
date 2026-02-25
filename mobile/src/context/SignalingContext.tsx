@@ -548,10 +548,26 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     };
     (pc as any).ontrack = (event: any) => {
-      const [stream] = event.streams;
-      if (stream) {
+      try {
+        const streams = Array.isArray(event?.streams) ? event.streams : [];
+        let stream: MediaStream | null = streams[0] ?? null;
+
+        // Some devices/transports do not populate event.streams; build a fallback.
+        if (!stream && event?.track) {
+          const fallbackStream = new MediaStream();
+          fallbackStream.addTrack(event.track);
+          stream = fallbackStream;
+        }
+
+        if (!stream) {
+          console.warn("[SignalingContext] ontrack received no stream/track");
+          return;
+        }
+
         setRemoteStream(stream);
-        stream.getTracks().forEach((track: any) => {
+
+        const bindTrackState = (track: any) => {
+          if (!track || typeof track.kind !== "string") return;
           track.onmute = () => {
             if (track.kind === "video") setIsRemoteVideoEnabled(false);
             if (track.kind === "audio") setIsRemoteAudioEnabled(false);
@@ -560,7 +576,12 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
             if (track.kind === "video") setIsRemoteVideoEnabled(true);
             if (track.kind === "audio") setIsRemoteAudioEnabled(true);
           };
-        });
+        };
+
+        stream.getTracks().forEach(bindTrackState);
+        if (event?.track) bindTrackState(event.track);
+      } catch (error) {
+        console.error("[SignalingContext] ontrack handler failed:", error);
       }
     };
     (pc as any).ondatachannel = (event: any) => {
@@ -610,66 +631,74 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     transport.on("open", () => setConnectionReady(true));
     transport.on("close", () => { setConnectionReady(false); resetCallState(); });
     transport.on("message", async (msg: SignalMessage) => {
-      switch (msg.type) {
-        case "call.invite.ack":
-          if (pendingTarget.current) {
-            const sess = { callId: msg.call_id ?? "", peerEmail: pendingTarget.current, direction: "outgoing" as CallDirection };
-            setSession(sess); setStatus("connecting");
-            pendingLocalCandidates.current.forEach(c => sendMessage({ type: "ice.candidate", call_id: sess.callId, to: sess.peerEmail, payload: c as any }));
-            pendingLocalCandidates.current = [];
-            pendingTarget.current = null;
-          }
-          break;
-        case "call.invite":
-          setSession({ callId: msg.call_id ?? "", peerEmail: msg.from ?? "", direction: "incoming", offer: msg.payload as any });
-          setStatus("incoming");
-          break;
-        case "call.accept":
-          if (peerRef.current && (msg.payload as any)?.sdp) {
-            await peerRef.current.setRemoteDescription(new RTCSessionDescription(msg.payload as any));
-            while (pendingRemoteCandidates.current.length) {
-              const c = pendingRemoteCandidates.current.shift();
-              if (c && c.iceEpoch === iceEpochRef.current) await peerRef.current.addIceCandidate(new RTCIceCandidate(c));
+      try {
+        switch (msg.type) {
+          case "call.invite.ack":
+            if (pendingTarget.current) {
+              const sess = { callId: msg.call_id ?? "", peerEmail: pendingTarget.current, direction: "outgoing" as CallDirection };
+              setSession(sess); setStatus("connecting");
+              pendingLocalCandidates.current.forEach(c => sendMessage({ type: "ice.candidate", call_id: sess.callId, to: sess.peerEmail, payload: c as any }));
+              pendingLocalCandidates.current = [];
+              pendingTarget.current = null;
             }
-          }
-          setStatus("in_call");
-          sendMediaUpdate(msg.call_id ?? "", msg.from ?? "", { audioEnabled: isAudioEnabledRef.current, videoEnabled: isVideoEnabledRef.current });
-          break;
-        case "call.media_update":
-          const p = msg.payload as any;
-          if (typeof p?.videoEnabled === "boolean") setIsRemoteVideoEnabled(p.videoEnabled);
-          if (typeof p?.audioEnabled === "boolean") setIsRemoteAudioEnabled(p.audioEnabled);
-          break;
-        case "call.ice-restart.request":
-          if (statusRef.current === "in_call" && sessionRef.current?.direction === "outgoing") startIceRestartAsCaller();
-          break;
-        case "call.sdp.offer":
-          if (peerRef.current && statusRef.current === "in_call") {
-            const payload = msg.payload as any;
-            if ((payload.iceEpoch ?? 0) > iceEpochRef.current) { iceEpochRef.current = payload.iceEpoch; pendingRemoteCandidates.current = []; }
-            await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload));
-            const answer = await peerRef.current.createAnswer();
-            await peerRef.current.setLocalDescription(answer);
-            sendMessage({ type: "call.sdp.answer", call_id: sessionRef.current?.callId ?? "", to: msg.from ?? "", payload: { sdp: answer.sdp, type: answer.type, iceEpoch: iceEpochRef.current } as any });
-          }
-          break;
-        case "call.sdp.answer":
-          if (peerRef.current && statusRef.current === "in_call") await peerRef.current.setRemoteDescription(new RTCSessionDescription(msg.payload as any));
-          break;
-        case "call.reject":
-        case "call.end":
-          Alert.alert("Call " + (msg.type === "call.reject" ? "rejected" : "ended"), `${msg.from ?? "Peer"} ${msg.type === "call.reject" ? "declined" : "ended"} the call.`);
-          resetCallState();
-          break;
-        case "ice.candidate":
-          const cand = msg.payload as any;
-          if (peerRef.current?.remoteDescription) await peerRef.current.addIceCandidate(new RTCIceCandidate(cand));
-          else pendingRemoteCandidates.current.push(cand);
-          break;
-        case "call.error":
-          Alert.alert("Call error", (msg.payload as any)?.reason ?? "Error");
-          resetCallState();
-          break;
+            break;
+          case "call.invite":
+            setSession({ callId: msg.call_id ?? "", peerEmail: msg.from ?? "", direction: "incoming", offer: msg.payload as any });
+            setStatus("incoming");
+            break;
+          case "call.accept":
+            if (peerRef.current && (msg.payload as any)?.sdp) {
+              await peerRef.current.setRemoteDescription(new RTCSessionDescription(msg.payload as any));
+              while (pendingRemoteCandidates.current.length) {
+                const c = pendingRemoteCandidates.current.shift();
+                if (c && c.iceEpoch === iceEpochRef.current) await peerRef.current.addIceCandidate(new RTCIceCandidate(c));
+              }
+            }
+            setStatus("in_call");
+            sendMediaUpdate(msg.call_id ?? "", msg.from ?? "", { audioEnabled: isAudioEnabledRef.current, videoEnabled: isVideoEnabledRef.current });
+            break;
+          case "call.media_update":
+            const p = msg.payload as any;
+            if (typeof p?.videoEnabled === "boolean") setIsRemoteVideoEnabled(p.videoEnabled);
+            if (typeof p?.audioEnabled === "boolean") setIsRemoteAudioEnabled(p.audioEnabled);
+            break;
+          case "call.ice-restart.request":
+            if (statusRef.current === "in_call" && sessionRef.current?.direction === "outgoing") startIceRestartAsCaller();
+            break;
+          case "call.sdp.offer":
+            if (peerRef.current && statusRef.current === "in_call") {
+              const payload = msg.payload as any;
+              if ((payload.iceEpoch ?? 0) > iceEpochRef.current) { iceEpochRef.current = payload.iceEpoch; pendingRemoteCandidates.current = []; }
+              await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload));
+              const answer = await peerRef.current.createAnswer();
+              await peerRef.current.setLocalDescription(answer);
+              sendMessage({ type: "call.sdp.answer", call_id: sessionRef.current?.callId ?? "", to: msg.from ?? "", payload: { sdp: answer.sdp, type: answer.type, iceEpoch: iceEpochRef.current } as any });
+            }
+            break;
+          case "call.sdp.answer":
+            if (peerRef.current && statusRef.current === "in_call") await peerRef.current.setRemoteDescription(new RTCSessionDescription(msg.payload as any));
+            break;
+          case "call.reject":
+          case "call.end":
+            Alert.alert("Call " + (msg.type === "call.reject" ? "rejected" : "ended"), `${msg.from ?? "Peer"} ${msg.type === "call.reject" ? "declined" : "ended"} the call.`);
+            resetCallState();
+            break;
+          case "ice.candidate":
+            const cand = msg.payload as any;
+            if (peerRef.current?.remoteDescription) await peerRef.current.addIceCandidate(new RTCIceCandidate(cand));
+            else pendingRemoteCandidates.current.push(cand);
+            break;
+          case "call.error":
+            Alert.alert("Call error", (msg.payload as any)?.reason ?? "Error");
+            resetCallState();
+            break;
+        }
+      } catch (error) {
+        console.error("[SignalingContext] failed to handle signaling message:", msg.type, error);
+        if (msg.type !== "ice.candidate") {
+          Alert.alert("Call error", "通话状态异常，已自动重置通话。");
+        }
+        resetCallState();
       }
     });
     return () => { transport.disconnect(); signalingRef.current = null; };

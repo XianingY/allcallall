@@ -24,7 +24,6 @@ import ContactListItem from "../components/ContactListItem";
 import PrimaryButton from "../components/PrimaryButton";
 import TextField from "../components/TextField";
 import PresenceBadge from "../components/PresenceBadge";
-import CallOverlay from "../components/CallOverlay";
 import { useSignaling } from "../context/SignalingContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
 
@@ -265,8 +264,6 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         </View>
       </Modal>
-
-      <CallOverlay />
     </View>
   );
 };

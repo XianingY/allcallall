@@ -194,15 +194,10 @@ class PushNotificationService {
     console.log(`[PushNotificationService] Incoming call from: ${payload.from_user}`);
 
     try {
-      // 导航到来电页面（即使应用在后台）
-      if (this.navigationRef?.current) {
-        this.navigationRef.current.navigate('IncomingCall', {
-          fromUser: payload.from_user,
-          fromEmail: payload.from_email,
-          displayName: payload.display_name,
-          callId: payload.call_id,
-          isFromPush: true
-        });
+      // 当前应用已改为 CallOverlay 流程，不再导航到不存在的 IncomingCall 页面
+      // 仅触发铃声与震动，具体接听界面由实时信令状态驱动
+      if (!this.navigationRef?.current) {
+        console.log("[PushNotificationService] Navigation ref not ready, skip navigation");
       }
 
       // 触发音频和震动
@@ -231,16 +226,8 @@ class PushNotificationService {
     const notificationType = data.type as NotificationType;
 
     if (notificationType === 'incoming_call') {
-      // 通知被点击，导航到来电页面
-      if (this.navigationRef?.current) {
-        this.navigationRef.current.navigate('IncomingCall', {
-          fromUser: data.from_user,
-          fromEmail: data.from_email,
-          displayName: data.display_name,
-          callId: data.call_id,
-          isFromPush: true
-        });
-      }
+      // 不再导航到不存在页面；由信令层恢复通话态
+      console.log("[PushNotificationService] incoming_call tap received; waiting signaling state");
     }
   }
 
