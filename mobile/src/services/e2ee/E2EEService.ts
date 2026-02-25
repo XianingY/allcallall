@@ -12,10 +12,36 @@
  * This E2EE layer protects against SFU eavesdropping (when SFU is added in future).
  */
 
-import { NativeModules, Platform } from "react-native";
 import * as Keychain from "react-native-keychain";
 
 const KEYCHAIN_SERVICE_E2EE = "com.allcallall.e2ee";
+
+type SubtleCryptoLike = {
+  generateKey: (...args: any[]) => Promise<any>;
+  exportKey: (...args: any[]) => Promise<any>;
+  importKey: (...args: any[]) => Promise<any>;
+  deriveBits: (...args: any[]) => Promise<any>;
+  deriveKey: (...args: any[]) => Promise<any>;
+  digest: (...args: any[]) => Promise<any>;
+};
+
+export class E2EEUnsupportedError extends Error {
+  constructor(message: string = "WebCrypto SubtleCrypto is unavailable") {
+    super(message);
+    this.name = "E2EEUnsupportedError";
+  }
+}
+
+const getSubtleCrypto = (): SubtleCryptoLike => {
+  const subtle = (globalThis as any)?.crypto?.subtle as SubtleCryptoLike | undefined;
+  if (!subtle) {
+    throw new E2EEUnsupportedError("WebCrypto SubtleCrypto is unavailable on this runtime");
+  }
+  return subtle;
+};
+
+export const isE2EECryptoSupported = (): boolean =>
+  Boolean((globalThis as any)?.crypto?.subtle);
 
 export interface E2EEKeyPair {
   publicKey: string; // Base64-encoded public key
@@ -32,8 +58,10 @@ export interface E2EESessionKey {
  */
 export async function generateECDHKeyPair(): Promise<E2EEKeyPair> {
   try {
+    const subtle = getSubtleCrypto();
+
     // Use native crypto for ECDH (P-256 curve)
-    const keyPair = await crypto.subtle.generateKey(
+    const keyPair = await subtle.generateKey(
       {
         name: "ECDH",
         namedCurve: "P-256"
@@ -42,14 +70,17 @@ export async function generateECDHKeyPair(): Promise<E2EEKeyPair> {
       ["deriveKey", "deriveBits"]
     );
 
-    const publicKeyJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
-    const privateKeyJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
+    const publicKeyJwk = await subtle.exportKey("jwk", keyPair.publicKey);
+    const privateKeyJwk = await subtle.exportKey("jwk", keyPair.privateKey);
 
     return {
       publicKey: JSON.stringify(publicKeyJwk),
       privateKey: JSON.stringify(privateKeyJwk)
     };
   } catch (error) {
+    if (error instanceof E2EEUnsupportedError) {
+      throw error;
+    }
     console.error("[E2EE] Failed to generate ECDH key pair", error);
     throw new Error("E2EE key generation failed");
   }
@@ -64,7 +95,9 @@ export async function deriveSessionKey(
   callId: string
 ): Promise<E2EESessionKey> {
   try {
-    const myPrivateKey = await crypto.subtle.importKey(
+    const subtle = getSubtleCrypto();
+
+    const myPrivateKey = await subtle.importKey(
       "jwk",
       JSON.parse(myPrivateKeyJwk),
       { name: "ECDH", namedCurve: "P-256" },
@@ -72,7 +105,7 @@ export async function deriveSessionKey(
       ["deriveKey", "deriveBits"]
     );
 
-    const peerPublicKey = await crypto.subtle.importKey(
+    const peerPublicKey = await subtle.importKey(
       "jwk",
       JSON.parse(peerPublicKeyJwk),
       { name: "ECDH", namedCurve: "P-256" },
@@ -81,7 +114,7 @@ export async function deriveSessionKey(
     );
 
     // Derive shared secret
-    const sharedSecret = await crypto.subtle.deriveBits(
+    const sharedSecret = await subtle.deriveBits(
       { name: "ECDH", public: peerPublicKey },
       myPrivateKey,
       256
@@ -91,7 +124,7 @@ export async function deriveSessionKey(
     const salt = new TextEncoder().encode(callId);
     const info = new TextEncoder().encode("AllCallAll E2EE Session Key");
 
-    const sessionKeyMaterial = await crypto.subtle.importKey(
+    const sessionKeyMaterial = await subtle.importKey(
       "raw",
       sharedSecret,
       { name: "HKDF" },
@@ -99,7 +132,7 @@ export async function deriveSessionKey(
       ["deriveKey"]
     );
 
-    const sessionKey = await crypto.subtle.deriveKey(
+    const sessionKey = await subtle.deriveKey(
       {
         name: "HKDF",
         hash: "SHA-256",
@@ -113,11 +146,11 @@ export async function deriveSessionKey(
     );
 
     // Export session key for fingerprint computation
-    const sessionKeyRaw = await crypto.subtle.exportKey("raw", sessionKey);
+    const sessionKeyRaw = await subtle.exportKey("raw", sessionKey);
     const sessionKeyBytes = new Uint8Array(sessionKeyRaw);
 
     // Compute fingerprint (SHA-256 hash)
-    const fingerprintBuffer = await crypto.subtle.digest("SHA-256", sessionKeyBytes);
+    const fingerprintBuffer = await subtle.digest("SHA-256", sessionKeyBytes);
     const fingerprintArray = Array.from(new Uint8Array(fingerprintBuffer));
     const fingerprint = fingerprintArray.map(b => b.toString(16).padStart(2, "0")).join("");
 
@@ -126,6 +159,9 @@ export async function deriveSessionKey(
       fingerprint: fingerprint
     };
   } catch (error) {
+    if (error instanceof E2EEUnsupportedError) {
+      throw error;
+    }
     console.error("[E2EE] Failed to derive session key", error);
     throw new Error("E2EE session key derivation failed");
   }
