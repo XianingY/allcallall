@@ -85,7 +85,7 @@ cd ..
 ./scripts/development/start-services.sh
 
 # 验证服务状态
-docker-compose -f infra/docker-compose.yml ps
+docker compose -f infra/docker-compose.yml ps
 ```
 
 ### 启动后端服务
@@ -121,7 +121,7 @@ export CONFIG_PATH=./configs/config.yaml
 go run cmd/server/main.go
 
 # 验证后端是否运行
-curl http://localhost:8080/health
+curl http://localhost:8080/api/v1/health
 ```
 
 ### WebRTC/TURN 配置（真机语音必需）
@@ -421,7 +421,7 @@ GET    /api/v1/ws                - WebSocket 连接
 
 2. **验证后端服务是否运行**
    ```bash
-   curl http://localhost:8080/health
+   curl http://localhost:8080/api/v1/health
    ```
 
 3. **检查前端配置**
@@ -673,7 +673,7 @@ docker exec -it infra-mysql-1 mysql -uroot -p"$MYSQL_ROOT_PASSWORD" allcallall_d
 ./scripts/development/start-services.sh
 
 # Verify service status
-docker-compose -f infra/docker-compose.yml ps
+docker compose -f infra/docker-compose.yml ps
 ```
 
 #### Start Backend Service
@@ -703,7 +703,7 @@ export CONFIG_PATH=./configs/config.yaml
 go run cmd/server/main.go
 
 # 6. Verify backend is running
-curl http://localhost:8080/health
+curl http://localhost:8080/api/v1/health
 ```
 
 #### Start Mobile Application
@@ -936,7 +936,7 @@ GET    /api/v1/ws                - WebSocket connection
 
 2. **Verify backend service is running**
    ```bash
-   curl http://localhost:8080/health
+   curl http://localhost:8080/api/v1/health
    ```
 
 3. **Check frontend configuration**

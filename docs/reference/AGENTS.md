@@ -5,7 +5,7 @@ This file is for coding agents operating in this repo. Prefer small, verifiable 
 ## Repo Map
 - `backend/`: Go backend (Gin + Gorm/MySQL + Redis + Pion WebRTC)
 - `mobile/`: React Native (Expo) app, TypeScript, hybrid signaling (WS + HTTP poll)
-- `infra/`: docker-compose and deployment assets
+- `infra/`: docker compose and deployment assets
 - `scripts/`: dev scripts (DBs, translation models, etc.)
 
 ## Commands (Build/Lint/Test)
@@ -14,18 +14,18 @@ This file is for coding agents operating in this repo. Prefer small, verifiable 
 - Project setup: `make setup` (git submodules + `cd mobile && npm install`)
 - Download ML models: `make setup-models`
 - Start MySQL/Redis: `./scripts/development/start-services.sh`
-- Stop services: `docker-compose -f infra/docker-compose.yml down`
+- Stop services: `docker compose -f infra/docker-compose.yml down`
 - Clean repo artifacts: `make clean` (removes `mobile/node_modules`, `mobile/.expo`, Android build outputs)
 - Android-only clean: `make clean-android`
 - Remove downloaded models: `make clean-models`
 
 Infra notes:
 - `infra/docker-compose.yml` is the local dev stack (MySQL/Redis/etc.).
-- Prefer stopping via `docker-compose -f infra/docker-compose.yml down` over ad-hoc `docker rm`.
+- Prefer stopping via `docker compose -f infra/docker-compose.yml down` over ad-hoc `docker rm`.
 
 ### Backend (Go)
 - Run server: `make run-backend` (runs `cd backend && go run cmd/server/main.go`)
-- Health check (when running locally): `curl http://localhost:8080/health`
+- Health check (when running locally): `curl http://localhost:8080/api/v1/health`
 - Build: `cd backend && go build ./...`
 - Test all: `make test-backend` (or `cd backend && go test ./...`)
 - Test a package: `cd backend && go test ./internal/auth`

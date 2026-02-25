@@ -24,7 +24,7 @@ export MAIL_PASSWORD="your_qq_mail_auth_code"  # Required for email verification
 go run cmd/server/main.go
 
 # Verify backend is running
-curl http://localhost:8080/health
+curl http://localhost:8080/api/v1/health
 ```
 
 ### Mobile Development (Recommended: ADB Reverse Forwarding)
@@ -53,14 +53,14 @@ npm run lint
 
 ```bash
 # View database service status
-docker-compose -f infra/docker-compose.yml ps
+docker compose -f infra/docker-compose.yml ps
 
 # View logs
-docker-compose -f infra/docker-compose.yml logs -f mysql
-docker-compose -f infra/docker-compose.yml logs -f redis
+docker compose -f infra/docker-compose.yml logs -f mysql
+docker compose -f infra/docker-compose.yml logs -f redis
 
 # Stop services
-docker-compose -f infra/docker-compose.yml down
+docker compose -f infra/docker-compose.yml down
 ```
 
 ## Architecture Overview
@@ -205,7 +205,7 @@ bash scripts/dev-client-debug.sh
 
 ### Physical device cannot connect to backend
 1. Check ADB reverse: `adb reverse --list`
-2. Verify backend: `curl http://localhost:8080/health`
+2. Verify backend: `curl http://localhost:8080/api/v1/health`
 3. Clear app data: `adb shell pm clear com.allcallall.mobile`
 4. Re-run: `bash mobile/scripts/dev-client-debug.sh`
 
@@ -215,7 +215,7 @@ bash scripts/dev-client-debug.sh
 
 ### Backend won't start (MySQL connection error)
 1. Ensure databases running: `./start.sh`
-2. Check MySQL: `docker-compose -f infra/docker-compose.yml ps`
+2. Check MySQL: `docker compose -f infra/docker-compose.yml ps`
 
 ### Email verification not working
 1. Verify `MAIL_PASSWORD` set: `echo $MAIL_PASSWORD`

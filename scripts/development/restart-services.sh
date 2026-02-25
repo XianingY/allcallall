@@ -5,7 +5,7 @@
 
 set -e
 
-PROJECT_ROOT="/Users/byzantium/github/allcallall"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 echo "════════════════════════════════════════════════════════════════"
@@ -74,7 +74,7 @@ sleep 5
 # 检查后端
 echo "检查后端 API..."
 for i in {1..20}; do
-    if curl -s http://192.168.31.217:8080/api/v1/health 2>/dev/null | grep -q "message"; then
+    if curl -fsS http://localhost:8080/api/v1/health 2>/dev/null | grep -q '"status":"ok"'; then
         echo "✅ 后端服务已就绪"
         break
     fi
@@ -90,7 +90,7 @@ echo ""
 echo "📊 服务状态："
 echo "  MySQL: localhost:3306"
 echo "  Redis: localhost:6379"
-echo "  后端 API: http://192.168.31.217:8080"
+echo "  后端 API: http://localhost:8080"
 echo "  后端进程 ID: $BACKEND_PID"
 echo ""
 echo "📋 查看日志："

@@ -19,11 +19,11 @@
 
 ```bash
 # 启动开发环境
-docker-compose up -d
+docker compose up -d
 
 # 停止开发环境
-docker-compose down
+docker compose down
 
 # 启动生产环境
-docker-compose -f docker-compose.production.yml up -d
+docker compose -f docker-compose.production.yml up -d
 ```

@@ -150,18 +150,18 @@
 - [ ] **启动所有容器**
   ```bash
   cd /opt/allcallall/infra
-  docker-compose up -d
+  docker compose up -d
   ```
 
 - [ ] **等待服务启动**
   ```bash
-  docker-compose ps
+  docker compose ps
   # 所有容器应该显示 "Up"，大约需要 30-60 秒
   ```
 
 - [ ] **检查服务健康状态**
   ```bash
-  docker-compose logs backend | tail -20
+  docker compose logs backend | tail -20
   # 应该显示 "Server listening on :8080"
   ```
 
@@ -199,7 +199,7 @@
 
 - [ ] **测试 HTTP 连接**
   ```bash
-  curl http://81.68.168.207:8080/api/v1/health
+  curl http://81.68.168.207/api/v1/health
   # 应该返回: {"status":"ok"} 或类似响应
   ```
 
@@ -211,7 +211,7 @@
 
 - [ ] **测试用户注册**
   ```bash
-  curl -X POST http://81.68.168.207:8080/api/v1/auth/register \
+  curl -X POST http://81.68.168.207/api/v1/auth/register \
     -H "Content-Type: application/json" \
     -d '{"email":"test@example.com","password":"Test123456","display_name":"Test"}'
   # 应该返回: {"success":true,...}
@@ -275,7 +275,7 @@
 
 - [ ] **敏感信息未在日志中显示**
   ```bash
-  docker-compose logs backend | grep -i "password\|secret"
+  docker compose logs backend | grep -i "password\|secret"
   # 不应该显示任何密码
   ```
 
@@ -304,7 +304,7 @@
 
 - [ ] **MySQL 有特定用户（非 root）**
   ```bash
-  docker-compose exec mysql mysql -uallcallall -p -e "SELECT USER();"
+  docker compose exec mysql mysql -uallcallall -p -e "SELECT USER();"
   # 应该显示: allcallall@%
   ```
 
@@ -314,7 +314,7 @@
   cat > backup.sh << 'EOF'
   #!/bin/bash
   DATE=$(date +%Y%m%d_%H%M%S)
-  docker-compose exec -T mysql mysqldump -uroot -p$MYSQL_ROOT_PASSWORD allcallall_db > backup_$DATE.sql
+  docker compose exec -T mysql mysqldump -uroot -p$MYSQL_ROOT_PASSWORD allcallall_db > backup_$DATE.sql
   gzip backup_$DATE.sql
   echo "✓ Backup: backup_$DATE.sql.gz"
   EOF
@@ -355,20 +355,20 @@
 
 - [ ] **数据库性能良好**
   ```bash
-  docker-compose exec mysql mysql -uroot -prootpass -e "SHOW VARIABLES LIKE 'max%';"
+  docker compose exec mysql mysql -uroot -prootpass -e "SHOW VARIABLES LIKE 'max%';"
   ```
 
 ### 日志监控
 
 - [ ] **后端日志无严重错误**
   ```bash
-  docker-compose logs backend --tail=100 | grep -i "error\|fatal"
+  docker compose logs backend --tail=100 | grep -i "error\|fatal"
   # 不应该显示许多错误
   ```
 
 - [ ] **Nginx 日志正常**
   ```bash
-  docker-compose logs nginx | tail -20
+  docker compose logs nginx | tail -20
   # 应该显示正常的请求日志
   ```
 
@@ -535,7 +535,7 @@ ________________________________________________________________
 1. 查看详细部署指南: `cat deployment-guide.md`
 2. 查看快速参考: `cat DEPLOYMENT_QUICK_REFERENCE.md`
 3. 查看方案总结: `cat CLOUD_DEPLOYMENT_SUMMARY.md`
-4. 查看服务日志: `docker-compose logs -f backend`
+4. 查看服务日志: `docker compose logs -f backend`
 5. 提交 GitHub Issue
 
 **祝部署成功！** 🎉

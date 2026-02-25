@@ -118,7 +118,7 @@ cd mobile && npm start
 ### Docker 启动失败
 - 确保 Docker Desktop 正在运行
 - 检查磁盘空间是否充足
-- 查看日志: `docker-compose logs`
+- 查看日志: `docker compose logs`
 
 ### 后端无法连接数据库
 - 确保 MySQL 容器正在运行: `docker ps`
