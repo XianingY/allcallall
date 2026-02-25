@@ -27,6 +27,8 @@ import {
   SignalingClient,
   SignalMessage
 } from "../api/signaling";
+import { PollingSignalingClient } from "../api/signalingPoll";
+import { RESTRICTED_NETWORK_MODE, SIGNALING_TRANSPORT_MODE } from "../config";
 import { fetchWebRTCConfig } from "../api/webrtc";
 import { useAuthContext } from "./AuthContext";
 import { useSettings } from "./SettingsContext";
@@ -37,6 +39,8 @@ import CameraPermissionService from "../services/CameraPermissionService";
 import TranslationService from "../services/translation/TranslationService";
 import ParallelProcessor from "../services/translation/utils/ParallelProcessor";
 import { useSubtitleStore } from "../store/useSubtitleStore";
+import { E2EEKeyExchange, type E2EEKeyExchangeCallbacks, type KeyExchangeRole } from "../services/e2ee/E2EEKeyExchange";
+import type { E2EESessionKey } from "../services/e2ee/E2EEService";
 
 type CallDirection = "incoming" | "outgoing";
 
@@ -50,6 +54,28 @@ interface RTCIceServer {
   username?: string;
   credential?: string;
 }
+
+const preferRestrictedIceServers = (servers: RTCIceServer[]) => {
+  if (!RESTRICTED_NETWORK_MODE) return servers;
+
+  const urlsOf = (srv: RTCIceServer) => (Array.isArray(srv.urls) ? srv.urls : [srv.urls]);
+  const scoreUrl = (url: string) => {
+    const lower = url.toLowerCase();
+    if (lower.startsWith("turns:")) {
+      if (lower.includes("transport=tcp")) return 0;
+      return 1;
+    }
+    if (lower.startsWith("turn:")) {
+      if (lower.includes("transport=tcp")) return 2;
+      return 3;
+    }
+    if (lower.startsWith("stun:")) return 4;
+    return 5;
+  };
+
+  const scoreServer = (srv: RTCIceServer) => Math.min(...urlsOf(srv).map(scoreUrl));
+  return [...servers].sort((a, b) => scoreServer(a) - scoreServer(b));
+};
 
 interface CallSession {
   callId: string;
@@ -75,6 +101,10 @@ interface SignalingContextValue {
   isRemoteVideoEnabled: boolean;
   isRemoteAudioEnabled: boolean;
   cameraFacing: CameraFacing;
+  // E2EE 端到端加密状态
+  e2eeEnabled: boolean;
+  e2eeFingerprint: string | null;
+  e2eeSessionEstablished: boolean;
   // 翻译功能相关状态
   translationEnabled: boolean;
   translationLanguage: string;
@@ -179,7 +209,30 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const [translationLanguage, setTranslationLanguage] = useState<string>("zh");
   const processorRef = useRef<ParallelProcessor | null>(null);
 
-  const signalingRef = useRef<SignalingClient | null>(null);
+  const [e2eeEnabled, setE2eeEnabled] = useState<boolean>(false);
+  const [e2eeFingerprint, setE2eeFingerprint] = useState<string | null>(null);
+  const [e2eeSessionEstablished, setE2eeSessionEstablished] = useState<boolean>(false);
+  const e2eeKeyExchangeRef = useRef<E2EEKeyExchange | null>(null);
+  const e2eeDataChannelRef = useRef<any | null>(null);
+
+  type SignalingEvents = {
+    open: undefined;
+    close: { code: number; reason?: string };
+    message: SignalMessage;
+    error: Error;
+  };
+
+  interface SignalingTransport {
+    connect: () => void;
+    disconnect: () => void;
+    on<T extends keyof SignalingEvents>(
+      event: T,
+      handler: (value: SignalingEvents[T]) => void
+    ): void;
+    send: (message: SignalMessage) => boolean;
+  }
+
+  const signalingRef = useRef<SignalingTransport | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const sessionRef = useRef<CallSession | null>(null);
   const statusRef = useRef<CallStatus>("idle");
@@ -223,7 +276,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         const config = await fetchWebRTCConfig(token);
         const servers = Array.isArray(config.ice_servers) ? config.ice_servers : [];
         if (!cancelled && servers.length) {
-          setIceServers(servers as RTCIceServer[]);
+          setIceServers(preferRestrictedIceServers(servers as RTCIceServer[]));
         } else if (!cancelled) {
           setIceServers(DEFAULT_ICE_SERVERS);
         }
@@ -294,6 +347,17 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       try { subtitlesDataChannelRef.current.close(); } catch (e) {}
       subtitlesDataChannelRef.current = null;
     }
+    if (e2eeDataChannelRef.current) {
+      try { e2eeDataChannelRef.current.close(); } catch (e) {}
+      e2eeDataChannelRef.current = null;
+    }
+    if (e2eeKeyExchangeRef.current) {
+      e2eeKeyExchangeRef.current.destroy();
+      e2eeKeyExchangeRef.current = null;
+    }
+    setE2eeEnabled(false);
+    setE2eeFingerprint(null);
+    setE2eeSessionEstablished(false);
     if (localStream) localStream.getTracks().forEach((track) => track.stop());
     if (remoteStream) remoteStream.getTracks().forEach((track) => track.stop());
     setLocalStream(null);
@@ -318,6 +382,37 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         });
       } catch (e) {}
     };
+  }, []);
+
+  const initializeE2EEKeyExchange = useCallback((role: KeyExchangeRole) => {
+    const current = sessionRef.current;
+    if (!current) return;
+
+    const callbacks: E2EEKeyExchangeCallbacks = {
+      onSessionEstablished: (session: E2EESessionKey) => {
+        setE2eeFingerprint(session.fingerprint);
+        setE2eeSessionEstablished(true);
+        console.log(`[E2EE] Session established, fingerprint: ${session.fingerprint.slice(0, 16)}...`);
+      },
+      onError: (error: Error) => {
+        console.error("[E2EE] Key exchange error:", error);
+        setE2eeEnabled(false);
+        Alert.alert("E2EE Error", `Failed to establish encrypted session: ${error.message}`);
+      }
+    };
+
+    const keyExchange = new E2EEKeyExchange(role, current.callId, callbacks);
+    e2eeKeyExchangeRef.current = keyExchange;
+    setE2eeEnabled(true);
+
+    keyExchange.initialize().then(() => {
+      if (e2eeDataChannelRef.current) {
+        keyExchange.attachDataChannel(e2eeDataChannelRef.current);
+        if (role === "initiator") {
+          keyExchange.sendPublicKey();
+        }
+      }
+    });
   }, []);
 
   const sendMessage = useCallback((message: SignalMessage) => {
@@ -468,7 +563,17 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         });
       }
     };
-    (pc as any).ondatachannel = (event: any) => { if (event.channel?.label === 'subtitles') attachSubtitlesDataChannel(event.channel); };
+    (pc as any).ondatachannel = (event: any) => {
+      if (event.channel?.label === 'subtitles') {
+        attachSubtitlesDataChannel(event.channel);
+      } else if (event.channel?.label === 'e2ee-key-exchange') {
+        e2eeDataChannelRef.current = event.channel;
+        event.channel.onopen = () => {
+          console.log("[E2EE] Data Channel opened (responder)");
+          initializeE2EEKeyExchange("responder");
+        };
+      }
+    };
     (pc as any).onconnectionstatechange = () => {
       const state = pc.connectionState;
       const current = sessionRef.current;
@@ -497,11 +602,14 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       return;
     }
     const client = new SignalingClient(token);
-    signalingRef.current = client;
-    client.connect();
-    client.on("open", () => setConnectionReady(true));
-    client.on("close", () => { setConnectionReady(false); resetCallState(); });
-    client.on("message", async (msg: SignalMessage) => {
+    const pollingClient = new PollingSignalingClient(token);
+    const transport: SignalingTransport =
+      SIGNALING_TRANSPORT_MODE === "poll" ? pollingClient : client;
+    signalingRef.current = transport;
+    transport.connect();
+    transport.on("open", () => setConnectionReady(true));
+    transport.on("close", () => { setConnectionReady(false); resetCallState(); });
+    transport.on("message", async (msg: SignalMessage) => {
       switch (msg.type) {
         case "call.invite.ack":
           if (pendingTarget.current) {
@@ -564,7 +672,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           break;
       }
     });
-    return () => { client.disconnect(); signalingRef.current = null; };
+    return () => { transport.disconnect(); signalingRef.current = null; };
   }, [resetCallState, sendMessage, token]);
 
   const startCall = useCallback(async (email: string) => {
@@ -581,6 +689,14 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       if (stream.getVideoTracks().length === 0) pc.addTransceiver("video", { direction: "sendrecv" });
       const dc = (pc as any).createDataChannel?.('subtitles', { ordered: true });
       if (dc) attachSubtitlesDataChannel(dc);
+      const e2eeDc = (pc as any).createDataChannel?.('e2ee-key-exchange', { ordered: true });
+      if (e2eeDc) {
+        e2eeDataChannelRef.current = e2eeDc;
+        e2eeDc.onopen = () => {
+          console.log("[E2EE] Data Channel opened (initiator)");
+          initializeE2EEKeyExchange("initiator");
+        };
+      }
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
       const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
       await pc.setLocalDescription(offer);
@@ -690,10 +806,10 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const value = useMemo<SignalingContextValue>(() => ({
     status, session, connectionReady, localStream, remoteStream, networkQuality, isVideoEnabled, isAudioEnabled, isRemoteVideoEnabled, isRemoteAudioEnabled, cameraFacing,
-    videoQuality, setVideoQuality, videoMaxBitrateKbps, setVideoMaxBitrateKbps, translationEnabled, translationLanguage,
+    videoQuality, setVideoQuality, videoMaxBitrateKbps, setVideoMaxBitrateKbps, e2eeEnabled, e2eeFingerprint, e2eeSessionEstablished, translationEnabled, translationLanguage,
     startCall, acceptCall, rejectCall, endCall, toggleVideo, toggleAudio, switchCamera, toggleSpeaker, isSpeakerOn, toggleTranslation, setTranslationLanguage: setTranslationLanguage
   }), [status, session, connectionReady, localStream, remoteStream, networkQuality, isVideoEnabled, isAudioEnabled, isRemoteVideoEnabled, isRemoteAudioEnabled, cameraFacing,
-    videoQuality, videoMaxBitrateKbps, translationEnabled, translationLanguage, startCall, acceptCall, rejectCall, endCall, toggleVideo, toggleAudio, switchCamera, toggleSpeaker, isSpeakerOn, toggleTranslation]);
+    videoQuality, videoMaxBitrateKbps, e2eeEnabled, e2eeFingerprint, e2eeSessionEstablished, translationEnabled, translationLanguage, startCall, acceptCall, rejectCall, endCall, toggleVideo, toggleAudio, switchCamera, toggleSpeaker, isSpeakerOn, toggleTranslation]);
 
   return <SignalingContext.Provider value={value}>{children}</SignalingContext.Provider>;
 };

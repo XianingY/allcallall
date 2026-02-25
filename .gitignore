@@ -88,6 +88,12 @@ mobile/bugreport-*.zip
 mobile/coverage/
 mobile/.nyc_output/
 
+# Android signing keys (NEVER commit)
+**/*.keystore
+**/*.jks
+**/*.p12
+**/*.pfx
+
 # ============================
 # Logs
 # ============================

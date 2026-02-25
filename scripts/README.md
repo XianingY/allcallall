@@ -53,29 +53,21 @@
 
 用于生产环境部署。
 
-#### `init-cloud-deployment.sh`
-初始化云部署环境
-
-```bash
-./scripts/deployment/init-cloud-deployment.sh
-```
-
-**功能**:
-- 检查 Docker 和 Docker Compose
-- 创建必要的目录
-- 初始化配置文件
-
 #### `deploy-cloud.sh`
-部署应用到云环境
+云服务器部署脚本（Nginx/UFW 方式）
 
 ```bash
-./scripts/deployment/deploy-cloud.sh
+./scripts/deployment/deploy-cloud.sh <server-ip> [domain-name] [work-dir]
 ```
 
 **功能**:
-- 构建 Docker 镜像
-- 启动容器
-- 验证部署状态
+- 安装 Docker 和 Docker Compose
+- 克隆项目代码
+- 创建环境配置文件
+- 配置 Nginx
+- 配置防火墙
+
+**相关脚本**: 如需使用 Cloudflare Tunnel 方式部署，请使用 `infra/deploy-cloudflare-tunnel.sh`
 
 ---
 

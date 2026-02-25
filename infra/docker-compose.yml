@@ -42,7 +42,12 @@ services:
       MAIL_PASSWORD: ${MAIL_PASSWORD}
       HTTP_PORT: "8080"
       CONFIG_PATH: /app/configs/config.yaml
-      WEBRTC_ICE_SERVERS_JSON: ${WEBRTC_ICE_SERVERS_JSON:-'{"ice_servers":[{"urls":["stun:stun.l.google.com:19302"]}]}'}
+      WEBRTC_ICE_SERVERS_JSON: '${WEBRTC_ICE_SERVERS_JSON:-[{"urls":["stun:stun.l.google.com:19302"]}]}'
+      # FCM 推送通知 (可选 - 待 Firebase SDK 集成)
+      FCM_SERVICE_ACCOUNT_PATH: ${FCM_SERVICE_ACCOUNT_PATH:-}
+      # WebSocket keepalive 配置
+      WS_PING_INTERVAL: ${WS_PING_INTERVAL:-30s}
+      WS_PONG_WAIT: ${WS_PONG_WAIT:-60s}
     ports:
       - "8080:8080"
     volumes:

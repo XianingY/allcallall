@@ -1052,8 +1052,8 @@ The offline translation feature enables **real-time speech translation** using l
 
 #### Documentation
 - **[Offline Translation Guide](docs/offline-translation/README.md)** - Complete documentation
-- **[Implementation Roadmap](docs/offline-translation/IMPLEMENTATION_ROADMAP.md)** - 5-week development plan
-- **[Model Download Guide](docs/offline-translation/setup/MODEL_DOWNLOAD_GUIDE.md)** - Setup instructions
+- **[Implementation Roadmap](docs/offline-translation/implementation-roadmap.md)** - 5-week development plan
+- **[Model Download Guide](docs/offline-translation/setup/model-download-guide.md)** - Setup instructions
 
 ### 🤝 Contributing
 
