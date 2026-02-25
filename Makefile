@@ -1,7 +1,7 @@
 # AllCallAll Project Makefile
 # Common commands for development
 
-.PHONY: help setup build-android build-ios clean test
+.PHONY: help setup setup-android-onnxruntime build-android build-ios clean test
 
 # Default target
 help:
@@ -11,6 +11,7 @@ help:
 	@echo "Setup:"
 	@echo "  make setup            - Initialize project (submodules, dependencies)"
 	@echo "  make setup-models     - Download ML models"
+	@echo "  make setup-android-onnxruntime - Prepare ONNX Runtime Android native libs"
 	@echo ""
 	@echo "Build:"
 	@echo "  make build-android    - Build Android debug APK"
@@ -46,12 +47,19 @@ setup-models:
 
 build-android:
 	@echo "Building Android debug APK..."
-	cd mobile/android && ./gradlew :app:assembleDebug
+	$(MAKE) setup-android-onnxruntime
+	cd mobile/android && ./gradlew -I gradle-mirrors.init.gradle :app:assembleDebug
 	@echo "APK built at: mobile/android/app/build/outputs/apk/debug/"
 
 build-android-release:
 	@echo "Building Android release APK..."
-	cd mobile/android && ./gradlew :app:assembleRelease
+	$(MAKE) setup-android-onnxruntime
+	cd mobile/android && ./gradlew -I gradle-mirrors.init.gradle :app:assembleRelease
+	@echo "APK built at: mobile/android/app/build/outputs/apk/release/"
+
+setup-android-onnxruntime:
+	@echo "Preparing ONNX Runtime Android native libs..."
+	cd mobile && bash scripts/setup-android-onnxruntime.sh
 
 build-ios:
 	@echo "Building iOS..."

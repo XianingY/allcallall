@@ -1,0 +1,35 @@
+import org.gradle.api.artifacts.repositories.MavenArtifactRepository
+
+def mirrorUrlFor = { String rawUrl ->
+    def url = rawUrl.toLowerCase()
+    if (url.contains("plugins.gradle.org") || url.contains("plugins-artifacts.gradle.org")) {
+        return "https://maven.aliyun.com/repository/gradle-plugin"
+    }
+    if (url.contains("dl.google.com") || url.contains("maven.google.com")) {
+        return "https://maven.aliyun.com/repository/google"
+    }
+    if (url.contains("repo.maven.apache.org") || url.contains("repo1.maven.org")) {
+        return "https://maven.aliyun.com/repository/central"
+    }
+    return null
+}
+
+def remapRepository = { repo ->
+    if (!(repo instanceof MavenArtifactRepository)) {
+        return
+    }
+    def mirror = mirrorUrlFor(repo.url.toString())
+    if (mirror != null) {
+        repo.setUrl(mirror)
+    }
+}
+
+settingsEvaluated { settings ->
+    settings.pluginManagement.repositories.all { repo -> remapRepository(repo) }
+    settings.dependencyResolutionManagement.repositories.all { repo -> remapRepository(repo) }
+}
+
+gradle.beforeProject { project ->
+    project.buildscript.repositories.all { repo -> remapRepository(repo) }
+    project.repositories.all { repo -> remapRepository(repo) }
+}
