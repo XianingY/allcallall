@@ -110,7 +110,7 @@
 
 - [ ] **运行部署脚本**
   ```bash
-  bash scripts/deploy-cloud.sh 81.68.168.207 api.allcall.com
+  bash scripts/deployment/deploy-cloud.sh 81.68.168.207 api.allcall.com
   ```
   预计时间: 30-45 分钟
 
@@ -539,4 +539,3 @@ ________________________________________________________________
 5. 提交 GitHub Issue
 
 **祝部署成功！** 🎉
-
