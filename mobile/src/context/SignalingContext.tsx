@@ -28,7 +28,11 @@ import {
   SignalMessage
 } from "../api/signaling";
 import { PollingSignalingClient } from "../api/signalingPoll";
-import { RESTRICTED_NETWORK_MODE, SIGNALING_TRANSPORT_MODE } from "../config";
+import {
+  E2EE_ENABLED,
+  RESTRICTED_NETWORK_MODE,
+  SIGNALING_TRANSPORT_MODE
+} from "../config";
 import { fetchWebRTCConfig } from "../api/webrtc";
 import { useAuthContext } from "./AuthContext";
 import { useSettings } from "./SettingsContext";
@@ -40,7 +44,11 @@ import TranslationService from "../services/translation/TranslationService";
 import ParallelProcessor from "../services/translation/utils/ParallelProcessor";
 import { useSubtitleStore } from "../store/useSubtitleStore";
 import { E2EEKeyExchange, type E2EEKeyExchangeCallbacks, type KeyExchangeRole } from "../services/e2ee/E2EEKeyExchange";
-import type { E2EESessionKey } from "../services/e2ee/E2EEService";
+import {
+  E2EEUnsupportedError,
+  isE2EECryptoSupported,
+  type E2EESessionKey
+} from "../services/e2ee/E2EEService";
 
 type CallDirection = "incoming" | "outgoing";
 
@@ -388,6 +396,22 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     const current = sessionRef.current;
     if (!current) return;
 
+    if (!E2EE_ENABLED) {
+      setE2eeEnabled(false);
+      setE2eeSessionEstablished(false);
+      setE2eeFingerprint(null);
+      return;
+    }
+
+    if (!isE2EECryptoSupported()) {
+      // Degrade gracefully: DTLS-SRTP still protects transport; skip app-layer key exchange.
+      console.warn("[E2EE] WebCrypto SubtleCrypto unavailable; skipping E2EE key exchange");
+      setE2eeEnabled(false);
+      setE2eeSessionEstablished(false);
+      setE2eeFingerprint(null);
+      return;
+    }
+
     const callbacks: E2EEKeyExchangeCallbacks = {
       onSessionEstablished: (session: E2EESessionKey) => {
         setE2eeFingerprint(session.fingerprint);
@@ -397,6 +421,14 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       onError: (error: Error) => {
         console.error("[E2EE] Key exchange error:", error);
         setE2eeEnabled(false);
+        setE2eeSessionEstablished(false);
+        setE2eeFingerprint(null);
+
+        // Unsupported runtime is expected on some RN/Hermes builds; avoid disruptive popup.
+        if (error instanceof E2EEUnsupportedError) {
+          return;
+        }
+
         Alert.alert("E2EE Error", `Failed to establish encrypted session: ${error.message}`);
       }
     };
@@ -588,6 +620,10 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       if (event.channel?.label === 'subtitles') {
         attachSubtitlesDataChannel(event.channel);
       } else if (event.channel?.label === 'e2ee-key-exchange') {
+        if (!E2EE_ENABLED) {
+          try { event.channel?.close?.(); } catch (e) {}
+          return;
+        }
         e2eeDataChannelRef.current = event.channel;
         event.channel.onopen = () => {
           console.log("[E2EE] Data Channel opened (responder)");
@@ -718,13 +754,15 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       if (stream.getVideoTracks().length === 0) pc.addTransceiver("video", { direction: "sendrecv" });
       const dc = (pc as any).createDataChannel?.('subtitles', { ordered: true });
       if (dc) attachSubtitlesDataChannel(dc);
-      const e2eeDc = (pc as any).createDataChannel?.('e2ee-key-exchange', { ordered: true });
-      if (e2eeDc) {
-        e2eeDataChannelRef.current = e2eeDc;
-        e2eeDc.onopen = () => {
-          console.log("[E2EE] Data Channel opened (initiator)");
-          initializeE2EEKeyExchange("initiator");
-        };
+      if (E2EE_ENABLED) {
+        const e2eeDc = (pc as any).createDataChannel?.('e2ee-key-exchange', { ordered: true });
+        if (e2eeDc) {
+          e2eeDataChannelRef.current = e2eeDc;
+          e2eeDc.onopen = () => {
+            console.log("[E2EE] Data Channel opened (initiator)");
+            initializeE2EEKeyExchange("initiator");
+          };
+        }
       }
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
       const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
