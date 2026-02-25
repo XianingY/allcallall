@@ -31,7 +31,7 @@ mail:
 jwt:
   secret: "${JWT_SECRET}"
   issuer: "allcallall-backend"
-  access_token_ttl_minutes: 60
+  access_token_ttl_minutes: 10080
   refresh_token_ttl_hours: 168
 
 webrtc:
