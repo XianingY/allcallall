@@ -48,13 +48,13 @@ setup-models:
 build-android:
 	@echo "Building Android debug APK..."
 	$(MAKE) setup-android-onnxruntime
-	cd mobile/android && ./gradlew -I gradle-mirrors.init.gradle :app:assembleDebug
+	cd mobile && bash scripts/run-android-gradle-with-env.sh :app:assembleDebug
 	@echo "APK built at: mobile/android/app/build/outputs/apk/debug/"
 
 build-android-release:
 	@echo "Building Android release APK..."
 	$(MAKE) setup-android-onnxruntime
-	cd mobile/android && ./gradlew -I gradle-mirrors.init.gradle :app:assembleRelease
+	cd mobile && bash scripts/run-android-gradle-with-env.sh :app:assembleRelease
 	@echo "APK built at: mobile/android/app/build/outputs/apk/release/"
 
 setup-android-onnxruntime:

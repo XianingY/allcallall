@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- 允许明文HTTP流量到特定域名 -->
+    <!-- 允许明文 HTTP 流量（当前生产仍使用 HTTP 接口） -->
+    <base-config cleartextTrafficPermitted="true" />
+    <!-- 保留常用域名/IP 说明，便于排查 -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">81.68.168.207</domain>
+        <domain includeSubdomains="true">47.97.84.202</domain>
         <domain includeSubdomains="true">192.168.31.217</domain>
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">10.0.2.2</domain>

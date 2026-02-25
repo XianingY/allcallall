@@ -18,13 +18,13 @@ const getApiConfig = () => {
       };
     case 'staging':
       return {
-        HTTP: "http://81.68.168.207:8080",
-        WS: "ws://81.68.168.207:8080"
+        HTTP: "http://47.97.84.202:8080",
+        WS: "ws://47.97.84.202:8080"
       };
     case 'production':
       return {
-        HTTP: "http://81.68.168.207",
-        WS: "ws://81.68.168.207"
+        HTTP: "http://47.97.84.202",
+        WS: "ws://47.97.84.202"
       };
     default:
       // 默认使用开发环境配置
@@ -40,9 +40,12 @@ const getApiConfig = () => {
 // API Configuration
 const API_CONFIG = getApiConfig();
 
-const getEnv = (key: string): string | undefined => {
-  const value = process.env[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+// Expo 的 EXPO_PUBLIC_* 变量需要使用静态属性访问，不能用 process.env[key]
+// Expo EXPO_PUBLIC_* variables must be accessed via static property names.
+const readEnv = (value: string | undefined): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 };
 
 const normalizeTls = (value: string, scheme: "http" | "ws") => {
@@ -50,9 +53,9 @@ const normalizeTls = (value: string, scheme: "http" | "ws") => {
   return value.replace(/^ws:\/\//, "wss://");
 };
 
-const envHttp = getEnv("EXPO_PUBLIC_API_HTTP");
-const envWs = getEnv("EXPO_PUBLIC_API_WS");
-const forceTls = getEnv("EXPO_PUBLIC_FORCE_TLS") === "1";
+const envHttp = readEnv(process.env.EXPO_PUBLIC_API_HTTP);
+const envWs = readEnv(process.env.EXPO_PUBLIC_API_WS);
+const forceTls = readEnv(process.env.EXPO_PUBLIC_FORCE_TLS) === "1";
 
 const httpBase = forceTls
   ? normalizeTls(envHttp ?? API_CONFIG.HTTP, "http")
@@ -89,23 +92,25 @@ console.log('='.repeat(50));
 console.log(`环境类型: ${APP_ENV}`);
 console.log(`显示名称: ${getEnvDisplayName()}`);
 console.log(`描述: ${getEnvDescription()}`);
-console.log(`API地址: ${API_CONFIG.HTTP}`);
-console.log(`WebSocket: ${API_CONFIG.WS}`);
+console.log(`API地址(默认): ${API_CONFIG.HTTP}`);
+console.log(`WebSocket(默认): ${API_CONFIG.WS}`);
+console.log(`API地址(生效): ${httpBase}`);
+console.log(`WebSocket(生效): ${wsBase}`);
 console.log(`设备信息: ${Device.modelName} (${Platform.OS})`);
 console.log('='.repeat(50));
 
 // 导出的配置
 // Exported configuration
-export const API_HOST = API_CONFIG.HTTP;
-export const WS_HOST = API_CONFIG.WS;
+export const API_HOST = httpBase;
+export const WS_HOST = wsBase;
 
 export const API_BASE_URL = `${httpBase}/api/v1`;
 export const WS_URL = `${wsBase}/api/v1/ws`;
 export const REQUEST_TIMEOUT = 15_000; // 15秒超时，给邮件发送更多时间
 
-export const RESTRICTED_NETWORK_MODE = getEnv("EXPO_PUBLIC_RESTRICTED_NETWORK") === "1";
-export const SIGNALING_TRANSPORT_MODE = getEnv("EXPO_PUBLIC_SIGNALING_TRANSPORT") ?? "auto";
-export const SIGNALING_SHAPING_ENABLED = getEnv("EXPO_PUBLIC_SIGNALING_SHAPING") === "1";
+export const RESTRICTED_NETWORK_MODE = readEnv(process.env.EXPO_PUBLIC_RESTRICTED_NETWORK) === "1";
+export const SIGNALING_TRANSPORT_MODE = readEnv(process.env.EXPO_PUBLIC_SIGNALING_TRANSPORT) ?? "auto";
+export const SIGNALING_SHAPING_ENABLED = readEnv(process.env.EXPO_PUBLIC_SIGNALING_SHAPING) === "1";
 
 // 环境信息导出
 // Environment information exports
