@@ -1,3 +1,4 @@
+import "react-native-get-random-values";
 import React, { useRef } from "react";
 import { NavigationContainer, NavigationContainerRef } from "@react-navigation/native";
 import { SafeAreaProvider } from "react-native-safe-area-context";

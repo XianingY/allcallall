@@ -56,6 +56,7 @@ const normalizeTls = (value: string, scheme: "http" | "ws") => {
 const envHttp = readEnv(process.env.EXPO_PUBLIC_API_HTTP);
 const envWs = readEnv(process.env.EXPO_PUBLIC_API_WS);
 const forceTls = readEnv(process.env.EXPO_PUBLIC_FORCE_TLS) === "1";
+const e2eeMode = readEnv(process.env.EXPO_PUBLIC_E2EE_MODE)?.toLowerCase();
 
 const httpBase = forceTls
   ? normalizeTls(envHttp ?? API_CONFIG.HTTP, "http")
@@ -96,6 +97,7 @@ console.log(`API地址(默认): ${API_CONFIG.HTTP}`);
 console.log(`WebSocket(默认): ${API_CONFIG.WS}`);
 console.log(`API地址(生效): ${httpBase}`);
 console.log(`WebSocket(生效): ${wsBase}`);
+console.log(`E2EE模式: ${e2eeMode === "experimental" ? "experimental" : "off (default)"}`);
 console.log(`设备信息: ${Device.modelName} (${Platform.OS})`);
 console.log('='.repeat(50));
 
@@ -111,6 +113,8 @@ export const REQUEST_TIMEOUT = 15_000; // 15秒超时，给邮件发送更多时
 export const RESTRICTED_NETWORK_MODE = readEnv(process.env.EXPO_PUBLIC_RESTRICTED_NETWORK) === "1";
 export const SIGNALING_TRANSPORT_MODE = readEnv(process.env.EXPO_PUBLIC_SIGNALING_TRANSPORT) ?? "auto";
 export const SIGNALING_SHAPING_ENABLED = readEnv(process.env.EXPO_PUBLIC_SIGNALING_SHAPING) === "1";
+export const E2EE_MODE = e2eeMode === "experimental" ? "experimental" : "off";
+export const E2EE_ENABLED = E2EE_MODE === "experimental";
 
 // 环境信息导出
 // Environment information exports

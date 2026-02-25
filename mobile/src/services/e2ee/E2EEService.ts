@@ -13,39 +13,67 @@
  */
 
 import * as Keychain from "react-native-keychain";
+import { p256 } from "@noble/curves/p256";
+import { hkdf } from "@noble/hashes/hkdf";
+import { sha256 } from "@noble/hashes/sha256";
+import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils";
 
 const KEYCHAIN_SERVICE_E2EE = "com.allcallall.e2ee";
-
-type SubtleCryptoLike = {
-  generateKey: (...args: any[]) => Promise<any>;
-  exportKey: (...args: any[]) => Promise<any>;
-  importKey: (...args: any[]) => Promise<any>;
-  deriveBits: (...args: any[]) => Promise<any>;
-  deriveKey: (...args: any[]) => Promise<any>;
-  digest: (...args: any[]) => Promise<any>;
-};
+const E2EE_INFO = utf8ToBytes("AllCallAll E2EE Session Key");
+const HEX_PATTERN = /^[0-9a-f]+$/i;
 
 export class E2EEUnsupportedError extends Error {
-  constructor(message: string = "WebCrypto SubtleCrypto is unavailable") {
+  constructor(message: string = "Secure random source is unavailable") {
     super(message);
     this.name = "E2EEUnsupportedError";
   }
 }
 
-const getSubtleCrypto = (): SubtleCryptoLike => {
-  const subtle = (globalThis as any)?.crypto?.subtle as SubtleCryptoLike | undefined;
-  if (!subtle) {
-    throw new E2EEUnsupportedError("WebCrypto SubtleCrypto is unavailable on this runtime");
+const hasSecureRandom = (): boolean =>
+  typeof (globalThis as any)?.crypto?.getRandomValues === "function";
+
+const assertSecureRandomAvailable = (): void => {
+  if (!hasSecureRandom()) {
+    throw new E2EEUnsupportedError(
+      "crypto.getRandomValues is unavailable on this runtime"
+    );
   }
-  return subtle;
 };
 
 export const isE2EECryptoSupported = (): boolean =>
-  Boolean((globalThis as any)?.crypto?.subtle);
+  hasSecureRandom();
+
+const normalizeHex = (value: string, label: string): string => {
+  const normalized = value.trim().replace(/^0x/i, "").toLowerCase();
+  if (
+    normalized.length === 0 ||
+    normalized.length % 2 !== 0 ||
+    !HEX_PATTERN.test(normalized)
+  ) {
+    throw new Error(`Invalid E2EE ${label} format`);
+  }
+  return normalized;
+};
+
+const parsePrivateKeyHex = (privateKeyHex: string): Uint8Array => {
+  const normalized = normalizeHex(privateKeyHex, "private key");
+  if (normalized.length !== 64) {
+    throw new Error("Invalid E2EE private key length");
+  }
+  return hexToBytes(normalized);
+};
+
+const parsePublicKeyHex = (publicKeyHex: string): Uint8Array => {
+  const normalized = normalizeHex(publicKeyHex, "public key");
+  if (normalized.length !== 66 && normalized.length !== 130) {
+    throw new Error("Invalid E2EE public key length");
+  }
+  return hexToBytes(normalized);
+};
 
 export interface E2EEKeyPair {
-  publicKey: string; // Base64-encoded public key
-  privateKey: string; // Base64-encoded private key (stored securely)
+  publicKey: string; // Hex-encoded P-256 public key
+  privateKey: string; // Hex-encoded P-256 private key (stored securely)
 }
 
 export interface E2EESessionKey {
@@ -54,28 +82,17 @@ export interface E2EESessionKey {
 }
 
 /**
- * Generate ECDH key pair using native crypto
+ * Generate ECDH key pair using noble-curves (P-256)
  */
 export async function generateECDHKeyPair(): Promise<E2EEKeyPair> {
   try {
-    const subtle = getSubtleCrypto();
-
-    // Use native crypto for ECDH (P-256 curve)
-    const keyPair = await subtle.generateKey(
-      {
-        name: "ECDH",
-        namedCurve: "P-256"
-      },
-      true,
-      ["deriveKey", "deriveBits"]
-    );
-
-    const publicKeyJwk = await subtle.exportKey("jwk", keyPair.publicKey);
-    const privateKeyJwk = await subtle.exportKey("jwk", keyPair.privateKey);
+    assertSecureRandomAvailable();
+    const privateKeyBytes = p256.utils.randomPrivateKey();
+    const publicKeyBytes = p256.getPublicKey(privateKeyBytes, false);
 
     return {
-      publicKey: JSON.stringify(publicKeyJwk),
-      privateKey: JSON.stringify(privateKeyJwk)
+      publicKey: bytesToHex(publicKeyBytes),
+      privateKey: bytesToHex(privateKeyBytes)
     };
   } catch (error) {
     if (error instanceof E2EEUnsupportedError) {
@@ -90,69 +107,35 @@ export async function generateECDHKeyPair(): Promise<E2EEKeyPair> {
  * Derive session key from ECDH shared secret
  */
 export async function deriveSessionKey(
-  myPrivateKeyJwk: string,
-  peerPublicKeyJwk: string,
+  myPrivateKeyHex: string,
+  peerPublicKeyHex: string,
   callId: string
 ): Promise<E2EESessionKey> {
   try {
-    const subtle = getSubtleCrypto();
+    const myPrivateKey = parsePrivateKeyHex(myPrivateKeyHex);
+    const peerPublicKey = parsePublicKeyHex(peerPublicKeyHex);
 
-    const myPrivateKey = await subtle.importKey(
-      "jwk",
-      JSON.parse(myPrivateKeyJwk),
-      { name: "ECDH", namedCurve: "P-256" },
-      false,
-      ["deriveKey", "deriveBits"]
-    );
+    const sharedPoint = p256.getSharedSecret(myPrivateKey, peerPublicKey, false);
+    const sharedSecret =
+      sharedPoint.length >= 33 && sharedPoint[0] === 0x04
+        ? sharedPoint.slice(1, 33)
+        : sharedPoint.slice(-32);
 
-    const peerPublicKey = await subtle.importKey(
-      "jwk",
-      JSON.parse(peerPublicKeyJwk),
-      { name: "ECDH", namedCurve: "P-256" },
-      false,
-      []
-    );
+    if (sharedSecret.length !== 32) {
+      throw new Error("Invalid E2EE shared secret length");
+    }
 
-    // Derive shared secret
-    const sharedSecret = await subtle.deriveBits(
-      { name: "ECDH", public: peerPublicKey },
-      myPrivateKey,
-      256
-    );
-
-    // Derive session key using HKDF with callId as salt
-    const salt = new TextEncoder().encode(callId);
-    const info = new TextEncoder().encode("AllCallAll E2EE Session Key");
-
-    const sessionKeyMaterial = await subtle.importKey(
-      "raw",
+    // Derive session key using HKDF-SHA256 with callId as salt.
+    const salt = utf8ToBytes(callId);
+    const sessionKeyBytes = hkdf(
+      sha256,
       sharedSecret,
-      { name: "HKDF" },
-      false,
-      ["deriveKey"]
+      salt,
+      E2EE_INFO,
+      32
     );
 
-    const sessionKey = await subtle.deriveKey(
-      {
-        name: "HKDF",
-        hash: "SHA-256",
-        salt: salt,
-        info: info
-      },
-      sessionKeyMaterial,
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt", "decrypt"]
-    );
-
-    // Export session key for fingerprint computation
-    const sessionKeyRaw = await subtle.exportKey("raw", sessionKey);
-    const sessionKeyBytes = new Uint8Array(sessionKeyRaw);
-
-    // Compute fingerprint (SHA-256 hash)
-    const fingerprintBuffer = await subtle.digest("SHA-256", sessionKeyBytes);
-    const fingerprintArray = Array.from(new Uint8Array(fingerprintBuffer));
-    const fingerprint = fingerprintArray.map(b => b.toString(16).padStart(2, "0")).join("");
+    const fingerprint = bytesToHex(sha256(sessionKeyBytes));
 
     return {
       sessionKey: sessionKeyBytes,
