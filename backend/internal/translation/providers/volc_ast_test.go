@@ -123,6 +123,45 @@ func TestParseProviderMessageStatusErrorClassification(t *testing.T) {
 	}
 }
 
+func TestParseProviderMessageGatewayOKStatusIsNotError(t *testing.T) {
+	s := &volcASTSession{
+		logger:          zerolog.Nop(),
+		revisionBySeg:   map[string]int{},
+		sourceBySeg:     map[string]string{},
+		translatedBySeg: map[string]string{},
+		finalizedSeg:    map[string]bool{},
+	}
+
+	resp := &ast.TranslateResponse{
+		ResponseMeta: &rpcmeta.ResponseMeta{
+			SessionID:  "s1",
+			Sequence:   7,
+			StatusCode: 20000000,
+			Message:    "OK",
+		},
+		Event: event.Type_TranslationSubtitleResponse,
+		Text:  "hello",
+	}
+	frame, err := proto.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal response failed: %v", err)
+	}
+
+	evt, ok := s.parseProviderMessage(frame)
+	if !ok {
+		t.Fatalf("expected event to be emitted")
+	}
+	if evt.Error != nil {
+		t.Fatalf("expected no provider error, got %+v", evt.Error)
+	}
+	if evt.Result == nil {
+		t.Fatalf("expected translation result")
+	}
+	if evt.Result.TranslatedText != "hello" {
+		t.Fatalf("unexpected translated text: %s", evt.Result.TranslatedText)
+	}
+}
+
 func TestParseProviderMessageBadPayload(t *testing.T) {
 	s := &volcASTSession{}
 	evt, ok := s.parseProviderMessage([]byte("not protobuf"))

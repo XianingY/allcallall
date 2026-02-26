@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -37,6 +39,7 @@ type smokeReport struct {
 	ObservedLatencyMSP95 int64     `json:"observed_latency_ms_p95"`
 	RecoverableErrors    []string  `json:"recoverable_errors"`
 	NonRecoverableErrors []string  `json:"non_recoverable_errors"`
+	AudioFile            string    `json:"audio_file,omitempty"`
 }
 
 func main() {
@@ -49,6 +52,7 @@ func main() {
 
 		sourceLang = flag.String("source-lang", "zh", "source language")
 		targetLang = flag.String("target-lang", "en", "target language")
+		audioFile  = flag.String("audio-file", "", "optional wav file for real speech smoke")
 		duration   = flag.Int("duration-sec", 600, "streaming duration in seconds")
 		chunkMS    = flag.Int("chunk-ms", 400, "chunk size in milliseconds")
 		reportPath = flag.String("report", "/Users/byzantium/github/allcallall/backend/tmp/translation_smoke_report.json", "output report json path")
@@ -75,6 +79,7 @@ func main() {
 		ChunkMS:     *chunkMS,
 		SourceLang:  *sourceLang,
 		TargetLang:  *targetLang,
+		AudioFile:   strings.TrimSpace(*audioFile),
 	}
 
 	session, err := service.StartSession(ctx, "smoke@allcallall.local", translation.StartRequest{
@@ -138,17 +143,25 @@ func main() {
 	deadline := time.Now().Add(time.Duration(*duration) * time.Second)
 
 	seq := int64(1)
-	silence := makeSilenceChunkBase64(*chunkMS, 16000)
+	chunkEncoder, err := buildChunkEncoder(strings.TrimSpace(*audioFile), *chunkMS)
+	if err != nil {
+		report.ErrorCount++
+		report.NonRecoverableErrors = append(report.NonRecoverableErrors, "AUDIO_SOURCE:"+err.Error())
+		_ = finishReport(report, *reportPath)
+		fmt.Fprintf(os.Stderr, "build audio source failed: %v\n", err)
+		os.Exit(1)
+	}
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
 			break
 		case <-ticker.C:
+			pcmBase64, sampleRate, channels := chunkEncoder.Next()
 			err := session.SendAudio(ctx, translation.AudioChunk{
 				Seq:         seq,
-				PCM16Base64: silence,
-				SampleRate:  16000,
-				Channels:    1,
+				PCM16Base64: pcmBase64,
+				SampleRate:  sampleRate,
+				Channels:    channels,
 				TimestampMS: time.Now().UnixMilli(),
 			})
 			if err != nil {
@@ -188,6 +201,133 @@ func makeSilenceChunkBase64(chunkMS int, sampleRate int) string {
 	// int16 PCM, mono.
 	buf := make([]byte, sampleCount*2)
 	return base64.StdEncoding.EncodeToString(buf)
+}
+
+type chunkStream struct {
+	pcm        []byte
+	sampleRate int
+	channels   int
+	chunkBytes int
+	cursor     int
+}
+
+func buildChunkEncoder(audioFile string, chunkMS int) (*chunkStream, error) {
+	if audioFile == "" {
+		return &chunkStream{
+			pcm:        []byte{},
+			sampleRate: 16000,
+			channels:   1,
+			chunkBytes: 0,
+		}, nil
+	}
+
+	pcm, sampleRate, channels, err := loadWAVPCM16(audioFile)
+	if err != nil {
+		return nil, err
+	}
+	if chunkMS <= 0 {
+		chunkMS = 400
+	}
+	samplesPerChunk := (sampleRate * chunkMS) / 1000
+	if samplesPerChunk <= 0 {
+		samplesPerChunk = 1
+	}
+	chunkBytes := samplesPerChunk * channels * 2
+	if chunkBytes <= 0 {
+		return nil, errors.New("invalid chunk bytes")
+	}
+
+	return &chunkStream{
+		pcm:        pcm,
+		sampleRate: sampleRate,
+		channels:   channels,
+		chunkBytes: chunkBytes,
+	}, nil
+}
+
+func (c *chunkStream) Next() (string, int, int) {
+	if len(c.pcm) == 0 || c.chunkBytes <= 0 {
+		return makeSilenceChunkBase64(400, 16000), 16000, 1
+	}
+
+	chunk := make([]byte, c.chunkBytes)
+	remaining := c.chunkBytes
+	written := 0
+	for remaining > 0 {
+		if c.cursor >= len(c.pcm) {
+			c.cursor = 0
+		}
+		n := copy(chunk[written:], c.pcm[c.cursor:])
+		c.cursor += n
+		written += n
+		remaining -= n
+	}
+	return base64.StdEncoding.EncodeToString(chunk), c.sampleRate, c.channels
+}
+
+func loadWAVPCM16(path string) ([]byte, int, int, error) {
+	content, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("read wav file failed: %w", err)
+	}
+	if len(content) < 12 || string(content[0:4]) != "RIFF" || string(content[8:12]) != "WAVE" {
+		return nil, 0, 0, errors.New("unsupported wav file: missing RIFF/WAVE header")
+	}
+
+	var (
+		offset        = 12
+		channels      uint16
+		sampleRate    uint32
+		bitsPerSample uint16
+		audioFormat   uint16
+		pcm           []byte
+	)
+
+	for offset+8 <= len(content) {
+		chunkID := string(content[offset : offset+4])
+		chunkSize := int(binary.LittleEndian.Uint32(content[offset+4 : offset+8]))
+		offset += 8
+		if chunkSize < 0 || offset+chunkSize > len(content) {
+			return nil, 0, 0, errors.New("invalid wav chunk size")
+		}
+
+		switch chunkID {
+		case "fmt ":
+			if chunkSize < 16 {
+				return nil, 0, 0, errors.New("wav fmt chunk too small")
+			}
+			audioFormat = binary.LittleEndian.Uint16(content[offset : offset+2])
+			channels = binary.LittleEndian.Uint16(content[offset+2 : offset+4])
+			sampleRate = binary.LittleEndian.Uint32(content[offset+4 : offset+8])
+			bitsPerSample = binary.LittleEndian.Uint16(content[offset+14 : offset+16])
+
+		case "data":
+			pcm = append([]byte(nil), content[offset:offset+chunkSize]...)
+		}
+
+		offset += chunkSize
+		if chunkSize%2 == 1 && offset < len(content) {
+			offset++
+		}
+	}
+
+	if len(pcm) == 0 {
+		return nil, 0, 0, errors.New("wav data chunk not found")
+	}
+	if audioFormat != 1 {
+		return nil, 0, 0, fmt.Errorf("unsupported wav format: %d", audioFormat)
+	}
+	if bitsPerSample != 16 {
+		return nil, 0, 0, fmt.Errorf("unsupported wav bit depth: %d", bitsPerSample)
+	}
+	if channels != 1 && channels != 2 {
+		return nil, 0, 0, fmt.Errorf("unsupported wav channels: %d", channels)
+	}
+	if sampleRate != 16000 && sampleRate != 48000 {
+		return nil, 0, 0, fmt.Errorf("unsupported wav sample rate: %d", sampleRate)
+	}
+
+	return pcm, int(sampleRate), int(channels), nil
 }
 
 func percentile(values []int64, p int) int64 {

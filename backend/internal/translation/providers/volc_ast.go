@@ -30,6 +30,7 @@ import (
 const (
 	defaultVolcASTWSURL     = "wss://openspeech.bytedance.com/api/v4/ast/v2/translate"
 	defaultVolcASTResource  = "volc.service_type.10053"
+	volcGatewayStatusOKCode = int32(20000000)
 	volcStartWriteTimeout   = 5 * time.Second
 	volcAudioWriteTimeout   = 3 * time.Second
 	volcStopWriteTimeout    = 3 * time.Second
@@ -322,18 +323,28 @@ func (s *volcASTSession) parseProviderMessage(data []byte) (translation.Event, b
 		statusMsg = strings.TrimSpace(meta.GetMessage())
 	}
 
-	if isFailureStatus(statusCode) {
-		providerErr := providerErrorFromStatus(statusCode, statusMsg)
-		return translation.Event{Error: &providerErr}, true
-	}
-
 	switch resp.GetEvent() {
+	case volcevent.Type_SessionFailed, volcevent.Type_ConnectionFailed:
+		providerErr := providerErrorFromStatus(statusCode, statusMsg)
+		if providerErr.Code == "PROVIDER_ERROR_0" {
+			providerErr.Code = "PROVIDER_ERROR"
+		}
+		return translation.Event{Error: &providerErr}, true
+
 	case volcevent.Type_SourceSubtitleResponse:
+		if isFailureStatus(statusCode, statusMsg) {
+			providerErr := providerErrorFromStatus(statusCode, statusMsg)
+			return translation.Event{Error: &providerErr}, true
+		}
 		segID := s.segmentIDFromSequence(meta.GetSequence())
 		s.updateSource(segID, resp.GetText())
 		return translation.Event{}, false
 
 	case volcevent.Type_TranslationSubtitleResponse:
+		if isFailureStatus(statusCode, statusMsg) {
+			providerErr := providerErrorFromStatus(statusCode, statusMsg)
+			return translation.Event{Error: &providerErr}, true
+		}
 		segID := s.segmentIDFromSequence(meta.GetSequence())
 		result := s.buildResult(segID, resp.GetText(), false, resp.GetStartTime(), resp.GetEndTime())
 		if result == nil {
@@ -342,6 +353,10 @@ func (s *volcASTSession) parseProviderMessage(data []byte) (translation.Event, b
 		return translation.Event{Result: result}, true
 
 	case volcevent.Type_TranslationSubtitleEnd:
+		if isFailureStatus(statusCode, statusMsg) {
+			providerErr := providerErrorFromStatus(statusCode, statusMsg)
+			return translation.Event{Error: &providerErr}, true
+		}
 		segID := s.segmentIDFromSequence(meta.GetSequence())
 		result := s.buildResult(segID, resp.GetText(), true, resp.GetStartTime(), resp.GetEndTime())
 		if result == nil {
@@ -355,14 +370,19 @@ func (s *volcASTSession) parseProviderMessage(data []byte) (translation.Event, b
 		}
 		return translation.Event{}, false
 
-	case volcevent.Type_SessionFailed, volcevent.Type_ConnectionFailed:
-		providerErr := providerErrorFromStatus(statusCode, statusMsg)
-		if providerErr.Code == "PROVIDER_ERROR_0" {
-			providerErr.Code = "PROVIDER_ERROR"
-		}
-		return translation.Event{Error: &providerErr}, true
+	case volcevent.Type_SessionStarted,
+		volcevent.Type_UsageResponse,
+		volcevent.Type_SourceSubtitleStart,
+		volcevent.Type_SourceSubtitleEnd,
+		volcevent.Type_TranslationSubtitleStart,
+		volcevent.Type_AudioMuted:
+		return translation.Event{}, false
 
 	default:
+		if isFailureStatus(statusCode, statusMsg) {
+			providerErr := providerErrorFromStatus(statusCode, statusMsg)
+			return translation.Event{Error: &providerErr}, true
+		}
 		return translation.Event{}, false
 	}
 }
@@ -479,8 +499,21 @@ func (s *volcASTSession) emitError(code, msg string, recoverable bool) {
 	})
 }
 
-func isFailureStatus(code int32) bool {
-	return code != 0 && code != int32(volcbase.Code_SUCCESS)
+func isFailureStatus(code int32, message string) bool {
+	return !isSuccessStatus(code, message)
+}
+
+func isSuccessStatus(code int32, message string) bool {
+	switch code {
+	case 0, int32(volcbase.Code_SUCCESS), volcGatewayStatusOKCode:
+		return true
+	}
+
+	trimmed := strings.TrimSpace(message)
+	if strings.EqualFold(trimmed, "ok") {
+		return true
+	}
+	return false
 }
 
 func providerErrorFromStatus(code int32, message string) translation.ProviderError {
