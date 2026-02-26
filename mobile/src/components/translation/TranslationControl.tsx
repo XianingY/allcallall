@@ -1,5 +1,4 @@
-// mobile/src/components/translation/TranslationControl.tsx
-import React, { useState, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -11,12 +10,23 @@ import {
   ActivityIndicator
 } from 'react-native';
 
+export type TranslationMode = 'offline' | 'online' | 'hybrid';
+export type TranslationOnlineStatus = 'idle' | 'connecting' | 'connected' | 'fallback' | 'retrying' | 'error';
+
 interface TranslationControlProps {
   isEnabled: boolean;
   onToggle: (enabled: boolean) => void;
-  targetLanguage: string;
-  onLanguageChange: (language: string) => void;
-  // New props for translation display
+  targetLanguage?: string;
+  onLanguageChange?: (language: string) => void;
+  sourceLanguage?: string;
+  onSourceLanguageChange?: (language: string) => void;
+  onTargetLanguageChange?: (language: string) => void;
+  translationMode?: TranslationMode;
+  onlineStatus?: TranslationOnlineStatus;
+  fallbackReason?: string | null;
+  translationServiceStatus?: 'idle' | 'initializing' | 'ready' | 'failed';
+  translationServiceError?: string | null;
+  onRetryInitialize?: () => void;
   originalText?: string;
   translatedText?: string;
   isTranslating?: boolean;
@@ -26,44 +36,67 @@ interface TranslationControlProps {
 
 const SUPPORTED_LANGUAGES = [
   { code: 'zh', name: 'Chinese', nativeName: '中文' },
-  { code: 'en', name: 'English', nativeName: 'English' },
-  { code: 'ja', name: 'Japanese', nativeName: '日本語' },
-  { code: 'ko', name: 'Korean', nativeName: '한국어' },
-  { code: 'es', name: 'Spanish', nativeName: 'Español' },
-  { code: 'fr', name: 'French', nativeName: 'Français' }
+  { code: 'en', name: 'English', nativeName: 'English' }
 ];
+
+const modeLabel = (mode: TranslationMode) => {
+  switch (mode) {
+    case 'offline':
+      return 'offline';
+    case 'online':
+      return 'online';
+    case 'hybrid':
+    default:
+      return 'hybrid';
+  }
+};
+
+const onlineStatusLabel = (status: TranslationOnlineStatus) => {
+  switch (status) {
+    case 'connected':
+      return '在线已连接';
+    case 'connecting':
+      return '在线连接中';
+    case 'fallback':
+      return '离线兜底中';
+    case 'retrying':
+      return '在线重试中';
+    case 'error':
+      return '在线异常';
+    default:
+      return '待机';
+  }
+};
 
 const TranslationControl: React.FC<TranslationControlProps> = ({
   isEnabled,
   onToggle,
-  targetLanguage,
+  targetLanguage = 'en',
   onLanguageChange,
-  originalText = '',
-  translatedText = '',
-  isTranslating = false,
-  detectedLanguage = '',
-  onPlayAudio
+  sourceLanguage = 'zh',
+  onSourceLanguageChange,
+  onTargetLanguageChange,
+  translationMode = 'hybrid',
+  onlineStatus = 'idle',
+  fallbackReason = null,
+  translationServiceStatus = 'idle',
+  translationServiceError = null,
+  onRetryInitialize,
 }) => {
-  const [showLanguagePicker, setShowLanguagePicker] = useState(false);
-  const currentLanguage = SUPPORTED_LANGUAGES.find(
-    lang => lang.code === targetLanguage
-  );
+  const [pickerType, setPickerType] = useState<'source' | 'target' | null>(null);
 
-  // Determine translation direction display
-  const getDirectionText = useCallback(() => {
-    if (!detectedLanguage) return '';
-    const isEnglish = detectedLanguage === 'en';
-    if (targetLanguage === 'zh') {
-      return isEnglish ? '英 → 中' : '中 → 中';
-    } else if (targetLanguage === 'en') {
-      return isEnglish ? '英 → 英' : '中 → 英';
-    }
-    return '';
-  }, [detectedLanguage, targetLanguage]);
+  const effectiveTargetSetter = onTargetLanguageChange ?? onLanguageChange;
+  const source = useMemo(
+    () => SUPPORTED_LANGUAGES.find((lang) => lang.code === sourceLanguage),
+    [sourceLanguage]
+  );
+  const target = useMemo(
+    () => SUPPORTED_LANGUAGES.find((lang) => lang.code === targetLanguage),
+    [targetLanguage]
+  );
 
   return (
     <View style={styles.container}>
-      {/* Control Bar */}
       <View style={styles.controlBar}>
         <View style={styles.toggleContainer}>
           <Text style={styles.label}>实时翻译</Text>
@@ -74,99 +107,87 @@ const TranslationControl: React.FC<TranslationControlProps> = ({
             thumbColor={isEnabled ? '#3b82f6' : '#f4f3f4'}
           />
         </View>
-
-        {isEnabled && (
-          <TouchableOpacity
-            style={styles.languageButton}
-            onPress={() => setShowLanguagePicker(true)}
-          >
-            <Text style={styles.languageButtonText}>
-              {currentLanguage?.nativeName || '选择语言'}
-            </Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.modeBadge}>
+          <Text style={styles.modeBadgeText}>{modeLabel(translationMode)}</Text>
+        </View>
       </View>
 
-      {/* Translation Display Area */}
-      {isEnabled && (
-        <View style={styles.translationDisplay}>
-          {/* Direction Indicator */}
-          {detectedLanguage && (
-            <View style={styles.directionContainer}>
-              <Text style={styles.directionText}>{getDirectionText()}</Text>
-            </View>
-          )}
-
-          {/* Loading Indicator */}
-          {isTranslating && (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#3b82f6" />
-              <Text style={styles.loadingText}>翻译中...</Text>
-            </View>
-          )}
-
-          {/* Original Text */}
-          {originalText && (
-            <View style={styles.textContainer}>
-              <Text style={styles.textLabel}>原文:</Text>
-              <Text style={styles.originalText}>{originalText}</Text>
-            </View>
-          )}
-
-          {/* Translated Text */}
-          {translatedText && (
-            <View style={styles.textContainer}>
-              <Text style={styles.textLabel}>译文:</Text>
-              <Text style={styles.translatedText}>{translatedText}</Text>
-            </View>
-          )}
-
-          {/* Play Audio Button */}
-          {translatedText && onPlayAudio && (
+      {isEnabled ? (
+        <View style={styles.translationPanel}>
+          <View style={styles.languageRow}>
             <TouchableOpacity
-              style={styles.playButton}
-              onPress={onPlayAudio}
+              style={styles.languageButton}
+              onPress={() => setPickerType('source')}
             >
-              <Text style={styles.playButtonIcon}>🔊</Text>
-              <Text style={styles.playButtonText}>播放翻译</Text>
+              <Text style={styles.languageButtonLabel}>源语言</Text>
+              <Text style={styles.languageButtonValue}>{source?.nativeName ?? '未设置'}</Text>
             </TouchableOpacity>
-          )}
-        </View>
-      )}
 
-      {/* Language Picker Modal */}
+            <Text style={styles.arrow}>→</Text>
+
+            <TouchableOpacity
+              style={styles.languageButton}
+              onPress={() => setPickerType('target')}
+            >
+              <Text style={styles.languageButtonLabel}>目标语言</Text>
+              <Text style={styles.languageButtonValue}>{target?.nativeName ?? '未设置'}</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.statusRow}>
+            <Text style={styles.statusText}>链路状态：{onlineStatusLabel(onlineStatus)}</Text>
+            {translationServiceStatus === 'initializing' ? (
+              <ActivityIndicator size="small" color="#3b82f6" />
+            ) : null}
+          </View>
+
+          {translationServiceStatus === 'failed' ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText} numberOfLines={2}>
+                初始化失败：{translationServiceError || '未知错误'}
+              </Text>
+              {onRetryInitialize ? (
+                <TouchableOpacity style={styles.retryButton} onPress={onRetryInitialize}>
+                  <Text style={styles.retryButtonText}>重试</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
+
+          {fallbackReason ? (
+            <Text style={styles.fallbackText}>回退原因：{fallbackReason}</Text>
+          ) : null}
+        </View>
+      ) : null}
+
       <Modal
-        visible={showLanguagePicker}
+        visible={pickerType !== null}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => setShowLanguagePicker(false)}
+        onRequestClose={() => setPickerType(null)}
       >
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
-          onPress={() => setShowLanguagePicker(false)}
+          onPress={() => setPickerType(null)}
         >
           <View style={styles.languagePicker}>
-            <Text style={styles.pickerTitle}>选择目标语言</Text>
+            <Text style={styles.pickerTitle}>{pickerType === 'source' ? '选择源语言' : '选择目标语言'}</Text>
             <ScrollView>
-              {SUPPORTED_LANGUAGES.map(lang => (
+              {SUPPORTED_LANGUAGES.map((lang) => (
                 <TouchableOpacity
                   key={lang.code}
-                  style={[
-                    styles.languageOption,
-                    targetLanguage === lang.code && styles.selectedOption
-                  ]}
+                  style={styles.languageOption}
                   onPress={() => {
-                    onLanguageChange(lang.code);
-                    setShowLanguagePicker(false);
+                    if (pickerType === 'source') {
+                      onSourceLanguageChange?.(lang.code);
+                    } else {
+                      effectiveTargetSetter?.(lang.code);
+                    }
+                    setPickerType(null);
                   }}
                 >
-                  <Text
-                    style={[
-                      styles.languageOptionText,
-                      targetLanguage === lang.code && styles.selectedOptionText
-                    ]}
-                  >
+                  <Text style={styles.languageOptionText}>
                     {lang.nativeName} ({lang.name})
                   </Text>
                 </TouchableOpacity>
@@ -202,85 +223,92 @@ const styles = StyleSheet.create({
     marginRight: 12,
     fontWeight: '500'
   },
-  languageButton: {
-    backgroundColor: '#3b82f6',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginLeft: 12
+  modeBadge: {
+    backgroundColor: 'rgba(59,130,246,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(59,130,246,0.5)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4
   },
-  languageButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600'
+  modeBadgeText: {
+    color: '#bfdbfe',
+    fontSize: 12,
+    fontWeight: '700'
   },
-  // Translation Display Styles
-  translationDisplay: {
+  translationPanel: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderRadius: 12,
-    padding: 16,
-    marginTop: 12
+    padding: 12,
+    marginTop: 10,
+    gap: 10
   },
-  directionContainer: {
-    alignItems: 'center',
-    marginBottom: 12
-  },
-  directionText: {
-    color: '#81b0ff',
-    fontSize: 18,
-    fontWeight: '600'
-  },
-  loadingContainer: {
+  languageRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    gap: 8
+  },
+  languageButton: {
+    flex: 1,
+    backgroundColor: 'rgba(30,41,59,0.7)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
     paddingVertical: 8
   },
-  loadingText: {
-    color: '#999',
-    fontSize: 14,
-    marginLeft: 8
+  languageButtonLabel: {
+    color: '#94a3b8',
+    fontSize: 11
   },
-  textContainer: {
-    marginVertical: 8
-  },
-  textLabel: {
-    color: '#999',
-    fontSize: 12,
-    marginBottom: 4
-  },
-  originalText: {
-    color: '#ccc',
-    fontSize: 16,
-    lineHeight: 22
-  },
-  translatedText: {
+  languageButtonValue: {
     color: '#fff',
-    fontSize: 18,
-    fontWeight: '500',
-    lineHeight: 26
-  },
-  playButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#3b82f6',
-    borderRadius: 20,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    marginTop: 12,
-    alignSelf: 'center'
-  },
-  playButtonIcon: {
-    fontSize: 18,
-    marginRight: 8
-  },
-  playButtonText: {
-    color: '#fff',
-    fontSize: 14,
+    marginTop: 2,
+    fontSize: 15,
     fontWeight: '600'
   },
-  // Modal Styles
+  arrow: {
+    color: '#93c5fd',
+    fontSize: 18,
+    fontWeight: '700'
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  statusText: {
+    color: '#dbeafe',
+    fontSize: 13
+  },
+  errorBox: {
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(220, 38, 38, 0.22)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  errorText: {
+    color: '#fecaca',
+    fontSize: 12,
+    flex: 1
+  },
+  retryButton: {
+    backgroundColor: '#ef4444',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700'
+  },
+  fallbackText: {
+    color: '#fcd34d',
+    fontSize: 12
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -296,27 +324,20 @@ const styles = StyleSheet.create({
   },
   pickerTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '700',
     marginBottom: 16,
     textAlign: 'center',
-    color: '#333'
+    color: '#111827'
   },
   languageOption: {
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0'
-  },
-  selectedOption: {
-    backgroundColor: '#e3f2fd'
+    borderBottomColor: '#f3f4f6'
   },
   languageOptionText: {
     fontSize: 16,
     textAlign: 'center',
-    color: '#333'
-  },
-  selectedOptionText: {
-    color: '#3b82f6',
-    fontWeight: 'bold'
+    color: '#111827'
   }
 });
 

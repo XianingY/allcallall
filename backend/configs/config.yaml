@@ -40,5 +40,18 @@ webrtc:
         - "stun:stun.l.google.com:19302"
         - "stun:stun1.l.google.com:19302"
 
+translation:
+  enabled: false
+  provider: "volc_ast"
+  chunk_ms: 400
+  partial_debounce_ms: 600
+  max_sessions_per_user: 2
+  volc_ast:
+    ws_url: "wss://openspeech.bytedance.com/api/v4/ast/v2/translate"
+    app_key: "${VOLC_AST_APP_KEY}"
+    access_key: "${VOLC_AST_ACCESS_KEY}"
+    resource_id: "${VOLC_AST_RESOURCE_ID}"
+    app_id: "${VOLC_AST_APP_ID}"
+
 logging:
   level: "info"

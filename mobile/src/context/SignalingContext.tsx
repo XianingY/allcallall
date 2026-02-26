@@ -25,10 +25,18 @@ import {
   MediaUpdatePayload,
   SdpRenegotiationPayload,
   SignalingClient,
+  SubtitlePayload,
   SignalMessage
 } from "../api/signaling";
 import { PollingSignalingClient } from "../api/signalingPoll";
-import { RESTRICTED_NETWORK_MODE, SIGNALING_TRANSPORT_MODE } from "../config";
+import {
+  RESTRICTED_NETWORK_MODE,
+  SIGNALING_TRANSPORT_MODE,
+  TRANSLATION_MODE,
+  TRANSLATION_SOURCE_LANG,
+  TRANSLATION_TARGET_LANG,
+  type TranslationMode
+} from "../config";
 import { fetchWebRTCConfig } from "../api/webrtc";
 import { useAuthContext } from "./AuthContext";
 import { useSettings } from "./SettingsContext";
@@ -37,7 +45,10 @@ import VibrationService from "../services/VibrationService";
 import VideoService, { CameraFacing, VideoQuality } from "../services/VideoService";
 import CameraPermissionService from "../services/CameraPermissionService";
 import TranslationService from "../services/translation/TranslationService";
-import ParallelProcessor from "../services/translation/utils/ParallelProcessor";
+import OnlineTranslationService, {
+  type OnlineTranslationStatus,
+  type OnlineTranslationResult
+} from "../services/translation/OnlineTranslationService";
 import { useSubtitleStore } from "../store/useSubtitleStore";
 import { E2EEKeyExchange, type E2EEKeyExchangeCallbacks, type KeyExchangeRole } from "../services/e2ee/E2EEKeyExchange";
 import type { E2EESessionKey } from "../services/e2ee/E2EEService";
@@ -85,6 +96,7 @@ interface CallSession {
 }
 
 type CallStatus = "idle" | "connecting" | "incoming" | "in_call";
+type TranslationInitStatus = "idle" | "initializing" | "ready" | "failed";
 
 export type NetworkQuality = "excellent" | "good" | "poor" | "bad" | "unknown";
 
@@ -108,6 +120,12 @@ interface SignalingContextValue {
   // 翻译功能相关状态
   translationEnabled: boolean;
   translationLanguage: string;
+  translationSourceLanguage: string;
+  translationMode: TranslationMode;
+  translationOnlineStatus: OnlineTranslationStatus;
+  translationFallbackReason: string | null;
+  translationInitStatus: TranslationInitStatus;
+  translationInitError: string | null;
   // 通话控制函数
   startCall: (email: string) => Promise<void>;
   acceptCall: () => Promise<void>;
@@ -128,6 +146,8 @@ interface SignalingContextValue {
   // 翻译控制函数
   toggleTranslation: (enabled: boolean) => Promise<void>;
   setTranslationLanguage: (language: string) => void;
+  setTranslationSourceLanguage: (language: string) => void;
+  retryTranslationInitialization: () => Promise<void>;
 }
 
 const SignalingContext = createContext<SignalingContextValue | undefined>(
@@ -206,8 +226,19 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const videoAdaptiveBitrateEnabledRef = useRef<boolean>(false);
 
   const [translationEnabled, setTranslationEnabled] = useState<boolean>(false);
-  const [translationLanguage, setTranslationLanguage] = useState<string>("zh");
-  const processorRef = useRef<ParallelProcessor | null>(null);
+  const [translationLanguage, setTranslationLanguage] = useState<string>(TRANSLATION_TARGET_LANG);
+  const [translationSourceLanguage, setTranslationSourceLanguage] = useState<string>(TRANSLATION_SOURCE_LANG);
+  const [translationMode] = useState<TranslationMode>(TRANSLATION_MODE);
+  const [translationOnlineStatus, setTranslationOnlineStatus] = useState<OnlineTranslationStatus>("idle");
+  const [translationFallbackReason, setTranslationFallbackReason] = useState<string | null>(null);
+  const [translationInitStatus, setTranslationInitStatus] = useState<TranslationInitStatus>("idle");
+  const [translationInitError, setTranslationInitError] = useState<string | null>(null);
+  const translationInitPromiseRef = useRef<Promise<boolean> | null>(null);
+  const onlineErrorCountRef = useRef<number>(0);
+  const lastOnlinePartialAtRef = useRef<number>(0);
+  const fallbackTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fallbackProbeBusyRef = useRef<boolean>(false);
+  const offlineRunningRef = useRef<boolean>(false);
 
   const [e2eeEnabled, setE2eeEnabled] = useState<boolean>(false);
   const [e2eeFingerprint, setE2eeFingerprint] = useState<string | null>(null);
@@ -255,6 +286,13 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
   useEffect(() => {
     setIsSpeakerOn(AudioService.getSpeakerphone());
+  }, []);
+
+  useEffect(() => {
+    if (TranslationService.isReady()) {
+      setTranslationInitStatus("ready");
+      setTranslationInitError(null);
+    }
   }, []);
 
   useEffect(() => {
@@ -374,11 +412,23 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         const parsed = JSON.parse(String(event?.data ?? ''));
         if (!parsed || parsed.t !== 'subtitle') return;
         const ts = typeof parsed.timestampMs === 'number' ? parsed.timestampMs : Date.now();
-        useSubtitleStore.getState().addSubtitle({
-          id: `subtitle-${ts}`,
-          original: typeof parsed.originalText === 'string' ? parsed.originalText : '',
-          translated: typeof parsed.translatedText === 'string' ? parsed.translatedText : '',
+        const originalText = typeof parsed.originalText === 'string' ? parsed.originalText.trim() : '';
+        const translatedText = typeof parsed.translatedText === 'string' ? parsed.translatedText.trim() : '';
+        const segmentId = typeof parsed.segmentId === "string" && parsed.segmentId.trim().length > 0
+          ? parsed.segmentId
+          : `dc-remote-${ts}`;
+        const revision = typeof parsed.revision === "number" ? parsed.revision : 1;
+        const isFinal = parsed.isFinal !== false;
+        if (!originalText && !translatedText) return;
+        useSubtitleStore.getState().upsertSubtitle({
+          segmentId,
+          revision,
+          isFinal,
+          source: "remote",
+          original: originalText,
+          translated: translatedText,
           timestamp: ts,
+          expiresAt: ts + (isFinal ? 8000 : 3000),
         });
       } catch (e) {}
     };
@@ -662,6 +712,25 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
             if (typeof p?.videoEnabled === "boolean") setIsRemoteVideoEnabled(p.videoEnabled);
             if (typeof p?.audioEnabled === "boolean") setIsRemoteAudioEnabled(p.audioEnabled);
             break;
+          case "call.subtitle":
+            const subtitle = msg.payload as SubtitlePayload | undefined;
+            const subtitleTimestamp = typeof subtitle?.timestamp_ms === "number" ? subtitle.timestamp_ms : Date.now();
+            const subtitleOriginal = typeof subtitle?.original_text === "string" ? subtitle.original_text.trim() : "";
+            const subtitleTranslated = typeof subtitle?.translated_text === "string" ? subtitle.translated_text.trim() : "";
+            if (!subtitleOriginal && !subtitleTranslated) break;
+            useSubtitleStore.getState().upsertSubtitle({
+              segmentId:
+                typeof subtitle?.segment_id === "string" && subtitle.segment_id.length > 0
+                  ? subtitle.segment_id
+                  : `signal-remote-${subtitleTimestamp}`,
+              revision: typeof subtitle?.revision === "number" ? subtitle.revision : 1,
+              isFinal: subtitle?.is_final !== false,
+              source: subtitle?.source === "offline" ? "offline" : "remote",
+              original: subtitleOriginal,
+              translated: subtitleTranslated,
+              timestamp: subtitleTimestamp,
+            });
+            break;
           case "call.ice-restart.request":
             if (statusRef.current === "in_call" && sessionRef.current?.direction === "outgoing") startIceRestartAsCaller();
             break;
@@ -810,35 +879,405 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     const next = !isSpeakerOn; setIsSpeakerOn(next); await AudioService.setSpeakerphone(next);
   }, [isSpeakerOn]);
 
-  const toggleTranslation = useCallback(async (enabled: boolean) => {
-    try {
-      setTranslationEnabled(enabled);
-      if (!enabled) {
-        useSubtitleStore.getState().clearSubtitles();
-        await TranslationService.stopWebRTCCallMicTranslation();
-        if (processorRef.current) { processorRef.current.stopProcessing(); processorRef.current = null; }
+  const initializeTranslationService = useCallback(async (): Promise<boolean> => {
+    if (TranslationService.isReady()) {
+      setTranslationInitStatus("ready");
+      setTranslationInitError(null);
+      return true;
+    }
+
+    if (translationInitPromiseRef.current) {
+      return translationInitPromiseRef.current;
+    }
+
+    const initPromise = (async () => {
+      setTranslationInitStatus("initializing");
+      setTranslationInitError(null);
+      try {
+        await TranslationService.initialize({
+          whisperModel: "small",
+          targetLanguage: translationLanguage,
+          quantization: "int8",
+        });
+        setTranslationInitStatus("ready");
+        setTranslationInitError(null);
+        return true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setTranslationInitStatus("failed");
+        setTranslationInitError(message);
+        console.error("[SignalingContext] Translation initialization failed:", error);
+        return false;
+      } finally {
+        translationInitPromiseRef.current = null;
       }
-    } catch (e) {}
+    })();
+
+    translationInitPromiseRef.current = initPromise;
+    return initPromise;
+  }, [translationLanguage]);
+
+  const pushLocalSubtitle = useCallback((
+    segmentId: string,
+    revision: number,
+    isFinal: boolean,
+    source: "online" | "offline",
+    original: string,
+    translated: string,
+    timestamp: number
+  ) => {
+    if (!original.trim() && !translated.trim()) return;
+    useSubtitleStore.getState().upsertSubtitle({
+      segmentId,
+      revision,
+      isFinal,
+      source,
+      original,
+      translated,
+      timestamp,
+    });
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    if (translationEnabled && status === 'in_call' && TranslationService.isReady() && sessionRef.current?.peerEmail) {
-      TranslationService.startWebRTCCallMicTranslation(translationLanguage, (res) => {
-        if (cancelled) return;
-        const dc = subtitlesDataChannelRef.current;
-        if (dc?.readyState === 'open') dc.send(JSON.stringify({ t: 'subtitle', originalText: res.originalText, translatedText: res.translatedText, timestampMs: res.timestampMs }));
-      }).catch(() => {});
+  const sendFinalSubtitleToPeer = useCallback((
+    segmentId: string,
+    revision: number,
+    original: string,
+    translated: string,
+    timestampMs: number,
+    source: "online" | "offline"
+  ) => {
+    const current = sessionRef.current;
+    if (!current?.peerEmail) return;
+
+    sendMessage({
+      type: "call.subtitle",
+      call_id: current.callId,
+      to: current.peerEmail,
+      payload: {
+        segment_id: segmentId,
+        revision,
+        is_final: true,
+        original_text: original,
+        translated_text: translated,
+        timestamp_ms: timestampMs,
+        source,
+      },
+    });
+
+    // 兼容旧版本 DataChannel 接收端，一个版本周期后可删除。
+    // Keep DataChannel compatibility for one release cycle.
+    const dc = subtitlesDataChannelRef.current;
+    if (dc?.readyState === "open") {
+      dc.send(JSON.stringify({
+        t: "subtitle",
+        segmentId,
+        revision,
+        isFinal: true,
+        originalText: original,
+        translatedText: translated,
+        timestampMs,
+      }));
     }
-    return () => { cancelled = true; TranslationService.stopWebRTCCallMicTranslation().catch(() => {}); };
-  }, [translationEnabled, status, translationLanguage]);
+  }, [sendMessage]);
+
+  const stopOfflinePipeline = useCallback(async () => {
+    offlineRunningRef.current = false;
+    await TranslationService.stopWebRTCCallMicTranslation().catch(() => {});
+  }, []);
+
+  const startOfflinePipeline = useCallback(async (): Promise<boolean> => {
+    const ready = await initializeTranslationService();
+    if (!ready) return false;
+    if (offlineRunningRef.current) return true;
+
+    try {
+      offlineRunningRef.current = true;
+      await TranslationService.startWebRTCCallMicTranslation(translationLanguage, (res) => {
+        const originalText = typeof res.originalText === "string" ? res.originalText.trim() : "";
+        const translatedText = typeof res.translatedText === "string" ? res.translatedText.trim() : "";
+        if (!originalText && !translatedText) return;
+
+        const timestampMs = typeof res.timestampMs === "number" ? res.timestampMs : Date.now();
+        const segmentId = `offline-${timestampMs}`;
+        pushLocalSubtitle(segmentId, 1, true, "offline", originalText, translatedText, timestampMs);
+        sendFinalSubtitleToPeer(segmentId, 1, originalText, translatedText, timestampMs, "offline");
+      }, 400);
+      return true;
+    } catch (error) {
+      offlineRunningRef.current = false;
+      const message = error instanceof Error ? error.message : String(error);
+      setTranslationInitStatus("failed");
+      setTranslationInitError(message);
+      return false;
+    }
+  }, [initializeTranslationService, pushLocalSubtitle, sendFinalSubtitleToPeer, translationLanguage]);
+
+  const stopOnlinePipeline = useCallback(async () => {
+    await OnlineTranslationService.stop();
+    setTranslationOnlineStatus("idle");
+  }, []);
+
+  const startOnlinePipeline = useCallback(async (): Promise<boolean> => {
+    const current = sessionRef.current;
+    if (!token || !current) return false;
+
+    setTranslationInitStatus("initializing");
+    setTranslationInitError(null);
+    setTranslationOnlineStatus("connecting");
+
+    try {
+      await OnlineTranslationService.start(
+        {
+          token,
+          callId: current.callId,
+          to: current.peerEmail,
+          sourceLang: (translationSourceLanguage === "en" ? "en" : "zh"),
+          targetLang: (translationLanguage === "zh" ? "zh" : "en"),
+          chunkMs: 400,
+        },
+        {
+          onStatus: (nextStatus) => {
+            setTranslationOnlineStatus(nextStatus);
+            if (nextStatus === "connected") {
+              setTranslationInitStatus("ready");
+              setTranslationInitError(null);
+            }
+          },
+          onProviderError: (code, message) => {
+            onlineErrorCountRef.current += 1;
+            setTranslationInitError(`${code}: ${message}`);
+          },
+          onResult: (result: OnlineTranslationResult) => {
+            onlineErrorCountRef.current = 0;
+            if (!result.isFinal) {
+              lastOnlinePartialAtRef.current = Date.now();
+            }
+
+            const originalText = result.originalText.trim();
+            const translatedText = result.translatedText.trim();
+            pushLocalSubtitle(
+              result.segmentId,
+              result.revision,
+              result.isFinal,
+              "online",
+              originalText,
+              translatedText,
+              result.timestampMs
+            );
+
+            if (result.isFinal) {
+              sendFinalSubtitleToPeer(
+                result.segmentId,
+                result.revision,
+                originalText,
+                translatedText,
+                result.timestampMs,
+                "online"
+              );
+            }
+          },
+        }
+      );
+      lastOnlinePartialAtRef.current = Date.now();
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setTranslationInitError(message);
+      setTranslationOnlineStatus("error");
+      return false;
+    }
+  }, [pushLocalSubtitle, sendFinalSubtitleToPeer, token, translationLanguage, translationSourceLanguage]);
+
+  const stopFallbackProbe = useCallback(() => {
+    if (fallbackTimerRef.current) {
+      clearInterval(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
+  }, []);
+
+  const startFallbackProbe = useCallback(() => {
+    if (fallbackTimerRef.current) return;
+    fallbackTimerRef.current = setInterval(async () => {
+      if (
+        fallbackProbeBusyRef.current ||
+        !translationEnabled ||
+        statusRef.current !== "in_call" ||
+        translationMode !== "hybrid"
+      ) {
+        return;
+      }
+
+      fallbackProbeBusyRef.current = true;
+      try {
+        setTranslationOnlineStatus("retrying");
+        await stopOfflinePipeline();
+        const recovered = await startOnlinePipeline();
+        if (recovered) {
+          setTranslationFallbackReason(null);
+          stopFallbackProbe();
+        } else {
+          setTranslationOnlineStatus("fallback");
+          await startOfflinePipeline();
+        }
+      } finally {
+        fallbackProbeBusyRef.current = false;
+      }
+    }, 20_000);
+  }, [startOfflinePipeline, startOnlinePipeline, stopFallbackProbe, stopOfflinePipeline, translationEnabled, translationMode]);
+
+  const triggerFallbackToOffline = useCallback(async (reason: string) => {
+    if (translationMode !== "hybrid") {
+      setTranslationOnlineStatus("error");
+      setTranslationInitStatus("failed");
+      setTranslationInitError(reason);
+      return;
+    }
+
+    await stopOnlinePipeline();
+    setTranslationFallbackReason(reason);
+    setTranslationOnlineStatus("fallback");
+    const offlineReady = await startOfflinePipeline();
+    if (!offlineReady) {
+      setTranslationInitStatus("failed");
+      setTranslationInitError(`fallback failed: ${reason}`);
+      return;
+    }
+    startFallbackProbe();
+  }, [startFallbackProbe, startOfflinePipeline, stopOnlinePipeline, translationMode]);
+
+  const retryTranslationInitialization = useCallback(async () => {
+    if (!translationEnabled || statusRef.current !== "in_call") {
+      await initializeTranslationService();
+      return;
+    }
+
+    if (translationMode === "offline") {
+      await stopOfflinePipeline();
+      const ok = await startOfflinePipeline();
+      if (!ok) {
+        setTranslationInitStatus("failed");
+      }
+      return;
+    }
+
+    await stopOnlinePipeline();
+    const onlineReady = await startOnlinePipeline();
+    if (!onlineReady) {
+      await triggerFallbackToOffline("retry failed");
+    }
+  }, [initializeTranslationService, startOfflinePipeline, startOnlinePipeline, stopOfflinePipeline, stopOnlinePipeline, translationEnabled, translationMode, triggerFallbackToOffline]);
+
+  const toggleTranslation = useCallback(async (enabled: boolean) => {
+    if (!enabled) {
+      setTranslationEnabled(false);
+      setTranslationFallbackReason(null);
+      stopFallbackProbe();
+      await stopOnlinePipeline();
+      await stopOfflinePipeline();
+      useSubtitleStore.getState().clearSubtitles();
+      return;
+    }
+
+    setTranslationEnabled(true);
+    setTranslationInitError(null);
+    setTranslationFallbackReason(null);
+  }, [stopFallbackProbe, stopOfflinePipeline, stopOnlinePipeline]);
+
+  useEffect(() => {
+    if (!translationEnabled || status !== "in_call" || !sessionRef.current?.peerEmail) {
+      stopFallbackProbe();
+      void stopOnlinePipeline();
+      void stopOfflinePipeline();
+      return;
+    }
+
+    let cancelled = false;
+    let watchdog: ReturnType<typeof setInterval> | null = null;
+
+    const start = async () => {
+      onlineErrorCountRef.current = 0;
+      lastOnlinePartialAtRef.current = Date.now();
+
+      if (translationMode === "offline") {
+        const ok = await startOfflinePipeline();
+        if (!ok && !cancelled) {
+          setTranslationInitStatus("failed");
+        }
+        return;
+      }
+
+      const onlineReady = await startOnlinePipeline();
+      if (!onlineReady) {
+        if (!cancelled) {
+          await triggerFallbackToOffline("online start failed");
+        }
+        return;
+      }
+
+      if (translationMode === "hybrid") {
+        watchdog = setInterval(async () => {
+          if (cancelled || !translationEnabled || statusRef.current !== "in_call") return;
+          if (onlineErrorCountRef.current >= 3) {
+            await triggerFallbackToOffline("连续 provider 错误 >= 3");
+            if (watchdog) clearInterval(watchdog);
+            return;
+          }
+          if (Date.now() - lastOnlinePartialAtRef.current > 2500) {
+            await triggerFallbackToOffline("2.5s 无有效 partial");
+            if (watchdog) clearInterval(watchdog);
+          }
+        }, 500);
+      }
+    };
+
+    void start();
+    return () => {
+      cancelled = true;
+      if (watchdog) clearInterval(watchdog);
+      void stopOnlinePipeline();
+      void stopOfflinePipeline();
+    };
+  }, [
+    startOfflinePipeline,
+    startOnlinePipeline,
+    status,
+    stopFallbackProbe,
+    stopOfflinePipeline,
+    stopOnlinePipeline,
+    translationEnabled,
+    translationLanguage,
+    translationMode,
+    translationSourceLanguage,
+    triggerFallbackToOffline,
+  ]);
+
+  useEffect(() => {
+    if (!translationEnabled) return;
+    const timer = setInterval(() => {
+      useSubtitleStore.getState().pruneExpired();
+    }, 500);
+    return () => clearInterval(timer);
+  }, [translationEnabled]);
+
+  useEffect(() => {
+    return () => {
+      stopFallbackProbe();
+      void OnlineTranslationService.stop();
+    };
+  }, [stopFallbackProbe]);
 
   const value = useMemo<SignalingContextValue>(() => ({
     status, session, connectionReady, localStream, remoteStream, networkQuality, isVideoEnabled, isAudioEnabled, isRemoteVideoEnabled, isRemoteAudioEnabled, cameraFacing,
     videoQuality, setVideoQuality, videoMaxBitrateKbps, setVideoMaxBitrateKbps, e2eeEnabled, e2eeFingerprint, e2eeSessionEstablished, translationEnabled, translationLanguage,
-    startCall, acceptCall, rejectCall, endCall, toggleVideo, toggleAudio, switchCamera, toggleSpeaker, isSpeakerOn, toggleTranslation, setTranslationLanguage: setTranslationLanguage
+    translationSourceLanguage, translationMode, translationOnlineStatus, translationFallbackReason, translationInitStatus, translationInitError,
+    startCall, acceptCall, rejectCall, endCall, toggleVideo, toggleAudio, switchCamera, toggleSpeaker, isSpeakerOn, toggleTranslation,
+    setTranslationLanguage: setTranslationLanguage,
+    setTranslationSourceLanguage: setTranslationSourceLanguage,
+    retryTranslationInitialization
   }), [status, session, connectionReady, localStream, remoteStream, networkQuality, isVideoEnabled, isAudioEnabled, isRemoteVideoEnabled, isRemoteAudioEnabled, cameraFacing,
-    videoQuality, videoMaxBitrateKbps, e2eeEnabled, e2eeFingerprint, e2eeSessionEstablished, translationEnabled, translationLanguage, startCall, acceptCall, rejectCall, endCall, toggleVideo, toggleAudio, switchCamera, toggleSpeaker, isSpeakerOn, toggleTranslation]);
+    videoQuality, videoMaxBitrateKbps, e2eeEnabled, e2eeFingerprint, e2eeSessionEstablished, translationEnabled, translationLanguage, translationSourceLanguage, translationMode,
+    translationOnlineStatus, translationFallbackReason, translationInitStatus, translationInitError,
+    startCall, acceptCall, rejectCall, endCall, toggleVideo, toggleAudio, switchCamera, toggleSpeaker, isSpeakerOn, toggleTranslation, retryTranslationInitialization]);
 
   return <SignalingContext.Provider value={value}>{children}</SignalingContext.Provider>;
 };

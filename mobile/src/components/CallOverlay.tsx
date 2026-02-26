@@ -29,12 +29,19 @@ const CallOverlay: React.FC = () => {
     networkQuality,
     translationEnabled,
     translationLanguage,
+    translationSourceLanguage,
+    translationMode,
+    translationOnlineStatus,
+    translationFallbackReason,
+    translationInitStatus,
+    translationInitError,
     toggleTranslation,
-    setTranslationLanguage
+    setTranslationLanguage,
+    setTranslationSourceLanguage,
+    retryTranslationInitialization
   } = useSignaling();
 
   const subtitles = useSubtitleStore((state) => state.subtitles);
-  const clearSubtitles = useSubtitleStore((state) => state.clearSubtitles);
 
   useEffect(() => {
     const tag = "call-overlay";
@@ -281,11 +288,35 @@ const CallOverlay: React.FC = () => {
               subtitles={subtitles}
               isVisible={translationEnabled}
               language={translationLanguage}
-              onClear={clearSubtitles}
             />
 
+            {/* 翻译初始化提示 */}
+            {translationInitStatus === "initializing" && (
+              <View style={styles.translationHint}>
+                <Text style={styles.translationHintText}>
+                  ⏳ 翻译服务初始化中，首次启动可能需要 1-2 分钟
+                </Text>
+              </View>
+            )}
+
+            {translationInitStatus === "failed" && (
+              <View style={[styles.translationHint, styles.translationHintError]}>
+                <Text style={styles.translationHintText}>
+                  ⚠️ 翻译服务初始化失败：{translationInitError || "未知错误"}
+                </Text>
+                <TouchableOpacity
+                  style={styles.translationRetryButton}
+                  onPress={retryTranslationInitialization}
+                >
+                  <Text style={styles.translationRetryButtonText}>重试初始化</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* 翻译提示信息 (未开启时显示) */}
-            {!translationEnabled && (
+            {translationInitStatus !== "initializing" &&
+              translationInitStatus !== "failed" &&
+              !translationEnabled && (
               <View style={styles.translationHint}>
                 <Text style={styles.translationHintText}>
                   💡 点击下方"实时翻译"开关开启翻译字幕
@@ -298,8 +329,16 @@ const CallOverlay: React.FC = () => {
               <TranslationControl
                 isEnabled={translationEnabled}
                 onToggle={toggleTranslation}
+                sourceLanguage={translationSourceLanguage}
+                onSourceLanguageChange={setTranslationSourceLanguage}
                 targetLanguage={translationLanguage}
-                onLanguageChange={setTranslationLanguage}
+                onTargetLanguageChange={setTranslationLanguage}
+                translationMode={translationMode}
+                onlineStatus={translationOnlineStatus}
+                fallbackReason={translationFallbackReason}
+                translationServiceStatus={translationInitStatus}
+                translationServiceError={translationInitError}
+                onRetryInitialize={retryTranslationInitialization}
               />
             </View>
           </>
@@ -511,6 +550,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: "center",
     fontWeight: "600"
+  },
+  translationHintError: {
+    backgroundColor: "rgba(220, 38, 38, 0.92)"
+  },
+  translationRetryButton: {
+    marginTop: 10,
+    alignSelf: "center",
+    backgroundColor: "rgba(0,0,0,0.25)",
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 7
+  },
+  translationRetryButtonText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700"
   }
 });
 

@@ -56,11 +56,17 @@ class ParallelProcessor {
 
       // 如果有翻译结果，创建字幕
       if (result.translatedText && result.translatedText.trim()) {
+        const expiresAt = chunk.timestamp + 8000;
         const subtitle: SubtitleItem = {
           id: `subtitle-${chunk.timestamp}`,
+          segmentId: `subtitle-${chunk.timestamp}`,
+          revision: 1,
+          isFinal: true,
+          source: "offline",
           original: result.originalText || '',
           translated: result.translatedText,
-          timestamp: chunk.timestamp
+          timestamp: chunk.timestamp,
+          expiresAt
         };
 
         onSubtitle(subtitle);

@@ -17,6 +17,7 @@ type RouteDependencies struct {
 	SignalingHandler *handlers.SignalingHandler
 	SignalingPoll    *handlers.SignalingPollHandler
 	WebRTCHandler    *handlers.WebRTCHandler
+	TranslationWS    *handlers.TranslationWSHandler
 	AuthMiddleware   gin.HandlerFunc
 }
 
@@ -47,6 +48,9 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 		}
 		if deps.WebRTCHandler != nil {
 			deps.WebRTCHandler.RegisterRoutes(protected)
+		}
+		if deps.TranslationWS != nil {
+			protected.GET("/translation/ws", deps.TranslationWS.Handle)
 		}
 	}
 }

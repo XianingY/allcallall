@@ -53,6 +53,14 @@ const normalizeTls = (value: string, scheme: "http" | "ws") => {
   return value.replace(/^ws:\/\//, "wss://");
 };
 
+const normalizeLang = (value: string | undefined, fallback: "zh" | "en"): "zh" | "en" => {
+  if (!value) return fallback;
+  const lang = value.trim().toLowerCase();
+  if (lang === "zh" || lang === "zh-cn" || lang === "cn") return "zh";
+  if (lang === "en" || lang === "en-us" || lang === "en-gb") return "en";
+  return fallback;
+};
+
 const envHttp = readEnv(process.env.EXPO_PUBLIC_API_HTTP);
 const envWs = readEnv(process.env.EXPO_PUBLIC_API_WS);
 const forceTls = readEnv(process.env.EXPO_PUBLIC_FORCE_TLS) === "1";
@@ -106,11 +114,35 @@ export const WS_HOST = wsBase;
 
 export const API_BASE_URL = `${httpBase}/api/v1`;
 export const WS_URL = `${wsBase}/api/v1/ws`;
+export const TRANSLATION_WS_URL = `${wsBase}/api/v1/translation/ws`;
 export const REQUEST_TIMEOUT = 15_000; // 15秒超时，给邮件发送更多时间
 
 export const RESTRICTED_NETWORK_MODE = readEnv(process.env.EXPO_PUBLIC_RESTRICTED_NETWORK) === "1";
 export const SIGNALING_TRANSPORT_MODE = readEnv(process.env.EXPO_PUBLIC_SIGNALING_TRANSPORT) ?? "auto";
 export const SIGNALING_SHAPING_ENABLED = readEnv(process.env.EXPO_PUBLIC_SIGNALING_SHAPING) === "1";
+
+export type TranslationMode = "offline" | "online" | "hybrid";
+
+const readTranslationMode = (value: string | undefined): TranslationMode => {
+  if (!value) return "hybrid";
+  const mode = value.trim().toLowerCase();
+  if (mode === "offline" || mode === "online" || mode === "hybrid") {
+    return mode;
+  }
+  return "hybrid";
+};
+
+export const TRANSLATION_MODE: TranslationMode = readTranslationMode(
+  readEnv(process.env.EXPO_PUBLIC_TRANSLATION_MODE)
+);
+export const TRANSLATION_SOURCE_LANG = normalizeLang(
+  readEnv(process.env.EXPO_PUBLIC_TRANSLATION_SOURCE_LANG),
+  "zh"
+);
+export const TRANSLATION_TARGET_LANG = normalizeLang(
+  readEnv(process.env.EXPO_PUBLIC_TRANSLATION_TARGET_LANG),
+  "en"
+);
 
 // 环境信息导出
 // Environment information exports

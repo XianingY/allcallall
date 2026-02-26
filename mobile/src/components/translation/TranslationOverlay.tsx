@@ -1,10 +1,8 @@
-// mobile/src/components/translation/TranslationOverlay.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  Animated,
   Dimensions
 } from 'react-native';
 
@@ -23,58 +21,47 @@ const TranslationOverlay: React.FC<TranslationOverlayProps> = ({
   subtitles,
   isVisible,
   language,
-  onClear
 }) => {
-  const [fadeAnim] = useState(new Animated.Value(0));
+  const now = Date.now();
+  const visibleSubtitles = useMemo(() => {
+    const active = subtitles.filter((item) => item.expiresAt > now);
+    return active.slice(-3);
+  }, [subtitles, now]);
 
-  useEffect(() => {
-    if (isVisible && subtitles.length > 0) {
-      Animated.sequence([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true
-        }),
-        Animated.delay(3000),
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true
-        })
-      ]).start(() => {
-        if (onClear) {
-          onClear();
-        }
-      });
-    }
-  }, [subtitles, isVisible]);
-
-  if (!isVisible || subtitles.length === 0) {
+  if (!isVisible || visibleSubtitles.length === 0) {
     return null;
   }
 
-  const latestSubtitle = subtitles[subtitles.length - 1];
-
   return (
-    <View style={styles.container}>
-      <Animated.View
-        style={[
-          styles.subtitleContainer,
-          { opacity: fadeAnim }
-        ]}
-      >
-        {latestSubtitle.original && (
-          <Text style={styles.originalText}>
-            {latestSubtitle.original}
-          </Text>
-        )}
-        <Text style={styles.translatedText}>
-          {latestSubtitle.translated}
-        </Text>
-        <Text style={styles.languageTag}>
-          {language === 'zh' ? '中文' : language === 'en' ? 'English' : language}
-        </Text>
-      </Animated.View>
+    <View style={styles.container} pointerEvents="none">
+      {visibleSubtitles.map((subtitle) => {
+        const isPartial = !subtitle.isFinal;
+        return (
+          <View
+            key={`${subtitle.segmentId}:${subtitle.revision}`}
+            style={[
+              styles.subtitleContainer,
+              isPartial ? styles.partialSubtitleContainer : styles.finalSubtitleContainer,
+            ]}
+          >
+            {subtitle.original ? (
+              <Text style={isPartial ? styles.partialOriginalText : styles.originalText}>
+                {subtitle.original}
+              </Text>
+            ) : null}
+            <Text style={isPartial ? styles.partialTranslatedText : styles.translatedText}>
+              {subtitle.translated}
+            </Text>
+            <Text style={styles.metaText}>
+              {language === 'zh' ? '中文' : language === 'en' ? 'English' : language}
+              {' · '}
+              {subtitle.source === 'online' ? '在线' : subtitle.source === 'offline' ? '离线' : '对端'}
+              {' · '}
+              {subtitle.isFinal ? 'final' : 'partial'}
+            </Text>
+          </View>
+        );
+      })}
     </View>
   );
 };
@@ -86,33 +73,54 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
-    zIndex: 1000
+    zIndex: 1000,
+    gap: 8,
   },
   subtitleContainer: {
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    maxWidth: width * 0.9,
-    alignItems: 'center'
+    maxWidth: width * 0.92,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  finalSubtitleContainer: {
+    backgroundColor: 'rgba(0, 0, 0, 0.84)',
+    borderColor: 'rgba(255, 255, 255, 0.16)',
+  },
+  partialSubtitleContainer: {
+    backgroundColor: 'rgba(0, 0, 0, 0.56)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   originalText: {
-    color: '#ccc',
-    fontSize: 14,
+    color: '#d1d5db',
+    fontSize: 13,
     marginBottom: 4,
-    textAlign: 'center'
+    textAlign: 'center',
+  },
+  partialOriginalText: {
+    color: '#9ca3af',
+    fontSize: 12,
+    marginBottom: 4,
+    textAlign: 'center',
   },
   translatedText: {
-    color: '#fff',
+    color: '#ffffff',
     fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center'
+    fontWeight: '700',
+    textAlign: 'center',
   },
-  languageTag: {
-    color: '#3b82f6',
-    fontSize: 12,
-    marginTop: 4
-  }
+  partialTranslatedText: {
+    color: '#d1d5db',
+    fontSize: 16,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  metaText: {
+    marginTop: 4,
+    color: '#60a5fa',
+    fontSize: 11,
+  },
 });
 
 export default TranslationOverlay;

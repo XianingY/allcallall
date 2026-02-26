@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,6 +25,8 @@ import (
 	"github.com/allcallall/backend/internal/presence"
 	"github.com/allcallall/backend/internal/server"
 	"github.com/allcallall/backend/internal/signaling"
+	"github.com/allcallall/backend/internal/translation"
+	"github.com/allcallall/backend/internal/translation/providers"
 	"github.com/allcallall/backend/internal/user"
 )
 
@@ -144,6 +147,27 @@ func main() {
 
 	signalingHandler := handlers.NewSignalingHandler(appLogger, signalingHub)
 	signalingPollHandler := handlers.NewSignalingPollHandler(appLogger, signalingHub)
+	var translationWSHandler *handlers.TranslationWSHandler
+	if cfg.Translation.Enabled {
+		var translationProvider translation.Provider
+		switch strings.ToLower(cfg.Translation.Provider) {
+		case "volc_ast", "volc", "volcengine":
+			translationProvider = providers.NewVolcASTProvider(appLogger, cfg.Translation.VolcAST)
+		default:
+			appLogger.Warn().
+				Str("provider", cfg.Translation.Provider).
+				Msg("unknown translation provider, translation websocket disabled")
+		}
+
+		if translationProvider != nil {
+			translationSvc := translation.NewService(appLogger, translationProvider, cfg.Translation.MaxSessionsPerUser)
+			translationWSHandler = handlers.NewTranslationWSHandler(appLogger, translationSvc, signalingHub)
+			appLogger.Info().
+				Str("provider", translationProvider.Name()).
+				Int("chunk_ms", cfg.Translation.ChunkMS).
+				Msg("translation websocket handler enabled")
+		}
+	}
 
 	server.RegisterRoutes(engine, server.RouteDependencies{
 		AuthHandler:      authHandler,
@@ -152,6 +176,7 @@ func main() {
 		SignalingHandler: signalingHandler,
 		SignalingPoll:    signalingPollHandler,
 		WebRTCHandler:    webrtcHandler,
+		TranslationWS:    translationWSHandler,
 		AuthMiddleware:   auth.Middleware(jwtManager),
 	})
 
