@@ -171,6 +171,12 @@ android {
             useLegacyPackaging (findProperty('expo.useLegacyPackaging')?.toBoolean() ?: false)
         }
     }
+
+    // Keep large offline model assets uncompressed to reduce memory pressure during
+    // release asset compression and speed up runtime copy from assets.
+    androidResources {
+        noCompress += ["onnx", "bin", "spm"]
+    }
 }
 
 // Apply static values from `gradle.properties` to the `android.packagingOptions`

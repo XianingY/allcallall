@@ -140,11 +140,16 @@ Java_com_allcallall_TranslationModule_nativeTranslateAudio(
     LOGI("Translation: %s", translation.c_str());
 
     // 5. TTS synthesis
+    // Temporarily disabled for call subtitles path because some Android devices
+    // crash inside espeak_TextToPhonemes. We only need subtitle text here.
     std::vector<int16_t> audio_out;
-    if (target_str == "zh" && g_tts_zh && g_tts_zh->isReady()) {
-        audio_out = g_tts_zh->synthesize(translation);
-    } else if (target_str == "en" && g_tts_en && g_tts_en->isReady()) {
-        audio_out = g_tts_en->synthesize(translation);
+    const bool kEnableTtsSynthesis = false;
+    if (kEnableTtsSynthesis) {
+        if (target_str == "zh" && g_tts_zh && g_tts_zh->isReady()) {
+            audio_out = g_tts_zh->synthesize(translation);
+        } else if (target_str == "en" && g_tts_en && g_tts_en->isReady()) {
+            audio_out = g_tts_en->synthesize(translation);
+        }
     }
     LOGI("Synthesized %zu audio samples", audio_out.size());
 
