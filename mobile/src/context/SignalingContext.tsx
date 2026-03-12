@@ -50,12 +50,26 @@ import OnlineTranslationService, {
 import { useSubtitleStore } from "../store/useSubtitleStore";
 import { E2EEKeyExchange, type E2EEKeyExchangeCallbacks, type KeyExchangeRole } from "../services/e2ee/E2EEKeyExchange";
 import type { E2EESessionKey } from "../services/e2ee/E2EEService";
+import {
+  collectRemoteTracks,
+  createEmptyRemoteTrackState,
+  discardStaleRemoteCandidates,
+  flushPendingRemoteCandidatesForCurrentEpoch,
+  normalizeIceEpoch,
+  queueOrApplyRemoteCandidate,
+  removeRemoteTrackState,
+  toRTCIceCandidateInit,
+  upsertRemoteTrackState,
+  type RemoteTrackLike,
+  type RemoteTrackState,
+} from "./signalingRtcUtils";
 
 type CallDirection = "incoming" | "outgoing";
 
 type SessionDescriptionPayload = RTCSessionDescriptionInit;
 
 type IceCandidatePayload = RTCIceCandidateInit & { iceEpoch?: number };
+type MediaTrack = RemoteTrackLike;
 
 // RTCIceServer 类型定义
 interface RTCIceServer {
@@ -242,6 +256,8 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const pendingTarget = useRef<string | null>(null);
   const pendingLocalCandidates = useRef<IceCandidatePayload[]>([]);
   const pendingRemoteCandidates = useRef<IceCandidatePayload[]>([]);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const remoteTrackStateRef = useRef<RemoteTrackState<MediaTrack>>(createEmptyRemoteTrackState());
   const subtitlesDataChannelRef = useRef<any | null>(null);
 
   const iceEpochRef = useRef<number>(0);
@@ -325,6 +341,97 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     return true;
   }, []);
 
+  const syncRemoteMediaFlags = useCallback((trackState: RemoteTrackState<MediaTrack>) => {
+    setIsRemoteAudioEnabled(
+      Boolean(trackState.audio && trackState.audio.readyState !== "ended" && trackState.audio.muted !== true)
+    );
+    setIsRemoteVideoEnabled(
+      Boolean(trackState.video && trackState.video.readyState !== "ended" && trackState.video.muted !== true)
+    );
+  }, []);
+
+  const rebuildRemoteStreamWithTracks = useCallback((trackState: RemoteTrackState<MediaTrack>) => {
+    const stream = new MediaStream();
+    if (trackState.audio) {
+      stream.addTrack(trackState.audio as never);
+    }
+    if (trackState.video) {
+      stream.addTrack(trackState.video as never);
+    }
+    remoteStreamRef.current = stream;
+    setRemoteStream(trackState.audio || trackState.video ? stream : null);
+    syncRemoteMediaFlags(trackState);
+    return stream;
+  }, [syncRemoteMediaFlags]);
+
+  const removeRemoteTrack = useCallback((track: MediaTrack | null | undefined) => {
+    if (!track || (track.kind !== "audio" && track.kind !== "video")) return;
+    remoteTrackStateRef.current = removeRemoteTrackState(remoteTrackStateRef.current, track);
+    rebuildRemoteStreamWithTracks(remoteTrackStateRef.current);
+  }, [rebuildRemoteStreamWithTracks]);
+
+  const bindRemoteTrackState = useCallback((track: MediaTrack) => {
+    if (track.kind !== "audio" && track.kind !== "video") return;
+    track.onmute = () => {
+      syncRemoteMediaFlags(remoteTrackStateRef.current);
+    };
+    track.onunmute = () => {
+      syncRemoteMediaFlags(remoteTrackStateRef.current);
+    };
+    track.onended = () => {
+      removeRemoteTrack(track);
+    };
+  }, [removeRemoteTrack, syncRemoteMediaFlags]);
+
+  const upsertRemoteTrack = useCallback((track: MediaTrack) => {
+    if (track.kind !== "audio" && track.kind !== "video") return;
+    remoteTrackStateRef.current = upsertRemoteTrackState(remoteTrackStateRef.current, track);
+    bindRemoteTrackState(track);
+    rebuildRemoteStreamWithTracks(remoteTrackStateRef.current);
+  }, [bindRemoteTrackState, rebuildRemoteStreamWithTracks]);
+
+  const applyRemoteIceCandidate = useCallback(async (candidate: IceCandidatePayload) => {
+    const pc = peerRef.current;
+    if (!pc) return;
+
+    const candidateEpoch = normalizeIceEpoch(candidate);
+    if (candidateEpoch < iceEpochRef.current) {
+      return;
+    }
+
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(toRTCIceCandidateInit(candidate)));
+    } catch (error) {
+      if (candidateEpoch < iceEpochRef.current) {
+        return;
+      }
+      console.warn("[SignalingContext] failed to apply remote ICE candidate:", error);
+    }
+  }, []);
+
+  const flushRemoteCandidatesForCurrentEpoch = useCallback(async () => {
+    pendingRemoteCandidates.current = await flushPendingRemoteCandidatesForCurrentEpoch({
+      currentEpoch: iceEpochRef.current,
+      pendingCandidates: pendingRemoteCandidates.current,
+      applyCandidate: applyRemoteIceCandidate,
+    });
+  }, [applyRemoteIceCandidate]);
+
+  const queueOrApplyRemoteIceCandidate = useCallback(async (candidate: IceCandidatePayload) => {
+    pendingRemoteCandidates.current = discardStaleRemoteCandidates(
+      pendingRemoteCandidates.current,
+      iceEpochRef.current
+    );
+
+    await queueOrApplyRemoteCandidate({
+      candidate,
+      currentEpoch: iceEpochRef.current,
+      hasRemoteDescription: Boolean(peerRef.current?.remoteDescription),
+      pendingCandidates: pendingRemoteCandidates.current,
+      applyCandidate: applyRemoteIceCandidate,
+    });
+  }, [applyRemoteIceCandidate]);
+
   const resetPeerResources = useCallback(() => {
     pendingLocalCandidates.current = [];
     pendingRemoteCandidates.current = [];
@@ -359,12 +466,14 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     setE2eeFingerprint(null);
     setE2eeSessionEstablished(false);
     if (localStream) localStream.getTracks().forEach((track) => track.stop());
-    if (remoteStream) remoteStream.getTracks().forEach((track) => track.stop());
+    if (remoteStreamRef.current) remoteStreamRef.current.getTracks().forEach((track) => track.stop());
+    remoteStreamRef.current = null;
+    remoteTrackStateRef.current = createEmptyRemoteTrackState();
     setLocalStream(null);
     setRemoteStream(null);
     setIsRemoteVideoEnabled(true);
     setIsRemoteAudioEnabled(true);
-  }, [localStream, remoteStream]);
+  }, [localStream]);
 
   const attachSubtitlesDataChannel = useCallback((dc: any) => {
     if (!dc) return;
@@ -499,7 +608,10 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!current || !pc || current.direction !== "outgoing" || iceRestartAttemptsRef.current >= 2) return;
     iceRestartAttemptsRef.current += 1;
     iceEpochRef.current += 1;
-    pendingRemoteCandidates.current = [];
+    pendingRemoteCandidates.current = discardStaleRemoteCandidates(
+      pendingRemoteCandidates.current,
+      iceEpochRef.current
+    );
     try {
       const offer = await pc.createOffer({ iceRestart: true } as any);
       await pc.setLocalDescription(offer);
@@ -561,37 +673,17 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     (pc as any).ontrack = (event: any) => {
       try {
-        const streams = Array.isArray(event?.streams) ? event.streams : [];
-        let stream: MediaStream | null = streams[0] ?? null;
+        const tracks = collectRemoteTracks<MediaTrack>({
+          track: event?.track,
+          streams: Array.isArray(event?.streams) ? event.streams : [],
+        });
 
-        // Some devices/transports do not populate event.streams; build a fallback.
-        if (!stream && event?.track) {
-          const fallbackStream = new MediaStream();
-          fallbackStream.addTrack(event.track);
-          stream = fallbackStream;
-        }
-
-        if (!stream) {
+        if (!tracks.length) {
           console.warn("[SignalingContext] ontrack received no stream/track");
           return;
         }
 
-        setRemoteStream(stream);
-
-        const bindTrackState = (track: any) => {
-          if (!track || typeof track.kind !== "string") return;
-          track.onmute = () => {
-            if (track.kind === "video") setIsRemoteVideoEnabled(false);
-            if (track.kind === "audio") setIsRemoteAudioEnabled(false);
-          };
-          track.onunmute = () => {
-            if (track.kind === "video") setIsRemoteVideoEnabled(true);
-            if (track.kind === "audio") setIsRemoteAudioEnabled(true);
-          };
-        };
-
-        stream.getTracks().forEach(bindTrackState);
-        if (event?.track) bindTrackState(event.track);
+        tracks.forEach(upsertRemoteTrack);
       } catch (error) {
         console.error("[SignalingContext] ontrack handler failed:", error);
       }
@@ -624,7 +716,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     peerRef.current = pc;
     return pc;
-  }, [iceServers, resetCallState, sendMessage, attachSubtitlesDataChannel, startIceRestartAsCaller, requestIceRestart]);
+  }, [iceServers, resetCallState, sendMessage, attachSubtitlesDataChannel, startIceRestartAsCaller, requestIceRestart, upsertRemoteTrack]);
 
   useEffect(() => {
     if (!token) {
@@ -661,10 +753,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           case "call.accept":
             if (peerRef.current && (msg.payload as any)?.sdp) {
               await peerRef.current.setRemoteDescription(new RTCSessionDescription(msg.payload as any));
-              while (pendingRemoteCandidates.current.length) {
-                const c = pendingRemoteCandidates.current.shift();
-                if (c && c.iceEpoch === iceEpochRef.current) await peerRef.current.addIceCandidate(new RTCIceCandidate(c));
-              }
+              await flushRemoteCandidatesForCurrentEpoch();
             }
             setStatus("in_call");
             sendMediaUpdate(msg.call_id ?? "", msg.from ?? "", { audioEnabled: isAudioEnabledRef.current, videoEnabled: isVideoEnabledRef.current });
@@ -699,15 +788,35 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           case "call.sdp.offer":
             if (peerRef.current && statusRef.current === "in_call") {
               const payload = msg.payload as any;
-              if ((payload.iceEpoch ?? 0) > iceEpochRef.current) { iceEpochRef.current = payload.iceEpoch; pendingRemoteCandidates.current = []; }
+              const nextEpoch = typeof payload.iceEpoch === "number" ? payload.iceEpoch : 0;
+              if (nextEpoch > iceEpochRef.current) {
+                iceEpochRef.current = nextEpoch;
+                pendingRemoteCandidates.current = discardStaleRemoteCandidates(
+                  pendingRemoteCandidates.current,
+                  iceEpochRef.current
+                );
+              }
               await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload));
+              await flushRemoteCandidatesForCurrentEpoch();
               const answer = await peerRef.current.createAnswer();
               await peerRef.current.setLocalDescription(answer);
               sendMessage({ type: "call.sdp.answer", call_id: sessionRef.current?.callId ?? "", to: msg.from ?? "", payload: { sdp: answer.sdp, type: answer.type, iceEpoch: iceEpochRef.current } as any });
             }
             break;
           case "call.sdp.answer":
-            if (peerRef.current && statusRef.current === "in_call") await peerRef.current.setRemoteDescription(new RTCSessionDescription(msg.payload as any));
+            if (peerRef.current && statusRef.current === "in_call") {
+              const payload = msg.payload as any;
+              const nextEpoch = typeof payload?.iceEpoch === "number" ? payload.iceEpoch : 0;
+              if (nextEpoch > iceEpochRef.current) {
+                iceEpochRef.current = nextEpoch;
+                pendingRemoteCandidates.current = discardStaleRemoteCandidates(
+                  pendingRemoteCandidates.current,
+                  iceEpochRef.current
+                );
+              }
+              await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload));
+              await flushRemoteCandidatesForCurrentEpoch();
+            }
             break;
           case "call.reject":
           case "call.end":
@@ -715,9 +824,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
             resetCallState();
             break;
           case "ice.candidate":
-            const cand = msg.payload as any;
-            if (peerRef.current?.remoteDescription) await peerRef.current.addIceCandidate(new RTCIceCandidate(cand));
-            else pendingRemoteCandidates.current.push(cand);
+            await queueOrApplyRemoteIceCandidate(msg.payload as IceCandidatePayload);
             break;
           case "call.error":
             Alert.alert("Call error", (msg.payload as any)?.reason ?? "Error");
@@ -777,7 +884,18 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       setLocalStream(stream); setIsVideoEnabled(settings.defaultVideoEnabled); setIsAudioEnabled(settings.defaultAudioEnabled); setCameraFacing(settings.cameraFacing);
       const pc = createPeerConnection();
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
+      const incomingOfferEpoch = typeof (session.offer as SdpRenegotiationPayload).iceEpoch === "number"
+        ? (session.offer as SdpRenegotiationPayload).iceEpoch ?? 0
+        : 0;
+      if (incomingOfferEpoch > iceEpochRef.current) {
+        iceEpochRef.current = incomingOfferEpoch;
+        pendingRemoteCandidates.current = discardStaleRemoteCandidates(
+          pendingRemoteCandidates.current,
+          iceEpochRef.current
+        );
+      }
       await pc.setRemoteDescription(new RTCSessionDescription(session.offer as any));
+      await flushRemoteCandidatesForCurrentEpoch();
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       if (settings.defaultVideoEnabled) await applyCurrentVideoBitrate();
@@ -785,7 +903,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       sendMediaUpdate(session.callId, session.peerEmail, { audioEnabled: settings.defaultAudioEnabled, videoEnabled: settings.defaultVideoEnabled });
       setStatus("in_call");
     } catch (e) { resetCallState(); }
-  }, [session, ensureAudioPermission, settings, createPeerConnection, applyCurrentVideoBitrate, sendMessage, sendMediaUpdate, resetCallState]);
+  }, [session, ensureAudioPermission, settings, createPeerConnection, flushRemoteCandidatesForCurrentEpoch, applyCurrentVideoBitrate, sendMessage, sendMediaUpdate, resetCallState]);
 
   const toggleVideo = useCallback(async () => {
     if (!localStream || !peerRef.current) return;
