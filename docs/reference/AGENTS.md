@@ -6,18 +6,16 @@ This file is for coding agents operating in this repo. Prefer small, verifiable 
 - `backend/`: Go backend (Gin + Gorm/MySQL + Redis + Pion WebRTC)
 - `mobile/`: React Native (Expo) app, TypeScript, hybrid signaling (WS + HTTP poll)
 - `infra/`: docker compose and deployment assets
-- `scripts/`: dev scripts (DBs, translation models, etc.)
+- `scripts/`: dev scripts (setup, local development helpers, etc.)
 
 ## Commands (Build/Lint/Test)
 
 ### Setup & Infra
 - Project setup: `make setup` (git submodules + `cd mobile && npm install`)
-- Download ML models: `make setup-models`
 - Start MySQL/Redis: `./scripts/development/start-services.sh`
 - Stop services: `docker compose -f infra/docker-compose.yml down`
 - Clean repo artifacts: `make clean` (removes `mobile/node_modules`, `mobile/.expo`, Android build outputs)
 - Android-only clean: `make clean-android`
-- Remove downloaded models: `make clean-models`
 
 Infra notes:
 - `infra/docker-compose.yml` is the local dev stack (MySQL/Redis/etc.).

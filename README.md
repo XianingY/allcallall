@@ -11,14 +11,14 @@
 ### ✨ 特性
 
 - 🎤 **实时音视频通话** - 基于 Pion WebRTC 的点对点音频通话
-- 🌍 **实时翻译** - 离线本地 AI 模型，语音识别 + 文本翻译 + 语音合成 (Whisper + Opus-MT + VITS)
+- 🌍 **实时翻译** - 基于后端在线翻译服务的实时字幕翻译
 - 👥 **联系人管理** - 添加、搜索和管理通讯录
 - 🟢 **在线状态** - 实时显示用户在线状态和最后在线时间
 - 🔐 **用户认证** - JWT 令牌认证和会话管理
 - 📱 **跨平台** - Android 原生应用支持，iOS 开发中
 - 🚀 **高性能** - Redis 缓存、连接池优化、异步 WebSocket 信令
 - 🔄 **自动重连** - 网络异常自动重新连接
-- 🔒 **隐私保护** - 完全离线翻译，数据不上传云端
+- 🔒 **隐私保护** - 不落盘原始音频与原文，仅保留最小化指标与错误码
 
 ### 🛠 技术栈
 
@@ -39,7 +39,7 @@
 - **WebRTC**: react-native-webrtc 124.0.0
 - **HTTP**: Axios
 - **状态管理**: React Context API
-- **离线翻译**: Whisper (ASR) + Opus-MT (翻译) + VITS (TTS)
+- **实时翻译**: React Native + WebRTC 本地采集 + 后端 WebSocket 流式翻译
 - **模型量化**: INT8 (70% 大小减少)
 - **原生集成**: Android JNI + C++
 
@@ -1045,21 +1045,19 @@ curl -X POST http://localhost:8080/api/v1/email/send-verification-code \
 
 PR flow: open PRs from `feature/*` / `hotfix/*` directly to `main` (Trunk-based).
 
-### 🌍 Offline Translation Feature
+### 🌍 Real-Time Translation
 
-The offline translation feature enables **real-time speech translation** using local AI models, ensuring complete privacy and zero operational costs.
+The current translation path uses **online streaming subtitle translation** during calls. Audio is captured on-device, sent to the backend translation websocket, and final subtitles are forwarded to the remote peer over signaling.
 
 #### Key Technologies
-- **Whisper-small** (INT8): Speech Recognition
-- **Opus-MT-en-zh** (INT8): Text Translation
-- **VITS**: Text-to-Speech Synthesis
-- **Total Size**: ~264MB (INT8 quantized)
-- **Performance**: <500ms latency, >88% accuracy
+- **Mobile**: React Native + `react-native-webrtc`
+- **Backend**: Go + WebSocket streaming translation service
+- **Provider**: Volcengine AST / online provider adapters
+- **Subtitle delivery**: local partial display + remote final subtitle signaling
 
-#### Documentation
-- **[Offline Translation Guide](docs/offline-translation/README.md)** - Complete documentation
-- **[Implementation Roadmap](docs/offline-translation/implementation-roadmap.md)** - 5-week development plan
-- **[Model Download Guide](docs/offline-translation/setup/model-download-guide.md)** - Setup instructions
+#### Notes
+- Offline model translation has been removed from the mobile app and Android native layer.
+- Release builds no longer package Whisper, Opus-MT, Piper, ONNX Runtime, or JNI translation code.
 
 ### 🤝 Contributing
 
