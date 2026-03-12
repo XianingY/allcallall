@@ -10,8 +10,8 @@ import {
   ActivityIndicator
 } from 'react-native';
 
-export type TranslationMode = 'offline' | 'online' | 'hybrid';
-export type TranslationOnlineStatus = 'idle' | 'connecting' | 'connected' | 'fallback' | 'retrying' | 'error';
+export type TranslationMode = 'online';
+export type TranslationOnlineStatus = 'idle' | 'connecting' | 'connected' | 'retrying' | 'error';
 
 interface TranslationControlProps {
   isEnabled: boolean;
@@ -23,7 +23,6 @@ interface TranslationControlProps {
   onTargetLanguageChange?: (language: string) => void;
   translationMode?: TranslationMode;
   onlineStatus?: TranslationOnlineStatus;
-  fallbackReason?: string | null;
   translationServiceStatus?: 'idle' | 'initializing' | 'ready' | 'failed';
   translationServiceError?: string | null;
   onRetryInitialize?: () => void;
@@ -41,13 +40,9 @@ const SUPPORTED_LANGUAGES = [
 
 const modeLabel = (mode: TranslationMode) => {
   switch (mode) {
-    case 'offline':
-      return 'offline';
     case 'online':
-      return 'online';
-    case 'hybrid':
     default:
-      return 'hybrid';
+      return 'online';
   }
 };
 
@@ -57,10 +52,8 @@ const onlineStatusLabel = (status: TranslationOnlineStatus) => {
       return '在线已连接';
     case 'connecting':
       return '在线连接中';
-    case 'fallback':
-      return '离线兜底中';
     case 'retrying':
-      return '在线重试中';
+      return '在线重连中';
     case 'error':
       return '在线异常';
     default:
@@ -76,9 +69,8 @@ const TranslationControl: React.FC<TranslationControlProps> = ({
   sourceLanguage = 'zh',
   onSourceLanguageChange,
   onTargetLanguageChange,
-  translationMode = 'hybrid',
+  translationMode = 'online',
   onlineStatus = 'idle',
-  fallbackReason = null,
   translationServiceStatus = 'idle',
   translationServiceError = null,
   onRetryInitialize,
@@ -135,7 +127,9 @@ const TranslationControl: React.FC<TranslationControlProps> = ({
           </View>
 
           <View style={styles.statusRow}>
-            <Text style={styles.statusText}>链路状态：{onlineStatusLabel(onlineStatus)}</Text>
+            <Text style={styles.statusText}>
+              {translationServiceStatus === 'failed' ? '服务异常' : '链路状态'}：{onlineStatusLabel(onlineStatus)}
+            </Text>
             {translationServiceStatus === 'initializing' ? (
               <ActivityIndicator size="small" color="#3b82f6" />
             ) : null}
@@ -152,10 +146,6 @@ const TranslationControl: React.FC<TranslationControlProps> = ({
                 </TouchableOpacity>
               ) : null}
             </View>
-          ) : null}
-
-          {fallbackReason ? (
-            <Text style={styles.fallbackText}>回退原因：{fallbackReason}</Text>
           ) : null}
         </View>
       ) : null}
@@ -304,10 +294,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: '700'
-  },
-  fallbackText: {
-    color: '#fcd34d',
-    fontSize: 12
   },
   modalOverlay: {
     flex: 1,

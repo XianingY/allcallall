@@ -32,7 +32,6 @@ const CallOverlay: React.FC = () => {
     translationSourceLanguage,
     translationMode,
     translationOnlineStatus,
-    translationFallbackReason,
     translationInitStatus,
     translationInitError,
     toggleTranslation,
@@ -294,7 +293,7 @@ const CallOverlay: React.FC = () => {
             {translationInitStatus === "initializing" && (
               <View style={styles.translationHint}>
                 <Text style={styles.translationHintText}>
-                  ⏳ 翻译服务初始化中，首次启动可能需要 1-2 分钟
+                  ⏳ 正在连接在线翻译服务
                 </Text>
               </View>
             )}
@@ -302,7 +301,7 @@ const CallOverlay: React.FC = () => {
             {translationInitStatus === "failed" && (
               <View style={[styles.translationHint, styles.translationHintError]}>
                 <Text style={styles.translationHintText}>
-                  ⚠️ 翻译服务初始化失败：{translationInitError || "未知错误"}
+                  ⚠️ 在线翻译服务不可用：{translationInitError || "未知错误"}
                 </Text>
                 <TouchableOpacity
                   style={styles.translationRetryButton}
@@ -335,7 +334,6 @@ const CallOverlay: React.FC = () => {
                 onTargetLanguageChange={setTranslationLanguage}
                 translationMode={translationMode}
                 onlineStatus={translationOnlineStatus}
-                fallbackReason={translationFallbackReason}
                 translationServiceStatus={translationInitStatus}
                 translationServiceError={translationInitError}
                 onRetryInitialize={retryTranslationInitialization}

@@ -4,7 +4,7 @@ import { TRANSLATION_WS_URL } from "~/config";
 
 const { WebRTCModule } = NativeModules;
 
-export type OnlineTranslationStatus = "idle" | "connecting" | "connected" | "fallback" | "retrying" | "error";
+export type OnlineTranslationStatus = "idle" | "connecting" | "connected" | "retrying" | "error";
 
 export interface OnlineTranslationResult {
   sessionId: string;

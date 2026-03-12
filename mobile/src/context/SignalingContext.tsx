@@ -17,8 +17,7 @@ import {
   RTCPeerConnection,
   RTCIceCandidate,
   RTCSessionDescription,
-  mediaDevices as webrtcMediaDevices,
-  type RTCRtpTransceiver
+  mediaDevices as webrtcMediaDevices
 } from "react-native-webrtc";
 
 import {
@@ -44,7 +43,6 @@ import AudioService from "../services/AudioServiceExpo";
 import VibrationService from "../services/VibrationService";
 import VideoService, { CameraFacing, VideoQuality } from "../services/VideoService";
 import CameraPermissionService from "../services/CameraPermissionService";
-import TranslationService from "../services/translation/TranslationService";
 import OnlineTranslationService, {
   type OnlineTranslationStatus,
   type OnlineTranslationResult
@@ -123,7 +121,6 @@ interface SignalingContextValue {
   translationSourceLanguage: string;
   translationMode: TranslationMode;
   translationOnlineStatus: OnlineTranslationStatus;
-  translationFallbackReason: string | null;
   translationInitStatus: TranslationInitStatus;
   translationInitError: string | null;
   // 通话控制函数
@@ -180,31 +177,10 @@ const VIDEO_QUALITY_PRESETS: Record<VideoQuality, { width: number; height: numbe
   high: { width: 1280, height: 720, frameRate: 30 }
 };
 
-const isSessionDescriptionPayload = (
-  value: unknown
-): value is SessionDescriptionPayload => {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as { sdp?: unknown }).sdp === "string" &&
-    typeof (value as { type?: unknown }).type === "string"
-  );
-};
-
-const isIceCandidatePayload = (
-  value: unknown
-): value is IceCandidatePayload => {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as { candidate?: unknown }).candidate === "string"
-  );
-};
-
 export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   children
 }) => {
-  const { token, user } = useAuthContext();
+  const { token } = useAuthContext();
   const { settings } = useSettings();
   const [status, setStatus] = useState<CallStatus>("idle");
   const [session, setSession] = useState<CallSession | null>(null);
@@ -230,15 +206,8 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const [translationSourceLanguage, setTranslationSourceLanguage] = useState<string>(TRANSLATION_SOURCE_LANG);
   const [translationMode] = useState<TranslationMode>(TRANSLATION_MODE);
   const [translationOnlineStatus, setTranslationOnlineStatus] = useState<OnlineTranslationStatus>("idle");
-  const [translationFallbackReason, setTranslationFallbackReason] = useState<string | null>(null);
   const [translationInitStatus, setTranslationInitStatus] = useState<TranslationInitStatus>("idle");
   const [translationInitError, setTranslationInitError] = useState<string | null>(null);
-  const translationInitPromiseRef = useRef<Promise<boolean> | null>(null);
-  const onlineErrorCountRef = useRef<number>(0);
-  const lastOnlinePartialAtRef = useRef<number>(0);
-  const fallbackTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const fallbackProbeBusyRef = useRef<boolean>(false);
-  const offlineRunningRef = useRef<boolean>(false);
 
   const [e2eeEnabled, setE2eeEnabled] = useState<boolean>(false);
   const [e2eeFingerprint, setE2eeFingerprint] = useState<string | null>(null);
@@ -286,13 +255,6 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
   useEffect(() => {
     setIsSpeakerOn(AudioService.getSpeakerphone());
-  }, []);
-
-  useEffect(() => {
-    if (TranslationService.isReady()) {
-      setTranslationInitStatus("ready");
-      setTranslationInitError(null);
-    }
   }, []);
 
   useEffect(() => {
@@ -725,7 +687,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
                   : `signal-remote-${subtitleTimestamp}`,
               revision: typeof subtitle?.revision === "number" ? subtitle.revision : 1,
               isFinal: subtitle?.is_final !== false,
-              source: subtitle?.source === "offline" ? "offline" : "remote",
+              source: "remote",
               original: subtitleOriginal,
               translated: subtitleTranslated,
               timestamp: subtitleTimestamp,
@@ -879,49 +841,11 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     const next = !isSpeakerOn; setIsSpeakerOn(next); await AudioService.setSpeakerphone(next);
   }, [isSpeakerOn]);
 
-  const initializeTranslationService = useCallback(async (): Promise<boolean> => {
-    if (TranslationService.isReady()) {
-      setTranslationInitStatus("ready");
-      setTranslationInitError(null);
-      return true;
-    }
-
-    if (translationInitPromiseRef.current) {
-      return translationInitPromiseRef.current;
-    }
-
-    const initPromise = (async () => {
-      setTranslationInitStatus("initializing");
-      setTranslationInitError(null);
-      try {
-        await TranslationService.initialize({
-          whisperModel: "small",
-          targetLanguage: translationLanguage,
-          quantization: "int8",
-        });
-        setTranslationInitStatus("ready");
-        setTranslationInitError(null);
-        return true;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        setTranslationInitStatus("failed");
-        setTranslationInitError(message);
-        console.error("[SignalingContext] Translation initialization failed:", error);
-        return false;
-      } finally {
-        translationInitPromiseRef.current = null;
-      }
-    })();
-
-    translationInitPromiseRef.current = initPromise;
-    return initPromise;
-  }, [translationLanguage]);
-
   const pushLocalSubtitle = useCallback((
     segmentId: string,
     revision: number,
     isFinal: boolean,
-    source: "online" | "offline",
+    source: "online",
     original: string,
     translated: string,
     timestamp: number
@@ -944,7 +868,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     original: string,
     translated: string,
     timestampMs: number,
-    source: "online" | "offline"
+    source: "online"
   ) => {
     const current = sessionRef.current;
     if (!current?.peerEmail) return;
@@ -980,38 +904,6 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [sendMessage]);
 
-  const stopOfflinePipeline = useCallback(async () => {
-    offlineRunningRef.current = false;
-    await TranslationService.stopWebRTCCallMicTranslation().catch(() => {});
-  }, []);
-
-  const startOfflinePipeline = useCallback(async (): Promise<boolean> => {
-    const ready = await initializeTranslationService();
-    if (!ready) return false;
-    if (offlineRunningRef.current) return true;
-
-    try {
-      offlineRunningRef.current = true;
-      await TranslationService.startWebRTCCallMicTranslation(translationLanguage, (res) => {
-        const originalText = typeof res.originalText === "string" ? res.originalText.trim() : "";
-        const translatedText = typeof res.translatedText === "string" ? res.translatedText.trim() : "";
-        if (!originalText && !translatedText) return;
-
-        const timestampMs = typeof res.timestampMs === "number" ? res.timestampMs : Date.now();
-        const segmentId = `offline-${timestampMs}`;
-        pushLocalSubtitle(segmentId, 1, true, "offline", originalText, translatedText, timestampMs);
-        sendFinalSubtitleToPeer(segmentId, 1, originalText, translatedText, timestampMs, "offline");
-      }, 400);
-      return true;
-    } catch (error) {
-      offlineRunningRef.current = false;
-      const message = error instanceof Error ? error.message : String(error);
-      setTranslationInitStatus("failed");
-      setTranslationInitError(message);
-      return false;
-    }
-  }, [initializeTranslationService, pushLocalSubtitle, sendFinalSubtitleToPeer, translationLanguage]);
-
   const stopOnlinePipeline = useCallback(async () => {
     await OnlineTranslationService.stop();
     setTranslationOnlineStatus("idle");
@@ -1043,16 +935,14 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
               setTranslationInitError(null);
             }
           },
-          onProviderError: (code, message) => {
-            onlineErrorCountRef.current += 1;
+          onProviderError: (code, message, recoverable) => {
             setTranslationInitError(`${code}: ${message}`);
+            if (!recoverable) {
+              setTranslationInitStatus("failed");
+              setTranslationOnlineStatus("error");
+            }
           },
           onResult: (result: OnlineTranslationResult) => {
-            onlineErrorCountRef.current = 0;
-            if (!result.isFinal) {
-              lastOnlinePartialAtRef.current = Date.now();
-            }
-
             const originalText = result.originalText.trim();
             const translatedText = result.translatedText.trim();
             pushLocalSubtitle(
@@ -1078,177 +968,72 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           },
         }
       );
-      lastOnlinePartialAtRef.current = Date.now();
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      setTranslationInitStatus("failed");
       setTranslationInitError(message);
       setTranslationOnlineStatus("error");
       return false;
     }
   }, [pushLocalSubtitle, sendFinalSubtitleToPeer, token, translationLanguage, translationSourceLanguage]);
 
-  const stopFallbackProbe = useCallback(() => {
-    if (fallbackTimerRef.current) {
-      clearInterval(fallbackTimerRef.current);
-      fallbackTimerRef.current = null;
-    }
-  }, []);
-
-  const startFallbackProbe = useCallback(() => {
-    if (fallbackTimerRef.current) return;
-    fallbackTimerRef.current = setInterval(async () => {
-      if (
-        fallbackProbeBusyRef.current ||
-        !translationEnabled ||
-        statusRef.current !== "in_call" ||
-        translationMode !== "hybrid"
-      ) {
-        return;
-      }
-
-      fallbackProbeBusyRef.current = true;
-      try {
-        setTranslationOnlineStatus("retrying");
-        await stopOfflinePipeline();
-        const recovered = await startOnlinePipeline();
-        if (recovered) {
-          setTranslationFallbackReason(null);
-          stopFallbackProbe();
-        } else {
-          setTranslationOnlineStatus("fallback");
-          await startOfflinePipeline();
-        }
-      } finally {
-        fallbackProbeBusyRef.current = false;
-      }
-    }, 20_000);
-  }, [startOfflinePipeline, startOnlinePipeline, stopFallbackProbe, stopOfflinePipeline, translationEnabled, translationMode]);
-
-  const triggerFallbackToOffline = useCallback(async (reason: string) => {
-    if (translationMode !== "hybrid") {
-      setTranslationOnlineStatus("error");
-      setTranslationInitStatus("failed");
-      setTranslationInitError(reason);
-      return;
-    }
-
-    await stopOnlinePipeline();
-    setTranslationFallbackReason(reason);
-    setTranslationOnlineStatus("fallback");
-    const offlineReady = await startOfflinePipeline();
-    if (!offlineReady) {
-      setTranslationInitStatus("failed");
-      setTranslationInitError(`fallback failed: ${reason}`);
-      return;
-    }
-    startFallbackProbe();
-  }, [startFallbackProbe, startOfflinePipeline, stopOnlinePipeline, translationMode]);
-
   const retryTranslationInitialization = useCallback(async () => {
     if (!translationEnabled || statusRef.current !== "in_call") {
-      await initializeTranslationService();
-      return;
-    }
-
-    if (translationMode === "offline") {
-      await stopOfflinePipeline();
-      const ok = await startOfflinePipeline();
-      if (!ok) {
-        setTranslationInitStatus("failed");
-      }
+      setTranslationInitStatus("idle");
+      setTranslationInitError(null);
       return;
     }
 
     await stopOnlinePipeline();
-    const onlineReady = await startOnlinePipeline();
-    if (!onlineReady) {
-      await triggerFallbackToOffline("retry failed");
-    }
-  }, [initializeTranslationService, startOfflinePipeline, startOnlinePipeline, stopOfflinePipeline, stopOnlinePipeline, translationEnabled, translationMode, triggerFallbackToOffline]);
+    await startOnlinePipeline();
+  }, [startOnlinePipeline, stopOnlinePipeline, translationEnabled]);
 
   const toggleTranslation = useCallback(async (enabled: boolean) => {
     if (!enabled) {
       setTranslationEnabled(false);
-      setTranslationFallbackReason(null);
-      stopFallbackProbe();
       await stopOnlinePipeline();
-      await stopOfflinePipeline();
+      setTranslationInitStatus("idle");
+      setTranslationInitError(null);
       useSubtitleStore.getState().clearSubtitles();
       return;
     }
 
     setTranslationEnabled(true);
+    setTranslationInitStatus("idle");
     setTranslationInitError(null);
-    setTranslationFallbackReason(null);
-  }, [stopFallbackProbe, stopOfflinePipeline, stopOnlinePipeline]);
+  }, [stopOnlinePipeline]);
 
   useEffect(() => {
     if (!translationEnabled || status !== "in_call" || !sessionRef.current?.peerEmail) {
-      stopFallbackProbe();
       void stopOnlinePipeline();
-      void stopOfflinePipeline();
       return;
     }
 
     let cancelled = false;
-    let watchdog: ReturnType<typeof setInterval> | null = null;
 
     const start = async () => {
-      onlineErrorCountRef.current = 0;
-      lastOnlinePartialAtRef.current = Date.now();
-
-      if (translationMode === "offline") {
-        const ok = await startOfflinePipeline();
-        if (!ok && !cancelled) {
-          setTranslationInitStatus("failed");
-        }
-        return;
-      }
-
       const onlineReady = await startOnlinePipeline();
-      if (!onlineReady) {
-        if (!cancelled) {
-          await triggerFallbackToOffline("online start failed");
-        }
-        return;
-      }
-
-      if (translationMode === "hybrid") {
-        watchdog = setInterval(async () => {
-          if (cancelled || !translationEnabled || statusRef.current !== "in_call") return;
-          if (onlineErrorCountRef.current >= 3) {
-            await triggerFallbackToOffline("连续 provider 错误 >= 3");
-            if (watchdog) clearInterval(watchdog);
-            return;
-          }
-          if (Date.now() - lastOnlinePartialAtRef.current > 2500) {
-            await triggerFallbackToOffline("2.5s 无有效 partial");
-            if (watchdog) clearInterval(watchdog);
-          }
-        }, 500);
+      if (!onlineReady && !cancelled) {
+        setTranslationInitStatus("failed");
+        setTranslationOnlineStatus("error");
+        setTranslationInitError((prev) => prev ?? "online translation start failed");
       }
     };
 
     void start();
     return () => {
       cancelled = true;
-      if (watchdog) clearInterval(watchdog);
       void stopOnlinePipeline();
-      void stopOfflinePipeline();
     };
   }, [
-    startOfflinePipeline,
     startOnlinePipeline,
     status,
-    stopFallbackProbe,
-    stopOfflinePipeline,
     stopOnlinePipeline,
     translationEnabled,
     translationLanguage,
     translationMode,
     translationSourceLanguage,
-    triggerFallbackToOffline,
   ]);
 
   useEffect(() => {
@@ -1261,22 +1046,21 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
   useEffect(() => {
     return () => {
-      stopFallbackProbe();
       void OnlineTranslationService.stop();
     };
-  }, [stopFallbackProbe]);
+  }, []);
 
   const value = useMemo<SignalingContextValue>(() => ({
     status, session, connectionReady, localStream, remoteStream, networkQuality, isVideoEnabled, isAudioEnabled, isRemoteVideoEnabled, isRemoteAudioEnabled, cameraFacing,
     videoQuality, setVideoQuality, videoMaxBitrateKbps, setVideoMaxBitrateKbps, e2eeEnabled, e2eeFingerprint, e2eeSessionEstablished, translationEnabled, translationLanguage,
-    translationSourceLanguage, translationMode, translationOnlineStatus, translationFallbackReason, translationInitStatus, translationInitError,
+    translationSourceLanguage, translationMode, translationOnlineStatus, translationInitStatus, translationInitError,
     startCall, acceptCall, rejectCall, endCall, toggleVideo, toggleAudio, switchCamera, toggleSpeaker, isSpeakerOn, toggleTranslation,
     setTranslationLanguage: setTranslationLanguage,
     setTranslationSourceLanguage: setTranslationSourceLanguage,
     retryTranslationInitialization
   }), [status, session, connectionReady, localStream, remoteStream, networkQuality, isVideoEnabled, isAudioEnabled, isRemoteVideoEnabled, isRemoteAudioEnabled, cameraFacing,
     videoQuality, videoMaxBitrateKbps, e2eeEnabled, e2eeFingerprint, e2eeSessionEstablished, translationEnabled, translationLanguage, translationSourceLanguage, translationMode,
-    translationOnlineStatus, translationFallbackReason, translationInitStatus, translationInitError,
+    translationOnlineStatus, translationInitStatus, translationInitError,
     startCall, acceptCall, rejectCall, endCall, toggleVideo, toggleAudio, switchCamera, toggleSpeaker, isSpeakerOn, toggleTranslation, retryTranslationInitialization]);
 
   return <SignalingContext.Provider value={value}>{children}</SignalingContext.Provider>;

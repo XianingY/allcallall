@@ -26,7 +26,7 @@ export type SubtitlePayload = {
   original_text: string;
   translated_text: string;
   timestamp_ms: number;
-  source?: "online" | "offline" | "remote";
+  source?: "online" | "remote";
 };
 
 export type SignalMessageType =

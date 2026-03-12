@@ -121,15 +121,14 @@ export const RESTRICTED_NETWORK_MODE = readEnv(process.env.EXPO_PUBLIC_RESTRICTE
 export const SIGNALING_TRANSPORT_MODE = readEnv(process.env.EXPO_PUBLIC_SIGNALING_TRANSPORT) ?? "auto";
 export const SIGNALING_SHAPING_ENABLED = readEnv(process.env.EXPO_PUBLIC_SIGNALING_SHAPING) === "1";
 
-export type TranslationMode = "offline" | "online" | "hybrid";
+export type TranslationMode = "online";
 
 const readTranslationMode = (value: string | undefined): TranslationMode => {
-  if (!value) return "hybrid";
-  const mode = value.trim().toLowerCase();
-  if (mode === "offline" || mode === "online" || mode === "hybrid") {
-    return mode;
+  const mode = value?.trim().toLowerCase();
+  if (mode && mode !== "online") {
+    console.warn(`[config] EXPO_PUBLIC_TRANSLATION_MODE=${mode} is deprecated, forcing online mode`);
   }
-  return "hybrid";
+  return "online";
 };
 
 export const TRANSLATION_MODE: TranslationMode = readTranslationMode(

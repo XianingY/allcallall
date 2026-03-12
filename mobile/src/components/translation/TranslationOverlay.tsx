@@ -55,7 +55,7 @@ const TranslationOverlay: React.FC<TranslationOverlayProps> = ({
             <Text style={styles.metaText}>
               {language === 'zh' ? '中文' : language === 'en' ? 'English' : language}
               {' · '}
-              {subtitle.source === 'online' ? '在线' : subtitle.source === 'offline' ? '离线' : '对端'}
+              {subtitle.source === 'online' ? '在线' : '对端'}
               {' · '}
               {subtitle.isFinal ? 'final' : 'partial'}
             </Text>

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type SubtitleSource = "online" | "offline" | "remote";
+export type SubtitleSource = "online" | "remote";
 
 export interface SubtitleItem {
   id: string;
@@ -63,7 +63,7 @@ export const useSubtitleStore = create<SubtitleState>((set) => ({
         segmentId,
         revision: 1,
         isFinal: true,
-        source: "offline",
+        source: "online",
         original: subtitle.original,
         translated: subtitle.translated,
         timestamp: subtitle.timestamp,
