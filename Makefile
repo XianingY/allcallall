@@ -9,7 +9,7 @@ help:
 	@echo "================================"
 	@echo ""
 	@echo "Setup:"
-	@echo "  make setup            - Initialize project (submodules, dependencies)"
+	@echo "  make setup            - Install project dependencies"
 	@echo ""
 	@echo "Build:"
 	@echo "  make build-android    - Build Android debug APK"
@@ -28,8 +28,6 @@ help:
 # ===========================
 
 setup:
-	@echo "Initializing git submodules..."
-	git submodule update --init --recursive
 	@echo "Installing mobile dependencies..."
 	cd mobile && npm install
 	@echo "Setup complete!"

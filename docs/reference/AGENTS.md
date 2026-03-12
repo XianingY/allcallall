@@ -11,7 +11,7 @@ This file is for coding agents operating in this repo. Prefer small, verifiable 
 ## Commands (Build/Lint/Test)
 
 ### Setup & Infra
-- Project setup: `make setup` (git submodules + `cd mobile && npm install`)
+- Project setup: `make setup` (`cd mobile && npm install`)
 - Start MySQL/Redis: `./scripts/development/start-services.sh`
 - Stop services: `docker compose -f infra/docker-compose.yml down`
 - Clean repo artifacts: `make clean` (removes `mobile/node_modules`, `mobile/.expo`, Android build outputs)
