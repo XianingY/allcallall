@@ -4,9 +4,6 @@ import { RTCView } from "react-native-webrtc";
 import { activateKeepAwake, deactivateKeepAwake } from "expo-keep-awake";
 
 import { useSignaling } from "../context/SignalingContext";
-import { useSubtitleStore } from "../store/useSubtitleStore";
-import TranslationOverlay from "./translation/TranslationOverlay";
-import TranslationControl from "./translation/TranslationControl";
 
 const CallOverlay: React.FC = () => {
   const {
@@ -26,21 +23,8 @@ const CallOverlay: React.FC = () => {
     switchCamera,
     toggleSpeaker,
     isSpeakerOn,
-    networkQuality,
-    translationEnabled,
-    translationLanguage,
-    translationSourceLanguage,
-    translationMode,
-    translationOnlineStatus,
-    translationInitStatus,
-    translationInitError,
-    toggleTranslation,
-    setTranslationLanguage,
-    setTranslationSourceLanguage,
-    retryTranslationInitialization
+    networkQuality
   } = useSignaling();
-
-  const subtitles = useSubtitleStore((state) => state.subtitles);
 
   useEffect(() => {
     const tag = "call-overlay";
@@ -279,68 +263,6 @@ const CallOverlay: React.FC = () => {
             </>
           )}
         </View>
-
-        {/* 翻译字幕显示 */}
-        {status === "in_call" && (
-          <>
-            <TranslationOverlay
-              subtitles={subtitles}
-              isVisible={translationEnabled}
-              language={translationLanguage}
-            />
-
-            {/* 翻译初始化提示 */}
-            {translationInitStatus === "initializing" && (
-              <View style={styles.translationHint}>
-                <Text style={styles.translationHintText}>
-                  ⏳ 正在连接在线翻译服务
-                </Text>
-              </View>
-            )}
-
-            {translationInitStatus === "failed" && (
-              <View style={[styles.translationHint, styles.translationHintError]}>
-                <Text style={styles.translationHintText}>
-                  ⚠️ 在线翻译服务不可用：{translationInitError || "未知错误"}
-                </Text>
-                <TouchableOpacity
-                  style={styles.translationRetryButton}
-                  onPress={retryTranslationInitialization}
-                >
-                  <Text style={styles.translationRetryButtonText}>重试初始化</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* 翻译提示信息 (未开启时显示) */}
-            {translationInitStatus !== "initializing" &&
-              translationInitStatus !== "failed" &&
-              !translationEnabled && (
-              <View style={styles.translationHint}>
-                <Text style={styles.translationHintText}>
-                  💡 点击下方"实时翻译"开关开启翻译字幕
-                </Text>
-              </View>
-            )}
-
-            {/* 翻译控制面板 */}
-            <View style={styles.translationControlContainer}>
-              <TranslationControl
-                isEnabled={translationEnabled}
-                onToggle={toggleTranslation}
-                sourceLanguage={translationSourceLanguage}
-                onSourceLanguageChange={setTranslationSourceLanguage}
-                targetLanguage={translationLanguage}
-                onTargetLanguageChange={setTranslationLanguage}
-                translationMode={translationMode}
-                onlineStatus={translationOnlineStatus}
-                translationServiceStatus={translationInitStatus}
-                translationServiceError={translationInitError}
-                onRetryInitialize={retryTranslationInitialization}
-              />
-            </View>
-          </>
-        )}
       </View>
     </View>
   );
@@ -525,45 +447,6 @@ const styles = StyleSheet.create({
   },
   endButton: {
     backgroundColor: "rgba(220,38,38,0.9)"
-  },
-  translationControlContainer: {
-    position: "absolute",
-    bottom: 100,
-    left: 0,
-    right: 0,
-    zIndex: 999
-  },
-  translationHint: {
-    position: "absolute",
-    bottom: 180,
-    left: 20,
-    right: 20,
-    backgroundColor: "rgba(59, 130, 246, 0.9)",
-    borderRadius: 12,
-    padding: 12,
-    zIndex: 998
-  },
-  translationHintText: {
-    color: "#fff",
-    fontSize: 14,
-    textAlign: "center",
-    fontWeight: "600"
-  },
-  translationHintError: {
-    backgroundColor: "rgba(220, 38, 38, 0.92)"
-  },
-  translationRetryButton: {
-    marginTop: 10,
-    alignSelf: "center",
-    backgroundColor: "rgba(0,0,0,0.25)",
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 7
-  },
-  translationRetryButtonText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700"
   }
 });
 

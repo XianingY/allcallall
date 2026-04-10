@@ -602,6 +602,37 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     sendMessage({ type: "call.ice-restart.request", call_id: callId, to: peerEmail, payload: { reason, iceEpoch: iceEpochRef.current } });
   }, [sendMessage]);
 
+  const updateNetworkQualityFromReport = useCallback((pc: RTCPeerConnection) => {
+    return pc.getStats().then((report) => {
+      let availableBps: number | null = null;
+      let currentRtt: number | null = null;
+      let connectionState = pc.connectionState;
+      let iceConnectionState = pc.iceConnectionState;
+
+      report.forEach((stat: any) => {
+        if (stat.type === "candidate-pair" && (stat.selected || stat.nominated)) {
+          availableBps = stat.availableOutgoingBitrate ?? availableBps;
+          currentRtt = stat.currentRoundTripTime ?? currentRtt;
+        }
+      });
+
+      if (currentRtt !== null) {
+        if (currentRtt < 0.1) setNetworkQuality("excellent");
+        else if (currentRtt < 0.3) setNetworkQuality("good");
+        else if (currentRtt < 0.5) setNetworkQuality("poor");
+        else setNetworkQuality("bad");
+      } else if (connectionState === "connected" || iceConnectionState === "connected" || iceConnectionState === "completed") {
+        setNetworkQuality("good");
+      } else if (connectionState === "disconnected" || connectionState === "failed" || iceConnectionState === "failed") {
+        setNetworkQuality("bad");
+      } else if (connectionState === "connecting" || iceConnectionState === "checking") {
+        setNetworkQuality("unknown");
+      }
+
+      return availableBps;
+    });
+  }, []);
+
   const startIceRestartAsCaller = useCallback(async () => {
     const current = sessionRef.current;
     const pc = peerRef.current;
@@ -625,24 +656,10 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!pc) return;
     let lastAppliedKbps: number | null = null;
     const timer = setInterval(async () => {
-      if (statusRef.current !== "in_call" || !isVideoEnabledRef.current || !videoAdaptiveBitrateEnabledRef.current) return;
+      if (statusRef.current !== "in_call") return;
       try {
-        const report = await pc.getStats();
-        let availableBps: number | null = null;
-        let currentRtt: number | null = null;
-        report.forEach((stat: any) => {
-          if (stat.type === "candidate-pair" && (stat.selected || stat.nominated)) {
-            availableBps = stat.availableOutgoingBitrate;
-            currentRtt = stat.currentRoundTripTime;
-          }
-        });
-        if (currentRtt !== null) {
-          if (currentRtt < 0.1) setNetworkQuality("excellent");
-          else if (currentRtt < 0.3) setNetworkQuality("good");
-          else if (currentRtt < 0.5) setNetworkQuality("poor");
-          else setNetworkQuality("bad");
-        }
-        if (availableBps) {
+        const availableBps = await updateNetworkQualityFromReport(pc);
+        if (isVideoEnabledRef.current && videoAdaptiveBitrateEnabledRef.current && availableBps) {
           const userMaxKbps = videoMaxBitrateKbpsRef.current;
           const targetKbps = Math.max(100, Math.min(userMaxKbps, (availableBps * 0.85) / 1000));
           if (lastAppliedKbps === null || Math.abs(targetKbps - lastAppliedKbps) / lastAppliedKbps > 0.1) {
@@ -653,7 +670,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       } catch (e) {}
     }, 4000);
     return () => clearInterval(timer);
-  }, [setVideoSenderMaxBitrate, status]);
+  }, [setVideoSenderMaxBitrate, status, updateNetworkQualityFromReport]);
 
   const createPeerConnection = useCallback(() => {
     const pc = new RTCPeerConnection({ iceServers, bundlePolicy: "max-bundle" } as any);
