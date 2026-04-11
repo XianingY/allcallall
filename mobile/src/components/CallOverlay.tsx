@@ -4,6 +4,10 @@ import { RTCView } from "react-native-webrtc";
 import { activateKeepAwake, deactivateKeepAwake } from "expo-keep-awake";
 
 import { useSignaling } from "../context/SignalingContext";
+import { useSubtitleStore } from "../store/useSubtitleStore";
+import { E2EEIndicator } from "./E2EEIndicator";
+import TranslationControl from "./translation/TranslationControl";
+import TranslationOverlay from "./translation/TranslationOverlay";
 
 const CallOverlay: React.FC = () => {
   const {
@@ -23,8 +27,20 @@ const CallOverlay: React.FC = () => {
     switchCamera,
     toggleSpeaker,
     isSpeakerOn,
-    networkQuality
+    networkQuality,
+    translationEnabled,
+    translationLanguage,
+    translationSourceLanguage,
+    translationMode,
+    translationOnlineStatus,
+    translationInitStatus,
+    translationInitError,
+    toggleTranslation,
+    setTranslationLanguage,
+    setTranslationSourceLanguage,
+    retryTranslationInitialization
   } = useSignaling();
+  const subtitles = useSubtitleStore((state) => state.subtitles);
 
   useEffect(() => {
     const tag = "call-overlay";
@@ -162,6 +178,10 @@ const CallOverlay: React.FC = () => {
           </Text>
         </View>
 
+        <View style={styles.securityIndicator}>
+          <E2EEIndicator />
+        </View>
+
         {/* 状态信息 */}
         <View style={styles.statusBar}>
           <Text style={styles.statusText}>
@@ -182,6 +202,35 @@ const CallOverlay: React.FC = () => {
             </View>
           )}
         </View>
+
+        {status === "in_call" ? (
+          <>
+            <TranslationOverlay
+              subtitles={subtitles}
+              isVisible={translationEnabled}
+              language={translationLanguage}
+            />
+            <View style={styles.translationControls}>
+              <TranslationControl
+                isEnabled={translationEnabled}
+                onToggle={(enabled) => {
+                  void toggleTranslation(enabled);
+                }}
+                targetLanguage={translationLanguage}
+                onTargetLanguageChange={setTranslationLanguage}
+                sourceLanguage={translationSourceLanguage}
+                onSourceLanguageChange={setTranslationSourceLanguage}
+                translationMode={translationMode}
+                onlineStatus={translationOnlineStatus}
+                translationServiceStatus={translationInitStatus}
+                translationServiceError={translationInitError}
+                onRetryInitialize={() => {
+                  void retryTranslationInitialization();
+                }}
+              />
+            </View>
+          </>
+        ) : null}
 
         {/* 控制按钮 */}
         <View style={styles.controlsContainer}>
@@ -382,6 +431,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600"
   },
+  securityIndicator: {
+    position: "absolute",
+    top: 104,
+    left: 20
+  },
   statusBar: {
     position: "absolute",
     top: 20,
@@ -408,6 +462,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: "center",
     fontWeight: "600"
+  },
+  translationControls: {
+    position: "absolute",
+    left: 20,
+    right: 20,
+    bottom: 120
   },
   controlsContainer: {
     position: "absolute",

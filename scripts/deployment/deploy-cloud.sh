@@ -186,8 +186,8 @@ JWT_SECRET=$(openssl rand -base64 32)
 # Mail
 MAIL_PASSWORD=your_qq_email_auth_code
 
-# Environment
-APP_ENV=production
+# FCM (optional)
+FCM_SERVICE_ACCOUNT_PATH=/opt/allcallall/secrets/firebase-service-account.json
 EOF
 
 echo -e "${GREEN}✓ .env 文件已创建 (请手动编辑邮箱授权码)${NC}"

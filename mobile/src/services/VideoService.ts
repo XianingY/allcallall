@@ -44,18 +44,15 @@ class VideoService {
    */
   async initialize(): Promise<void> {
     if (this.isInitialized) {
-      console.log("[VideoService] Already initialized");
       return;
     }
 
-    console.log("[VideoService] Initializing...");
     
     if (!webrtcMediaDevices) {
       throw new Error("WebRTC mediaDevices not available");
     }
 
     this.isInitialized = true;
-    console.log("[VideoService] ✓ Initialized successfully");
   }
 
   /**
@@ -72,12 +69,6 @@ class VideoService {
     quality: VideoQuality = "medium"
   ): Promise<MediaStream | null> {
     try {
-      console.log("[VideoService] Getting local stream...", {
-        audioEnabled,
-        videoEnabled,
-        facingMode,
-        quality
-      });
 
       // 停止旧的流
       if (this.currentStream) {
@@ -89,7 +80,6 @@ class VideoService {
         video: videoEnabled ? this.getVideoConstraints(facingMode, quality) : false
       };
 
-      console.log("[VideoService] Media constraints:", JSON.stringify(constraints, null, 2));
 
       const stream = await webrtcMediaDevices.getUserMedia(constraints);
       
@@ -97,11 +87,6 @@ class VideoService {
       this.currentFacingMode = facingMode;
       this.currentQuality = quality;
 
-      console.log("[VideoService] ✓ Local stream obtained:", {
-        tracks: stream.getTracks().length,
-        audioTracks: stream.getAudioTracks().length,
-        videoTracks: stream.getVideoTracks().length
-      });
 
       return stream;
     } catch (error) {
@@ -130,7 +115,6 @@ class VideoService {
   async switchCamera(): Promise<MediaStream | null> {
     try {
       const newFacingMode: CameraFacing = this.currentFacingMode === "front" ? "back" : "front";
-      console.log("[VideoService] Switching camera from", this.currentFacingMode, "to", newFacingMode);
 
       // 检查当前流中是否有视频轨道
       const hasVideo = (this.currentStream?.getVideoTracks().length ?? 0) > 0;
@@ -168,7 +152,6 @@ class VideoService {
     const videoTracks = this.currentStream.getVideoTracks();
     videoTracks.forEach((track) => {
       track.enabled = enabled;
-      console.log(`[VideoService] Video track ${enabled ? "enabled" : "disabled"}`);
     });
   }
 
@@ -184,7 +167,6 @@ class VideoService {
     const audioTracks = this.currentStream.getAudioTracks();
     audioTracks.forEach((track) => {
       track.enabled = enabled;
-      console.log(`[VideoService] Audio track ${enabled ? "enabled" : "disabled"}`);
     });
   }
 
@@ -195,7 +177,6 @@ class VideoService {
     try {
       stream.getTracks().forEach((track) => {
         track.stop();
-        console.log(`[VideoService] Stopped ${track.kind} track`);
       });
     } catch (error) {
       console.error("[VideoService] Error stopping stream:", error);
@@ -231,7 +212,6 @@ class VideoService {
    */
   async setVideoQuality(quality: VideoQuality): Promise<MediaStream | null> {
     try {
-      console.log("[VideoService] Setting video quality to:", quality);
 
       const hasVideo = (this.currentStream?.getVideoTracks().length ?? 0) > 0;
       const hasAudio = (this.currentStream?.getAudioTracks().length ?? 0) > 0;
@@ -280,7 +260,6 @@ class VideoService {
    * 清理资源
    */
   cleanup(): void {
-    console.log("[VideoService] Cleaning up resources...");
     this.stopCurrentStream();
     this.isInitialized = false;
   }

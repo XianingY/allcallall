@@ -32,6 +32,7 @@ class PushNotificationService {
   private navigationRef: React.RefObject<NavigationContainerRef<any>> | null = null;
   private currentToken: string | null = null;
   private authToken: string | null = null;
+  private notificationsEnabled: boolean = true;
 
   private constructor() {
     this.initialize();
@@ -49,7 +50,9 @@ class PushNotificationService {
    */
   private async initialize(): Promise<void> {
     try {
-      await this.requestPermission();
+      if (this.notificationsEnabled) {
+        await this.requestPermission();
+      }
       await this.getFCMToken();
       this.setupMessageHandlers();
       this.setupBackgroundMessageHandler();
@@ -136,6 +139,10 @@ class PushNotificationService {
    * 处理推送消息
    */
   private handleMessage(remoteMessage: any): void {
+    if (!this.notificationsEnabled) {
+      return;
+    }
+
     try {
       const data = remoteMessage.data || {};
       const notificationType = data.type as NotificationType;
@@ -161,6 +168,10 @@ class PushNotificationService {
    * 处理来电通知
    */
   private handleIncomingCall(_payload: IncomingCallPayload): void {
+    if (!this.notificationsEnabled) {
+      return;
+    }
+
     try {
       if (!this.navigationRef?.current) {
         console.warn("[PushNotificationService] Navigation ref not ready; rely on signaling state");
@@ -182,6 +193,10 @@ class PushNotificationService {
    * 处理通知点击
    */
   private handleNotificationTap(remoteMessage: any): void {
+    if (!this.notificationsEnabled) {
+      return;
+    }
+
     const data = remoteMessage.data || {};
     const notificationType = data.type as NotificationType;
 
@@ -194,6 +209,10 @@ class PushNotificationService {
    * 触发来电通知（音频 + 震动）
    */
   private triggerCallNotification(): void {
+    if (!this.notificationsEnabled) {
+      return;
+    }
+
     // 动态导入以避免循环依赖
     import('./AudioServiceExpo').then(({ default: AudioService }) => {
       AudioService.play("incoming_call");
@@ -238,6 +257,17 @@ class PushNotificationService {
 
   public setAuthToken(authToken: string | null): void {
     this.authToken = authToken;
+  }
+
+  public setNotificationsEnabled(enabled: boolean): void {
+    this.notificationsEnabled = enabled;
+    if (enabled) {
+      void this.requestPermission();
+    }
+  }
+
+  public areNotificationsEnabled(): boolean {
+    return this.notificationsEnabled;
   }
 
   /**

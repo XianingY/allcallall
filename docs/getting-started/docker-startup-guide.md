@@ -218,10 +218,7 @@ npm run start
 - `mobile/src/config/index.ts` - 主配置文件
 
 ### 环境变量检测
-移动应用启动时会自动检测环境变量 `APP_ENV`：
-- `development` - 使用本地开发配置
-- `staging` - 使用测试环境配置
-- `production` - 使用生产环境配置
+移动端运行时只使用 Expo 的 `EXPO_PUBLIC_*` 变量。当前推荐通过 `EXPO_PUBLIC_API_HTTP`、`EXPO_PUBLIC_API_WS` 和 `EXPO_PUBLIC_FORCE_TLS` 明确指定接口地址与协议，而不是依赖 `APP_ENV`。
 
 ## ⚠️ 常见问题
 
@@ -244,7 +241,7 @@ docker compose up -d
 - ✅ 后端服务是否正常运行：`curl http://localhost:8080/api/v1/health`
 - ✅ 手机是否连接正确的WiFi网络
 - ✅ 防火墙是否阻止8080端口
-- ✅ `mobile/src/config/index.ts` 中的IP地址是否正确为 `<YOUR_LAN_IP>`
+- ✅ 已通过 `EXPO_PUBLIC_API_HTTP` / `EXPO_PUBLIC_API_WS` 指向正确的 `<YOUR_LAN_IP>:8080`
 
 ### 问题3：MySQL连接错误
 ```bash
@@ -270,7 +267,9 @@ docker compose exec redis redis-cli ping
 | MAIL_PASSWORD | - | QQ邮箱授权码（必需） |
 | DB_DSN | 见下表 | 数据库连接字符串 |
 | REDIS_ADDR | localhost:6379 | Redis连接地址 |
-| APP_ENV | development | 应用环境（development/staging/production） |
+| EXPO_PUBLIC_API_HTTP | http://127.0.0.1:8080 | 移动端 API 基础地址 |
+| EXPO_PUBLIC_API_WS | ws://127.0.0.1:8080 | 移动端 WebSocket 基础地址 |
+| EXPO_PUBLIC_FORCE_TLS | 0 | 设为 1 时强制使用 HTTPS/WSS |
 
 ## 🔗 服务端口映射
 
@@ -294,4 +293,4 @@ docker compose exec redis redis-cli ping
 
 ---
 
-**提示**: 如需更改局域网IP地址，请编辑 `mobile/src/config/index.ts` 文件中的 `development` 环境配置。
+**提示**: 如需更改局域网IP地址，请在启动 Metro 前设置 `EXPO_PUBLIC_API_HTTP` 和 `EXPO_PUBLIC_API_WS`。

@@ -186,14 +186,12 @@ rm -rf node_modules/.cache
 
 ### 第三步：配置API连接地址
 
-编辑 `mobile/src/config/index.ts`，确保开发环境配置正确：
+在启动 Metro 或构建前设置移动端环境变量，确保开发环境指向当前局域网 IP：
 
-```typescript
-// 对于本地测试，使用您的局域网IP
-const DEV_API = {
-  HTTP: "http://10.136.17.108:8080",
-  WS: "ws://10.136.17.108:8080"
-};
+```bash
+EXPO_PUBLIC_API_HTTP=http://10.136.17.108:8080 \
+EXPO_PUBLIC_API_WS=ws://10.136.17.108:8080 \
+npm run start
 ```
 
 ### 第四步：构建APK文件
@@ -316,33 +314,21 @@ ifconfig | grep "inet " | grep -v 127.0.0.1
 
 ### 2. 配置移动端API地址
 
-编辑 `mobile/src/config/index.ts`：
+在启动 Metro 或构建前通过 `EXPO_PUBLIC_*` 指定接口地址：
 
-```typescript
-const getApiConfig = () => {
-  switch (APP_ENV) {
-    case 'development':
-      return {
-        HTTP: "http://10.136.17.108:8080",  // 使用本机IP
-        WS: "ws://10.136.17.108:8080"
-      };
-    case 'staging':
-      return {
-        HTTP: "http://81.68.168.207:8080",  // 测试服务器
-        WS: "ws://81.68.168.207:8080"
-      };
-    case 'production':
-      return {
-        HTTP: "http://81.68.168.207",  // 生产服务器
-        WS: "ws://81.68.168.207"
-      };
-    default:
-      return {
-        HTTP: "http://10.136.17.108:8080",
-        WS: "ws://10.136.17.108:8080"
-      };
-  }
-};
+```bash
+EXPO_PUBLIC_API_HTTP=http://10.136.17.108:8080 \
+EXPO_PUBLIC_API_WS=ws://10.136.17.108:8080 \
+npm run start
+```
+
+生产构建示例：
+
+```bash
+EXPO_PUBLIC_API_HTTP=https://api.example.com \
+EXPO_PUBLIC_API_WS=wss://api.example.com \
+EXPO_PUBLIC_FORCE_TLS=1 \
+eas build --platform android --profile=release
 ```
 
 ### 3. 验证连接
@@ -364,16 +350,11 @@ adb shell curl http://10.136.17.108:8080/ping
 
 ```bash
 # 启动开发服务器时指定环境
-APP_ENV=development npm run start
+EXPO_PUBLIC_API_HTTP=http://10.136.17.108:8080 \
+EXPO_PUBLIC_API_WS=ws://10.136.17.108:8080 \
+npm run start
 
-# 或编辑app.json添加环境变量
-# {
-#   "expo": {
-#     "extra": {
-#       "APP_ENV": "development"
-#     }
-#   }
-# }
+# 或在 eas.json / 本地 shell 中提供相同的 EXPO_PUBLIC_* 配置
 ```
 
 ---

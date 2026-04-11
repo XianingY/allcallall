@@ -16,13 +16,13 @@
 
 ### 3. ❌ FCM Token 未发送到后端
 **症状**：后端无法获知设备的 FCM Token，因此无法发送推送消息
-**原因**：`PushNotificationService.ts` 中的 `sendTokenToServer()` 方法是 TODO 状态，没有真正的实现
+**原因**：历史版本的 `PushNotificationService.ts` 中 `sendTokenToServer()` 曾是 TODO；当前实现已改为使用统一 API 客户端上报 Token。
 **状态**：✅ **已修复** - 添加了 `sendCurrentTokenToBackend()` 方法
 
-### 4. ❌ 后端缺少 FCM 推送实现
-**症状**：后端无法向客户端发送推送消息
-**原因**：Go 后端代码中完全没有 FCM 集成，没有用于保存 FCM Token 和发送推送的接口
-**状态**：⏳ **待实现** - 需要后端开发
+### 4. ⚠️ Firebase 服务账户未配置
+**症状**：后端会安全跳过 FCM 发送，日志显示 `fcm disabled, skipping ...`
+**原因**：运行环境未提供 `FCM_SERVICE_ACCOUNT_PATH`
+**状态**：⏳ **待配置** - 需要部署时挂载服务账户 JSON
 
 ### 5. ❌ Firebase 配置文件缺失
 **症状**：FCM 客户端无法初始化
@@ -79,27 +79,16 @@ useEffect(() => {
 
 ```typescript
 public async sendCurrentTokenToBackend(authToken: string): Promise<void> {
+  this.authToken = authToken;
+  if (!this.currentToken) {
+    await this.getFCMToken();
+  }
   if (!this.currentToken) {
     console.warn("[PushNotificationService] No FCM token available");
     return;
   }
 
-  try {
-    const response = await axios.post(
-      '/users/fcm-token',
-      { fcm_token: this.currentToken },
-      {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-    
-    console.log("[PushNotificationService] ✓ FCM token sent to backend successfully");
-  } catch (error) {
-    console.error("[PushNotificationService] Error sending token to backend:", error);
-  }
+  await saveFCMToken(this.authToken, this.currentToken);
 }
 ```
 
@@ -137,75 +126,31 @@ await PushNotificationService.sendCurrentTokenToBackend(response.data.access_tok
 // ... 其他逻辑 ...
 ```
 
-### 步骤 2：在后端实现 FCM 相关接口
+### 步骤 2：在部署环境配置后端 FCM
 
-需要在 Go 后端添加两个新的接口：
+当前后端接口与推送发送逻辑已经存在；需要补的是部署侧配置。
 
-#### 2.1 保存用户 FCM Token 的接口
+#### 2.1 配置 Firebase 服务账户路径
 
-**路由**：`POST /users/fcm-token`
+在后端运行环境中设置：
 
-```go
-// 示例实现（在 backend/internal/handlers/user.go）
-func (h *UserHandler) SaveFCMToken(ctx *gin.Context) {
-    // 1. 从 JWT 获取用户信息
-    // 2. 获取请求体中的 fcm_token
-    // 3. 保存到数据库
-    
-    type SaveFCMTokenRequest struct {
-        FCMToken string `json:"fcm_token" binding:"required"`
-    }
-    
-    var req SaveFCMTokenRequest
-    if err := ctx.BindJSON(&req); err != nil {
-        ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
-    
-    // 获取用户 ID（从 JWT）
-    userID := getUserIDFromContext(ctx)
-    
-    // 保存到数据库
-    if err := h.userSvc.SaveFCMToken(ctx, userID, req.FCMToken); err != nil {
-        ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-        return
-    }
-    
-    ctx.JSON(http.StatusOK, gin.H{"message": "FCM token saved successfully"})
-}
+```bash
+export FCM_SERVICE_ACCOUNT_PATH="/absolute/path/to/firebase-service-account.json"
 ```
 
-#### 2.2 发送推送通知的内部接口
+#### 2.2 验证真实发送或安全降级
 
-**用于信令服务**：在 `signaling/hub.go` 中添加推送通知逻辑
+配置后应看到：
 
-```go
-// 当接收到 call.invite 消息时，向被呼叫者发送推送通知
-func (h *Hub) handleCallInvite(ctx context.Context, from string, to string, callID string) {
-    // 1. 从数据库获取被呼叫者的 FCM Token
-    fcmToken := getFCMTokenForUser(to)
-    
-    // 2. 使用 Firebase Admin SDK 发送推送
-    message := &messaging.Message{
-        Token: fcmToken,
-        Notification: &messaging.Notification{
-            Title: "AllCallAll - 来电",
-            Body: fmt.Sprintf("%s 正在呼叫您", from),
-        },
-        Data: map[string]string{
-            "type": "incoming_call",
-            "call_id": callID,
-            "from_user": from,
-            "from_email": from + "@example.com", // 需要完整邮箱
-            "display_name": from,
-        },
-    }
-    
-    _, err := h.fcmClient.Send(ctx, message)
-    if err != nil {
-        h.logger.Error().Err(err).Msg("Failed to send FCM message")
-    }
-}
+```
+2026-XX-XX INF fcm enabled component=fcm_manager credentials_path=/absolute/path/to/firebase-service-account.json
+2026-XX-XX INF call notification sent component=fcm_manager from=user_a@example.com call_id=uuid-string message_id=projects/.../messages/...
+```
+
+未配置时应看到安全降级日志：
+
+```
+2026-XX-XX DBG fcm disabled, skipping call notification component=fcm_manager from=user_a@example.com call_id=uuid-string
 ```
 
 ### 步骤 3：获取 Firebase 配置文件

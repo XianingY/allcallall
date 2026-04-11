@@ -22,11 +22,9 @@ const TranslationOverlay: React.FC<TranslationOverlayProps> = ({
   isVisible,
   language,
 }) => {
-  const now = Date.now();
   const visibleSubtitles = useMemo(() => {
-    const active = subtitles.filter((item) => item.expiresAt > now);
-    return active.slice(-3);
-  }, [subtitles, now]);
+    return subtitles.slice(-3);
+  }, [subtitles]);
 
   if (!isVisible || visibleSubtitles.length === 0) {
     return null;

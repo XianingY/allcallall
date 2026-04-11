@@ -16,7 +16,6 @@ class CameraPermissionService {
    * 检查并请求所有必要的权限
    */
   async checkPermissions(): Promise<PermissionResult> {
-    console.log("[CameraPermissionService] Checking permissions...");
 
     if (Platform.OS === "android") {
       return await this.checkAndroidPermissions();
@@ -51,11 +50,9 @@ class CameraPermissionService {
         permissions.push(PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT);
       }
 
-      console.log("[CameraPermissionService] Requesting Android permissions:", permissions);
 
       const result = await PermissionsAndroid.requestMultiple(permissions as any);
       
-      console.log("[CameraPermissionService] Permission result:", result);
 
       const cameraGranted = result[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED;
       const microphoneGranted = result[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
@@ -63,10 +60,7 @@ class CameraPermissionService {
       const allGranted = cameraGranted && microphoneGranted;
 
       if (!allGranted) {
-        console.warn("[CameraPermissionService] Not all permissions granted:", {
-          camera: cameraGranted,
-          microphone: microphoneGranted
-        });
+        console.warn("[CameraPermissionService] Camera or microphone permission denied");
       }
 
       return {
@@ -143,7 +137,6 @@ class CameraPermissionService {
    */
   handlePermissionResult(result: PermissionResult): void {
     if (result.allGranted) {
-      console.log("[CameraPermissionService] All permissions granted");
       return;
     }
 

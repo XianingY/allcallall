@@ -30,7 +30,6 @@ class AudioServiceSimple {
     if (!enabled) {
       this.stopAll();
     }
-    console.log("[AudioService] Audio enabled:", enabled);
   }
 
   /**
@@ -46,11 +45,9 @@ class AudioServiceSimple {
    */
   public async play(audioType: AudioType): Promise<void> {
     if (!this.enabled) {
-      console.log("[AudioService] Audio is disabled, skipping play");
       return;
     }
 
-    console.log(`[AudioService] Playing: ${audioType}`);
     this.playingAudio = audioType;
 
     // TODO: 实现真实的音频播放
@@ -68,7 +65,6 @@ class AudioServiceSimple {
    * 停止音频
    */
   public stop(audioType: AudioType): void {
-    console.log(`[AudioService] Stopping: ${audioType}`);
     if (this.playingAudio === audioType) {
       this.playingAudio = null;
     }
@@ -78,7 +74,6 @@ class AudioServiceSimple {
    * 停止所有音频
    */
   public stopAll(): void {
-    console.log("[AudioService] Stopping all audio");
     this.playingAudio = null;
   }
 
@@ -87,7 +82,6 @@ class AudioServiceSimple {
    */
   public dispose(): void {
     this.stopAll();
-    console.log("[AudioService] Disposed");
   }
 }
 

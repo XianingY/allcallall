@@ -32,7 +32,6 @@ class VibrationService {
   };
 
   private constructor() {
-    console.log("[VibrationService] Initialized");
   }
 
   public static getInstance(): VibrationService {
@@ -50,7 +49,6 @@ class VibrationService {
     if (!enabled) {
       this.cancel();
     }
-    console.log("[VibrationService] Vibration enabled:", enabled);
   }
 
   /**
@@ -65,11 +63,9 @@ class VibrationService {
    */
   public vibrate(type: VibrationType): void {
     if (!this.enabled) {
-      console.log("[VibrationService] Vibration is disabled, skipping");
       return;
     }
 
-    console.log(`[VibrationService] Vibrating: ${type}`);
 
     try {
       const pattern = this.patterns[type];
@@ -98,7 +94,6 @@ class VibrationService {
    */
   public cancel(): void {
     if (this.isVibrating) {
-      console.log("[VibrationService] Canceling vibration");
       Vibration.cancel();
       this.isVibrating = false;
     }
@@ -109,11 +104,9 @@ class VibrationService {
    */
   public vibrateCustom(pattern: number[], repeat: boolean = false): void {
     if (!this.enabled) {
-      console.log("[VibrationService] Vibration is disabled, skipping custom pattern");
       return;
     }
 
-    console.log("[VibrationService] Vibrating with custom pattern");
     Vibration.vibrate(pattern, repeat);
     this.isVibrating = repeat;
   }
@@ -140,7 +133,6 @@ class VibrationService {
    * 清理资源
    */
   public dispose(): void {
-    console.log("[VibrationService] Disposing...");
     this.cancel();
   }
 }

@@ -42,7 +42,6 @@ class AudioServiceWebRTC {
     if (!enabled) {
       this.stopAll();
     }
-    console.log("[AudioService] Audio enabled:", enabled);
   }
 
   /**
@@ -57,11 +56,9 @@ class AudioServiceWebRTC {
    */
   public async play(audioType: AudioType): Promise<void> {
     if (!this.enabled) {
-      console.log("[AudioService] Audio is disabled, skipping play");
       return;
     }
 
-    console.log(`[AudioService] Playing: ${audioType}`);
     this.playingAudio = audioType;
 
     try {
@@ -69,7 +66,6 @@ class AudioServiceWebRTC {
         await this.playWebAudio(audioType);
       } else {
         // React Native 平台：播放系统提示音或使用原生实现
-        console.log(`[AudioService] ${audioType} would play on native platform`);
         // 这里可以集成 react-native-sound 或其他音频库
       }
     } catch (error) {
@@ -135,7 +131,6 @@ class AudioServiceWebRTC {
    */
   public stop(audioType: AudioType): void {
     if (this.playingAudio === audioType) {
-      console.log(`[AudioService] Stopping: ${audioType}`);
       this.playingAudio = null;
 
       if (this.oscillator) {
@@ -157,7 +152,6 @@ class AudioServiceWebRTC {
    * 停止所有音频
    */
   public stopAll(): void {
-    console.log("[AudioService] Stopping all audio");
     this.playingAudio = null;
 
     if (this.oscillator) {
@@ -182,7 +176,6 @@ class AudioServiceWebRTC {
     if (this.audioContext && this.audioContext.close) {
       this.audioContext.close();
     }
-    console.log("[AudioService] Disposed");
   }
 }
 

@@ -43,7 +43,7 @@ services:
       HTTP_PORT: "8080"
       CONFIG_PATH: /app/configs/config.yaml
       WEBRTC_ICE_SERVERS_JSON: '${WEBRTC_ICE_SERVERS_JSON:-[{"urls":["stun:stun.l.google.com:19302"]}]}'
-      # FCM 推送通知 (可选 - 待 Firebase SDK 集成)
+      # FCM 推送通知（可选，配置后将启用真实发送）
       FCM_SERVICE_ACCOUNT_PATH: ${FCM_SERVICE_ACCOUNT_PATH:-}
       # WebSocket keepalive 配置
       WS_PING_INTERVAL: ${WS_PING_INTERVAL:-30s}

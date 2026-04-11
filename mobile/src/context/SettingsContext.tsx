@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import type { VideoQuality } from "../services/VideoService";
+import PushNotificationService from "../services/PushNotificationService";
 
 interface Settings {
   audioNotificationsEnabled: boolean;
@@ -86,6 +87,13 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 
     loadSettings();
   }, []);
+
+  useEffect(() => {
+    if (!loaded) {
+      return;
+    }
+    PushNotificationService.setNotificationsEnabled(settings.pushNotificationsEnabled);
+  }, [loaded, settings.pushNotificationsEnabled]);
 
   const updateAudioNotifications = async (enabled: boolean) => {
     const newSettings = {

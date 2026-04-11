@@ -236,7 +236,6 @@ webrtc:
 
 ### 8. FCM 配置 (fcm) - 可选
 
-> ⚠️ **功能状态**: 即将推出 - 待 Firebase Admin SDK 集成
 
 ```yaml
 fcm:
@@ -254,10 +253,7 @@ export FCM_SERVICE_ACCOUNT_PATH="/opt/allcallall/secrets/firebase-key.json"
 ```
 
 **当前状态**:
-后端 FCM 模块 (`backend/internal/fcm/manager.go`) 已就位，日志将显示:
-```
-call notification would be sent (Firebase SDK not yet configured)
-```
+后端 FCM 模块已经接入 Firebase Admin SDK。配置 `FCM_SERVICE_ACCOUNT_PATH` 后会实际发送通知；未配置时会安全降级，并记录 `fcm disabled, skipping ...`。
 
 ### 9. 信令配置 (signaling)
 

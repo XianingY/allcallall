@@ -115,7 +115,7 @@ const SettingsScreen: React.FC<Props> = () => {
             <View style={styles.settingInfo}>
               <Text style={styles.settingTitle}>推送通知 / Push Notifications</Text>
               <Text style={styles.settingDescription}>
-                开启后，即使应用在后台也能接收来电通知
+                控制客户端提醒与权限申请；不会停止服务端推送投递
               </Text>
             </View>
             <Switch
