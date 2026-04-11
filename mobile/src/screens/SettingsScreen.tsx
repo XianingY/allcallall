@@ -15,11 +15,10 @@ import { useSettings } from "../context/SettingsContext";
 import type { VideoQuality } from "../services/VideoService";
 import AudioService from "../services/AudioServiceExpo";
 import VibrationService from "../services/VibrationService";
-import PushNotificationService from "../services/PushNotificationService";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Settings">;
 
-const SettingsScreen: React.FC<Props> = ({ navigation }) => {
+const SettingsScreen: React.FC<Props> = () => {
   const { 
     settings, 
     updateAudioNotifications, 

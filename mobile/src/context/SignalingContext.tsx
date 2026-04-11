@@ -23,18 +23,15 @@ import {
 import {
   MediaUpdatePayload,
   SdpRenegotiationPayload,
-  SignalingClient,
   SubtitlePayload,
   SignalMessage
 } from "../api/signaling";
-import { PollingSignalingClient } from "../api/signalingPoll";
 import {
   RESTRICTED_NETWORK_MODE,
   SIGNALING_TRANSPORT_MODE,
   TRANSLATION_MODE,
   TRANSLATION_SOURCE_LANG,
-  TRANSLATION_TARGET_LANG,
-  type TranslationMode
+  TRANSLATION_TARGET_LANG
 } from "../config";
 import { fetchWebRTCConfig } from "../api/webrtc";
 import { useAuthContext } from "./AuthContext";
@@ -50,6 +47,9 @@ import OnlineTranslationService, {
 import { useSubtitleStore } from "../store/useSubtitleStore";
 import { E2EEKeyExchange, type E2EEKeyExchangeCallbacks, type KeyExchangeRole } from "../services/e2ee/E2EEKeyExchange";
 import type { E2EESessionKey } from "../services/e2ee/E2EEService";
+import { DEFAULT_ICE_SERVERS } from "./signalingConstants";
+import { preferRestrictedIceServers } from "./signalingHelpers";
+import { createSignalingTransport } from "./signalingTransports";
 import {
   collectRemoteTracks,
   createEmptyRemoteTrackState,
@@ -63,133 +63,23 @@ import {
   type RemoteTrackLike,
   type RemoteTrackState,
 } from "./signalingRtcUtils";
-
-type CallDirection = "incoming" | "outgoing";
-
-type SessionDescriptionPayload = RTCSessionDescriptionInit;
-
-type IceCandidatePayload = RTCIceCandidateInit & { iceEpoch?: number };
+import type {
+  CallDirection,
+  CallSession,
+  CallStatus,
+  IceCandidatePayload,
+  NetworkQuality,
+  RTCIceServerConfig,
+  SignalingContextValue,
+  SignalingTransport,
+  TranslationInitStatus,
+  TranslationMode
+} from "./signalingTypes";
 type MediaTrack = RemoteTrackLike;
-
-// RTCIceServer 类型定义
-interface RTCIceServer {
-  urls: string | string[];
-  username?: string;
-  credential?: string;
-}
-
-const preferRestrictedIceServers = (servers: RTCIceServer[]) => {
-  if (!RESTRICTED_NETWORK_MODE) return servers;
-
-  const urlsOf = (srv: RTCIceServer) => (Array.isArray(srv.urls) ? srv.urls : [srv.urls]);
-  const scoreUrl = (url: string) => {
-    const lower = url.toLowerCase();
-    if (lower.startsWith("turns:")) {
-      if (lower.includes("transport=tcp")) return 0;
-      return 1;
-    }
-    if (lower.startsWith("turn:")) {
-      if (lower.includes("transport=tcp")) return 2;
-      return 3;
-    }
-    if (lower.startsWith("stun:")) return 4;
-    return 5;
-  };
-
-  const scoreServer = (srv: RTCIceServer) => Math.min(...urlsOf(srv).map(scoreUrl));
-  return [...servers].sort((a, b) => scoreServer(a) - scoreServer(b));
-};
-
-interface CallSession {
-  callId: string;
-  peerEmail: string;
-  direction: CallDirection;
-  offer?: SessionDescriptionPayload;
-}
-
-type CallStatus = "idle" | "connecting" | "incoming" | "in_call";
-type TranslationInitStatus = "idle" | "initializing" | "ready" | "failed";
-
-export type NetworkQuality = "excellent" | "good" | "poor" | "bad" | "unknown";
-
-interface SignalingContextValue {
-  status: CallStatus;
-  session: CallSession | null;
-  connectionReady: boolean;
-  localStream: MediaStream | null;
-  remoteStream: MediaStream | null;
-  networkQuality: NetworkQuality;
-  // 视频通话相关状态
-  isVideoEnabled: boolean;
-  isAudioEnabled: boolean;
-  isRemoteVideoEnabled: boolean;
-  isRemoteAudioEnabled: boolean;
-  cameraFacing: CameraFacing;
-  // E2EE 端到端加密状态
-  e2eeEnabled: boolean;
-  e2eeFingerprint: string | null;
-  e2eeSessionEstablished: boolean;
-  // 翻译功能相关状态
-  translationEnabled: boolean;
-  translationLanguage: string;
-  translationSourceLanguage: string;
-  translationMode: TranslationMode;
-  translationOnlineStatus: OnlineTranslationStatus;
-  translationInitStatus: TranslationInitStatus;
-  translationInitError: string | null;
-  // 通话控制函数
-  startCall: (email: string) => Promise<void>;
-  acceptCall: () => Promise<void>;
-  rejectCall: () => void;
-  endCall: () => void;
-  // 媒体控制函数
-  toggleVideo: () => Promise<void>;
-  toggleAudio: () => void;
-  switchCamera: () => Promise<void>;
-  toggleSpeaker: () => Promise<void>;
-  isSpeakerOn: boolean;
-
-  // Video bitrate/quality controls
-  videoQuality: VideoQuality;
-  setVideoQuality: (quality: VideoQuality) => void;
-  videoMaxBitrateKbps: number;
-  setVideoMaxBitrateKbps: (kbps: number) => void;
-  // 翻译控制函数
-  toggleTranslation: (enabled: boolean) => Promise<void>;
-  setTranslationLanguage: (language: string) => void;
-  setTranslationSourceLanguage: (language: string) => void;
-  retryTranslationInitialization: () => Promise<void>;
-}
 
 const SignalingContext = createContext<SignalingContextValue | undefined>(
   undefined
 );
-
-const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" },
-  {
-    urls: "turn:openrelay.metered.ca:80",
-    username: "openrelayproject",
-    credential: "openrelayproject"
-  },
-  {
-    urls: "turn:openrelay.metered.ca:443",
-    username: "openrelayproject",
-    credential: "openrelayproject"
-  },
-  {
-    urls: "turn:openrelay.metered.ca:443?transport=tcp",
-    username: "openrelayproject",
-    credential: "openrelayproject"
-  }
-];
-
-const VIDEO_QUALITY_PRESETS: Record<VideoQuality, { width: number; height: number; frameRate: number }> = {
-  low: { width: 320, height: 240, frameRate: 15 },
-  medium: { width: 640, height: 480, frameRate: 24 },
-  high: { width: 1280, height: 720, frameRate: 30 }
-};
 
 export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   children
@@ -228,23 +118,6 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const [e2eeSessionEstablished, setE2eeSessionEstablished] = useState<boolean>(false);
   const e2eeKeyExchangeRef = useRef<E2EEKeyExchange | null>(null);
   const e2eeDataChannelRef = useRef<any | null>(null);
-
-  type SignalingEvents = {
-    open: undefined;
-    close: { code: number; reason?: string };
-    message: SignalMessage;
-    error: Error;
-  };
-
-  interface SignalingTransport {
-    connect: () => void;
-    disconnect: () => void;
-    on<T extends keyof SignalingEvents>(
-      event: T,
-      handler: (value: SignalingEvents[T]) => void
-    ): void;
-    send: (message: SignalMessage) => boolean;
-  }
 
   const signalingRef = useRef<SignalingTransport | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
@@ -292,11 +165,11 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         const config = await fetchWebRTCConfig(token);
         const servers = Array.isArray(config.ice_servers) ? config.ice_servers : [];
         if (!cancelled && servers.length) {
-          setIceServers(preferRestrictedIceServers(servers as RTCIceServer[]));
+          setIceServers(preferRestrictedIceServers(servers as RTCIceServerConfig[], RESTRICTED_NETWORK_MODE));
         } else if (!cancelled) {
           setIceServers(DEFAULT_ICE_SERVERS);
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) setIceServers(DEFAULT_ICE_SERVERS);
       }
     };
@@ -334,7 +207,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         permissions.push(PermissionsAndroid.PERMISSIONS.CAMERA);
         const result = await PermissionsAndroid.requestMultiple(permissions as any);
         return permissions.every((p) => (result as any)[p] === PermissionsAndroid.RESULTS.GRANTED);
-      } catch (error) {
+      } catch {
         return false;
       }
     }
@@ -451,11 +324,19 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       peerRef.current = null;
     }
     if (subtitlesDataChannelRef.current) {
-      try { subtitlesDataChannelRef.current.close(); } catch (e) {}
+      try {
+        subtitlesDataChannelRef.current.close();
+      } catch {
+        // Ignore channel cleanup failures during teardown.
+      }
       subtitlesDataChannelRef.current = null;
     }
     if (e2eeDataChannelRef.current) {
-      try { e2eeDataChannelRef.current.close(); } catch (e) {}
+      try {
+        e2eeDataChannelRef.current.close();
+      } catch {
+        // Ignore channel cleanup failures during teardown.
+      }
       e2eeDataChannelRef.current = null;
     }
     if (e2eeKeyExchangeRef.current) {
@@ -501,7 +382,9 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           timestamp: ts,
           expiresAt: ts + (isFinal ? 8000 : 3000),
         });
-      } catch (e) {}
+      } catch {
+        // Ignore malformed backward-compatible subtitle payloads.
+      }
     };
   }, []);
 
@@ -539,7 +422,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const sendMessage = useCallback((message: SignalMessage) => {
     const client = signalingRef.current;
     if (!client) return;
-    try { client.send(message); } catch (error) {
+    try { client.send(message); } catch {
       if (message.type !== "ice.candidate") {
         Alert.alert("错误 / Connection Issue", "无法发送信令消息 / Failed to send signaling message.");
       }
@@ -582,7 +465,9 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       if (!params.encodings || params.encodings.length === 0) params.encodings = [{ active: true }];
       params.encodings[0].maxBitrate = kbps * 1000;
       await sender.setParameters(params);
-    } catch (e) {}
+    } catch {
+      // Ignore bitrate updates that are unsupported by the current sender.
+    }
   }, []);
 
   const applyCurrentVideoBitrate = useCallback(async () => {
@@ -606,8 +491,8 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     return pc.getStats().then((report) => {
       let availableBps: number | null = null;
       let currentRtt: number | null = null;
-      let connectionState = pc.connectionState;
-      let iceConnectionState = pc.iceConnectionState;
+      const connectionState = pc.connectionState;
+      const iceConnectionState = pc.iceConnectionState;
 
       report.forEach((stat: any) => {
         if (stat.type === "candidate-pair" && (stat.selected || stat.nominated)) {
@@ -647,7 +532,9 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       const offer = await pc.createOffer({ iceRestart: true } as any);
       await pc.setLocalDescription(offer);
       sendMessage({ type: "call.sdp.offer", call_id: current.callId, to: current.peerEmail, payload: { sdp: offer.sdp, type: offer.type, iceEpoch: iceEpochRef.current } as SdpRenegotiationPayload });
-    } catch (e) {}
+    } catch {
+      // Ignore ICE restart failures; connection state logic will retry.
+    }
   }, [sendMessage]);
 
   useEffect(() => {
@@ -667,10 +554,12 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
             await setVideoSenderMaxBitrate(targetKbps);
           }
         }
-      } catch (e) {}
+      } catch {
+        // Ignore transient stats collection failures.
+      }
     }, 4000);
     return () => clearInterval(timer);
-  }, [setVideoSenderMaxBitrate, status, updateNetworkQualityFromReport]);
+  }, [status, setVideoSenderMaxBitrate, updateNetworkQualityFromReport]);
 
   const createPeerConnection = useCallback(() => {
     const pc = new RTCPeerConnection({ iceServers, bundlePolicy: "max-bundle" } as any);
@@ -733,7 +622,16 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     peerRef.current = pc;
     return pc;
-  }, [iceServers, resetCallState, sendMessage, attachSubtitlesDataChannel, startIceRestartAsCaller, requestIceRestart, upsertRemoteTrack]);
+  }, [
+    attachSubtitlesDataChannel,
+    iceServers,
+    initializeE2EEKeyExchange,
+    requestIceRestart,
+    resetCallState,
+    sendMessage,
+    startIceRestartAsCaller,
+    upsertRemoteTrack
+  ]);
 
   useEffect(() => {
     if (!token) {
@@ -743,10 +641,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       resetCallState();
       return;
     }
-    const client = new SignalingClient(token);
-    const pollingClient = new PollingSignalingClient(token);
-    const transport: SignalingTransport =
-      SIGNALING_TRANSPORT_MODE === "poll" ? pollingClient : client;
+    const transport = createSignalingTransport(token, SIGNALING_TRANSPORT_MODE);
     signalingRef.current = transport;
     transport.connect();
     transport.on("open", () => setConnectionReady(true));
@@ -775,12 +670,13 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
             setStatus("in_call");
             sendMediaUpdate(msg.call_id ?? "", msg.from ?? "", { audioEnabled: isAudioEnabledRef.current, videoEnabled: isVideoEnabledRef.current });
             break;
-          case "call.media_update":
+          case "call.media_update": {
             const p = msg.payload as any;
             if (typeof p?.videoEnabled === "boolean") setIsRemoteVideoEnabled(p.videoEnabled);
             if (typeof p?.audioEnabled === "boolean") setIsRemoteAudioEnabled(p.audioEnabled);
             break;
-          case "call.subtitle":
+          }
+          case "call.subtitle": {
             const subtitle = msg.payload as SubtitlePayload | undefined;
             const subtitleTimestamp = typeof subtitle?.timestamp_ms === "number" ? subtitle.timestamp_ms : Date.now();
             const subtitleOriginal = typeof subtitle?.original_text === "string" ? subtitle.original_text.trim() : "";
@@ -799,6 +695,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
               timestamp: subtitleTimestamp,
             });
             break;
+          }
           case "call.ice-restart.request":
             if (statusRef.current === "in_call" && sessionRef.current?.direction === "outgoing") startIceRestartAsCaller();
             break;
@@ -857,7 +754,15 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     });
     return () => { transport.disconnect(); signalingRef.current = null; };
-  }, [resetCallState, sendMessage, token]);
+  }, [
+    flushRemoteCandidatesForCurrentEpoch,
+    queueOrApplyRemoteIceCandidate,
+    resetCallState,
+    sendMediaUpdate,
+    sendMessage,
+    startIceRestartAsCaller,
+    token
+  ]);
 
   const startCall = useCallback(async (email: string) => {
     if (status !== "idle") return;
@@ -887,8 +792,21 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       if (settings.defaultVideoEnabled) await applyCurrentVideoBitrate();
       pendingTarget.current = email; setStatus("connecting");
       sendMessage({ type: "call.invite", to: email, payload: { sdp: offer.sdp, type: offer.type } });
-    } catch (e) { resetCallState(); }
-  }, [ensureAudioPermission, resetPeerResources, settings, createPeerConnection, attachSubtitlesDataChannel, applyCurrentVideoBitrate, sendMessage, resetCallState, status]);
+    } catch {
+      resetCallState();
+    }
+  }, [
+    applyCurrentVideoBitrate,
+    attachSubtitlesDataChannel,
+    createPeerConnection,
+    ensureAudioPermission,
+    initializeE2EEKeyExchange,
+    resetCallState,
+    resetPeerResources,
+    sendMessage,
+    settings,
+    status
+  ]);
 
   const acceptCall = useCallback(async () => {
     if (!session || session.direction !== "incoming" || !session.offer) return;
@@ -919,7 +837,9 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       sendMessage({ type: "call.accept", call_id: session.callId, to: session.peerEmail, payload: { sdp: answer.sdp, type: answer.type } });
       sendMediaUpdate(session.callId, session.peerEmail, { audioEnabled: settings.defaultAudioEnabled, videoEnabled: settings.defaultVideoEnabled });
       setStatus("in_call");
-    } catch (e) { resetCallState(); }
+    } catch {
+      resetCallState();
+    }
   }, [session, ensureAudioPermission, settings, createPeerConnection, flushRemoteCandidatesForCurrentEpoch, applyCurrentVideoBitrate, sendMessage, sendMediaUpdate, resetCallState]);
 
   const toggleVideo = useCallback(async () => {
@@ -947,7 +867,9 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         setLocalStream(nextStream); setIsVideoEnabled(false);
         if (sessionRef.current) sendMediaUpdate(sessionRef.current.callId, sessionRef.current.peerEmail, { audioEnabled: isAudioEnabledRef.current, videoEnabled: false });
       }
-    } catch (e) {}
+    } catch {
+      // Ignore toggle failures and keep the current local media state.
+    }
   }, [localStream, isVideoEnabled, cameraFacing, applyCurrentVideoBitrate, sendMediaUpdate]);
 
   const toggleAudio = useCallback(() => {
@@ -969,7 +891,9 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         setLocalStream(nextStream); setCameraFacing(nextFacing); await applyCurrentVideoBitrate();
         localStream.getVideoTracks().forEach(t => t.stop());
       }
-    } catch (e) {}
+    } catch {
+      // Ignore camera switch failures and preserve the current camera state.
+    }
   }, [localStream, isVideoEnabled, cameraFacing, applyCurrentVideoBitrate]);
 
   const toggleSpeaker = useCallback(async () => {

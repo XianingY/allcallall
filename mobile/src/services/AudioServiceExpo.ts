@@ -11,7 +11,6 @@
  */
 
 import { Audio, AVPlaybackStatus } from "expo-av";
-import { Platform } from "react-native";
 
 export type AudioType = "incoming_call" | "ringback";
 

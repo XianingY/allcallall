@@ -11,6 +11,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/contact"
+	"github.com/allcallall/backend/internal/mail"
 	"github.com/allcallall/backend/internal/presence"
 	"github.com/allcallall/backend/internal/user"
 	"github.com/gin-gonic/gin"
@@ -28,6 +29,7 @@ type handlerTestEnv struct {
 	contactSvc *contact.Service
 	presence   *presence.Manager
 	jwtMgr     *auth.Manager
+	verifySvc  *mail.VerificationCodeService
 	logger     zerolog.Logger
 }
 
@@ -76,6 +78,7 @@ func newHandlerTestEnv(t *testing.T) *handlerTestEnv {
 		contactSvc: contactSvc,
 		presence:   presenceMgr,
 		jwtMgr:     jwtMgr,
+		verifySvc:  mail.NewVerificationCodeService(gdb, nil),
 		logger:     zerolog.Nop(),
 	}
 }

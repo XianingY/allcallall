@@ -76,7 +76,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
             videoMaxBitrateKbps: parsed.videoMaxBitrateKbps ?? 900,
             videoAdaptiveBitrateEnabled: parsed.videoAdaptiveBitrateEnabled ?? false
           });
-          console.log("[SettingsContext] Loaded settings from storage:", parsed);
         }
       } catch (error) {
         console.warn("[SettingsContext] Failed to load settings:", error);
@@ -95,7 +94,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Audio notifications updated:", enabled);
   };
 
   const updateVibration = async (enabled: boolean) => {
@@ -105,7 +103,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Vibration updated:", enabled);
   };
 
   const updatePushNotifications = async (enabled: boolean) => {
@@ -115,7 +112,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Push notifications updated:", enabled);
   };
 
   const updateDefaultVideoEnabled = async (enabled: boolean) => {
@@ -125,7 +121,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Default video enabled updated:", enabled);
   };
 
   const updateDefaultAudioEnabled = async (enabled: boolean) => {
@@ -135,7 +130,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Default audio enabled updated:", enabled);
   };
 
   const updateCameraFacing = async (facing: "front" | "back") => {
@@ -145,7 +139,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Camera facing updated:", facing);
   };
 
   const updateVideoQuality = async (quality: VideoQuality) => {
@@ -155,7 +148,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Video quality updated:", quality);
   };
 
   const updateVideoMaxBitrateKbps = async (kbps: number) => {
@@ -165,7 +157,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Video max bitrate updated (kbps):", kbps);
   };
 
   const updateVideoAdaptiveBitrateEnabled = async (enabled: boolean) => {
@@ -175,13 +166,11 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Video adaptive bitrate updated:", enabled);
   };
 
   const saveSettings = async (newSettings: Settings) => {
     try {
       await AsyncStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
-      console.log("[SettingsContext] Settings saved:", newSettings);
     } catch (error) {
       console.warn("[SettingsContext] Failed to save settings:", error);
     }

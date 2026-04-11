@@ -18,7 +18,6 @@ const App = () => {
   React.useEffect(() => {
     if (navigationRef.current) {
       PushNotificationService.setNavigationRef(navigationRef);
-      console.log("[App] Push notification navigation ref set");
     }
   }, []);
 

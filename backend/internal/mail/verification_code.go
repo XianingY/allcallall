@@ -11,6 +11,16 @@ import (
 	"github.com/allcallall/backend/internal/models"
 )
 
+var (
+	ErrEmailTemporarilyBlocked          = errors.New("email is temporarily blocked, please try again later")
+	ErrVerificationCodeNotFoundOrUsed   = errors.New("verification code not found or already used")
+	ErrVerificationCodeExpired          = errors.New("verification code has expired")
+	ErrTooManyVerificationAttempts      = errors.New("too many attempts, please try again later")
+	ErrVerificationCodeIncorrect        = errors.New("verification code is incorrect")
+	ErrEmailNotVerifiedForRegistration  = errors.New("email must be verified before registration")
+	ErrVerificationAlreadyConsumed      = errors.New("verified email state has already been consumed")
+)
+
 // VerificationCodeService 验证码业务逻辑
 // VerificationCodeService handles email verification code operations
 type VerificationCodeService struct {
@@ -47,7 +57,7 @@ func (s *VerificationCodeService) GenerateAndSend(email string) error {
 		return err
 	}
 	if blocked {
-		return errors.New("email is temporarily blocked, please try again later")
+		return ErrEmailTemporarilyBlocked
 	}
 
 	// 2. 生成验证码
@@ -58,7 +68,7 @@ func (s *VerificationCodeService) GenerateAndSend(email string) error {
 
 	// 3. 删除旧验证码
 	if err := s.db.
-		Where("email = ? AND is_verified = ?", email, false).
+		Where("email = ? AND consumed_at IS NULL", email).
 		Delete(&models.EmailVerificationCode{}).Error; err != nil {
 		return fmt.Errorf("delete old codes: %w", err)
 	}
@@ -95,22 +105,24 @@ func (s *VerificationCodeService) Verify(email, inputCode string) error {
 	// 查询验证码记录
 	if err := s.db.
 		Where("email = ? AND is_verified = ?", email, false).
+		Where("consumed_at IS NULL").
+		Order("created_at DESC").
 		First(&verification).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return errors.New("verification code not found or already used")
+			return ErrVerificationCodeNotFoundOrUsed
 		}
 		return err
 	}
 
 	// 检查过期
 	if time.Now().After(verification.ExpiresAt) {
-		return errors.New("verification code has expired")
+		return ErrVerificationCodeExpired
 	}
 
 	// 检查尝试次数和封禁状态
 	if verification.AttemptCount >= verification.MaxAttempts {
 		if verification.BlockedUntil != nil && time.Now().Before(*verification.BlockedUntil) {
-			return errors.New("too many attempts, please try again later")
+			return ErrTooManyVerificationAttempts
 		}
 	}
 
@@ -127,7 +139,7 @@ func (s *VerificationCodeService) Verify(email, inputCode string) error {
 		}
 
 		s.db.Save(&verification)
-		return errors.New("verification code is incorrect")
+		return ErrVerificationCodeIncorrect
 	}
 
 	// 标记为已验证
@@ -137,6 +149,48 @@ func (s *VerificationCodeService) Verify(email, inputCode string) error {
 
 	if err := s.db.Save(&verification).Error; err != nil {
 		return fmt.Errorf("mark verification as verified: %w", err)
+	}
+
+	return nil
+}
+
+// EnsureVerifiedForRegistration 检查邮箱是否存在可消费的已验证状态
+// EnsureVerifiedForRegistration ensures the email has a verified state ready for registration.
+func (s *VerificationCodeService) EnsureVerifiedForRegistration(email string) error {
+	var verification models.EmailVerificationCode
+
+	if err := s.db.
+		Where("email = ? AND is_verified = ? AND consumed_at IS NULL", email, true).
+		Order("verified_at DESC").
+		First(&verification).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrEmailNotVerifiedForRegistration
+		}
+		return err
+	}
+
+	return nil
+}
+
+// ConsumeVerifiedRegistration 将已验证状态标记为已消费，避免重复注册复用
+// ConsumeVerifiedRegistration marks a verified email state as consumed after registration succeeds.
+func (s *VerificationCodeService) ConsumeVerifiedRegistration(email string) error {
+	var verification models.EmailVerificationCode
+
+	if err := s.db.
+		Where("email = ? AND is_verified = ? AND consumed_at IS NULL", email, true).
+		Order("verified_at DESC").
+		First(&verification).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrVerificationAlreadyConsumed
+		}
+		return err
+	}
+
+	now := time.Now()
+	verification.ConsumedAt = &now
+	if err := s.db.Save(&verification).Error; err != nil {
+		return fmt.Errorf("consume verified registration: %w", err)
 	}
 
 	return nil

@@ -196,7 +196,7 @@ func (h *Hub) handleIncoming(ctx context.Context, fromClient *client, data []byt
 	// 如果是 call.invite 消息，需要发送推送通知
 	// If this is a call.invite message, send push notification
 	if msg.Type == TypeCallInvite {
-		h.sendCallNotification(ctx, msg.To, msg.From)
+		h.sendCallNotification(ctx, msg.To, msg.From, msg.CallID)
 	}
 
 	if msg.Type == TypeClientPing {
@@ -247,7 +247,7 @@ func (h *Hub) HandleHTTPMessage(ctx context.Context, fromEmail string, data []by
 	}
 
 	if msg.Type == TypeCallInvite {
-		h.sendCallNotification(ctx, msg.To, msg.From)
+		h.sendCallNotification(ctx, msg.To, msg.From, msg.CallID)
 	}
 
 	if msg.Type == TypeClientPing {
@@ -430,7 +430,7 @@ func (h *Hub) channelName(email string) string {
 
 // sendCallNotification 发送来电推送通知
 // sendCallNotification sends push notification for incoming call
-func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmail string) {
+func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmail string, callID string) {
 	// 如果没有 FCM 管理器或用户服务，跳过
 	// Skip if FCM manager or user service not available
 	if h.fcmManager == nil || h.users == nil {
@@ -477,12 +477,13 @@ func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmai
 			toUser.FCMToken,
 			fromEmail,
 			fromUser.DisplayName,
-			"", // callID will be added later if needed
+			callID,
 		)
 		if err != nil {
 			h.logger.Error().Err(err).
 				Str("to", toEmail).
 				Str("from", fromEmail).
+				Str("call_id", callID).
 				Msg("failed to send call notification")
 			return
 		}
@@ -490,6 +491,7 @@ func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmai
 		h.logger.Info().
 			Str("to", toEmail).
 			Str("from", fromEmail).
+			Str("call_id", callID).
 			Msg("call notification sent successfully")
 	}()
 }

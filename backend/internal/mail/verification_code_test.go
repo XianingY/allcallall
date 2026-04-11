@@ -1,6 +1,7 @@
 package mail
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -67,7 +68,7 @@ func TestVerificationCodeServicePaths(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .*FROM .*email_verification_codes.*email = .*").
 		WillReturnError(gorm.ErrRecordNotFound)
-	if err := svc.Verify("alice@example.com", "123456"); err == nil || err.Error() != "verification code not found or already used" {
+	if err := svc.Verify("alice@example.com", "123456"); !errors.Is(err, ErrVerificationCodeNotFoundOrUsed) {
 		t.Fatalf("expected not found error, got %v", err)
 	}
 
@@ -79,23 +80,40 @@ func TestVerificationCodeServicePaths(t *testing.T) {
 		AttemptCount: 0,
 	}
 	mock.ExpectQuery("SELECT .*FROM .*email_verification_codes.*email = .*").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "code", "expires_at", "is_verified", "attempt_count", "max_attempts", "blocked_until", "last_attempt_at", "verified_at", "created_at", "updated_at"}).
-			AddRow(1, expired.Email, expired.Code, expired.ExpiresAt, false, 0, 3, nil, nil, nil, time.Now(), time.Now()))
-	if err := svc.Verify("alice@example.com", "123456"); err == nil {
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "code", "expires_at", "is_verified", "verified_at", "consumed_at", "attempt_count", "max_attempts", "blocked_until", "last_attempt_at", "created_at", "updated_at"}).
+			AddRow(1, expired.Email, expired.Code, expired.ExpiresAt, false, nil, nil, 0, 3, nil, nil, time.Now(), time.Now()))
+	if err := svc.Verify("alice@example.com", "123456"); !errors.Is(err, ErrVerificationCodeExpired) {
 		t.Fatal("expected expired code error")
 	}
 
 	mock.ExpectQuery("SELECT .*FROM .*email_verification_codes.*email = .*").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "code", "expires_at", "is_verified", "attempt_count", "max_attempts", "blocked_until", "last_attempt_at", "verified_at", "created_at", "updated_at"}).
-			AddRow(1, "alice@example.com", "123456", time.Now().Add(time.Minute), false, 3, 3, time.Now().Add(time.Hour), nil, nil, time.Now(), time.Now()))
-	if err := svc.Verify("alice@example.com", "000000"); err == nil {
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "code", "expires_at", "is_verified", "verified_at", "consumed_at", "attempt_count", "max_attempts", "blocked_until", "last_attempt_at", "created_at", "updated_at"}).
+			AddRow(1, "alice@example.com", "123456", time.Now().Add(time.Minute), false, nil, nil, 3, 3, time.Now().Add(time.Hour), nil, time.Now(), time.Now()))
+	if err := svc.Verify("alice@example.com", "000000"); !errors.Is(err, ErrTooManyVerificationAttempts) {
 		t.Fatal("expected blocked attempt error")
 	}
 
 	mock.ExpectQuery("SELECT .*FROM .*email_verification_codes.*email = .*").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "code", "expires_at", "is_verified", "attempt_count", "max_attempts", "blocked_until", "last_attempt_at", "verified_at", "created_at", "updated_at"}).
-			AddRow(1, "alice@example.com", "123456", time.Now().Add(time.Minute), false, 0, 3, nil, nil, nil, time.Now(), time.Now()))
-	if err := svc.Verify("alice@example.com", "000000"); err == nil {
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "code", "expires_at", "is_verified", "verified_at", "consumed_at", "attempt_count", "max_attempts", "blocked_until", "last_attempt_at", "created_at", "updated_at"}).
+			AddRow(1, "alice@example.com", "123456", time.Now().Add(time.Minute), false, nil, nil, 0, 3, nil, nil, time.Now(), time.Now()))
+	if err := svc.Verify("alice@example.com", "000000"); !errors.Is(err, ErrVerificationCodeIncorrect) {
 		t.Fatal("expected incorrect code error")
+	}
+
+	now := time.Now()
+	mock.ExpectQuery("SELECT .*FROM .*email_verification_codes.*is_verified = .*consumed_at IS NULL.*").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "code", "expires_at", "is_verified", "verified_at", "consumed_at", "attempt_count", "max_attempts", "blocked_until", "last_attempt_at", "created_at", "updated_at"}).
+			AddRow(2, "alice@example.com", "654321", now.Add(time.Minute), true, now, nil, 0, 3, nil, nil, now, now))
+	if err := svc.EnsureVerifiedForRegistration("alice@example.com"); err != nil {
+		t.Fatalf("expected verified email state, got %v", err)
+	}
+
+	mock.ExpectQuery("SELECT .*FROM .*email_verification_codes.*is_verified = .*consumed_at IS NULL.*").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "code", "expires_at", "is_verified", "verified_at", "consumed_at", "attempt_count", "max_attempts", "blocked_until", "last_attempt_at", "created_at", "updated_at"}).
+			AddRow(2, "alice@example.com", "654321", now.Add(time.Minute), true, now, nil, 0, 3, nil, nil, now, now))
+	mock.ExpectExec("UPDATE .*email_verification_codes.*").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := svc.ConsumeVerifiedRegistration("alice@example.com"); err != nil {
+		t.Fatalf("expected consume success, got %v", err)
 	}
 }

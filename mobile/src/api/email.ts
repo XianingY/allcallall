@@ -28,12 +28,6 @@ const apiClient = axios.create({
 // 添加请求拦截器
 apiClient.interceptors.request.use(
   (config) => {
-    console.log('[Email API] Request:', {
-      url: config.url,
-      method: config.method,
-      baseURL: config.baseURL,
-      data: config.data,
-    });
     return config;
   },
   (error) => {
@@ -45,10 +39,6 @@ apiClient.interceptors.request.use(
 // 添加响应拦截器
 apiClient.interceptors.response.use(
   (response) => {
-    console.log('[Email API] Response success:', {
-      status: response.status,
-      data: response.data,
-    });
     return response;
   },
   (error) => {
@@ -67,11 +57,10 @@ apiClient.interceptors.response.use(
  */
 export const sendVerificationCode = async (email: string): Promise<void> => {
   try {
-    const response = await apiClient.post<ApiResponse<SendVerificationCodeResponse>>(
+    await apiClient.post<ApiResponse<SendVerificationCodeResponse>>(
       "/email/send-verification-code",
       { email }
     );
-    console.log("[Email API] Send code response:", response.data);
   } catch (error) {
     const axiosError = error as AxiosError<{ message?: string }>;
     console.error("[Email API] Send code failed:", axiosError.response?.data);
@@ -86,11 +75,10 @@ export const sendVerificationCode = async (email: string): Promise<void> => {
  */
 export const verifyCode = async (email: string, code: string): Promise<void> => {
   try {
-    const response = await apiClient.post<ApiResponse<VerifyCodeResponse>>(
+    await apiClient.post<ApiResponse<VerifyCodeResponse>>(
       "/email/verify-code",
       { email, code }
     );
-    console.log("[Email API] Verify code response:", response.data);
   } catch (error) {
     const axiosError = error as AxiosError<{ message?: string }>;
     console.error("[Email API] Verify code failed:", axiosError.response?.data);

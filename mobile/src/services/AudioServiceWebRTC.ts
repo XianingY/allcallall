@@ -4,7 +4,6 @@
  */
 
 import { Platform } from "react-native";
-import { mediaDevices } from "react-native-webrtc";
 
 export type AudioType = "incoming_call" | "ringback";
 
@@ -22,8 +21,8 @@ class AudioServiceWebRTC {
       // Web 平台使用 Web Audio API
       try {
         this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      } catch (error) {
-        console.warn("[AudioService] Failed to create AudioContext:", error);
+      } catch {
+        console.warn("[AudioService] Failed to create AudioContext");
       }
     }
   }
@@ -142,7 +141,7 @@ class AudioServiceWebRTC {
       if (this.oscillator) {
         try {
           this.oscillator.stop();
-        } catch (error) {
+        } catch {
           // 忽略已经停止的振荡器错误
         }
         this.oscillator = null;
@@ -164,7 +163,7 @@ class AudioServiceWebRTC {
     if (this.oscillator) {
       try {
         this.oscillator.stop();
-      } catch (error) {
+      } catch {
         // 忽略错误
       }
       this.oscillator = null;

@@ -13,7 +13,7 @@ import SettingsScreen from "../screens/SettingsScreen";
 export type RootStackParamList = {
   Login: undefined;
   Register: { email?: string };
-  EmailVerification: { email?: string; onVerified?: () => void };
+  EmailVerification: { email?: string; returnToRegister?: boolean } | undefined;
   Contacts: undefined;
   ChangePassword: undefined;
   Settings: undefined;

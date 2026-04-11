@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -64,8 +65,8 @@ func (h *EmailHandler) handleSendVerificationCode(c *gin.Context) {
 		h.logger.Warn().Err(err).Str("email", req.Email).Msg("send verification code failed")
 
 		// 根据错误类型返回不同的状态码
-		switch err.Error() {
-		case "email is temporarily blocked, please try again later":
+		switch {
+		case errors.Is(err, mail.ErrEmailTemporarilyBlocked):
 			JSONError(c, http.StatusTooManyRequests, err.Error())
 		default:
 			JSONError(c, http.StatusInternalServerError, "failed to send verification code")
@@ -91,12 +92,12 @@ func (h *EmailHandler) handleVerifyCode(c *gin.Context) {
 		h.logger.Warn().Err(err).Str("email", req.Email).Msg("verification code check failed")
 
 		// 根据错误类型返回不同的状态码
-		switch err.Error() {
-		case "too many attempts, please try again later":
+		switch {
+		case errors.Is(err, mail.ErrTooManyVerificationAttempts):
 			JSONError(c, http.StatusTooManyRequests, err.Error())
-		case "verification code has expired":
+		case errors.Is(err, mail.ErrVerificationCodeExpired):
 			JSONError(c, http.StatusUnauthorized, err.Error())
-		case "verification code is incorrect":
+		case errors.Is(err, mail.ErrVerificationCodeIncorrect):
 			JSONError(c, http.StatusUnauthorized, err.Error())
 		default:
 			JSONError(c, http.StatusUnauthorized, err.Error())

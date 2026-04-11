@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 
 	"github.com/allcallall/backend/internal/auth"
+	"github.com/allcallall/backend/internal/mail"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/user"
 )
@@ -14,18 +16,25 @@ import (
 // AuthHandler 认证处理器
 // AuthHandler exposes registration and login endpoints.
 type AuthHandler struct {
-	logger     zerolog.Logger
-	users      *user.Service
-	jwtManager *auth.Manager
+	logger                zerolog.Logger
+	users                 *user.Service
+	jwtManager            *auth.Manager
+	verificationCodeStore *mail.VerificationCodeService
 }
 
 // NewAuthHandler 构造函数
 // NewAuthHandler creates an AuthHandler.
-func NewAuthHandler(log zerolog.Logger, users *user.Service, jwt *auth.Manager) *AuthHandler {
+func NewAuthHandler(
+	log zerolog.Logger,
+	users *user.Service,
+	jwt *auth.Manager,
+	verificationCodes *mail.VerificationCodeService,
+) *AuthHandler {
 	return &AuthHandler{
-		logger:     log.With().Str("component", "auth_handler").Logger(),
-		users:      users,
-		jwtManager: jwt,
+		logger:                log.With().Str("component", "auth_handler").Logger(),
+		users:                 users,
+		jwtManager:            jwt,
+		verificationCodeStore: verificationCodes,
 	}
 }
 
@@ -73,6 +82,17 @@ func (h *AuthHandler) handleRegister(c *gin.Context) {
 		return
 	}
 
+	if err := h.verificationCodeStore.EnsureVerifiedForRegistration(req.Email); err != nil {
+		switch {
+		case errors.Is(err, mail.ErrEmailNotVerifiedForRegistration):
+			JSONError(c, http.StatusForbidden, "email verification required")
+		default:
+			h.logger.Error().Err(err).Msg("email verification lookup failed")
+			JSONError(c, http.StatusInternalServerError, "failed to verify email state")
+		}
+		return
+	}
+
 	userModel, err := h.users.Register(c.Request.Context(), user.RegisterInput{
 		Email:       req.Email,
 		Password:    req.Password,
@@ -86,6 +106,12 @@ func (h *AuthHandler) handleRegister(c *gin.Context) {
 			h.logger.Error().Err(err).Msg("register failed")
 			JSONError(c, http.StatusInternalServerError, "failed to register")
 		}
+		return
+	}
+
+	if err := h.verificationCodeStore.ConsumeVerifiedRegistration(req.Email); err != nil {
+		h.logger.Error().Err(err).Msg("consume verified email state failed")
+		JSONError(c, http.StatusInternalServerError, "failed to finalize registration")
 		return
 	}
 

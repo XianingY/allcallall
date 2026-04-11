@@ -77,6 +77,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         user: parsed.user,
         loading: false
       });
+      PushNotificationService.setAuthToken(parsed.token);
     } catch (error) {
       console.warn("Failed to load auth state from secure storage", error);
       setState((current) => ({ ...current, loading: false }));
@@ -89,6 +90,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const persistState = useCallback(async (token: string, user: User) => {
     setState({ token, user, loading: false });
+    PushNotificationService.setAuthToken(token);
 
     // 存储到安全存储（支持生物识别）
     // Store to secure storage (with biometric protection)
@@ -121,6 +123,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const clearState = useCallback(async () => {
     setState({ token: null, user: null, loading: false });
+    PushNotificationService.setAuthToken(null);
     await Keychain.resetGenericPassword({ service: KEYCHAIN_SERVICE });
   }, []);
 
@@ -128,17 +131,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     async (email: string, password: string) => {
       const response = await authApi.login(email, password);
       await persistState(response.access_token, response.user);
-      
-      // 登录成功后，发送 FCM Token 到后端
-      // Send FCM Token to backend after successful login
+
       try {
-        console.log("[AuthContext] Sending FCM token to backend...");
         await PushNotificationService.sendCurrentTokenToBackend(response.access_token);
-        console.log("[AuthContext] FCM token sent successfully");
       } catch (error) {
         console.warn("[AuthContext] Failed to send FCM token:", error);
-        // 不中断登录流程，继续进行
-        // Continue with login process even if FCM token send fails
       }
     },
     [persistState]
@@ -152,6 +149,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         display_name: displayName
       });
       await persistState(response.access_token, response.user);
+      try {
+        await PushNotificationService.sendCurrentTokenToBackend(response.access_token);
+      } catch (error) {
+        console.warn("[AuthContext] Failed to send FCM token after registration:", error);
+      }
     },
     [persistState]
   );

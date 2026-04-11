@@ -10,6 +10,7 @@ type EmailVerificationCode struct {
 	Code          string `gorm:"size:6;index:idx_email_code;not null"`
 	IsVerified    bool   `gorm:"default:false;index"`
 	VerifiedAt    *time.Time
+	ConsumedAt    *time.Time `gorm:"index"`
 	AttemptCount  int `gorm:"default:0"`
 	MaxAttempts   int `gorm:"default:3"`
 	LastAttemptAt *time.Time

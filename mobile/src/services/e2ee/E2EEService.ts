@@ -12,7 +12,6 @@
  * This E2EE layer protects against SFU eavesdropping (when SFU is added in future).
  */
 
-import { NativeModules, Platform } from "react-native";
 import * as Keychain from "react-native-keychain";
 
 const KEYCHAIN_SERVICE_E2EE = "com.allcallall.e2ee";

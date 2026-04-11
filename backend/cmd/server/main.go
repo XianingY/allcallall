@@ -102,6 +102,7 @@ func main() {
 		MaxRetries:       cfg.Mail.MaxRetries,
 		RetryDelaySecond: cfg.Mail.RetryDelaySecond,
 	}, appLogger)
+	verificationCodeSvc := mail.NewVerificationCodeService(db, mailSvc)
 
 	jwtManager, err := auth.NewManager(auth.Config{
 		Secret:          cfg.JWT.Secret,
@@ -113,8 +114,8 @@ func main() {
 		appLogger.Fatal().Err(err).Msg("failed to initialize jwt manager")
 	}
 
-	authHandler := handlers.NewAuthHandler(appLogger, userSvc, jwtManager)
-	emailHandler := handlers.NewEmailHandler(appLogger, mail.NewVerificationCodeService(db, mailSvc))
+	authHandler := handlers.NewAuthHandler(appLogger, userSvc, jwtManager, verificationCodeSvc)
+	emailHandler := handlers.NewEmailHandler(appLogger, verificationCodeSvc)
 	presenceManager := presence.NewManager(redisClient, appLogger, userSvc)
 
 	userHandler := handlers.NewUserHandler(appLogger, userSvc, presenceManager, contactSvc)
@@ -123,7 +124,10 @@ func main() {
 
 	// 初始化 FCM 管理器
 	// Initialize FCM manager
-	fcmManager := fcm.NewManager(appLogger)
+	fcmManager, err := fcm.NewManager(rootCtx, appLogger, os.Getenv("FCM_SERVICE_ACCOUNT_PATH"))
+	if err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to initialize fcm manager")
+	}
 	signalingHub.WithUserService(userSvc)
 	signalingHub.WithFCMManager(fcmManager)
 

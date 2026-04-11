@@ -95,13 +95,13 @@ docker compose -f infra/docker-compose.yml ps
 ```bash
 cd backend
 
-# 1. 复制环境变量示例文件
-cp .env.example .env
+# 1. 导出运行时环境变量（项目不会自动加载 .env）
+export CONFIG_PATH=./configs/config.yaml
+export MAIL_PASSWORD='xxxx xxxx xxxx xxxx'
+# 可选：启用来电推送
+# export FCM_SERVICE_ACCOUNT_PATH=/absolute/path/to/firebase-service-account.json
 
-# 2. 编辑 .env，填入 QQ 邮箱授权码
-# MAIL_PASSWORD=xxxx xxxx xxxx xxxx  (登录你自己的实际授权码)
-
-# 3. 验证后端配置文件中的邮件设置
+# 2. 验证后端配置文件中的邮件设置
 cat configs/config.yaml | grep -A5 mail:
 # 应该显示：
 #   host: smtp.qq.com
@@ -113,9 +113,6 @@ cat configs/config.yaml | grep -A5 mail:
 
 ```bash
 cd backend
-
-# 设置配置文件路径
-export CONFIG_PATH=./configs/config.yaml
 
 # 运行后端服务（监听 0.0.0.0:8080）
 go run cmd/server/main.go
@@ -143,10 +140,14 @@ export WEBRTC_ICE_SERVERS_JSON='[
 ```
 3. 重启后端。APK 不需要重新打包，登陆后客户端会自动从 `/api/v1/webrtc/config` 读取最新 ICE/TURN 配置。
 
-### 🌐 生产环境（当前部署：81.68.168.207）
+### 🌐 移动端接口配置
 
-- API: `http://81.68.168.207/api/v1`  
-- WS: `ws://81.68.168.207/api/v1/ws`
+- 默认开发地址: `http://127.0.0.1:8080`
+- 默认信令地址: `ws://127.0.0.1:8080`
+- 通过 `EXPO_PUBLIC_API_HTTP` 与 `EXPO_PUBLIC_API_WS` 覆盖
+- 使用 `EXPO_PUBLIC_FORCE_TLS=1` 可升级为 `https://` / `wss://`
+- 受限网络可设置 `EXPO_PUBLIC_RESTRICTED_NETWORK=1`
+- 强制轮询信令可设置 `EXPO_PUBLIC_SIGNALING_TRANSPORT=poll`
 
 #### 云服务器运维
 

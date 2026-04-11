@@ -3,8 +3,7 @@ import {
   View,
   Text,
   TextInput,
-  StyleSheet,
-  AccessibilityInfo,
+  StyleSheet
 } from "react-native";
 
 interface VerificationCodeInputProps {

@@ -4,8 +4,6 @@
  * 不依赖额外的第三方库
  */
 
-import { Platform } from "react-native";
-
 export type AudioType = "incoming_call" | "ringback";
 
 // 模拟音频播放的简单实现

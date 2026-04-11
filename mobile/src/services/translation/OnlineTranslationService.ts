@@ -84,11 +84,15 @@ class OnlineTranslationService {
     if (this.ws) {
       try {
         this.ws.send(JSON.stringify({ type: "translation.stop", reason: "user_toggle" }));
-      } catch {}
+      } catch {
+        // Ignore shutdown notification failures.
+      }
 
       try {
         this.ws.close();
-      } catch {}
+      } catch {
+        // Ignore websocket close failures during shutdown.
+      }
 
       this.ws.onopen = null;
       this.ws.onmessage = null;
@@ -127,7 +131,9 @@ class OnlineTranslationService {
         if (!this.connected) {
           try {
             this.ws?.close();
-          } catch {}
+          } catch {
+            // Ignore close failures when forcing reconnect.
+          }
           const err = new Error("translation websocket ack timeout");
           callbacks.onProviderError("ACK_TIMEOUT", err.message, true);
           this.rejectConnectWaiter(err);
@@ -310,7 +316,9 @@ class OnlineTranslationService {
     if (WebRTCModule && typeof WebRTCModule.stopLocalAudioCapture === "function") {
       try {
         WebRTCModule.stopLocalAudioCapture();
-      } catch {}
+      } catch {
+        // Ignore stop errors when capture is already stopped.
+      }
     }
   }
 

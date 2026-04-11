@@ -309,6 +309,6 @@ func (h *UserHandler) handleSaveFCMToken(c *gin.Context) {
 		return
 	}
 
-	h.logger.Info().Uint64("user_id", claims.UserID).Str("fcm_token", req.FCMToken[:20]+"...").Msg("fcm token saved")
+	h.logger.Info().Uint64("user_id", claims.UserID).Msg("fcm token saved")
 	JSONSuccess(c, http.StatusOK, gin.H{"message": "fcm token saved successfully"})
 }
