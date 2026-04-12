@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -14,7 +15,14 @@ import (
 )
 
 const (
-	translationFreeMinutesPerMonth = int64(30)
+	translationFreeSecondsPerMonth = int64(1800)
+	translationSliceSeconds        = int64(30)
+	translationSliceMilliseconds   = translationSliceSeconds * 1000
+
+	translationUsageFeature = "translation_seconds"
+
+	premiumMonthlyProductID = "premium_monthly"
+	premiumYearlyProductID  = "premium_yearly"
 
 	legalTermsVersion   = "2026-04-11"
 	legalPrivacyVersion = "2026-04-11"
@@ -23,10 +31,12 @@ const (
 )
 
 var (
-	ErrUserBlocked            = errors.New("user is blocked")
-	ErrSubscriptionRequired   = errors.New("premium subscription required")
+	ErrUserBlocked               = errors.New("user is blocked")
+	ErrSubscriptionRequired      = errors.New("premium subscription required")
 	ErrTranslationQuotaExhausted = errors.New("translation quota exhausted")
-	ErrWebhookAlreadyProcessed = errors.New("billing webhook already processed")
+	ErrWebhookAlreadyProcessed   = errors.New("billing webhook already processed")
+	ErrInvalidReportCategory     = errors.New("invalid abuse report category")
+	ErrSupportTokenNotConfigured = errors.New("support token is not configured")
 )
 
 type Service struct {
@@ -37,23 +47,40 @@ func NewService(db *gorm.DB) *Service {
 	return &Service{db: db}
 }
 
+var allowedReportCategories = map[string]struct{}{
+	"spam":           {},
+	"harassment":     {},
+	"impersonation":  {},
+	"fraud":          {},
+	"sexual_content": {},
+	"other":          {},
+}
+
 type LegalDocumentSet struct {
-	TermsVersion      string `json:"terms_version"`
-	PrivacyVersion    string `json:"privacy_version"`
-	TermsURL          string `json:"terms_url"`
-	PrivacyPolicyURL  string `json:"privacy_policy_url"`
-	SupportEmail      string `json:"support_email"`
+	TermsVersion       string `json:"terms_version"`
+	PrivacyVersion     string `json:"privacy_version"`
+	TermsURL           string `json:"terms_url"`
+	PrivacyPolicyURL   string `json:"privacy_policy_url"`
+	SupportEmail       string `json:"support_email"`
 	AccountDeletionURL string `json:"account_deletion_url"`
 }
 
 func (s *Service) CurrentLegal() LegalDocumentSet {
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_WEB_BASE_URL")), "/")
+	if baseURL == "" {
+		baseURL = "https://allcallall.app"
+	}
+	supportEmail := strings.TrimSpace(os.Getenv("SUPPORT_EMAIL"))
+	if supportEmail == "" {
+		supportEmail = "support@allcallall.app"
+	}
 	return LegalDocumentSet{
 		TermsVersion:       legalTermsVersion,
 		PrivacyVersion:     legalPrivacyVersion,
-		TermsURL:           "https://allcallall.app/legal/terms",
-		PrivacyPolicyURL:   "https://allcallall.app/legal/privacy",
-		SupportEmail:       "support@allcallall.app",
-		AccountDeletionURL: "https://allcallall.app/legal/delete-account",
+		TermsURL:           baseURL + "/legal/terms",
+		PrivacyPolicyURL:   baseURL + "/legal/privacy",
+		SupportEmail:       supportEmail,
+		AccountDeletionURL: baseURL + "/legal/delete-account",
 	}
 }
 
@@ -156,6 +183,7 @@ func (s *Service) ActiveTier(ctx context.Context, userID uint64) (string, error)
 type UsageSnapshot struct {
 	Feature        string `json:"feature"`
 	PeriodKey      string `json:"period_key"`
+	Unit           string `json:"unit"`
 	UsedUnits      int64  `json:"used_units"`
 	LimitUnits     int64  `json:"limit_units"`
 	Unlimited      bool   `json:"unlimited"`
@@ -166,6 +194,50 @@ func periodKey(now time.Time) string {
 	return now.UTC().Format("2006-01")
 }
 
+func reportCategoryList() []string {
+	return []string{
+		"spam",
+		"harassment",
+		"impersonation",
+		"fraud",
+		"sexual_content",
+		"other",
+	}
+}
+
+func normalizeReportCategory(category string) (string, error) {
+	normalized := strings.TrimSpace(strings.ToLower(category))
+	if _, ok := allowedReportCategories[normalized]; !ok {
+		return "", ErrInvalidReportCategory
+	}
+	return normalized, nil
+}
+
+func (s *Service) lookupUsageLedgerUnits(ctx context.Context, userID uint64, key string) (int64, error) {
+	var ledger models.UsageLedger
+	err := s.db.WithContext(ctx).
+		Where("user_id = ? AND feature = ? AND period_key = ?", userID, translationUsageFeature, key).
+		Take(&ledger).Error
+	if err == nil {
+		return ledger.Units, nil
+	}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, err
+	}
+
+	var legacy models.UsageLedger
+	legacyErr := s.db.WithContext(ctx).
+		Where("user_id = ? AND feature = ? AND period_key = ?", userID, "translation_minutes", key).
+		Take(&legacy).Error
+	if legacyErr == nil {
+		return legacy.Units * 60, nil
+	}
+	if legacyErr != nil && !errors.Is(legacyErr, gorm.ErrRecordNotFound) {
+		return 0, legacyErr
+	}
+	return 0, nil
+}
+
 func (s *Service) GetUsage(ctx context.Context, userID uint64) ([]UsageSnapshot, error) {
 	tier, err := s.ActiveTier(ctx, userID)
 	if err != nil {
@@ -173,28 +245,26 @@ func (s *Service) GetUsage(ctx context.Context, userID uint64) ([]UsageSnapshot,
 	}
 	now := time.Now().UTC()
 	key := periodKey(now)
-	var ledger models.UsageLedger
-	err = s.db.WithContext(ctx).
-		Where("user_id = ? AND feature = ? AND period_key = ?", userID, "translation_minutes", key).
-		Take(&ledger).Error
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	usedUnits, err := s.lookupUsageLedgerUnits(ctx, userID, key)
+	if err != nil {
 		return nil, err
 	}
 
-	limit := translationFreeMinutesPerMonth
+	limit := translationFreeSecondsPerMonth
 	unlimited := tier == models.EntitlementPremium
 	if unlimited {
 		limit = 0
 	}
-	remaining := limit - ledger.Units
+	remaining := limit - usedUnits
 	if remaining < 0 {
 		remaining = 0
 	}
 	return []UsageSnapshot{
 		{
-			Feature:        "translation_minutes",
+			Feature:        translationUsageFeature,
 			PeriodKey:      key,
-			UsedUnits:      ledger.Units,
+			Unit:           "seconds",
+			UsedUnits:      usedUnits,
 			LimitUnits:     limit,
 			Unlimited:      unlimited,
 			RemainingUnits: remaining,
@@ -202,8 +272,50 @@ func (s *Service) GetUsage(ctx context.Context, userID uint64) ([]UsageSnapshot,
 	}, nil
 }
 
+func (s *Service) consumeTranslationSecondsTx(tx *gorm.DB, userID uint64, deltaSeconds int64, key string) error {
+	if deltaSeconds <= 0 {
+		return nil
+	}
+
+	var ledger models.UsageLedger
+	err := tx.Where("user_id = ? AND feature = ? AND period_key = ?", userID, translationUsageFeature, key).
+		First(&ledger).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		legacyUnits := int64(0)
+		var legacy models.UsageLedger
+		legacyErr := tx.Where("user_id = ? AND feature = ? AND period_key = ?", userID, "translation_minutes", key).
+			Take(&legacy).Error
+		if legacyErr == nil {
+			legacyUnits = legacy.Units * 60
+		} else if legacyErr != nil && !errors.Is(legacyErr, gorm.ErrRecordNotFound) {
+			return legacyErr
+		}
+		ledger = models.UsageLedger{
+			UserID:    userID,
+			Feature:   translationUsageFeature,
+			PeriodKey: key,
+			Units:     legacyUnits,
+		}
+		if err := tx.Create(&ledger).Error; err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+
+	if ledger.Units+deltaSeconds > translationFreeSecondsPerMonth {
+		return ErrTranslationQuotaExhausted
+	}
+	ledger.Units += deltaSeconds
+	return tx.Save(&ledger).Error
+}
+
 func (s *Service) ConsumeTranslationMinutes(ctx context.Context, userID uint64, delta int64) error {
-	if delta <= 0 {
+	return s.ConsumeTranslationSeconds(ctx, userID, delta*60)
+}
+
+func (s *Service) ConsumeTranslationSeconds(ctx context.Context, userID uint64, deltaSeconds int64) error {
+	if deltaSeconds <= 0 {
 		return nil
 	}
 	tier, err := s.ActiveTier(ctx, userID)
@@ -216,29 +328,58 @@ func (s *Service) ConsumeTranslationMinutes(ctx context.Context, userID uint64, 
 
 	key := periodKey(time.Now().UTC())
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var ledger models.UsageLedger
-		err := tx.Where("user_id = ? AND feature = ? AND period_key = ?", userID, "translation_minutes", key).
-			First(&ledger).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			ledger = models.UsageLedger{
-				UserID:    userID,
-				Feature:   "translation_minutes",
-				PeriodKey: key,
-				Units:     0,
-			}
-			if err := tx.Create(&ledger).Error; err != nil {
-				return err
-			}
-		} else if err != nil {
-			return err
+		return s.consumeTranslationSecondsTx(tx, userID, deltaSeconds, key)
+	})
+}
+
+func (s *Service) RecordTranslationUsageSlice(ctx context.Context, userID uint64, callID string, eventTimestampMS int64) (bool, error) {
+	if userID == 0 || strings.TrimSpace(callID) == "" {
+		return false, errors.New("user_id and call_id are required")
+	}
+	if eventTimestampMS <= 0 {
+		eventTimestampMS = time.Now().UnixMilli()
+	}
+
+	tier, err := s.ActiveTier(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+
+	callID = strings.TrimSpace(callID)
+	sliceIndex := eventTimestampMS / translationSliceMilliseconds
+	key := periodKey(time.UnixMilli(eventTimestampMS).UTC())
+	charged := false
+
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		slice := models.TranslationUsageSlice{
+			UserID:           userID,
+			CallID:           callID,
+			SliceIndex:       sliceIndex,
+			EventTimestampMS: eventTimestampMS,
+			DurationSeconds:  translationSliceSeconds,
+			Tier:             tier,
 		}
 
-		if ledger.Units+delta > translationFreeMinutesPerMonth {
-			return ErrTranslationQuotaExhausted
+		result := tx.Where("user_id = ? AND call_id = ? AND slice_index = ?", userID, callID, sliceIndex).
+			FirstOrCreate(&slice)
+		if result.Error != nil {
+			return result.Error
 		}
-		ledger.Units += delta
-		return tx.Save(&ledger).Error
+		if result.RowsAffected == 0 {
+			return nil
+		}
+
+		charged = true
+		if tier == models.EntitlementPremium {
+			return nil
+		}
+
+		return s.consumeTranslationSecondsTx(tx, userID, translationSliceSeconds, key)
 	})
+	if err != nil {
+		return false, err
+	}
+	return charged, nil
 }
 
 func (s *Service) RegisterCallInvite(ctx context.Context, callID string, caller *models.User, callee *models.User) error {
@@ -329,10 +470,14 @@ func (s *Service) AreUsersBlocked(ctx context.Context, userA, userB uint64) (boo
 }
 
 func (s *Service) CreateReport(ctx context.Context, reporterID, reportedUserID uint64, category, details string) error {
+	normalizedCategory, err := normalizeReportCategory(category)
+	if err != nil {
+		return err
+	}
 	report := &models.AbuseReport{
 		ReporterID:     reporterID,
 		ReportedUserID: reportedUserID,
-		Category:       strings.TrimSpace(category),
+		Category:       normalizedCategory,
 		Details:        strings.TrimSpace(details),
 		Status:         "open",
 	}
@@ -341,12 +486,15 @@ func (s *Service) CreateReport(ctx context.Context, reporterID, reportedUserID u
 
 type RevenueCatWebhook struct {
 	Event struct {
-		ID                 string `json:"id"`
-		Type               string `json:"type"`
-		AppUserID          string `json:"app_user_id"`
-		ProductID          string `json:"product_id"`
+		ID                 string   `json:"id"`
+		Type               string   `json:"type"`
+		AppUserID          string   `json:"app_user_id"`
+		ProductID          string   `json:"product_id"`
 		EntitlementIDs     []string `json:"entitlement_ids"`
-		ExpirationAtMillis int64  `json:"expiration_at_ms"`
+		CancelReason       string   `json:"cancel_reason"`
+		ExpirationReason   string   `json:"expiration_reason"`
+		NewProductID       string   `json:"new_product_id"`
+		ExpirationAtMillis int64    `json:"expiration_at_ms"`
 	} `json:"event"`
 }
 
@@ -386,15 +534,40 @@ func (s *Service) HandleRevenueCatWebhook(ctx context.Context, payload RevenueCa
 		source := revenueCatSource
 		var expiresAt *time.Time
 
-		switch payload.Event.Type {
-		case "INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION", "PRODUCT_CHANGE":
+		productID := strings.TrimSpace(payload.Event.ProductID)
+		switch productID {
+		case premiumMonthlyProductID, premiumYearlyProductID:
 			entitlementTier = models.EntitlementPremium
 			entitlementName = models.EntitlementPremium
+		default:
+			productID = ""
+		}
+
+		switch strings.TrimSpace(payload.Event.Type) {
+		case "INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION", "NON_RENEWING_PURCHASE", "TRANSFER", "SUBSCRIPTION_EXTENDED", "TEMPORARY_ENTITLEMENT_GRANT":
 			status = "active"
-		case "CANCELLATION", "EXPIRATION", "BILLING_ISSUE", "TRANSFER":
-			entitlementTier = models.EntitlementPremium
-			entitlementName = models.EntitlementPremium
+		case "EXPIRATION":
 			status = "inactive"
+		case "BILLING_ISSUE", "SUBSCRIPTION_PAUSED":
+			status = "active"
+		case "CANCELLATION":
+			if strings.TrimSpace(payload.Event.CancelReason) == "CUSTOMER_SUPPORT" {
+				status = "inactive"
+			} else if payload.Event.ExpirationAtMillis > now.UnixMilli() {
+				status = "active"
+			} else {
+				status = "inactive"
+			}
+		case "PRODUCT_CHANGE":
+			status = "active"
+			if nextProductID := strings.TrimSpace(payload.Event.NewProductID); nextProductID != "" {
+				switch nextProductID {
+				case premiumMonthlyProductID, premiumYearlyProductID:
+					productID = nextProductID
+				}
+			}
+		case "SUBSCRIBER_ALIAS":
+			status = ""
 		default:
 			// Unknown events still get stored for support, but do not mutate entitlements.
 		}
@@ -402,9 +575,12 @@ func (s *Service) HandleRevenueCatWebhook(ctx context.Context, payload RevenueCa
 		if payload.Event.ExpirationAtMillis > 0 {
 			t := time.UnixMilli(payload.Event.ExpirationAtMillis).UTC()
 			expiresAt = &t
+			if status == "inactive" && t.After(now) && payload.Event.Type == "CANCELLATION" {
+				status = "active"
+			}
 		}
 
-		if entitlementName != models.EntitlementFree {
+		if entitlementName != models.EntitlementFree && status != "" {
 			var existing models.UserEntitlement
 			err := tx.Where("user_id = ? AND entitlement = ?", userID, entitlementName).Take(&existing).Error
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -416,7 +592,7 @@ func (s *Service) HandleRevenueCatWebhook(ctx context.Context, payload RevenueCa
 				return err
 			}
 			existing.Tier = entitlementTier
-			existing.ProductID = payload.Event.ProductID
+			existing.ProductID = productID
 			existing.Source = source
 			existing.Status = status
 			existing.ExpiresAt = expiresAt
@@ -429,6 +605,156 @@ func (s *Service) HandleRevenueCatWebhook(ctx context.Context, payload RevenueCa
 		eventRecord.ProcessedAt = &now
 		return tx.Save(eventRecord).Error
 	})
+}
+
+type SupportReportRecord struct {
+	Report        models.AbuseReport `json:"report"`
+	ReporterEmail string             `json:"reporter_email"`
+	ReportedEmail string             `json:"reported_email"`
+	ReporterName  string             `json:"reporter_name"`
+	ReportedName  string             `json:"reported_name"`
+}
+
+type SupportUserSummary struct {
+	User          models.User              `json:"user"`
+	Entitlements  []models.UserEntitlement `json:"entitlements"`
+	Usage         []UsageSnapshot          `json:"usage"`
+	RecentCalls   []models.CallSession     `json:"recent_calls"`
+	Blocks        []models.UserBlock       `json:"blocks"`
+	Reports       []models.AbuseReport     `json:"reports"`
+	DeletionAudit *models.DeletionAudit    `json:"deletion_audit,omitempty"`
+}
+
+type SupportCallDetails struct {
+	Call              models.CallSession             `json:"call"`
+	TranslationSlices []models.TranslationUsageSlice `json:"translation_slices"`
+}
+
+func (s *Service) ListSupportReports(ctx context.Context, limit int) ([]SupportReportRecord, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	var reports []models.AbuseReport
+	if err := s.db.WithContext(ctx).
+		Order("created_at DESC").
+		Limit(limit).
+		Find(&reports).Error; err != nil {
+		return nil, err
+	}
+	if len(reports) == 0 {
+		return []SupportReportRecord{}, nil
+	}
+
+	userIDs := make([]uint64, 0, len(reports)*2)
+	seen := make(map[uint64]struct{})
+	for _, report := range reports {
+		if _, ok := seen[report.ReporterID]; !ok {
+			userIDs = append(userIDs, report.ReporterID)
+			seen[report.ReporterID] = struct{}{}
+		}
+		if _, ok := seen[report.ReportedUserID]; !ok {
+			userIDs = append(userIDs, report.ReportedUserID)
+			seen[report.ReportedUserID] = struct{}{}
+		}
+	}
+
+	var users []models.User
+	if err := s.db.WithContext(ctx).Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	userMap := make(map[uint64]models.User, len(users))
+	for _, item := range users {
+		userMap[item.ID] = item
+	}
+
+	result := make([]SupportReportRecord, 0, len(reports))
+	for _, report := range reports {
+		reporter := userMap[report.ReporterID]
+		reported := userMap[report.ReportedUserID]
+		result = append(result, SupportReportRecord{
+			Report:        report,
+			ReporterEmail: reporter.Email,
+			ReportedEmail: reported.Email,
+			ReporterName:  reporter.DisplayName,
+			ReportedName:  reported.DisplayName,
+		})
+	}
+	return result, nil
+}
+
+func (s *Service) GetSupportUserSummary(ctx context.Context, userID uint64) (*SupportUserSummary, error) {
+	var userModel models.User
+	if err := s.db.WithContext(ctx).Where("id = ?", userID).Take(&userModel).Error; err != nil {
+		return nil, err
+	}
+
+	entitlements, err := s.GetEntitlements(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	usage, err := s.GetUsage(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	calls, err := s.ListCallHistory(ctx, userID, 365)
+	if err != nil {
+		return nil, err
+	}
+	blocks, err := s.ListBlocks(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	var reports []models.AbuseReport
+	if err := s.db.WithContext(ctx).
+		Where("reporter_id = ? OR reported_user_id = ?", userID, userID).
+		Order("created_at DESC").
+		Limit(50).
+		Find(&reports).Error; err != nil {
+		return nil, err
+	}
+	var deletionAudit models.DeletionAudit
+	var deletionAuditPtr *models.DeletionAudit
+	if err := s.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Order("deleted_at DESC").
+		Take(&deletionAudit).Error; err == nil {
+		deletionAuditPtr = &deletionAudit
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	return &SupportUserSummary{
+		User:          userModel,
+		Entitlements:  entitlements,
+		Usage:         usage,
+		RecentCalls:   calls,
+		Blocks:        blocks,
+		Reports:       reports,
+		DeletionAudit: deletionAuditPtr,
+	}, nil
+}
+
+func (s *Service) GetSupportCall(ctx context.Context, callID string) (*SupportCallDetails, error) {
+	var call models.CallSession
+	if err := s.db.WithContext(ctx).Where("call_id = ?", strings.TrimSpace(callID)).Take(&call).Error; err != nil {
+		return nil, err
+	}
+	var slices []models.TranslationUsageSlice
+	if err := s.db.WithContext(ctx).
+		Where("call_id = ?", strings.TrimSpace(callID)).
+		Order("slice_index ASC").
+		Find(&slices).Error; err != nil {
+		return nil, err
+	}
+	return &SupportCallDetails{
+		Call:              call,
+		TranslationSlices: slices,
+	}, nil
+}
+
+func (s *Service) ReportCategories() []string {
+	return reportCategoryList()
 }
 
 func parseAppUserID(value string) (uint64, error) {
@@ -473,6 +799,11 @@ func (s *Service) DeleteAccount(ctx context.Context, userID uint64) (*models.Del
 		if audit.UsageRowsDeleted, err = deleteCount(&models.UsageLedger{}, "user_id = ?", userID); err != nil {
 			return err
 		}
+		var usageSlicesDeleted int64
+		if usageSlicesDeleted, err = deleteCount(&models.TranslationUsageSlice{}, "user_id = ?", userID); err != nil {
+			return err
+		}
+		audit.UsageRowsDeleted += usageSlicesDeleted
 		if audit.EntitlementsDeleted, err = deleteCount(&models.UserEntitlement{}, "user_id = ?", userID); err != nil {
 			return err
 		}

@@ -16,6 +16,7 @@ import { useSettings } from "../context/SettingsContext";
 import type { VideoQuality } from "../services/VideoService";
 import AudioService from "../services/AudioServiceExpo";
 import VibrationService from "../services/VibrationService";
+import { findTranslationUsage, formatTranslationUsageSummary } from "../utils/usage";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Settings">;
 
@@ -33,6 +34,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     updateVideoAdaptiveBitrateEnabled
   } = useSettings();
   const { tier, usage } = useCommercial();
+  const translationUsage = React.useMemo(() => findTranslationUsage(usage), [usage]);
 
   const [bitrateInput, setBitrateInput] = React.useState(settings.videoMaxBitrateKbps.toString());
 
@@ -87,7 +89,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
             <View style={styles.settingInfo}>
               <Text style={styles.settingTitle}>订阅与权益 / Subscription</Text>
               <Text style={styles.settingDescription}>
-                当前 {tier === "premium" ? "Premium" : "Free"} · {usage[0]?.unlimited ? "翻译不限量" : `翻译剩余 ${usage[0]?.remaining_units ?? "--"} 分钟`}
+                当前 {tier === "premium" ? "Premium" : "Free"} · {formatTranslationUsageSummary(translationUsage)}
               </Text>
             </View>
           </TouchableOpacity>

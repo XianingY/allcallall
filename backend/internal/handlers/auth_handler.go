@@ -8,6 +8,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/allcallall/backend/internal/auth"
+	"github.com/allcallall/backend/internal/commerce"
 	"github.com/allcallall/backend/internal/mail"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/user"
@@ -20,6 +21,11 @@ type AuthHandler struct {
 	users                 *user.Service
 	jwtManager            *auth.Manager
 	verificationCodeStore *mail.VerificationCodeService
+	commerce              *commerce.Service
+}
+
+type AuthHandlerOptions struct {
+	Commerce *commerce.Service
 }
 
 // NewAuthHandler 构造函数
@@ -29,19 +35,26 @@ func NewAuthHandler(
 	users *user.Service,
 	jwt *auth.Manager,
 	verificationCodes *mail.VerificationCodeService,
+	options ...AuthHandlerOptions,
 ) *AuthHandler {
+	var opts AuthHandlerOptions
+	if len(options) > 0 {
+		opts = options[0]
+	}
 	return &AuthHandler{
 		logger:                log.With().Str("component", "auth_handler").Logger(),
 		users:                 users,
 		jwtManager:            jwt,
 		verificationCodeStore: verificationCodes,
+		commerce:              opts.Commerce,
 	}
 }
 
 type registerRequest struct {
-	Email       string `json:"email" binding:"required,email"`
-	Password    string `json:"password" binding:"required,min=8"`
-	DisplayName string `json:"display_name" binding:"required"`
+	Email              string `json:"email" binding:"required,email"`
+	Password           string `json:"password" binding:"required,min=8"`
+	DisplayName        string `json:"display_name" binding:"required"`
+	AcceptCurrentLegal bool   `json:"accept_current_legal"`
 }
 
 type authResponse struct {
@@ -81,6 +94,10 @@ func (h *AuthHandler) handleRegister(c *gin.Context) {
 		JSONError(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if h.commerce != nil && !req.AcceptCurrentLegal {
+		JSONErrorWithCode(c, http.StatusBadRequest, "LEGAL_ACCEPTANCE_REQUIRED", "current terms and privacy acceptance required")
+		return
+	}
 
 	if err := h.verificationCodeStore.EnsureVerifiedForRegistration(req.Email); err != nil {
 		switch {
@@ -113,6 +130,12 @@ func (h *AuthHandler) handleRegister(c *gin.Context) {
 		h.logger.Error().Err(err).Msg("consume verified email state failed")
 		JSONError(c, http.StatusInternalServerError, "failed to finalize registration")
 		return
+	}
+
+	if h.commerce != nil {
+		if err := h.commerce.AcceptLegal(c.Request.Context(), userModel.ID); err != nil {
+			h.logger.Error().Err(err).Uint64("user_id", userModel.ID).Msg("record legal acceptance failed after registration")
+		}
 	}
 
 	token, err := h.jwtManager.GenerateAccessToken(userModel.ID, userModel.Email)

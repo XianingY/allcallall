@@ -86,17 +86,17 @@ func (LegalAcceptance) TableName() string {
 
 // UserEntitlement stores the current billing-backed entitlement state.
 type UserEntitlement struct {
-	ID            uint64     `gorm:"primaryKey;autoIncrement"`
-	UserID        uint64     `gorm:"not null;index;uniqueIndex:idx_user_entitlement"`
-	Entitlement   string     `gorm:"size:64;not null;uniqueIndex:idx_user_entitlement"`
-	Tier          string     `gorm:"size:32;not null;index"`
-	ProductID     string     `gorm:"size:128;index"`
-	Source        string     `gorm:"size:64;not null;default:'system'"`
-	Status        string     `gorm:"size:32;not null;index"`
-	ExpiresAt     *time.Time `gorm:"index"`
-	LastSyncedAt  *time.Time
-	CreatedAt     time.Time `gorm:"autoCreateTime"`
-	UpdatedAt     time.Time `gorm:"autoUpdateTime"`
+	ID           uint64     `gorm:"primaryKey;autoIncrement"`
+	UserID       uint64     `gorm:"not null;index;uniqueIndex:idx_user_entitlement"`
+	Entitlement  string     `gorm:"size:64;not null;uniqueIndex:idx_user_entitlement"`
+	Tier         string     `gorm:"size:32;not null;index"`
+	ProductID    string     `gorm:"size:128;index"`
+	Source       string     `gorm:"size:64;not null;default:'system'"`
+	Status       string     `gorm:"size:32;not null;index"`
+	ExpiresAt    *time.Time `gorm:"index"`
+	LastSyncedAt *time.Time
+	CreatedAt    time.Time `gorm:"autoCreateTime"`
+	UpdatedAt    time.Time `gorm:"autoUpdateTime"`
 }
 
 func (UserEntitlement) TableName() string {
@@ -118,16 +118,32 @@ func (UsageLedger) TableName() string {
 	return "usage_ledgers"
 }
 
+// TranslationUsageSlice stores deduplicated paid translation time slices.
+type TranslationUsageSlice struct {
+	ID               uint64    `gorm:"primaryKey;autoIncrement"`
+	UserID           uint64    `gorm:"not null;index;uniqueIndex:idx_translation_usage_slice"`
+	CallID           string    `gorm:"size:64;not null;index;uniqueIndex:idx_translation_usage_slice"`
+	SliceIndex       int64     `gorm:"not null;uniqueIndex:idx_translation_usage_slice"`
+	EventTimestampMS int64     `gorm:"not null"`
+	DurationSeconds  int64     `gorm:"not null;default:30"`
+	Tier             string    `gorm:"size:32;not null"`
+	CreatedAt        time.Time `gorm:"autoCreateTime;index"`
+}
+
+func (TranslationUsageSlice) TableName() string {
+	return "translation_usage_slices"
+}
+
 // BillingWebhookEvent stores raw billing webhooks for idempotency and support.
 type BillingWebhookEvent struct {
-	ID         uint64     `gorm:"primaryKey;autoIncrement"`
-	EventID    string     `gorm:"size:128;not null;uniqueIndex"`
-	AppUserID  string     `gorm:"size:128;index"`
-	EventType  string     `gorm:"size:64;index"`
-	PayloadJSON string    `gorm:"type:longtext;not null"`
+	ID          uint64     `gorm:"primaryKey;autoIncrement"`
+	EventID     string     `gorm:"size:128;not null;uniqueIndex"`
+	AppUserID   string     `gorm:"size:128;index"`
+	EventType   string     `gorm:"size:64;index"`
+	PayloadJSON string     `gorm:"type:longtext;not null"`
 	ProcessedAt *time.Time `gorm:"index"`
-	CreatedAt  time.Time  `gorm:"autoCreateTime;index"`
-	UpdatedAt  time.Time  `gorm:"autoUpdateTime"`
+	CreatedAt   time.Time  `gorm:"autoCreateTime;index"`
+	UpdatedAt   time.Time  `gorm:"autoUpdateTime"`
 }
 
 func (BillingWebhookEvent) TableName() string {
@@ -136,16 +152,18 @@ func (BillingWebhookEvent) TableName() string {
 
 // DeletionAudit stores a non-PII deletion summary for support/audit.
 type DeletionAudit struct {
-	ID                 uint64    `gorm:"primaryKey;autoIncrement"`
-	UserID             uint64    `gorm:"not null;index"`
-	DeletedAt          time.Time `gorm:"not null;index"`
-	ContactsDeleted    int64     `gorm:"not null;default:0"`
-	CallsDeleted       int64     `gorm:"not null;default:0"`
-	BlocksDeleted      int64     `gorm:"not null;default:0"`
-	ReportsDeleted     int64     `gorm:"not null;default:0"`
-	LegalRecordsDeleted int64    `gorm:"not null;default:0"`
-	UsageRowsDeleted   int64     `gorm:"not null;default:0"`
-	EntitlementsDeleted int64    `gorm:"not null;default:0"`
+	ID                  uint64    `gorm:"primaryKey;autoIncrement"`
+	UserID              uint64    `gorm:"not null;index"`
+	DeletedAt           time.Time `gorm:"not null;index"`
+	ContactsDeleted     int64     `gorm:"not null;default:0"`
+	CallsDeleted        int64     `gorm:"not null;default:0"`
+	BlocksDeleted       int64     `gorm:"not null;default:0"`
+	ReportsDeleted      int64     `gorm:"not null;default:0"`
+	LegalRecordsDeleted int64     `gorm:"not null;default:0"`
+	UsageRowsDeleted    int64     `gorm:"not null;default:0"`
+	EntitlementsDeleted int64     `gorm:"not null;default:0"`
+	CreatedAt           time.Time `gorm:"autoCreateTime"`
+	UpdatedAt           time.Time `gorm:"autoUpdateTime"`
 }
 
 func (DeletionAudit) TableName() string {

@@ -3,6 +3,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -56,6 +57,7 @@ const (
 	TypeCallAccept    = "call.accept"
 	TypeCallReject    = "call.reject"
 	TypeCallEnd       = "call.end"
+	TypeCallError     = "call.error"
 	TypeIceCandidate  = "ice.candidate"
 	TypeClientPing    = "client.ping"
 	TypeServerPong    = "server.pong"
@@ -175,7 +177,8 @@ func (h *Hub) handleIncoming(ctx context.Context, fromClient *client, data []byt
 
 	if msg.Type != TypeClientPing && h.commercial != nil && h.users != nil {
 		if err := h.ensureAllowedPeer(ctx, msg.From, msg.To); err != nil {
-			return err
+			h.sendProtocolError(msg.From, msg.To, msg.CallID, err)
+			return nil
 		}
 	}
 
@@ -247,7 +250,8 @@ func (h *Hub) HandleHTTPMessage(ctx context.Context, fromEmail string, data []by
 
 	if msg.Type != TypeClientPing && h.commercial != nil && h.users != nil {
 		if err := h.ensureAllowedPeer(ctx, msg.From, msg.To); err != nil {
-			return err
+			h.sendProtocolError(msg.From, msg.To, msg.CallID, err)
+			return nil
 		}
 	}
 
@@ -373,6 +377,38 @@ func (h *Hub) ensureAllowedPeer(ctx context.Context, fromEmail, toEmail string) 
 	return nil
 }
 
+func (h *Hub) sendProtocolError(fromEmail, toEmail, callID string, err error) {
+	if fromEmail == "" {
+		return
+	}
+
+	reason := "request rejected"
+	switch {
+	case errors.Is(err, commerce.ErrUserBlocked):
+		reason = "user is blocked"
+	}
+
+	msg := SignalMessage{
+		Type:   TypeCallError,
+		CallID: callID,
+		To:     fromEmail,
+		From:   toEmail,
+		Payload: json.RawMessage(fmt.Sprintf(
+			`{"reason":%q}`,
+			reason,
+		)),
+	}
+	encoded, marshalErr := json.Marshal(msg)
+	if marshalErr != nil {
+		h.logger.Warn().Err(marshalErr).Msg("failed to marshal protocol error message")
+		return
+	}
+	h.dispatchLocal(fromEmail, encoded)
+	if h.redis != nil {
+		h.enqueue(context.Background(), fromEmail, encoded)
+	}
+}
+
 func (h *Hub) registerCallInvite(ctx context.Context, callID, fromEmail, toEmail string) {
 	if h.commercial == nil || h.users == nil || callID == "" {
 		return
@@ -406,6 +442,9 @@ func (h *Hub) recordCallLifecycle(ctx context.Context, msg SignalMessage) {
 		_ = h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusRejected, "rejected")
 	case TypeCallEnd:
 		_ = h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusEnded, "ended")
+		if h.metrics != nil {
+			h.metrics.Inc("call_ended_total")
+		}
 	}
 }
 

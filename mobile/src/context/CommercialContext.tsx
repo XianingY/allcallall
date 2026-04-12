@@ -6,6 +6,7 @@ import React, {
   useMemo,
   useState
 } from "react";
+import { AppState, type AppStateStatus } from "react-native";
 
 import {
   acceptLegal,
@@ -15,6 +16,7 @@ import {
   type UsageRecord
 } from "../api/commercial";
 import { useAuthContext } from "./AuthContext";
+import BillingService from "../services/BillingService";
 
 interface CommercialState {
   tier: "free" | "premium";
@@ -71,6 +73,30 @@ export const CommercialProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   useEffect(() => {
     void refreshCommercialState();
   }, [refreshCommercialState]);
+
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    const subscription = AppState.addEventListener("change", (nextState: AppStateStatus) => {
+      if (nextState !== "active") {
+        return;
+      }
+      void (async () => {
+        try {
+          await BillingService.getCustomerInfo();
+        } catch (error) {
+          console.warn("[CommercialContext] Failed to refresh RevenueCat customer info:", error);
+        }
+        await refreshCommercialState();
+      })();
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [refreshCommercialState, token]);
 
   const markLegalAccepted = useCallback(async () => {
     if (!token) {

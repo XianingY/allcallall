@@ -14,8 +14,8 @@ import (
 
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/cache"
-	"github.com/allcallall/backend/internal/config"
 	"github.com/allcallall/backend/internal/commerce"
+	"github.com/allcallall/backend/internal/config"
 	"github.com/allcallall/backend/internal/contact"
 	"github.com/allcallall/backend/internal/database"
 	"github.com/allcallall/backend/internal/fcm"
@@ -79,6 +79,7 @@ func main() {
 		&models.LegalAcceptance{},
 		&models.UserEntitlement{},
 		&models.UsageLedger{},
+		&models.TranslationUsageSlice{},
 		&models.BillingWebhookEvent{},
 		&models.DeletionAudit{},
 	); err != nil {
@@ -133,8 +134,12 @@ func main() {
 		appLogger.Fatal().Err(err).Msg("failed to initialize jwt manager")
 	}
 
-	authHandler := handlers.NewAuthHandler(appLogger, userSvc, jwtManager, verificationCodeSvc)
-	emailHandler := handlers.NewEmailHandler(appLogger, verificationCodeSvc)
+	authHandler := handlers.NewAuthHandler(appLogger, userSvc, jwtManager, verificationCodeSvc, handlers.AuthHandlerOptions{
+		Commerce: commerceSvc,
+	})
+	emailHandler := handlers.NewEmailHandler(appLogger, verificationCodeSvc, handlers.EmailHandlerOptions{
+		Metrics: counterStore,
+	})
 	presenceManager := presence.NewManager(redisClient, appLogger, userSvc)
 
 	userHandler := handlers.NewUserHandler(appLogger, userSvc, presenceManager, contactSvc, handlers.UserHandlerOptions{
@@ -142,7 +147,7 @@ func main() {
 		Limits:   rateLimitSvc,
 		Metrics:  counterStore,
 	})
-	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, rateLimitSvc, counterStore)
+	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, mailSvc, rateLimitSvc, counterStore)
 	webrtcHandler := handlers.NewWebRTCHandler(appLogger, cfg.WebRTC)
 	signalingHub := signaling.NewHub(redisClient, appLogger, presenceManager)
 

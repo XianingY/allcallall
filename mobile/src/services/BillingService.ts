@@ -3,6 +3,7 @@ import Purchases, {
   type PurchasesOffering,
   LOG_LEVEL
 } from "react-native-purchases";
+import { Linking, Platform } from "react-native";
 import RevenueCatUI from "react-native-purchases-ui";
 
 import { getRevenueCatConfig } from "../api/commercial";
@@ -64,11 +65,26 @@ class BillingService {
     return Purchases.restorePurchases();
   }
 
-  async presentCustomerCenter() {
+  async presentCustomerCenter(activeProductId?: string | null) {
     if (!this.configured) {
       throw new Error("billing not configured");
     }
-    return RevenueCatUI.presentCustomerCenter();
+    try {
+      await RevenueCatUI.presentCustomerCenter();
+      return;
+    } catch (error) {
+      if (Platform.OS !== "android") {
+        throw error;
+      }
+    }
+
+    const customerInfo = await this.getCustomerInfo();
+    const fallbackProductId =
+      activeProductId?.trim() ||
+      customerInfo?.activeSubscriptions?.[0] ||
+      customerInfo?.managementURL?.match(/sku=([^&]+)/)?.[1] ||
+      null;
+    await this.openGooglePlaySubscriptions(fallbackProductId);
   }
 
   async getCustomerInfo(): Promise<CustomerInfo | null> {
@@ -76,6 +92,44 @@ class BillingService {
       return null;
     }
     return Purchases.getCustomerInfo();
+  }
+
+  findProductForConfiguredSku(
+    offering: PurchasesOffering | null,
+    sku: string
+  ): PurchasesOffering["availablePackages"][number] | null {
+    if (!offering) {
+      return null;
+    }
+    return (
+      offering.availablePackages.find((pkg) => pkg.product.identifier === sku) ??
+      null
+    );
+  }
+
+  private async openGooglePlaySubscriptions(activeProductId?: string | null) {
+    const config = getRevenueCatConfig();
+    const sku = activeProductId?.trim();
+    const packageName = config?.androidPackageName ?? "com.allcallall.mobile";
+    const candidates = sku
+      ? [
+          `https://play.google.com/store/account/subscriptions?sku=${encodeURIComponent(sku)}&package=${encodeURIComponent(packageName)}`,
+          `market://details?id=${encodeURIComponent(packageName)}`
+        ]
+      : [
+          "https://play.google.com/store/account/subscriptions",
+          `market://details?id=${encodeURIComponent(packageName)}`
+        ];
+
+    for (const url of candidates) {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+        return;
+      }
+    }
+
+    throw new Error("unable to open Google Play subscription management");
   }
 }
 

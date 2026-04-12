@@ -38,6 +38,14 @@ const LegalScreen: React.FC = () => {
     }
   };
 
+  const openSupportEmail = async () => {
+    if (!legal?.support_email) {
+      Alert.alert("未配置", "当前环境未配置支持邮箱。");
+      return;
+    }
+    await openURL(`mailto:${legal.support_email}`);
+  };
+
   const handleAcknowledge = async () => {
     try {
       setLoading(true);
@@ -87,7 +95,12 @@ const LegalScreen: React.FC = () => {
 
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>联系我们</Text>
-        <Text style={styles.rowText}>{legal?.support_email ?? "support@allcallall.app"}</Text>
+        <Text style={styles.rowText}>{legal?.support_email ?? "未配置 / Not configured"}</Text>
+        <PrimaryButton
+          title="联系支持 / Contact Support"
+          onPress={() => void openSupportEmail()}
+          style={styles.supportButton}
+        />
       </View>
 
       <PrimaryButton
@@ -132,6 +145,9 @@ const styles = StyleSheet.create({
   rowText: {
     color: "#475569",
     marginTop: 6
+  },
+  supportButton: {
+    marginTop: 16
   },
   linkCard: {
     backgroundColor: "#fff",

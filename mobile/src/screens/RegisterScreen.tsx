@@ -6,7 +6,9 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  Alert
+  Alert,
+  Switch,
+  Linking
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
@@ -14,6 +16,7 @@ import TextField from "../components/TextField";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import { fetchCurrentLegal, type LegalInfo } from "../api/commercial";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Register">;
 
@@ -24,9 +27,22 @@ const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
   const [email, setEmail] = useState(prefilledEmail || "");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [acceptCurrentLegal, setAcceptCurrentLegal] = useState(false);
+  const [legal, setLegal] = useState<LegalInfo | null>(null);
   const [loading, setLoading] = useState(false);
 
   const normalizedEmail = email.trim().toLowerCase();
+
+  React.useEffect(() => {
+    const loadLegal = async () => {
+      try {
+        setLegal(await fetchCurrentLegal());
+      } catch (error) {
+        console.warn("[RegisterScreen] Failed to load legal metadata:", error);
+      }
+    };
+    void loadLegal();
+  }, []);
 
   const validateEmail = () => {
     if (!normalizedEmail) {
@@ -75,9 +91,13 @@ const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
         Alert.alert("错误", "请输入显示名称");
         return;
       }
+      if (!acceptCurrentLegal) {
+        Alert.alert("错误", "请先接受当前服务条款和隐私政策");
+        return;
+      }
 
       setLoading(true);
-      await register(normalizedEmail, password, displayName.trim());
+      await register(normalizedEmail, password, displayName.trim(), true);
     } catch (error) {
       console.error("Register error:", error);
       if (error instanceof Error) {
@@ -87,6 +107,18 @@ const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openLegalLink = async (url?: string | null) => {
+    if (!url) {
+      return;
+    }
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      console.warn("[RegisterScreen] Failed to open legal link:", error);
+      Alert.alert("打开失败", "当前无法打开法律文档链接。");
     }
   };
 
@@ -128,6 +160,32 @@ const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
               onChangeText={setPassword}
               editable={!loading}
             />
+            <View style={styles.legalCard}>
+              <View style={styles.legalToggleRow}>
+                <Switch
+                  value={acceptCurrentLegal}
+                  onValueChange={setAcceptCurrentLegal}
+                  disabled={loading}
+                />
+                <Text style={styles.legalText}>
+                  我已阅读并接受当前服务条款与隐私政策
+                </Text>
+              </View>
+              <View style={styles.legalLinks}>
+                <TouchableOpacity
+                  onPress={() => void openLegalLink(legal?.terms_url)}
+                  disabled={!legal?.terms_url}
+                >
+                  <Text style={styles.legalLinkText}>查看条款</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => void openLegalLink(legal?.privacy_policy_url)}
+                  disabled={!legal?.privacy_policy_url}
+                >
+                  <Text style={styles.legalLinkText}>查看隐私政策</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </>
         ) : (
           <Text style={styles.hintText}>
@@ -185,6 +243,31 @@ const styles = StyleSheet.create({
     marginTop: 12,
     color: "#6b7280",
     lineHeight: 20
+  },
+  legalCard: {
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: "#eef2ff"
+  },
+  legalToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10
+  },
+  legalText: {
+    flex: 1,
+    color: "#1f2937",
+    lineHeight: 20
+  },
+  legalLinks: {
+    marginTop: 12,
+    flexDirection: "row",
+    gap: 16
+  },
+  legalLinkText: {
+    color: "#2563eb",
+    fontWeight: "600"
   },
   linkButton: {
     marginTop: 16,

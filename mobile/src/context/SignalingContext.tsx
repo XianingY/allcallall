@@ -12,6 +12,7 @@ import {
   PermissionsAndroid,
   Platform
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   MediaStream,
   RTCPeerConnection,
@@ -45,6 +46,12 @@ import OnlineTranslationService, {
   type OnlineTranslationStatus,
   type OnlineTranslationResult
 } from "../services/translation/OnlineTranslationService";
+import AnalyticsService from "../services/AnalyticsService";
+import {
+  FIRST_CALL_STARTED_STORAGE_KEY,
+  FIRST_TRANSLATION_ENABLED_STORAGE_KEY,
+  FIRST_TRANSLATION_HINT_SEEN_STORAGE_KEY
+} from "../constants/onboarding";
 import { useSubtitleStore } from "../store/useSubtitleStore";
 import { E2EEKeyExchange, type E2EEKeyExchangeCallbacks, type KeyExchangeRole } from "../services/e2ee/E2EEKeyExchange";
 import type { E2EESessionKey } from "../services/e2ee/E2EEService";
@@ -76,6 +83,7 @@ import type {
   TranslationInitStatus,
   TranslationMode
 } from "./signalingTypes";
+import { findTranslationUsage } from "../utils/usage";
 type MediaTrack = RemoteTrackLike;
 
 const SignalingContext = createContext<SignalingContextValue | undefined>(
@@ -135,6 +143,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const remoteTrackStateRef = useRef<RemoteTrackState<MediaTrack>>(createEmptyRemoteTrackState());
   const subtitlesDataChannelRef = useRef<any | null>(null);
+  const translationStartedTrackedRef = useRef<boolean>(false);
 
   const iceEpochRef = useRef<number>(0);
   const iceRestartAttemptsRef = useRef<number>(0);
@@ -149,10 +158,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     setIsSpeakerOn(AudioService.getSpeakerphone());
   }, []);
 
-  const translationQuota = useMemo(
-    () => usage.find((item) => item.feature === "translation_minutes"),
-    [usage]
-  );
+  const translationQuota = useMemo(() => findTranslationUsage(usage), [usage]);
   const translationQuotaRemaining = translationQuota?.unlimited
     ? null
     : translationQuota?.remaining_units ?? null;
@@ -443,6 +449,12 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const resetCallState = useCallback(() => {
     pendingTarget.current = null;
+    translationStartedTrackedRef.current = false;
+    setTranslationEnabled(false);
+    setTranslationPaywallReason(null);
+    setTranslationInitStatus("idle");
+    setTranslationInitError(null);
+    setTranslationOnlineStatus("idle");
     setSession(null);
     setStatus("idle");
     resetPeerResources();
@@ -803,6 +815,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       await pc.setLocalDescription(offer);
       if (settings.defaultVideoEnabled) await applyCurrentVideoBitrate();
       pendingTarget.current = email; setStatus("connecting");
+      void AsyncStorage.setItem(FIRST_CALL_STARTED_STORAGE_KEY, "true");
       sendMessage({ type: "call.invite", to: email, payload: { sdp: offer.sdp, type: offer.type } });
     } catch {
       resetCallState();
@@ -1007,10 +1020,11 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
             }
           },
           onProviderError: (code, message, recoverable) => {
-            if (message.toLowerCase().includes("quota")) {
-              setTranslationPaywallReason("本月免费翻译时长已用尽，升级 Premium 后可继续使用实时翻译。");
+            if (code === "TRANSLATION_QUOTA_EXHAUSTED") {
+              setTranslationPaywallReason("基础通话仍可继续使用，仅实时翻译额度已用尽。升级 Premium 后可立即恢复翻译。");
               setTranslationEnabled(false);
               void refreshCommercialState();
+              AnalyticsService.track("paywall_viewed", { reason: "translation_quota_exhausted" });
               return;
             }
             setTranslationInitError(`${code}: ${message}`);
@@ -1020,6 +1034,10 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
             }
           },
           onResult: (result: OnlineTranslationResult) => {
+            if (!translationStartedTrackedRef.current) {
+              translationStartedTrackedRef.current = true;
+              AnalyticsService.track("translation_started");
+            }
             const originalText = result.originalText.trim();
             const translatedText = result.translatedText.trim();
             pushLocalSubtitle(
@@ -1068,6 +1086,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const toggleTranslation = useCallback(async (enabled: boolean) => {
     if (!enabled) {
+      translationStartedTrackedRef.current = false;
       setTranslationEnabled(false);
       await stopOnlinePipeline();
       setTranslationInitStatus("idle");
@@ -1078,15 +1097,19 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     if (translationRequiresPremium) {
-      setTranslationPaywallReason("本月免费翻译时长已用尽，升级 Premium 后可继续使用实时翻译。");
+      setTranslationPaywallReason("基础通话仍可继续使用，仅实时翻译额度已用尽。升级 Premium 后可立即恢复翻译。");
+      AnalyticsService.track("paywall_viewed", { reason: "translation_upgrade_required" });
       setTranslationEnabled(false);
       return;
     }
 
+    translationStartedTrackedRef.current = false;
     setTranslationEnabled(true);
     setTranslationInitStatus("idle");
     setTranslationInitError(null);
     setTranslationPaywallReason(null);
+    void AsyncStorage.setItem(FIRST_TRANSLATION_ENABLED_STORAGE_KEY, "true");
+    void AsyncStorage.setItem(FIRST_TRANSLATION_HINT_SEEN_STORAGE_KEY, "true");
   }, [stopOnlinePipeline, translationRequiresPremium]);
 
   useEffect(() => {

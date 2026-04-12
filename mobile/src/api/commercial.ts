@@ -29,6 +29,10 @@ export interface UserBlockRecord {
   id: number;
   blocker_id: number;
   blocked_user_id: number;
+  blocked_user_email?: string;
+  blocked_user_display_name?: string;
+  blocked_user_status?: string;
+  blocked_user_deleted_at?: string | null;
   created_at: string;
 }
 
@@ -51,6 +55,7 @@ export interface EntitlementRecord {
 export interface UsageRecord {
   feature: string;
   period_key: string;
+  unit: string;
   used_units: number;
   limit_units: number;
   unlimited: boolean;
@@ -62,6 +67,7 @@ export interface RevenueCatConfig {
   offeringId: string;
   monthlyProductId: string;
   yearlyProductId: string;
+  androidPackageName: string;
 }
 
 export const fetchCurrentLegal = async () => {
@@ -145,8 +151,9 @@ export const deleteAccount = async (token: string, input: { password?: string; c
 export const getRevenueCatConfig = (): RevenueCatConfig | null => {
   const apiKey = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY?.trim();
   const offeringId = process.env.EXPO_PUBLIC_REVENUECAT_OFFERING_ID?.trim() ?? "default";
-  const monthlyProductId = process.env.EXPO_PUBLIC_REVENUECAT_MONTHLY_PRODUCT_ID?.trim() ?? "premium_monthly";
-  const yearlyProductId = process.env.EXPO_PUBLIC_REVENUECAT_YEARLY_PRODUCT_ID?.trim() ?? "premium_yearly";
+  const monthlyProductId = "premium_monthly";
+  const yearlyProductId = "premium_yearly";
+  const androidPackageName = "com.allcallall.mobile";
 
   if (!apiKey) {
     return null;
@@ -156,6 +163,7 @@ export const getRevenueCatConfig = (): RevenueCatConfig | null => {
     apiKey,
     offeringId,
     monthlyProductId,
-    yearlyProductId
+    yearlyProductId,
+    androidPackageName
   };
 };

@@ -118,6 +118,9 @@ func (h *UserHandler) handleSearch(c *gin.Context) {
 			return
 		}
 		if !allowed {
+			if h.metrics != nil {
+				h.metrics.Inc("user_search_rate_limit_total")
+			}
 			c.Header("Retry-After", strconv.FormatInt(retryAfter, 10))
 			JSONError(c, http.StatusTooManyRequests, "too many search requests")
 			return
@@ -225,7 +228,7 @@ func (h *UserHandler) handleAddContact(c *gin.Context) {
 		case contact.ErrSelfContact:
 			JSONError(c, http.StatusBadRequest, "cannot add yourself")
 		case commerce.ErrUserBlocked:
-			JSONError(c, http.StatusForbidden, "user is blocked")
+			JSONErrorWithCode(c, http.StatusForbidden, "USER_BLOCKED", "user is blocked")
 		default:
 			h.logger.Error().Err(err).Msg("add contact failed")
 			JSONError(c, http.StatusInternalServerError, "failed to add contact")

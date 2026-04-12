@@ -9,6 +9,7 @@ import {
   ScrollView,
   ActivityIndicator
 } from 'react-native';
+import { formatTranslationMinutes } from '../../utils/usage';
 
 export type TranslationMode = 'online';
 export type TranslationOnlineStatus = 'idle' | 'connecting' | 'connected' | 'retrying' | 'error';
@@ -158,7 +159,7 @@ const TranslationControl: React.FC<TranslationControlProps> = ({
 
           {quotaRemaining !== null ? (
             <View style={styles.quotaBox}>
-              <Text style={styles.quotaText}>免费翻译剩余 {quotaRemaining} 分钟</Text>
+              <Text style={styles.quotaText}>免费翻译剩余 {formatTranslationMinutes(quotaRemaining)} 分钟</Text>
             </View>
           ) : null}
 

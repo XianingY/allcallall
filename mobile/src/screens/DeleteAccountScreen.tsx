@@ -1,15 +1,21 @@
 import React, { useState } from "react";
 import {
   Alert,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { sendVerificationCode } from "../api/email";
-import { deleteAccount as submitDeletion } from "../api/commercial";
+import {
+  deleteAccount as submitDeletion,
+  fetchCurrentLegal,
+  type LegalInfo
+} from "../api/commercial";
 import PrimaryButton from "../components/PrimaryButton";
 import TextField from "../components/TextField";
 import VerificationCodeInput from "../components/VerificationCodeInput";
@@ -20,9 +26,30 @@ type Props = NativeStackScreenProps<RootStackParamList, "DeleteAccount">;
 
 const DeleteAccountScreen: React.FC<Props> = ({ navigation }) => {
   const { token, user, logout } = useAuthContext();
+  const [legal, setLegal] = useState<LegalInfo | null>(null);
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
+
+  React.useEffect(() => {
+    const loadLegal = async () => {
+      try {
+        setLegal(await fetchCurrentLegal());
+      } catch (error) {
+        console.warn("[DeleteAccountScreen] Failed to load legal metadata:", error);
+      }
+    };
+    void loadLegal();
+  }, []);
+
+  const openSupportOrPolicy = async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      console.warn("[DeleteAccountScreen] Failed to open link:", error);
+      Alert.alert("打开失败", "当前无法打开链接。");
+    }
+  };
 
   const sendCode = async () => {
     if (!user?.email) {
@@ -79,6 +106,27 @@ const DeleteAccountScreen: React.FC<Props> = ({ navigation }) => {
         这是上线合规要求的一部分。删除后会移除联系人、通话历史、推送 token、权益和翻译用量，只保留非 PII 审计摘要。
       </Text>
 
+      <View style={styles.impactCard}>
+        <Text style={styles.impactTitle}>删除影响说明</Text>
+        <Text style={styles.impactItem}>会删除：账号邮箱与显示名称、联系人、最近通话、FCM token、翻译用量、订阅 entitlement。</Text>
+        <Text style={styles.impactItem}>会保留：不含可逆个人信息的删除审计摘要，用于合规和支持排查。</Text>
+        <Text style={styles.impactItem}>删除后不可恢复，且不会自动恢复历史购买权益。</Text>
+        <TouchableOpacity
+          style={styles.linkButton}
+          onPress={() => legal?.account_deletion_url && void openSupportOrPolicy(legal.account_deletion_url)}
+          disabled={!legal?.account_deletion_url}
+        >
+          <Text style={styles.linkButtonText}>查看公开删除说明</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.linkButton}
+          onPress={() => legal?.support_email && void openSupportOrPolicy(`mailto:${legal.support_email}`)}
+          disabled={!legal?.support_email}
+        >
+          <Text style={styles.linkButtonText}>联系支持邮箱</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.card}>
         <TextField
           label="当前密码 / Current Password"
@@ -131,6 +179,29 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 18,
     marginBottom: 18
+  },
+  impactCard: {
+    backgroundColor: "#ffedd5",
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 18
+  },
+  impactTitle: {
+    fontWeight: "800",
+    color: "#9a3412",
+    marginBottom: 10
+  },
+  impactItem: {
+    color: "#7c2d12",
+    lineHeight: 20,
+    marginTop: 6
+  },
+  linkButton: {
+    marginTop: 12
+  },
+  linkButtonText: {
+    color: "#9a3412",
+    fontWeight: "700"
   },
   helper: {
     color: "#9a3412",

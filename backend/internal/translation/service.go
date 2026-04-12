@@ -98,12 +98,13 @@ func (s *Service) StartSession(ctx context.Context, owner string, req StartReque
 	sessionID := uuid.NewString()
 	session := newSession(sessionID, owner, req, func() {
 		s.releaseSession(owner)
-	}, func(hookCtx context.Context, deltaMinutes int64) error {
+	}, func(hookCtx context.Context, eventTimestampMS int64) error {
 		if s.commercial == nil || req.OwnerID == 0 {
 			return nil
 		}
-		return s.commercial.ConsumeTranslationMinutes(hookCtx, req.OwnerID, deltaMinutes)
-	}, 0)
+		_, err := s.commercial.RecordTranslationUsageSlice(hookCtx, req.OwnerID, req.CallID, eventTimestampMS)
+		return err
+	})
 
 	providerSession, err := s.provider.Start(ctx, sessionID, req, session.emit)
 	if err != nil {

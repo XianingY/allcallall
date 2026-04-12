@@ -7,6 +7,7 @@ import {
   Text,
   View
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 
 import { listBlocks, removeBlock, type UserBlockRecord } from "../api/commercial";
 import PrimaryButton from "../components/PrimaryButton";
@@ -35,6 +36,12 @@ const BlockedUsersScreen: React.FC = () => {
   useEffect(() => {
     void loadBlocks();
   }, [loadBlocks]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadBlocks();
+    }, [loadBlocks])
+  );
 
   const handleUnblock = async (blockedUserId: number) => {
     if (!token) {
@@ -68,8 +75,16 @@ const BlockedUsersScreen: React.FC = () => {
         renderItem={({ item }) => (
           <View style={styles.row}>
             <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>用户 ID #{item.blocked_user_id}</Text>
+              <Text style={styles.rowTitle}>
+                {item.blocked_user_display_name || item.blocked_user_email || `用户 ID #${item.blocked_user_id}`}
+              </Text>
+              {item.blocked_user_email ? (
+                <Text style={styles.rowSubTitle}>{item.blocked_user_email}</Text>
+              ) : null}
               <Text style={styles.rowMeta}>拉黑时间 {new Date(item.created_at).toLocaleString()}</Text>
+              {item.blocked_user_status === "deleted" ? (
+                <Text style={styles.deletedMeta}>该账号已删除</Text>
+              ) : null}
             </View>
             <PrimaryButton title="解除" onPress={() => void handleUnblock(item.blocked_user_id)} />
           </View>
@@ -124,9 +139,18 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#0f172a"
   },
+  rowSubTitle: {
+    marginTop: 4,
+    color: "#475569"
+  },
   rowMeta: {
     marginTop: 6,
     color: "#64748b"
+  },
+  deletedMeta: {
+    marginTop: 6,
+    color: "#b45309",
+    fontWeight: "600"
   }
 });
 

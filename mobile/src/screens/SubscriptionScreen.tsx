@@ -15,17 +15,34 @@ import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
 import { useCommercial } from "../context/CommercialContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import AnalyticsService from "../services/AnalyticsService";
 import BillingService from "../services/BillingService";
+import { findTranslationUsage, formatTranslationUsageSummary } from "../utils/usage";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Subscription">;
 
 const SubscriptionScreen: React.FC<Props> = () => {
   const { user } = useAuthContext();
-  const { tier, usage, refreshCommercialState } = useCommercial();
+  const { tier, entitlements, usage, refreshCommercialState } = useCommercial();
   const [offering, setOffering] = useState<PurchasesOffering | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const usageSummary = useMemo(() => usage.find((item) => item.feature === "translation_minutes"), [usage]);
+  const config = getRevenueCatConfig();
+  const usageSummary = useMemo(() => findTranslationUsage(usage), [usage]);
+  const monthlyPackage = useMemo(
+    () => BillingService.findProductForConfiguredSku(offering, config?.monthlyProductId ?? "premium_monthly"),
+    [config?.monthlyProductId, offering]
+  );
+  const yearlyPackage = useMemo(
+    () => BillingService.findProductForConfiguredSku(offering, config?.yearlyProductId ?? "premium_yearly"),
+    [config?.yearlyProductId, offering]
+  );
+  const activeProductId = useMemo(
+    () =>
+      entitlements.find((item) => item.entitlement === "premium" && item.status === "active")?.product_id ?? null,
+    [entitlements]
+  );
+  const storefrontReady = Boolean(config && monthlyPackage && yearlyPackage);
 
   const loadOfferings = useCallback(async () => {
     if (!user) {
@@ -55,8 +72,16 @@ const SubscriptionScreen: React.FC<Props> = () => {
     try {
       setLoading(true);
       await BillingService.purchasePackage(pkg);
-      await refreshCommercialState();
-      Alert.alert("订阅成功", "Premium 权益已同步。");
+      AnalyticsService.track("purchase_completed", { sku: pkg.product.identifier });
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await refreshCommercialState();
+        const customerInfo = await BillingService.getCustomerInfo();
+        if (customerInfo?.activeSubscriptions?.includes(pkg.product.identifier)) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      Alert.alert("购买已提交", "购买请求已提交，Premium 权益将以服务端同步结果为准。");
     } catch (error) {
       console.error("[SubscriptionScreen] Purchase failed:", error);
       Alert.alert("购买失败", "无法完成购买，请稍后重试。");
@@ -70,7 +95,7 @@ const SubscriptionScreen: React.FC<Props> = () => {
       setLoading(true);
       await BillingService.restorePurchases();
       await refreshCommercialState();
-      Alert.alert("恢复完成", "已尝试同步你的订阅状态。");
+      Alert.alert("恢复完成", "已尝试同步商店购买记录，最终权益以服务端状态为准。");
     } catch (error) {
       console.error("[SubscriptionScreen] Restore failed:", error);
       Alert.alert("恢复失败", "当前无法恢复购买。");
@@ -81,14 +106,12 @@ const SubscriptionScreen: React.FC<Props> = () => {
 
   const handleManage = async () => {
     try {
-      await BillingService.presentCustomerCenter();
+      await BillingService.presentCustomerCenter(activeProductId);
     } catch (error) {
       console.error("[SubscriptionScreen] Customer center failed:", error);
       Alert.alert("暂不可用", "当前无法打开订阅管理。");
     }
   };
-
-  const config = getRevenueCatConfig();
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -102,13 +125,7 @@ const SubscriptionScreen: React.FC<Props> = () => {
       <View style={styles.statusCard}>
         <Text style={styles.statusLabel}>当前权益</Text>
         <Text style={styles.statusValue}>{tier === "premium" ? "Premium" : "Free"}</Text>
-        <Text style={styles.statusMeta}>
-          {usageSummary
-            ? usageSummary.unlimited
-              ? "本月翻译不限量"
-              : `本月翻译剩余 ${usageSummary.remaining_units} / ${usageSummary.limit_units} 分钟`
-            : "正在同步翻译配额"}
-        </Text>
+        <Text style={styles.statusMeta}>{formatTranslationUsageSummary(usageSummary)}</Text>
       </View>
 
       <View style={styles.planCard}>
@@ -125,12 +142,17 @@ const SubscriptionScreen: React.FC<Props> = () => {
         <Text style={styles.planBullet}>最近通话保留 365 天</Text>
       </View>
 
-      {config && offering?.availablePackages?.length ? (
-        offering.availablePackages.map((pkg) => (
+      {storefrontReady ? (
+        [monthlyPackage, yearlyPackage].map((pkg) =>
+          pkg ? (
           <View key={pkg.identifier} style={styles.packageRow}>
             <View style={styles.packageInfo}>
               <Text style={styles.packageTitle}>{pkg.product.title}</Text>
-              <Text style={styles.packageMeta}>{pkg.product.description || pkg.product.priceString}</Text>
+              <Text style={styles.packageMeta}>
+                {pkg.product.description || pkg.product.priceString}
+                {"\n"}
+                产品 ID: {pkg.product.identifier}
+              </Text>
             </View>
             <PrimaryButton
               title={pkg.product.priceString || "购买"}
@@ -138,12 +160,13 @@ const SubscriptionScreen: React.FC<Props> = () => {
               disabled={loading}
             />
           </View>
-        ))
+          ) : null
+        )
       ) : (
         <View style={styles.placeholderCard}>
-          <Text style={styles.placeholderTitle}>订阅产品尚未配置</Text>
+          <Text style={styles.placeholderTitle}>订阅商店配置尚未完成</Text>
           <Text style={styles.placeholderText}>
-            需要设置 `EXPO_PUBLIC_REVENUECAT_API_KEY` 和产品 ID 才能在客户端发起购买。
+            当前只支持 `premium_monthly` 和 `premium_yearly`。缺少任一 SKU 或 offering 未映射时，不开放购买入口。
           </Text>
         </View>
       )}

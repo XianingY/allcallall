@@ -100,6 +100,11 @@ export CONFIG_PATH=./configs/config.yaml
 export MAIL_PASSWORD='xxxx xxxx xxxx xxxx'
 # 可选：启用来电推送
 # export FCM_SERVICE_ACCOUNT_PATH=/absolute/path/to/firebase-service-account.json
+# 商用/合规相关（生产环境建议显式配置）
+# export PUBLIC_WEB_BASE_URL=https://app.example.com
+# export SUPPORT_EMAIL=support@example.com
+# export REVENUECAT_WEBHOOK_AUTH_TOKEN=replace-with-random-secret
+# export SUPPORT_API_TOKEN=replace-with-random-secret
 
 # 2. 验证后端配置文件中的邮件设置
 cat configs/config.yaml | grep -A5 mail:
@@ -148,6 +153,8 @@ export WEBRTC_ICE_SERVERS_JSON='[
 - 使用 `EXPO_PUBLIC_FORCE_TLS=1` 可升级为 `https://` / `wss://`
 - 受限网络可设置 `EXPO_PUBLIC_RESTRICTED_NETWORK=1`
 - 强制轮询信令可设置 `EXPO_PUBLIC_SIGNALING_TRANSPORT=poll`
+- RevenueCat 订阅依赖 `EXPO_PUBLIC_REVENUECAT_API_KEY` 与 `EXPO_PUBLIC_REVENUECAT_OFFERING_ID`
+- Android 首发 SKU 已固定为 `premium_monthly` 与 `premium_yearly`，客户端不会读取其他产品 ID
 
 #### 云服务器运维
 

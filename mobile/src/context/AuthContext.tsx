@@ -10,6 +10,7 @@ import * as Keychain from "react-native-keychain";
 
 import * as authApi from "../api/auth";
 import { User } from "../api/users";
+import AnalyticsService from "../services/AnalyticsService";
 import BillingService from "../services/BillingService";
 import PushNotificationService from "../services/PushNotificationService";
 
@@ -26,7 +27,8 @@ interface AuthContextValue extends AuthState {
   register: (
     email: string,
     password: string,
-    displayName: string
+    displayName: string,
+    acceptCurrentLegal: boolean
   ) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -146,13 +148,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const register = useCallback(
-    async (email: string, password: string, displayName: string) => {
+    async (
+      email: string,
+      password: string,
+      displayName: string,
+      acceptCurrentLegal: boolean
+    ) => {
       const response = await authApi.register({
         email,
         password,
-        display_name: displayName
+        display_name: displayName,
+        accept_current_legal: acceptCurrentLegal
       });
       await persistState(response.access_token, response.user);
+      AnalyticsService.track("signup_completed");
       try {
         await PushNotificationService.sendCurrentTokenToBackend(response.access_token);
       } catch (error) {

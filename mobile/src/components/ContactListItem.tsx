@@ -11,18 +11,14 @@ interface Props {
     last_seen?: string | null;
   };
   onCall: (email: string) => void;
-  onRemove: (contact: User) => void;
-  onBlock?: (contact: User) => void;
-  onReport?: (contact: User) => void;
+  onPressActions: (contact: User) => void;
 }
 
 const ContactListItem: React.FC<Props> = ({
   contact,
   presence,
   onCall,
-  onRemove,
-  onBlock,
-  onReport
+  onPressActions
 }) => {
   return (
     <View style={styles.container}>
@@ -42,27 +38,11 @@ const ContactListItem: React.FC<Props> = ({
           <Text style={styles.buttonText}>呼叫 / Call</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.button, styles.remove]}
-          onPress={() => onRemove(contact)}
+          style={[styles.button, styles.manage]}
+          onPress={() => onPressActions(contact)}
         >
-          <Text style={styles.buttonText}>删除 / Remove</Text>
+          <Text style={styles.buttonText}>更多 / More</Text>
         </TouchableOpacity>
-        {onBlock ? (
-          <TouchableOpacity
-            style={[styles.button, styles.block]}
-            onPress={() => onBlock(contact)}
-          >
-            <Text style={styles.buttonText}>拉黑</Text>
-          </TouchableOpacity>
-        ) : null}
-        {onReport ? (
-          <TouchableOpacity
-            style={[styles.button, styles.report]}
-            onPress={() => onReport(contact)}
-          >
-            <Text style={styles.buttonText}>举报</Text>
-          </TouchableOpacity>
-        ) : null}
       </View>
     </View>
   );
@@ -105,14 +85,8 @@ const styles = StyleSheet.create({
   call: {
     backgroundColor: "#2563eb"
   },
-  remove: {
-    backgroundColor: "#dc2626"
-  },
-  block: {
-    backgroundColor: "#6b21a8"
-  },
-  report: {
-    backgroundColor: "#d97706"
+  manage: {
+    backgroundColor: "#334155"
   },
   buttonText: {
     color: "#fff",

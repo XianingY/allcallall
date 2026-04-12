@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { fetchCallHistory, type CallHistoryRecord } from "../api/commercial";
@@ -22,7 +23,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "CallHistory">;
 const CallHistoryScreen: React.FC<Props> = ({ navigation }) => {
   const { token, user } = useAuthContext();
   const { tier } = useCommercial();
-  const { startCall } = useSignaling();
+  const { startCall, connectionReady } = useSignaling();
   const [history, setHistory] = useState<CallHistoryRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -46,6 +47,23 @@ const CallHistoryScreen: React.FC<Props> = ({ navigation }) => {
     void loadHistory();
   }, [loadHistory]);
 
+  useFocusEffect(
+    useCallback(() => {
+      void loadHistory();
+    }, [loadHistory])
+  );
+
+  const handleCallBack = useCallback(
+    (peerEmail: string) => {
+      if (!connectionReady) {
+        Alert.alert("正在重新连接", "信令服务暂时不可用，请稍后再试。");
+        return;
+      }
+      startCall(peerEmail);
+    },
+    [connectionReady, startCall]
+  );
+
   const rows = useMemo(() => {
     return history.map((item) => {
       const isCaller = item.caller_email === user?.email;
@@ -57,7 +75,17 @@ const CallHistoryScreen: React.FC<Props> = ({ navigation }) => {
         ...item,
         peerEmail,
         peerName,
-        directionLabel: isCaller ? "拨出" : "来电"
+        directionLabel: isCaller ? "拨出" : "来电",
+        statusLabel:
+          item.status === "missed"
+            ? "未接"
+            : item.status === "rejected"
+              ? "已拒接"
+              : item.status === "answered"
+                ? "已接通"
+                : item.status === "ended"
+                  ? "已结束"
+                  : item.status
       };
     });
   }, [history, user?.email]);
@@ -89,13 +117,16 @@ const CallHistoryScreen: React.FC<Props> = ({ navigation }) => {
             <View style={styles.rowText}>
               <Text style={styles.peerName}>{item.peerName}</Text>
               <Text style={styles.peerMeta}>
-                {item.directionLabel} · {item.status} · {new Date(item.started_at).toLocaleString()}
+                {item.directionLabel} · {new Date(item.started_at).toLocaleString()}
               </Text>
+              <View style={[styles.statusBadge, item.status === "missed" ? styles.missedBadge : item.status === "rejected" ? styles.rejectedBadge : styles.normalBadge]}>
+                <Text style={styles.statusBadgeText}>{item.statusLabel}</Text>
+              </View>
             </View>
             <PrimaryButton
               title="回拨"
               style={styles.callButton}
-              onPress={() => startCall(item.peerEmail)}
+              onPress={() => handleCallBack(item.peerEmail)}
             />
           </View>
         )}
@@ -156,6 +187,27 @@ const styles = StyleSheet.create({
   peerMeta: {
     marginTop: 6,
     color: "#64748b"
+  },
+  statusBadge: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginTop: 10
+  },
+  statusBadgeText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 12
+  },
+  missedBadge: {
+    backgroundColor: "#dc2626"
+  },
+  rejectedBadge: {
+    backgroundColor: "#b45309"
+  },
+  normalBadge: {
+    backgroundColor: "#475569"
   },
   callButton: {
     minWidth: 88

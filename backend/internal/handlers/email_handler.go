@@ -8,6 +8,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/allcallall/backend/internal/mail"
+	"github.com/allcallall/backend/internal/metrics"
 )
 
 // EmailHandler 邮件处理器
@@ -15,6 +16,11 @@ import (
 type EmailHandler struct {
 	logger                  zerolog.Logger
 	verificationCodeService *mail.VerificationCodeService
+	metrics                 *metrics.CounterStore
+}
+
+type EmailHandlerOptions struct {
+	Metrics *metrics.CounterStore
 }
 
 // NewEmailHandler 创建邮件处理器
@@ -22,10 +28,16 @@ type EmailHandler struct {
 func NewEmailHandler(
 	logger zerolog.Logger,
 	verificationCodeService *mail.VerificationCodeService,
+	options ...EmailHandlerOptions,
 ) *EmailHandler {
+	var opts EmailHandlerOptions
+	if len(options) > 0 {
+		opts = options[0]
+	}
 	return &EmailHandler{
 		logger:                  logger.With().Str("component", "email_handler").Logger(),
 		verificationCodeService: verificationCodeService,
+		metrics:                 opts.Metrics,
 	}
 }
 
@@ -69,6 +81,9 @@ func (h *EmailHandler) handleSendVerificationCode(c *gin.Context) {
 		// 根据错误类型返回不同的状态码
 		switch {
 		case errors.Is(err, mail.ErrEmailTemporarilyBlocked):
+			if h.metrics != nil {
+				h.metrics.Inc("verification_send_rate_limit_total")
+			}
 			JSONError(c, http.StatusTooManyRequests, err.Error())
 		default:
 			JSONError(c, http.StatusInternalServerError, "failed to send verification code")

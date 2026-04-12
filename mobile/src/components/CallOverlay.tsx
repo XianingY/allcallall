@@ -1,10 +1,12 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
 import { RTCView } from "react-native-webrtc";
 import { activateKeepAwake, deactivateKeepAwake } from "expo-keep-awake";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useSignaling } from "../context/SignalingContext";
 import { useSubtitleStore } from "../store/useSubtitleStore";
+import { FIRST_TRANSLATION_HINT_SEEN_STORAGE_KEY } from "../constants/onboarding";
 import { E2EEIndicator } from "./E2EEIndicator";
 import TranslationControl from "./translation/TranslationControl";
 import TranslationOverlay from "./translation/TranslationOverlay";
@@ -46,6 +48,7 @@ const CallOverlay: React.FC = () => {
     dismissTranslationPaywall
   } = useSignaling();
   const subtitles = useSubtitleStore((state) => state.subtitles);
+  const [translationHintVisible, setTranslationHintVisible] = useState(false);
 
   useEffect(() => {
     const tag = "call-overlay";
@@ -67,6 +70,27 @@ const CallOverlay: React.FC = () => {
       }
     };
   }, [session, status]);
+
+  useEffect(() => {
+    if (status !== "in_call" || translationEnabled) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const seen = await AsyncStorage.getItem(FIRST_TRANSLATION_HINT_SEEN_STORAGE_KEY);
+        if (!cancelled && !seen) {
+          setTranslationHintVisible(true);
+          await AsyncStorage.setItem(FIRST_TRANSLATION_HINT_SEEN_STORAGE_KEY, "true");
+        }
+      } catch {
+        // Ignore onboarding hint persistence failures.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, translationEnabled]);
 
   if (status === "idle" || !session) {
     return null;
@@ -215,6 +239,17 @@ const CallOverlay: React.FC = () => {
               isVisible={translationEnabled}
               language={translationLanguage}
             />
+            {translationHintVisible ? (
+              <View style={styles.translationHint}>
+                <Text style={styles.translationHintTitle}>首次翻译试用</Text>
+                <Text style={styles.translationHintText}>
+                  基础通话会继续保持可用。实时翻译会优先消耗你的免费额度，用尽后仅翻译需要升级。
+                </Text>
+                <TouchableOpacity onPress={() => setTranslationHintVisible(false)}>
+                  <Text style={styles.translationHintDismiss}>知道了</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
             <View style={styles.translationControls}>
               <TranslationControl
                 isEnabled={translationEnabled}
@@ -480,6 +515,30 @@ const styles = StyleSheet.create({
     left: 20,
     right: 20,
     bottom: 120
+  },
+  translationHint: {
+    position: "absolute",
+    left: 20,
+    right: 20,
+    bottom: 244,
+    backgroundColor: "rgba(15,23,42,0.88)",
+    borderRadius: 14,
+    padding: 14
+  },
+  translationHintTitle: {
+    color: "#f8fafc",
+    fontWeight: "800",
+    fontSize: 15
+  },
+  translationHintText: {
+    color: "#cbd5e1",
+    marginTop: 8,
+    lineHeight: 20
+  },
+  translationHintDismiss: {
+    color: "#93c5fd",
+    fontWeight: "700",
+    marginTop: 10
   },
   controlsContainer: {
     position: "absolute",

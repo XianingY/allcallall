@@ -27,6 +27,10 @@ type RouteDependencies struct {
 // RegisterRoutes 注册所有 HTTP 路由
 // RegisterRoutes wires handlers into the Gin engine.
 func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
+	if deps.Commercial != nil {
+		deps.Commercial.RegisterDocumentRoutes(router)
+	}
+
 	api := router.Group("/api/v1")
 
 	// 健康检查
@@ -44,6 +48,7 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 
 	if deps.Commercial != nil {
 		deps.Commercial.RegisterPublicRoutes(api)
+		deps.Commercial.RegisterInternalRoutes(api)
 	}
 
 	emailGroup := api.Group("")
