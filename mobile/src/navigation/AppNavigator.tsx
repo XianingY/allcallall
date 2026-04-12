@@ -24,8 +24,11 @@ import ConversationsScreen from "../screens/ConversationsScreen";
 import ConversationDetailScreen from "../screens/ConversationDetailScreen";
 import DealsScreen from "../screens/DealsScreen";
 import DealDetailScreen from "../screens/DealDetailScreen";
+import RoomsScreen from "../screens/RoomsScreen";
+import RoomDetailScreen from "../screens/RoomDetailScreen";
+import RecordingsScreen from "../screens/RecordingsScreen";
 import type { User } from "../api/users";
-import type { ConversationRecord, DealRecord } from "../api/collaboration";
+import type { ConversationRecord, DealRecord, RoomRecord } from "../api/collaboration";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -43,6 +46,9 @@ export type RootStackParamList = {
   ConversationDetail: { conversation: ConversationRecord };
   Deals: undefined;
   DealDetail: { deal: DealRecord };
+  Rooms: undefined;
+  RoomDetail: { room: RoomRecord };
+  Recordings: undefined;
   ChangePassword: undefined;
   Settings: undefined;
   Subscription: undefined;
@@ -120,6 +126,21 @@ const AppNavigator: React.FC = () => {
             name="Deals"
             component={DealsScreen}
             options={{ title: "商机流程 / Deals" }}
+          />
+          <Stack.Screen
+            name="Rooms"
+            component={RoomsScreen}
+            options={{ title: "团队会议 / Rooms" }}
+          />
+          <Stack.Screen
+            name="RoomDetail"
+            component={RoomDetailScreen}
+            options={{ title: "会议详情 / Room Detail" }}
+          />
+          <Stack.Screen
+            name="Recordings"
+            component={RecordingsScreen}
+            options={{ title: "录音存档 / Recordings" }}
           />
           <Stack.Screen
             name="DealDetail"

@@ -490,6 +490,8 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
           <PrimaryButton title="工作区" onPress={() => navigation.navigate("Organizations")} style={styles.workspaceButton} />
           <PrimaryButton title="聊天" onPress={() => navigation.navigate("Conversations")} style={styles.workspaceButton} />
           <PrimaryButton title="商机" onPress={() => navigation.navigate("Deals")} style={styles.workspaceButton} />
+          <PrimaryButton title="会议" onPress={() => navigation.navigate("Rooms")} style={styles.workspaceButton} />
+          <PrimaryButton title="录音" onPress={() => navigation.navigate("Recordings")} style={styles.workspaceButton} />
         </View>
       </View>
 

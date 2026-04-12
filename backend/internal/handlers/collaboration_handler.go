@@ -3,7 +3,10 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +17,7 @@ import (
 
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/collaboration"
+	"github.com/allcallall/backend/internal/media"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/user"
 )
@@ -55,6 +59,7 @@ func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGrou
 	protected.GET("/chat/ws", h.handleChatWS)
 
 	protected.POST("/rooms", h.handleCreateRoom)
+	protected.GET("/rooms", h.handleListRooms)
 	protected.POST("/rooms/:roomId/join", h.handleJoinRoom)
 	protected.POST("/rooms/:roomId/leave", h.handleLeaveRoom)
 	protected.POST("/rooms/:roomId/offer", h.handleRoomOffer)
@@ -65,6 +70,7 @@ func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGrou
 	protected.POST("/rooms/:roomId/recording/stop", h.handleStopRecording)
 	protected.GET("/recordings", h.handleListRecordings)
 	protected.GET("/recordings/:id", h.handleGetRecording)
+	protected.GET("/recordings/:id/files/:fileId", h.handleDownloadRecordingFile)
 
 	protected.GET("/pipelines", h.handleListPipelines)
 	protected.GET("/deals", h.handleListDeals)
@@ -465,6 +471,23 @@ func (h *CollaborationHandler) handleCreateRoom(c *gin.Context) {
 	JSONSuccess(c, http.StatusCreated, gin.H{"room": toRoomStateResponse(*state)})
 }
 
+func (h *CollaborationHandler) handleListRooms(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	items, err := h.service.ListRooms(c.Request.Context(), orgID, claims.UserID)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response := make([]roomStateResponse, 0, len(items))
+	for _, item := range items {
+		response = append(response, toRoomStateResponse(item))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"rooms": response})
+}
+
 func (h *CollaborationHandler) handleJoinRoom(c *gin.Context) {
 	claims, orgID, ok := h.requireCurrentOrganization(c)
 	if !ok {
@@ -502,11 +525,53 @@ func (h *CollaborationHandler) handleLeaveRoom(c *gin.Context) {
 }
 
 func (h *CollaborationHandler) handleRoomOffer(c *gin.Context) {
-	h.handleRoomSignalEvent(c, "room.offer")
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	roomID, err := parseUintParam(c.Param("roomId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid room id")
+		return
+	}
+	var req struct {
+		SDP string `json:"sdp"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := h.service.HandleRoomOffer(c.Request.Context(), orgID, claims.UserID, roomID, req.SDP)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{
+		"room":   toRoomStateResponse(*result.State),
+		"answer": result.Answer,
+	})
 }
 
 func (h *CollaborationHandler) handleRoomIce(c *gin.Context) {
-	h.handleRoomSignalEvent(c, "room.ice")
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	roomID, err := parseUintParam(c.Param("roomId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid room id")
+		return
+	}
+	var payload media.ICECandidateInit
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.service.AddRoomICECandidate(c.Request.Context(), orgID, claims.UserID, roomID, payload); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
 }
 
 func (h *CollaborationHandler) handleRoomSignalEvent(c *gin.Context, eventType string) {
@@ -622,6 +687,44 @@ func (h *CollaborationHandler) handleGetRecording(c *gin.Context) {
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"recording": toRecordingResponse(*item)})
+}
+
+func (h *CollaborationHandler) handleDownloadRecordingFile(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	recordingID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid recording id")
+		return
+	}
+	fileID, err := parseUintParam(c.Param("fileId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid file id")
+		return
+	}
+	_, file, err := h.service.GetRecordingFile(c.Request.Context(), orgID, claims.UserID, recordingID, fileID)
+	if err != nil {
+		JSONError(c, http.StatusNotFound, "recording file not found")
+		return
+	}
+	path := strings.TrimSpace(file.ObjectKey)
+	if path == "" {
+		JSONError(c, http.StatusNotFound, "recording file path missing")
+		return
+	}
+	info, statErr := os.Stat(path)
+	if statErr != nil || info.IsDir() {
+		JSONError(c, http.StatusNotFound, "recording file not found")
+		return
+	}
+	filename := filepath.Base(path)
+	if file.ContentType != "" {
+		c.Header("Content-Type", file.ContentType)
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	c.File(path)
 }
 
 func (h *CollaborationHandler) handleListPipelines(c *gin.Context) {

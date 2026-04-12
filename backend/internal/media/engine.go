@@ -15,6 +15,7 @@ type Engine struct {
 	mu              sync.RWMutex
 	logger          zerolog.Logger
 	peerConnections map[string]*PeerConnection
+	roomEngine      *RoomEngine
 	defaultConfig   webrtc.Configuration
 }
 
@@ -33,6 +34,7 @@ func NewEngine(logger zerolog.Logger, cfg *Config) (*Engine, error) {
 		logger:          logger.With().Str("component", "media_engine").Logger(),
 		peerConnections: make(map[string]*PeerConnection),
 		defaultConfig:   cfg.WebRTCConfig,
+		roomEngine:      newRoomEngine(logger, cfg.WebRTCConfig),
 	}, nil
 }
 

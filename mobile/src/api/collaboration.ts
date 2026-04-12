@@ -1,4 +1,5 @@
-import { createApiClient } from "./client";
+import { createApiClient, getActiveOrganizationHeader } from "./client";
+import { API_BASE_URL } from "../config";
 
 export interface OrganizationRecord {
   id: number;
@@ -41,6 +42,71 @@ export interface MessageRecord {
   body: string;
   metadata?: Record<string, unknown>;
   created_at: string;
+}
+
+export interface RoomMemberRecord {
+  id: number;
+  room_id: number;
+  user_id: number;
+  role: string;
+  joined_at?: string | null;
+  left_at?: string | null;
+}
+
+export interface RoomEventRecord {
+  id: number;
+  room_id: number;
+  user_id: number;
+  type: string;
+  payload_json?: string;
+  created_at: string;
+}
+
+export interface RecordingSessionRecord {
+  id: number;
+  organization_id: number;
+  room_id: number;
+  started_by: number;
+  status: string;
+  started_at?: string | null;
+  stopped_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecordingFileRecord {
+  id: number;
+  recording_session_id: number;
+  object_key: string;
+  content_type: string;
+  duration_seconds: number;
+  metadata_json?: string;
+  created_at: string;
+}
+
+export interface RecordingRecord {
+  session: RecordingSessionRecord;
+  files: RecordingFileRecord[];
+}
+
+export interface RoomRecord {
+  room: {
+    id: number;
+    organization_id: number;
+    team_id?: number | null;
+    conversation_id?: number | null;
+    title: string;
+    status: string;
+    created_by: number;
+    started_at?: string | null;
+    ended_at?: string | null;
+    created_at: string;
+    updated_at: string;
+  };
+  members: RoomMemberRecord[];
+  events: RoomEventRecord[];
+  active_recording?: RecordingSessionRecord | null;
+  conversation_id?: number | null;
 }
 
 export interface PipelineStageRecord {
@@ -140,6 +206,82 @@ export const createConversation = async (token: string, payload: CreateConversat
   const api = createApiClient(token);
   const response = await api.post<{ conversation: ConversationRecord }>("/conversations", payload);
   return response.data.conversation;
+};
+
+export interface CreateRoomPayload {
+  title: string;
+  participant_ids?: number[];
+  team_id?: number;
+  conversation_id?: number;
+}
+
+export const listRooms = async (token: string) => {
+  const api = createApiClient(token);
+  const response = await api.get<{ rooms: RoomRecord[] }>("/rooms");
+  return response.data.rooms;
+};
+
+export const createRoom = async (token: string, payload: CreateRoomPayload) => {
+  const api = createApiClient(token);
+  const response = await api.post<{ room: RoomRecord }>("/rooms", payload);
+  return response.data.room;
+};
+
+export const fetchRoomState = async (token: string, roomId: number) => {
+  const api = createApiClient(token);
+  const response = await api.get<{ room: RoomRecord }>(`/rooms/${roomId}/state`);
+  return response.data.room;
+};
+
+export const joinRoom = async (token: string, roomId: number) => {
+  const api = createApiClient(token);
+  const response = await api.post<{ room: RoomRecord }>(`/rooms/${roomId}/join`);
+  return response.data.room;
+};
+
+export const leaveRoom = async (token: string, roomId: number) => {
+  const api = createApiClient(token);
+  const response = await api.post<{ room: RoomRecord }>(`/rooms/${roomId}/leave`);
+  return response.data.room;
+};
+
+export const startRoomRecording = async (token: string, roomId: number) => {
+  const api = createApiClient(token);
+  const response = await api.post<{ recording: RecordingRecord }>(`/rooms/${roomId}/recording/start`);
+  return response.data.recording;
+};
+
+export const stopRoomRecording = async (token: string, roomId: number) => {
+  const api = createApiClient(token);
+  const response = await api.post<{ recording: RecordingRecord }>(`/rooms/${roomId}/recording/stop`);
+  return response.data.recording;
+};
+
+export const listRecordings = async (token: string) => {
+  const api = createApiClient(token);
+  const response = await api.get<{ recordings: RecordingRecord[] }>("/recordings");
+  return response.data.recordings;
+};
+
+export const fetchRecording = async (token: string, recordingId: number) => {
+  const api = createApiClient(token);
+  const response = await api.get<{ recording: RecordingRecord }>(`/recordings/${recordingId}`);
+  return response.data.recording;
+};
+
+export const buildRecordingDownloadRequest = (token: string, recordingId: number, fileId: number) => {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: "*/*"
+  };
+  const organizationId = getActiveOrganizationHeader();
+  if (organizationId) {
+    headers["X-Organization-ID"] = String(organizationId);
+  }
+  return {
+    fromUrl: `${API_BASE_URL}/recordings/${recordingId}/files/${fileId}`,
+    headers
+  };
 };
 
 export const listMessages = async (token: string, conversationId: number) => {

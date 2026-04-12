@@ -216,6 +216,7 @@ func main() {
 	// 将媒体引擎关联到信令枢纽
 	// Attach media engine to signaling hub
 	signalingHub.WithMediaEngine(mediaEngine)
+	collaborationSvc.WithMediaEngine(mediaEngine)
 
 	signalingHandler := handlers.NewSignalingHandler(appLogger, signalingHub)
 	signalingPollHandler := handlers.NewSignalingPollHandler(appLogger, signalingHub)
