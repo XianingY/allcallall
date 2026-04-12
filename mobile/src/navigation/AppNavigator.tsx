@@ -15,6 +15,11 @@ import SubscriptionScreen from "../screens/SubscriptionScreen";
 import LegalScreen from "../screens/LegalScreen";
 import BlockedUsersScreen from "../screens/BlockedUsersScreen";
 import DeleteAccountScreen from "../screens/DeleteAccountScreen";
+import ContactDetailScreen from "../screens/ContactDetailScreen";
+import InvitationScreen from "../screens/InvitationScreen";
+import InvitationAcceptScreen from "../screens/InvitationAcceptScreen";
+import FollowUpsScreen from "../screens/FollowUpsScreen";
+import type { User } from "../api/users";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -23,6 +28,10 @@ export type RootStackParamList = {
   ForgotPassword: undefined;
   Contacts: undefined;
   CallHistory: undefined;
+  ContactDetail: { contact: User };
+  Invitation: undefined;
+  InvitationAccept: { code?: string } | undefined;
+  FollowUps: undefined;
   ChangePassword: undefined;
   Settings: undefined;
   Subscription: undefined;
@@ -65,6 +74,26 @@ const AppNavigator: React.FC = () => {
             name="CallHistory"
             component={CallHistoryScreen}
             options={{ title: "最近通话 / Recent Calls" }}
+          />
+          <Stack.Screen
+            name="ContactDetail"
+            component={ContactDetailScreen}
+            options={{ title: "联系人详情 / Contact Detail" }}
+          />
+          <Stack.Screen
+            name="FollowUps"
+            component={FollowUpsScreen}
+            options={{ title: "跟进工作台 / Follow-ups" }}
+          />
+          <Stack.Screen
+            name="Invitation"
+            component={InvitationScreen}
+            options={{ title: "邀请试用 / Invite Contact" }}
+          />
+          <Stack.Screen
+            name="InvitationAccept"
+            component={InvitationAcceptScreen}
+            options={{ title: "接受邀请 / Accept Invitation" }}
           />
           <Stack.Screen
             name="ChangePassword"
@@ -118,6 +147,11 @@ const AppNavigator: React.FC = () => {
             name="EmailVerification"
             component={EmailVerificationScreen}
             options={{ title: "邮箱验证 / Email Verification" }}
+          />
+          <Stack.Screen
+            name="InvitationAccept"
+            component={InvitationAcceptScreen}
+            options={{ title: "接受邀请 / Accept Invitation" }}
           />
         </>
       )}

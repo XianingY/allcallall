@@ -11,6 +11,7 @@ interface Props {
     last_seen?: string | null;
   };
   onCall: (email: string) => void;
+  onPressDetail: (contact: User) => void;
   onPressActions: (contact: User) => void;
 }
 
@@ -18,18 +19,24 @@ const ContactListItem: React.FC<Props> = ({
   contact,
   presence,
   onCall,
+  onPressDetail,
   onPressActions
 }) => {
   return (
     <View style={styles.container}>
-      <View style={styles.info}>
+      <TouchableOpacity style={styles.info} onPress={() => onPressDetail(contact)}>
         <Text style={styles.name}>{contact.display_name || contact.email}</Text>
         <Text style={styles.email}>{contact.email}</Text>
+        {contact.profile?.company || contact.profile?.role ? (
+          <Text style={styles.businessMeta}>
+            {[contact.profile?.company, contact.profile?.role].filter(Boolean).join(" · ")}
+          </Text>
+        ) : null}
         <PresenceBadge
           online={presence?.online ?? false}
           lastSeen={presence?.last_seen ?? null}
         />
-      </View>
+      </TouchableOpacity>
       <View style={styles.actions}>
         <TouchableOpacity
           style={[styles.button, styles.call]}
@@ -71,6 +78,10 @@ const styles = StyleSheet.create({
   email: {
     fontSize: 14,
     color: "#6b7280",
+    marginBottom: 6
+  },
+  businessMeta: {
+    color: "#334155",
     marginBottom: 6
   },
   actions: {

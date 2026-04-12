@@ -18,6 +18,8 @@ import VerificationCodeInput from "../components/VerificationCodeInput";
 import { sendVerificationCode, verifyCode } from "../api/email";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import { API_BASE_URL } from "../config";
+import { PENDING_INVITATION_CODE_STORAGE_KEY } from "../constants/invitations";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 type Props = NativeStackScreenProps<RootStackParamList, "EmailVerification">;
 
@@ -118,6 +120,15 @@ const EmailVerificationScreen: React.FC<Props> = ({ navigation, route }) => {
       Alert.alert("成功", "邮箱验证完成");
 
       if (returnToRegister) {
+        try {
+          const pendingCode = await AsyncStorage.getItem(PENDING_INVITATION_CODE_STORAGE_KEY);
+          if (pendingCode) {
+            navigation.navigate("InvitationAccept", { code: pendingCode });
+            return;
+          }
+        } catch {
+          // Ignore pending invitation lookup failures.
+        }
         navigation.navigate("Register", { email: email.trim().toLowerCase() });
       } else {
         navigation.goBack();

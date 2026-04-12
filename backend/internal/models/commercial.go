@@ -15,6 +15,19 @@ const (
 
 	EntitlementFree    = "free"
 	EntitlementPremium = "premium"
+
+	FollowupStatusPending = "pending"
+	FollowupStatusReady   = "ready"
+	FollowupStatusFailed  = "failed"
+
+	FollowupTaskTypeCallback         = "callback"
+	FollowupTaskTypeSendMessage      = "send_message"
+	FollowupTaskTypeScheduleNextCall = "schedule_next_call"
+
+	FollowupTaskStatusOpen      = "open"
+	FollowupTaskStatusDone      = "done"
+	FollowupTaskStatusSnoozed   = "snoozed"
+	FollowupTaskStatusCancelled = "cancelled"
 )
 
 // CallSession stores a user-visible call lifecycle snapshot.
@@ -132,6 +145,74 @@ type TranslationUsageSlice struct {
 
 func (TranslationUsageSlice) TableName() string {
 	return "translation_usage_slices"
+}
+
+// CallTranscriptSegment stores final subtitle/translation text for short-lived follow-up generation.
+type CallTranscriptSegment struct {
+	ID             uint64    `gorm:"primaryKey;autoIncrement"`
+	CallID         string    `gorm:"size:64;not null;index"`
+	UserID         uint64    `gorm:"not null;index"`
+	PeerUserID     uint64    `gorm:"not null;index"`
+	FromEmail      string    `gorm:"size:255;not null;index"`
+	ToEmail        string    `gorm:"size:255;not null;index"`
+	OriginalText   string    `gorm:"type:text;not null"`
+	TranslatedText string    `gorm:"type:text"`
+	SourceLang     string    `gorm:"size:16"`
+	TargetLang     string    `gorm:"size:16"`
+	TimestampMS    int64     `gorm:"not null;index"`
+	CreatedAt      time.Time `gorm:"autoCreateTime;index"`
+}
+
+func (CallTranscriptSegment) TableName() string {
+	return "call_transcript_segments"
+}
+
+// CallFollowup stores one structured follow-up card per completed call.
+type CallFollowup struct {
+	ID               uint64     `gorm:"primaryKey;autoIncrement"`
+	CallID           string     `gorm:"size:64;not null;uniqueIndex"`
+	UserID           uint64     `gorm:"not null;index"`
+	PeerUserID       uint64     `gorm:"not null;index"`
+	Status           string     `gorm:"size:32;not null;default:'pending';index"`
+	Source           string     `gorm:"size:32;not null;default:'metadata'"`
+	SummaryCN        string     `gorm:"type:text"`
+	SummaryEN        string     `gorm:"type:text"`
+	KeyPointsJSON    string     `gorm:"type:longtext"`
+	ActionItemsJSON  string     `gorm:"type:longtext"`
+	NextStep         string     `gorm:"type:text"`
+	RiskFlagsJSON    string     `gorm:"type:longtext"`
+	FollowupDraftCN  string     `gorm:"type:text"`
+	FollowupDraftEN  string     `gorm:"type:text"`
+	GeneratedAt      *time.Time `gorm:"index"`
+	TranscriptCount  int64      `gorm:"not null;default:0"`
+	CreatedAt        time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt        time.Time  `gorm:"autoUpdateTime"`
+}
+
+func (CallFollowup) TableName() string {
+	return "call_followups"
+}
+
+// FollowUpTask stores callback/message/scheduling work derived from calls.
+type FollowUpTask struct {
+	ID             uint64     `gorm:"primaryKey;autoIncrement"`
+	UserID         uint64     `gorm:"not null;index"`
+	PeerUserID     uint64     `gorm:"not null;index"`
+	CallID         string     `gorm:"size:64;index"`
+	Type           string     `gorm:"size:32;not null;index"`
+	Status         string     `gorm:"size:32;not null;default:'open';index"`
+	Title          string     `gorm:"size:180;not null"`
+	Description    string     `gorm:"type:text"`
+	DueAt          *time.Time `gorm:"index"`
+	CompletedAt    *time.Time `gorm:"index"`
+	LastReminderAt *time.Time `gorm:"index"`
+	ReminderMode   string     `gorm:"size:32"`
+	CreatedAt      time.Time  `gorm:"autoCreateTime;index"`
+	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`
+}
+
+func (FollowUpTask) TableName() string {
+	return "follow_up_tasks"
 }
 
 // BillingWebhookEvent stores raw billing webhooks for idempotency and support.

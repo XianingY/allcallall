@@ -17,6 +17,7 @@ interface Settings {
   videoQuality: VideoQuality;
   videoMaxBitrateKbps: number;
   videoAdaptiveBitrateEnabled: boolean;
+  businessAssistantEnabled: boolean;
 }
 
 interface SettingsContextValue {
@@ -32,6 +33,7 @@ interface SettingsContextValue {
   updateVideoQuality: (quality: VideoQuality) => void;
   updateVideoMaxBitrateKbps: (kbps: number) => void;
   updateVideoAdaptiveBitrateEnabled: (enabled: boolean) => void;
+  updateBusinessAssistantEnabled: (enabled: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | undefined>(
@@ -54,7 +56,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 
     videoQuality: "medium",
     videoMaxBitrateKbps: 900,
-    videoAdaptiveBitrateEnabled: false
+    videoAdaptiveBitrateEnabled: false,
+    businessAssistantEnabled: true
   });
   const [loaded, setLoaded] = useState(false);
 
@@ -75,7 +78,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 
             videoQuality: parsed.videoQuality ?? "medium",
             videoMaxBitrateKbps: parsed.videoMaxBitrateKbps ?? 900,
-            videoAdaptiveBitrateEnabled: parsed.videoAdaptiveBitrateEnabled ?? false
+            videoAdaptiveBitrateEnabled: parsed.videoAdaptiveBitrateEnabled ?? false,
+            businessAssistantEnabled: parsed.businessAssistantEnabled ?? true
           });
         }
       } catch (error) {
@@ -176,6 +180,15 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     await saveSettings(newSettings);
   };
 
+  const updateBusinessAssistantEnabled = async (enabled: boolean) => {
+    const newSettings = {
+      ...settings,
+      businessAssistantEnabled: enabled
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+  };
+
   const saveSettings = async (newSettings: Settings) => {
     try {
       await AsyncStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
@@ -201,7 +214,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         updateCameraFacing,
         updateVideoQuality,
         updateVideoMaxBitrateKbps,
-        updateVideoAdaptiveBitrateEnabled
+        updateVideoAdaptiveBitrateEnabled,
+        updateBusinessAssistantEnabled
       }}
     >
       {children}

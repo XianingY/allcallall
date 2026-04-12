@@ -6,13 +6,15 @@ import React, {
   useMemo,
   useState
 } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Keychain from "react-native-keychain";
 
 import * as authApi from "../api/auth";
-import { User } from "../api/users";
+import { acceptInvitation, User } from "../api/users";
 import AnalyticsService from "../services/AnalyticsService";
 import BillingService from "../services/BillingService";
 import PushNotificationService from "../services/PushNotificationService";
+import { PENDING_INVITATION_CODE_STORAGE_KEY } from "../constants/invitations";
 
 const KEYCHAIN_SERVICE = "com.allcallall.auth";
 
@@ -126,6 +128,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     await Keychain.setGenericPassword("user_session", secret, baseOptions);
   }, []);
 
+  const flushPendingInvitation = useCallback(async (accessToken: string) => {
+    try {
+      const code = await AsyncStorage.getItem(PENDING_INVITATION_CODE_STORAGE_KEY);
+      if (!code) {
+        return;
+      }
+      await acceptInvitation(accessToken, code);
+      AnalyticsService.track("invite_accepted");
+      await AsyncStorage.removeItem(PENDING_INVITATION_CODE_STORAGE_KEY);
+    } catch (error) {
+      console.warn("[AuthContext] Failed to accept pending invitation:", error);
+    }
+  }, []);
+
   const clearState = useCallback(async () => {
     setState({ token: null, user: null, loading: false });
     PushNotificationService.setAuthToken(null);
@@ -137,6 +153,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     async (email: string, password: string) => {
       const response = await authApi.login(email, password);
       await persistState(response.access_token, response.user);
+      await flushPendingInvitation(response.access_token);
 
       try {
         await PushNotificationService.sendCurrentTokenToBackend(response.access_token);
@@ -144,7 +161,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         console.warn("[AuthContext] Failed to send FCM token:", error);
       }
     },
-    [persistState]
+    [flushPendingInvitation, persistState]
   );
 
   const register = useCallback(
@@ -162,13 +179,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       });
       await persistState(response.access_token, response.user);
       AnalyticsService.track("signup_completed");
+      await flushPendingInvitation(response.access_token);
       try {
         await PushNotificationService.sendCurrentTokenToBackend(response.access_token);
       } catch (error) {
         console.warn("[AuthContext] Failed to send FCM token after registration:", error);
       }
     },
-    [persistState]
+    [flushPendingInvitation, persistState]
   );
 
   const logout = useCallback(async () => {

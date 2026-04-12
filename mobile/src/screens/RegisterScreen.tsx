@@ -71,7 +71,10 @@ const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const handleRegister = async () => {
     if (!emailLocked) {
-      handleStartVerification();
+      navigation.navigate("EmailVerification", {
+        email: normalizedEmail,
+        returnToRegister: true
+      });
       return;
     }
 

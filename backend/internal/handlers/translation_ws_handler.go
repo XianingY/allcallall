@@ -242,6 +242,12 @@ func (h *TranslationWSHandler) forwardSessionEvents(
 				continue
 			}
 
+			if evt.Result.IsFinal {
+				if err := h.service.RecordTranscriptSegment(ctx, session.OwnerID, session.CallID, fromEmail, session.To, session.SourceLang, session.TargetLang, *evt.Result); err != nil {
+					h.logger.Warn().Err(err).Str("call_id", session.CallID).Str("session_id", session.ID).Msg("record transcript segment failed")
+				}
+			}
+
 			eventType := "translation.partial"
 			if evt.Result.IsFinal {
 				eventType = "translation.final"

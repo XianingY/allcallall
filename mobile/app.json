@@ -6,6 +6,7 @@
     "sdkVersion": "51.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "scheme": "allcallall",
     "splash": {
       "backgroundColor": "#ffffff",
       "resizeMode": "contain"

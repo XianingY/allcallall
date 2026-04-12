@@ -16,6 +16,7 @@ type RouteDependencies struct {
 	EmailHandler     *handlers.EmailHandler
 	UserHandler      *handlers.UserHandler
 	Commercial       *handlers.CommercialHandler
+	Invitations      *handlers.InvitationHandler
 	SignalingHandler *handlers.SignalingHandler
 	SignalingPoll    *handlers.SignalingPollHandler
 	WebRTCHandler    *handlers.WebRTCHandler
@@ -29,6 +30,9 @@ type RouteDependencies struct {
 func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 	if deps.Commercial != nil {
 		deps.Commercial.RegisterDocumentRoutes(router)
+	}
+	if deps.Invitations != nil {
+		deps.Invitations.RegisterDocumentRoutes(router)
 	}
 
 	api := router.Group("/api/v1")
@@ -50,6 +54,9 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 		deps.Commercial.RegisterPublicRoutes(api)
 		deps.Commercial.RegisterInternalRoutes(api)
 	}
+	if deps.Invitations != nil {
+		deps.Invitations.RegisterPublicRoutes(api)
+	}
 
 	emailGroup := api.Group("")
 	deps.EmailHandler.RegisterRoutes(emailGroup)
@@ -61,6 +68,9 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 		deps.UserHandler.RegisterRoutes(userGroup)
 		if deps.Commercial != nil {
 			deps.Commercial.RegisterProtectedRoutes(protected)
+		}
+		if deps.Invitations != nil {
+			deps.Invitations.RegisterProtectedRoutes(protected)
 		}
 		protected.GET("/ws", deps.SignalingHandler.Handle)
 		if deps.SignalingPoll != nil {

@@ -33,6 +33,80 @@ type CommercialHandler struct {
 	metrics    *metrics.CounterStore
 }
 
+type entitlementResponse struct {
+	ID         uint64     `json:"id"`
+	Entitlement string    `json:"entitlement"`
+	Tier       string     `json:"tier"`
+	ProductID  string     `json:"product_id,omitempty"`
+	Status     string     `json:"status"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	Source     string     `json:"source"`
+}
+
+type followUpTaskResponse struct {
+	ID             uint64     `json:"id"`
+	UserID         uint64     `json:"user_id"`
+	PeerUserID     uint64     `json:"peer_user_id"`
+	CallID         string     `json:"call_id,omitempty"`
+	Type           string     `json:"type"`
+	Status         string     `json:"status"`
+	Title          string     `json:"title"`
+	Description    string     `json:"description,omitempty"`
+	DueAt          *time.Time `json:"due_at,omitempty"`
+	CompletedAt    *time.Time `json:"completed_at,omitempty"`
+	LastReminderAt *time.Time `json:"last_reminder_at,omitempty"`
+	ReminderMode   string     `json:"reminder_mode,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+type callFollowupResponse struct {
+	ID              uint64     `json:"id"`
+	CallID          string     `json:"call_id"`
+	UserID          uint64     `json:"user_id"`
+	PeerUserID      uint64     `json:"peer_user_id"`
+	Status          string     `json:"status"`
+	Source          string     `json:"source"`
+	SummaryCN       string     `json:"summary_cn,omitempty"`
+	SummaryEN       string     `json:"summary_en,omitempty"`
+	KeyPoints       []string   `json:"key_points"`
+	ActionItems     []string   `json:"action_items"`
+	NextStep        string     `json:"next_step,omitempty"`
+	RiskFlags       []string   `json:"risk_flags"`
+	FollowupDraftCN string     `json:"followup_draft_cn,omitempty"`
+	FollowupDraftEN string     `json:"followup_draft_en,omitempty"`
+	GeneratedAt     *time.Time `json:"generated_at,omitempty"`
+	TranscriptCount int64      `json:"transcript_count"`
+}
+
+type callHistoryResponse struct {
+	ID                uint64     `json:"id"`
+	CallID            string     `json:"call_id"`
+	CallerID          uint64     `json:"caller_id"`
+	CalleeID          uint64     `json:"callee_id"`
+	CallerEmail       string     `json:"caller_email"`
+	CalleeEmail       string     `json:"callee_email"`
+	CallerDisplayName string     `json:"caller_display_name"`
+	CalleeDisplayName string     `json:"callee_display_name"`
+	Status            string     `json:"status"`
+	EndReason         string     `json:"end_reason,omitempty"`
+	StartedAt         time.Time  `json:"started_at"`
+	AnsweredAt        *time.Time `json:"answered_at,omitempty"`
+	EndedAt           *time.Time `json:"ended_at,omitempty"`
+	FollowupStatus    string     `json:"followup_status,omitempty"`
+	NextTaskDueAt     *time.Time `json:"next_task_due_at,omitempty"`
+	IsOverdue         bool       `json:"is_overdue"`
+}
+
+type followUpListItemResponse struct {
+	Task      followUpTaskResponse `json:"task"`
+	Call      *callHistoryResponse `json:"call,omitempty"`
+	Followup  *callFollowupResponse `json:"followup,omitempty"`
+	Peer      *gin.H               `json:"peer,omitempty"`
+	Contact   *gin.H               `json:"contact,omitempty"`
+	IsOverdue bool                 `json:"is_overdue"`
+}
+
 func NewCommercialHandler(
 	log zerolog.Logger,
 	users *user.Service,
@@ -69,6 +143,9 @@ func (h *CommercialHandler) RegisterDocumentRoutes(router gin.IRoutes) {
 func (h *CommercialHandler) RegisterProtectedRoutes(protected *gin.RouterGroup) {
 	protected.POST("/legal/accept", h.handleAcceptLegal)
 	protected.GET("/calls/history", h.handleCallHistory)
+	protected.GET("/calls/:callId/followup", h.handleGetFollowup)
+	protected.POST("/calls/:callId/followup/generate", h.handleGenerateFollowup)
+	protected.POST("/calls/:callId/followup/regenerate", h.handleRegenerateFollowup)
 	protected.POST("/users/blocks", h.handleCreateBlock)
 	protected.GET("/users/blocks", h.handleListBlocks)
 	protected.DELETE("/users/blocks/:blockedUserId", h.handleRemoveBlock)
@@ -76,6 +153,9 @@ func (h *CommercialHandler) RegisterProtectedRoutes(protected *gin.RouterGroup) 
 	protected.GET("/entitlements/me", h.handleEntitlements)
 	protected.GET("/usage/me", h.handleUsage)
 	protected.POST("/users/me/deletion", h.handleDeleteAccount)
+	protected.GET("/follow-ups", h.handleListFollowUps)
+	protected.POST("/follow-ups", h.handleCreateFollowUp)
+	protected.PATCH("/follow-ups/:taskId", h.handleUpdateFollowUp)
 }
 
 func (h *CommercialHandler) RegisterInternalRoutes(api *gin.RouterGroup) {
@@ -87,6 +167,129 @@ func (h *CommercialHandler) RegisterInternalRoutes(api *gin.RouterGroup) {
 
 func (h *CommercialHandler) handleCurrentLegal(c *gin.Context) {
 	JSONSuccess(c, http.StatusOK, gin.H{"legal": h.commerce.CurrentLegal()})
+}
+
+func decodeJSONStringArray(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return []string{}
+	}
+	var items []string
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return []string{}
+	}
+	return items
+}
+
+func toEntitlementResponse(item models.UserEntitlement) entitlementResponse {
+	return entitlementResponse{
+		ID:          item.ID,
+		Entitlement: item.Entitlement,
+		Tier:        item.Tier,
+		ProductID:   item.ProductID,
+		Status:      item.Status,
+		ExpiresAt:   item.ExpiresAt,
+		Source:      item.Source,
+	}
+}
+
+func toFollowUpTaskResponse(task models.FollowUpTask) followUpTaskResponse {
+	return followUpTaskResponse{
+		ID:             task.ID,
+		UserID:         task.UserID,
+		PeerUserID:     task.PeerUserID,
+		CallID:         task.CallID,
+		Type:           task.Type,
+		Status:         task.Status,
+		Title:          task.Title,
+		Description:    task.Description,
+		DueAt:          task.DueAt,
+		CompletedAt:    task.CompletedAt,
+		LastReminderAt: task.LastReminderAt,
+		ReminderMode:   task.ReminderMode,
+		CreatedAt:      task.CreatedAt,
+		UpdatedAt:      task.UpdatedAt,
+	}
+}
+
+func toCallFollowupResponse(item *models.CallFollowup) *callFollowupResponse {
+	if item == nil {
+		return nil
+	}
+	return &callFollowupResponse{
+		ID:              item.ID,
+		CallID:          item.CallID,
+		UserID:          item.UserID,
+		PeerUserID:      item.PeerUserID,
+		Status:          item.Status,
+		Source:          item.Source,
+		SummaryCN:       item.SummaryCN,
+		SummaryEN:       item.SummaryEN,
+		KeyPoints:       decodeJSONStringArray(item.KeyPointsJSON),
+		ActionItems:     decodeJSONStringArray(item.ActionItemsJSON),
+		NextStep:        item.NextStep,
+		RiskFlags:       decodeJSONStringArray(item.RiskFlagsJSON),
+		FollowupDraftCN: item.FollowupDraftCN,
+		FollowupDraftEN: item.FollowupDraftEN,
+		GeneratedAt:     item.GeneratedAt,
+		TranscriptCount: item.TranscriptCount,
+	}
+}
+
+func toCallHistoryResponse(item commerce.CallHistoryEntry) callHistoryResponse {
+	return callHistoryResponse{
+		ID:                item.ID,
+		CallID:            item.CallID,
+		CallerID:          item.CallerID,
+		CalleeID:          item.CalleeID,
+		CallerEmail:       item.CallerEmail,
+		CalleeEmail:       item.CalleeEmail,
+		CallerDisplayName: item.CallerDisplayName,
+		CalleeDisplayName: item.CalleeDisplayName,
+		Status:            item.Status,
+		EndReason:         item.EndReason,
+		StartedAt:         item.StartedAt,
+		AnsweredAt:        item.AnsweredAt,
+		EndedAt:           item.EndedAt,
+		FollowupStatus:    item.FollowupStatus,
+		NextTaskDueAt:     item.NextTaskDueAt,
+		IsOverdue:         item.IsOverdue,
+	}
+}
+
+func toFollowUpListItemResponse(item commerce.FollowUpListItem) followUpListItemResponse {
+	response := followUpListItemResponse{
+		Task:      toFollowUpTaskResponse(item.Task),
+		Followup:  toCallFollowupResponse(item.Followup),
+		IsOverdue: item.IsOverdue,
+	}
+	if item.Call != nil {
+		call := toCallHistoryResponse(commerce.CallHistoryEntry{CallSession: *item.Call})
+		response.Call = &call
+	}
+	if item.Peer != nil {
+		response.Peer = &gin.H{
+			"id":           item.Peer.ID,
+			"email":        item.Peer.Email,
+			"display_name": item.Peer.DisplayName,
+			"status":       item.Peer.Status,
+		}
+	}
+	if item.Contact != nil {
+		response.Contact = &gin.H{
+			"company":                 item.Contact.Company,
+			"role":                    item.Contact.Role,
+			"timezone":                item.Contact.Timezone,
+			"default_source_lang":     item.Contact.DefaultSourceLang,
+			"default_target_lang":     item.Contact.DefaultTargetLang,
+			"relationship_status":     item.Contact.RelationshipStatus,
+			"preferred_contact_start": item.Contact.PreferredContactStart,
+			"preferred_contact_end":   item.Contact.PreferredContactEnd,
+			"preferred_contact_days":  item.Contact.PreferredContactDays,
+			"last_followup_state":     item.Contact.LastFollowupState,
+			"note":                    item.Contact.Note,
+		}
+	}
+	return response
 }
 
 func (h *CommercialHandler) renderLegalPage(c *gin.Context, title string, body template.HTML) {
@@ -306,11 +509,106 @@ func (h *CommercialHandler) handleCallHistory(c *gin.Context) {
 		JSONError(c, http.StatusInternalServerError, "failed to load call history")
 		return
 	}
-	JSONSuccess(c, http.StatusOK, gin.H{"calls": history})
+	response := make([]callHistoryResponse, 0, len(history))
+	for _, item := range history {
+		response = append(response, toCallHistoryResponse(item))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"calls": response})
+}
+
+func (h *CommercialHandler) handleGetFollowup(c *gin.Context) {
+	claims, err := auth.GetClaimsFromContext(c)
+	if err != nil {
+		JSONError(c, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	callID := strings.TrimSpace(c.Param("callId"))
+	followup, err := h.commerce.GetFollowup(c.Request.Context(), claims.UserID, callID)
+	if err != nil {
+		if errors.Is(err, commerce.ErrFollowupNotFound) {
+			JSONError(c, http.StatusNotFound, "follow-up not found")
+			return
+		}
+		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Str("call_id", callID).Msg("get follow-up failed")
+		JSONError(c, http.StatusInternalServerError, "failed to load follow-up")
+		return
+	}
+	taskResponse := make([]followUpTaskResponse, 0, len(followup.Tasks))
+	for _, item := range followup.Tasks {
+		taskResponse = append(taskResponse, toFollowUpTaskResponse(item))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"followup": toCallFollowupResponse(followup.Followup), "tasks": taskResponse})
+}
+
+func (h *CommercialHandler) handleGenerateFollowup(c *gin.Context) {
+	claims, err := auth.GetClaimsFromContext(c)
+	if err != nil {
+		JSONError(c, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	callID := strings.TrimSpace(c.Param("callId"))
+	if err := h.commerce.GenerateFollowupForCall(c.Request.Context(), callID, false); err != nil {
+		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Str("call_id", callID).Msg("generate follow-up failed")
+		JSONError(c, http.StatusInternalServerError, "failed to generate follow-up")
+		return
+	}
+	followup, err := h.commerce.GetFollowup(c.Request.Context(), claims.UserID, callID)
+	if err != nil {
+		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Str("call_id", callID).Msg("reload follow-up failed")
+		JSONError(c, http.StatusInternalServerError, "failed to load follow-up")
+		return
+	}
+	taskResponse := make([]followUpTaskResponse, 0, len(followup.Tasks))
+	for _, item := range followup.Tasks {
+		taskResponse = append(taskResponse, toFollowUpTaskResponse(item))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"followup": toCallFollowupResponse(followup.Followup), "tasks": taskResponse})
+}
+
+func (h *CommercialHandler) handleRegenerateFollowup(c *gin.Context) {
+	claims, err := auth.GetClaimsFromContext(c)
+	if err != nil {
+		JSONError(c, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	callID := strings.TrimSpace(c.Param("callId"))
+	if err := h.commerce.GenerateFollowupForCall(c.Request.Context(), callID, true); err != nil {
+		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Str("call_id", callID).Msg("regenerate follow-up failed")
+		JSONError(c, http.StatusInternalServerError, "failed to regenerate follow-up")
+		return
+	}
+	followup, err := h.commerce.GetFollowup(c.Request.Context(), claims.UserID, callID)
+	if err != nil {
+		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Str("call_id", callID).Msg("reload regenerated follow-up failed")
+		JSONError(c, http.StatusInternalServerError, "failed to load follow-up")
+		return
+	}
+	taskResponse := make([]followUpTaskResponse, 0, len(followup.Tasks))
+	for _, item := range followup.Tasks {
+		taskResponse = append(taskResponse, toFollowUpTaskResponse(item))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"followup": toCallFollowupResponse(followup.Followup), "tasks": taskResponse})
 }
 
 type blockRequest struct {
 	BlockedUserID uint64 `json:"blocked_user_id"`
+}
+
+type followUpTaskRequest struct {
+	PeerUserID    uint64  `json:"peer_user_id"`
+	CallID        string  `json:"call_id"`
+	Type          string  `json:"type"`
+	Title         string  `json:"title"`
+	Description   string  `json:"description"`
+	DueAt         *string `json:"due_at"`
+	ReminderMode  string  `json:"reminder_mode"`
+}
+
+type updateFollowUpTaskRequest struct {
+	Status        string  `json:"status"`
+	Description   string  `json:"description"`
+	DueAt         *string `json:"due_at"`
+	ReminderMode  string  `json:"reminder_mode"`
 }
 
 func (h *CommercialHandler) handleCreateBlock(c *gin.Context) {
@@ -334,6 +632,111 @@ func (h *CommercialHandler) handleCreateBlock(c *gin.Context) {
 		return
 	}
 	JSONSuccess(c, http.StatusCreated, gin.H{"success": true})
+}
+
+func parseOptionalTime(value *string) (*time.Time, error) {
+	if value == nil {
+		return nil, nil
+	}
+	raw := strings.TrimSpace(*value)
+	if raw == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return nil, err
+	}
+	utc := parsed.UTC()
+	return &utc, nil
+}
+
+func (h *CommercialHandler) handleListFollowUps(c *gin.Context) {
+	claims, err := auth.GetClaimsFromContext(c)
+	if err != nil {
+		JSONError(c, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	items, err := h.commerce.ListFollowUpTasks(c.Request.Context(), claims.UserID)
+	if err != nil {
+		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Msg("list follow-up tasks failed")
+		JSONError(c, http.StatusInternalServerError, "failed to load follow-up tasks")
+		return
+	}
+	response := make([]followUpListItemResponse, 0, len(items))
+	for _, item := range items {
+		response = append(response, toFollowUpListItemResponse(item))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"items": response})
+}
+
+func (h *CommercialHandler) handleCreateFollowUp(c *gin.Context) {
+	claims, err := auth.GetClaimsFromContext(c)
+	if err != nil {
+		JSONError(c, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req followUpTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	dueAt, err := parseOptionalTime(req.DueAt)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid due_at")
+		return
+	}
+	task, err := h.commerce.CreateFollowUpTask(c.Request.Context(), &models.FollowUpTask{
+		UserID:       claims.UserID,
+		PeerUserID:   req.PeerUserID,
+		CallID:       strings.TrimSpace(req.CallID),
+		Type:         strings.TrimSpace(req.Type),
+		Status:       models.FollowupTaskStatusOpen,
+		Title:        strings.TrimSpace(req.Title),
+		Description:  strings.TrimSpace(req.Description),
+		DueAt:        dueAt,
+		ReminderMode: strings.TrimSpace(req.ReminderMode),
+	})
+	if err != nil {
+		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Msg("create follow-up task failed")
+		JSONError(c, http.StatusInternalServerError, "failed to create follow-up task")
+		return
+	}
+	JSONSuccess(c, http.StatusCreated, gin.H{"task": toFollowUpTaskResponse(*task)})
+}
+
+func (h *CommercialHandler) handleUpdateFollowUp(c *gin.Context) {
+	claims, err := auth.GetClaimsFromContext(c)
+	if err != nil {
+		JSONError(c, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	taskID, err := strconv.ParseUint(c.Param("taskId"), 10, 64)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid task id")
+		return
+	}
+	var req updateFollowUpTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	dueAt, err := parseOptionalTime(req.DueAt)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid due_at")
+		return
+	}
+	task, err := h.commerce.UpdateFollowUpTask(c.Request.Context(), claims.UserID, taskID, map[string]any{
+		"status":        strings.TrimSpace(req.Status),
+		"description":   strings.TrimSpace(req.Description),
+		"due_at":        dueAt,
+		"reminder_mode": strings.TrimSpace(req.ReminderMode),
+	})
+	if err != nil {
+		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Uint64("task_id", taskID).Msg("update follow-up task failed")
+		JSONError(c, http.StatusInternalServerError, "failed to update follow-up task")
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"task": toFollowUpTaskResponse(*task)})
 }
 
 func (h *CommercialHandler) handleListBlocks(c *gin.Context) {
@@ -454,7 +857,11 @@ func (h *CommercialHandler) handleEntitlements(c *gin.Context) {
 		JSONError(c, http.StatusInternalServerError, "failed to load entitlements")
 		return
 	}
-	JSONSuccess(c, http.StatusOK, gin.H{"tier": tier, "entitlements": entitlements})
+	response := make([]entitlementResponse, 0, len(entitlements))
+	for _, item := range entitlements {
+		response = append(response, toEntitlementResponse(item))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"tier": tier, "entitlements": response})
 }
 
 func (h *CommercialHandler) handleUsage(c *gin.Context) {
@@ -620,7 +1027,13 @@ func (h *CommercialHandler) handleSupportCall(c *gin.Context) {
 		JSONError(c, http.StatusInternalServerError, "failed to load support call")
 		return
 	}
-	JSONSuccess(c, http.StatusOK, gin.H{"call": call.Call, "translation_slices": call.TranslationSlices})
+	JSONSuccess(c, http.StatusOK, gin.H{
+		"call":                call.Call,
+		"translation_slices":  call.TranslationSlices,
+		"transcript_segments": call.TranscriptSegments,
+		"followup":            call.Followup,
+		"tasks":               call.Tasks,
+	})
 }
 
 func (h *CommercialHandler) sendSupportReportEmail(reporterID, reportedUserID uint64, category, details string) {

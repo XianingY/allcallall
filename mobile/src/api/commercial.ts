@@ -23,6 +23,70 @@ export interface CallHistoryRecord {
   started_at: string;
   answered_at?: string | null;
   ended_at?: string | null;
+  followup_status?: string;
+  next_task_due_at?: string | null;
+  is_overdue?: boolean;
+}
+
+export interface CallFollowupRecord {
+  id: number;
+  call_id: string;
+  user_id: number;
+  peer_user_id: number;
+  status: string;
+  source: string;
+  summary_cn?: string;
+  summary_en?: string;
+  key_points: string[];
+  action_items: string[];
+  next_step?: string;
+  risk_flags: string[];
+  followup_draft_cn?: string;
+  followup_draft_en?: string;
+  generated_at?: string | null;
+  transcript_count: number;
+}
+
+export interface FollowUpTaskRecord {
+  id: number;
+  user_id: number;
+  peer_user_id: number;
+  call_id?: string;
+  type: string;
+  status: string;
+  title: string;
+  description?: string;
+  due_at?: string | null;
+  completed_at?: string | null;
+  reminder_mode?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FollowUpListItem {
+  task: FollowUpTaskRecord;
+  call?: CallHistoryRecord;
+  followup?: CallFollowupRecord;
+  peer?: {
+    id: number;
+    email: string;
+    display_name: string;
+    status?: string;
+  };
+  contact?: {
+    company?: string;
+    role?: string;
+    timezone?: string;
+    default_source_lang?: string;
+    default_target_lang?: string;
+    relationship_status?: string;
+    preferred_contact_start?: string;
+    preferred_contact_end?: string;
+    preferred_contact_days?: string;
+    last_followup_state?: string;
+    note?: string;
+  };
+  is_overdue: boolean;
 }
 
 export interface UserBlockRecord {
@@ -107,6 +171,54 @@ export const fetchCallHistory = async (token: string, days = 30) => {
     params: { days }
   });
   return response.data.calls;
+};
+
+export const fetchCallFollowup = async (token: string, callId: string) => {
+  const api = createApiClient(token);
+  const response = await api.get<{ followup: CallFollowupRecord; tasks: FollowUpTaskRecord[] }>(`/calls/${callId}/followup`);
+  return response.data;
+};
+
+export const generateCallFollowup = async (token: string, callId: string, force = false) => {
+  const api = createApiClient(token);
+  const endpoint = force ? `/calls/${callId}/followup/regenerate` : `/calls/${callId}/followup/generate`;
+  const response = await api.post<{ followup: CallFollowupRecord; tasks: FollowUpTaskRecord[] }>(endpoint);
+  return response.data;
+};
+
+export const fetchFollowUps = async (token: string) => {
+  const api = createApiClient(token);
+  const response = await api.get<{ items: FollowUpListItem[] }>("/follow-ups");
+  return response.data.items;
+};
+
+export interface CreateFollowUpTaskPayload {
+  peer_user_id: number;
+  call_id?: string;
+  type: string;
+  title: string;
+  description?: string;
+  due_at?: string | null;
+  reminder_mode?: string;
+}
+
+export const createFollowUpTask = async (token: string, payload: CreateFollowUpTaskPayload) => {
+  const api = createApiClient(token);
+  const response = await api.post<{ task: FollowUpTaskRecord }>("/follow-ups", payload);
+  return response.data.task;
+};
+
+export interface UpdateFollowUpTaskPayload {
+  status?: string;
+  description?: string;
+  due_at?: string | null;
+  reminder_mode?: string;
+}
+
+export const updateFollowUpTask = async (token: string, taskId: number, payload: UpdateFollowUpTaskPayload) => {
+  const api = createApiClient(token);
+  const response = await api.patch<{ task: FollowUpTaskRecord }>(`/follow-ups/${taskId}`, payload);
+  return response.data.task;
 };
 
 export const createBlock = async (token: string, blockedUserId: number) => {

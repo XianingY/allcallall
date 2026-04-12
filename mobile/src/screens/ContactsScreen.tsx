@@ -34,6 +34,8 @@ import PrimaryButton from "../components/PrimaryButton";
 import TextField from "../components/TextField";
 import PresenceBadge from "../components/PresenceBadge";
 import { useCommercial } from "../context/CommercialContext";
+import { useFollowUps } from "../context/FollowUpContext";
+import { useSettings } from "../context/SettingsContext";
 import { useSignaling } from "../context/SignalingContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import AnalyticsService from "../services/AnalyticsService";
@@ -42,7 +44,7 @@ import {
   FIRST_TRANSLATION_ENABLED_STORAGE_KEY,
   ONBOARDING_DISMISSED_STORAGE_KEY
 } from "../constants/onboarding";
-import { findTranslationUsage } from "../utils/usage";
+import { FOLLOW_UP_CALLS_STORAGE_KEY } from "../constants/invitations";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Contacts">;
 
@@ -71,8 +73,15 @@ const REPORT_CATEGORIES: ReportCategoryOption[] = [
 
 const ContactsScreen: React.FC<Props> = ({ navigation }) => {
   const { user, token, logout } = useAuthContext();
-  const { usage } = useCommercial();
-  const { startCall, connectionReady } = useSignaling();
+  useCommercial();
+  const { items: followUpItems, refreshFollowUps } = useFollowUps();
+  const { settings } = useSettings();
+  const {
+    startCall,
+    connectionReady,
+    setTranslationLanguage,
+    setTranslationSourceLanguage
+  } = useSignaling();
 
   const [contacts, setContacts] = useState<User[]>([]);
   const [presence, setPresence] = useState<Record<string, PresenceRecord>>({});
@@ -88,6 +97,8 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
   const [reportDetails, setReportDetails] = useState("");
   const [hasCallHistory, setHasCallHistory] = useState(false);
   const [submittingReport, setSubmittingReport] = useState(false);
+  const [followUpCallIds, setFollowUpCallIds] = useState<string[]>([]);
+  const [firstBusinessContactTracked, setFirstBusinessContactTracked] = useState(false);
 
   const loadContacts = useCallback(async () => {
     if (!token) {
@@ -158,18 +169,22 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
   }, [loadContacts, loadPresence, token]);
 
   const [hasStartedFirstCall, setHasStartedFirstCall] = useState(false);
-  const [hasEnabledTranslation, setHasEnabledTranslation] = useState(false);
+  const [, setHasEnabledTranslation] = useState(false);
 
   const loadOnboardingState = useCallback(async () => {
     try {
-      const [dismissed, firstCall, firstTranslation] = await Promise.all([
+      const [dismissed, firstCall, firstTranslation, followUps] = await Promise.all([
         AsyncStorage.getItem(ONBOARDING_DISMISSED_STORAGE_KEY),
         AsyncStorage.getItem(FIRST_CALL_STARTED_STORAGE_KEY),
-        AsyncStorage.getItem(FIRST_TRANSLATION_ENABLED_STORAGE_KEY)
+        AsyncStorage.getItem(FIRST_TRANSLATION_ENABLED_STORAGE_KEY),
+        AsyncStorage.getItem(FOLLOW_UP_CALLS_STORAGE_KEY)
       ]);
+      const parsedFollowUps = followUps ? JSON.parse(followUps) as string[] : [];
       setChecklistDismissed(dismissed === "dismissed");
       setHasStartedFirstCall(firstCall === "true");
       setHasEnabledTranslation(firstTranslation === "true");
+      setFollowUpCallIds(parsedFollowUps);
+      setFirstBusinessContactTracked(parsedFollowUps.length > 0);
     } catch {
       // Ignore onboarding storage failures.
     }
@@ -190,7 +205,13 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
   useFocusEffect(
     useCallback(() => {
       void loadOnboardingState();
-    }, [loadOnboardingState])
+  }, [loadOnboardingState])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshFollowUps();
+    }, [refreshFollowUps])
   );
 
   const handleAddContact = useCallback(async () => {
@@ -207,6 +228,8 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
       await addContact(token, target);
       if (isFirstContact) {
         AnalyticsService.track("first_contact_added");
+        AnalyticsService.track("first_business_contact_added");
+        setFirstBusinessContactTracked(true);
       }
       setNewContactEmail("");
       setSearchResults([]);
@@ -316,6 +339,19 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
     [connectionReady, startCall]
   );
 
+  const handleStartCallWithContact = useCallback(
+    (contact: User) => {
+      if (contact.profile?.default_source_lang) {
+        setTranslationSourceLanguage(contact.profile.default_source_lang);
+      }
+      if (contact.profile?.default_target_lang) {
+        setTranslationLanguage(contact.profile.default_target_lang);
+      }
+      handleStartCall(contact.email);
+    },
+    [handleStartCall, setTranslationLanguage, setTranslationSourceLanguage]
+  );
+
   const dismissChecklist = useCallback(async () => {
     setChecklistDismissed(true);
     try {
@@ -325,17 +361,29 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
     }
   }, []);
 
-  const translationUsage = useMemo(() => findTranslationUsage(usage), [usage]);
-  const translationUsed = (translationUsage?.used_units ?? 0) > 0 || hasEnabledTranslation;
-
   const checklistItems = useMemo(() => {
     const hasContacts = contacts.length > 0;
     return [
-      { key: "contact", label: "添加第一个联系人", done: hasContacts },
-      { key: "call", label: "发起第一通通话", done: hasStartedFirstCall || hasCallHistory },
-      { key: "translation", label: "首次启用实时翻译", done: translationUsed }
+      { key: "invite", label: "邀请第一个业务联系人", done: hasContacts || firstBusinessContactTracked },
+      { key: "call", label: "完成第一通跨语言通话", done: hasStartedFirstCall || hasCallHistory },
+      { key: "followup", label: "完成第一次回拨 / 重复通话", done: followUpCallIds.length > 0 || hasCallHistory }
     ];
-  }, [contacts.length, hasCallHistory, hasStartedFirstCall, translationUsed]);
+  }, [contacts.length, firstBusinessContactTracked, followUpCallIds.length, hasCallHistory, hasStartedFirstCall]);
+
+  const followUpInbox = useMemo(() => {
+    const overdue = followUpItems.filter((item) => item.is_overdue).length;
+    const today = followUpItems.filter((item) => {
+      if (!item.task.due_at || item.is_overdue) {
+        return false;
+      }
+      return new Date(item.task.due_at).toDateString() === new Date().toDateString();
+    }).length;
+    return {
+      overdue,
+      today,
+      topItems: followUpItems.slice(0, 3)
+    };
+  }, [followUpItems]);
 
   const handleSubmitReport = useCallback(async () => {
     if (!token || !reportTarget) {
@@ -365,6 +413,14 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
   const handleContactActions = useCallback((contact: User) => {
     setSelectedContact(contact);
   }, []);
+
+  const handleOpenDetail = useCallback((contact: User) => {
+    navigation.navigate("ContactDetail", { contact });
+  }, [navigation]);
+
+  const handleQuickShareInvite = useCallback(async () => {
+    navigation.navigate("Invitation");
+  }, [navigation]);
 
   const sortedContacts = useMemo(
     () =>
@@ -425,13 +481,16 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
 
       {!checklistDismissed ? (
         <View style={styles.onboardingCard}>
-          <View style={styles.onboardingHeader}>
-            <Text style={styles.sectionTitle}>首日引导 / Onboarding</Text>
-            <TouchableOpacity onPress={() => void dismissChecklist()}>
-              <Text style={styles.dismissText}>隐藏</Text>
-            </TouchableOpacity>
-          </View>
-          {checklistItems.map((item) => (
+        <View style={styles.onboardingHeader}>
+          <Text style={styles.sectionTitle}>首日引导 / Onboarding</Text>
+          <TouchableOpacity onPress={() => void dismissChecklist()}>
+            <Text style={styles.dismissText}>隐藏</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.onboardingDescription}>
+          先邀请一个业务联系人，再完成首次跨语言通话和第一次回拨。
+        </Text>
+        {checklistItems.map((item) => (
             <View key={item.key} style={styles.checklistRow}>
               <Text style={[styles.checklistDot, item.done && styles.checklistDotDone]}>
                 {item.done ? "●" : "○"}
@@ -444,13 +503,40 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       ) : null}
 
+      {settings.businessAssistantEnabled ? (
+        <TouchableOpacity style={styles.followupCard} onPress={() => navigation.navigate("FollowUps")}>
+          <View style={styles.followupHeader}>
+            <Text style={styles.sectionTitle}>Follow-up Inbox</Text>
+            <Text style={styles.followupLink}>查看全部</Text>
+          </View>
+          <Text style={styles.followupSummary}>
+            逾期 {followUpInbox.overdue} 项 · 今日 {followUpInbox.today} 项
+          </Text>
+          {followUpInbox.topItems.length > 0 ? followUpInbox.topItems.map((item) => (
+            <View key={item.task.id} style={styles.followupRow}>
+              <Text style={styles.followupPeer}>{item.peer?.display_name || item.peer?.email || item.task.title}</Text>
+              <Text style={styles.followupMeta}>{item.task.title}</Text>
+            </View>
+          )) : (
+            <Text style={styles.followupEmpty}>完成第一通通话后，回访任务会出现在这里。</Text>
+          )}
+        </TouchableOpacity>
+      ) : null}
+
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>联系人 / Contacts</Text>
-        <PrimaryButton
-          title="添加联系人"
-          onPress={() => setAddModalVisible(true)}
-          style={styles.addButton}
-        />
+        <View style={styles.sectionActions}>
+          <PrimaryButton
+            title="邀请试用"
+            onPress={handleQuickShareInvite}
+            style={styles.inviteButton}
+          />
+          <PrimaryButton
+            title="添加联系人"
+            onPress={() => setAddModalVisible(true)}
+            style={styles.addButton}
+          />
+        </View>
       </View>
 
       <FlatList
@@ -460,7 +546,8 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
           <ContactListItem
             contact={item}
             presence={presence[item.email]}
-            onCall={handleStartCall}
+            onCall={() => handleStartCallWithContact(item)}
+            onPressDetail={handleOpenDetail}
             onPressActions={handleContactActions}
           />
         )}
@@ -529,11 +616,19 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
             <Text style={styles.modalTitle}>{selectedContact?.display_name || selectedContact?.email}</Text>
             <TouchableOpacity style={styles.actionSheetButton} onPress={() => {
               if (selectedContact) {
-                handleStartCall(selectedContact.email);
+                handleStartCallWithContact(selectedContact);
               }
               setSelectedContact(null);
             }}>
               <Text style={styles.actionSheetText}>呼叫 / Call</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionSheetButton} onPress={() => {
+              if (selectedContact) {
+                navigation.navigate("ContactDetail", { contact: selectedContact });
+              }
+              setSelectedContact(null);
+            }}>
+              <Text style={styles.actionSheetText}>详情 / Detail</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionSheetButton} onPress={() => {
               if (selectedContact) {
@@ -708,11 +803,50 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     marginBottom: 18
   },
+  followupCard: {
+    backgroundColor: "#fff",
+    padding: 18,
+    borderRadius: 16,
+    marginBottom: 18
+  },
+  followupHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center"
+  },
+  followupLink: {
+    color: "#2563eb",
+    fontWeight: "700"
+  },
+  followupSummary: {
+    marginTop: 8,
+    color: "#334155",
+    fontWeight: "600"
+  },
+  followupRow: {
+    marginTop: 12
+  },
+  followupPeer: {
+    fontWeight: "700",
+    color: "#0f172a"
+  },
+  followupMeta: {
+    marginTop: 2,
+    color: "#64748b"
+  },
+  followupEmpty: {
+    marginTop: 12,
+    color: "#64748b"
+  },
   onboardingHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 8
+  },
+  onboardingDescription: {
+    color: "#475569",
+    marginBottom: 4
   },
   dismissText: {
     color: "#2563eb",
@@ -751,6 +885,15 @@ const styles = StyleSheet.create({
   addButton: {
     paddingHorizontal: 16,
     paddingVertical: 10
+  },
+  inviteButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: "#0f172a"
+  },
+  sectionActions: {
+    flexDirection: "row",
+    gap: 10
   },
   listContent: {
     paddingBottom: 140

@@ -20,6 +20,7 @@ import (
 	"github.com/allcallall/backend/internal/database"
 	"github.com/allcallall/backend/internal/fcm"
 	"github.com/allcallall/backend/internal/handlers"
+	"github.com/allcallall/backend/internal/invitation"
 	"github.com/allcallall/backend/internal/logger"
 	"github.com/allcallall/backend/internal/mail"
 	"github.com/allcallall/backend/internal/metrics"
@@ -82,6 +83,11 @@ func main() {
 		&models.TranslationUsageSlice{},
 		&models.BillingWebhookEvent{},
 		&models.DeletionAudit{},
+		&models.Invitation{},
+		&models.ContactProfile{},
+		&models.CallTranscriptSegment{},
+		&models.CallFollowup{},
+		&models.FollowUpTask{},
 	); err != nil {
 		appLogger.Fatal().Err(err).Msg("auto migrate failed")
 	}
@@ -100,11 +106,12 @@ func main() {
 	}()
 
 	rateLimitSvc := ratelimit.NewService(redisClient)
-	commerceSvc := commerce.NewService(db)
+	commerceSvc := commerce.NewService(db, counterStore)
 	userRepo := user.NewRepository(db)
 	userSvc := user.NewService(userRepo)
 	contactRepo := contact.NewRepository(db)
 	contactSvc := contact.NewService(contactRepo, userSvc, commerceSvc)
+	invitationSvc := invitation.NewService(db, userSvc, contactSvc, commerceSvc)
 
 	// 初始化邮件服务
 	// Initialize mail service
@@ -148,6 +155,7 @@ func main() {
 		Metrics:  counterStore,
 	})
 	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, mailSvc, rateLimitSvc, counterStore)
+	invitationHandler := handlers.NewInvitationHandler(appLogger, invitationSvc, contactSvc, userSvc)
 	webrtcHandler := handlers.NewWebRTCHandler(appLogger, cfg.WebRTC)
 	signalingHub := signaling.NewHub(redisClient, appLogger, presenceManager)
 
@@ -211,6 +219,7 @@ func main() {
 		EmailHandler:     emailHandler,
 		UserHandler:      userHandler,
 		Commercial:       commercialHandler,
+		Invitations:      invitationHandler,
 		SignalingHandler: signalingHandler,
 		SignalingPoll:    signalingPollHandler,
 		WebRTCHandler:    webrtcHandler,

@@ -25,6 +25,7 @@
     "axios": "^1.6.8",
     "expo": "^51.0.0",
     "expo-av": "~14.0.4",
+    "expo-clipboard": "~6.0.3",
     "expo-device": "~6.0.2",
     "expo-status-bar": "~1.12.1",
     "mitt": "^3.0.1",

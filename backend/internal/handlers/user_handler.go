@@ -208,6 +208,20 @@ type addContactRequest struct {
 	Email string `json:"email" binding:"required,email"`
 }
 
+type contactProfileDTO struct {
+	Company           string `json:"company,omitempty"`
+	Role              string `json:"role,omitempty"`
+	Timezone          string `json:"timezone,omitempty"`
+	DefaultSourceLang string `json:"default_source_lang,omitempty"`
+	DefaultTargetLang string `json:"default_target_lang,omitempty"`
+	RelationshipStatus    string `json:"relationship_status,omitempty"`
+	PreferredContactStart string `json:"preferred_contact_start,omitempty"`
+	PreferredContactEnd   string `json:"preferred_contact_end,omitempty"`
+	PreferredContactDays  string `json:"preferred_contact_days,omitempty"`
+	LastFollowupState     string `json:"last_followup_state,omitempty"`
+	Note              string `json:"note,omitempty"`
+}
+
 func (h *UserHandler) handleAddContact(c *gin.Context) {
 	claims, err := auth.GetClaimsFromContext(c)
 	if err != nil {
@@ -246,20 +260,34 @@ func (h *UserHandler) handleListContacts(c *gin.Context) {
 		return
 	}
 
-	contacts, err := h.contacts.List(c.Request.Context(), claims.UserID)
+	contacts, err := h.contacts.ListWithProfiles(c.Request.Context(), claims.UserID)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("list contacts failed")
 		JSONError(c, http.StatusInternalServerError, "failed to list contacts")
 		return
 	}
 
-	response := make([]userDTO, 0, len(contacts))
+	response := make([]gin.H, 0, len(contacts))
 	for _, u := range contacts {
-		response = append(response, userDTO{
-			ID:          u.ID,
-			Email:       u.Email,
-			DisplayName: u.DisplayName,
-		})
+		item := gin.H{
+			"id":           u.ID,
+			"email":        u.Email,
+			"display_name": u.DisplayName,
+		}
+		item["profile"] = contactProfileDTO{
+			Company:           u.Company,
+			Role:              u.Role,
+			Timezone:          u.Timezone,
+			DefaultSourceLang: u.DefaultSourceLang,
+			DefaultTargetLang: u.DefaultTargetLang,
+			RelationshipStatus: u.RelationshipStatus,
+			PreferredContactStart: u.PreferredContactStart,
+			PreferredContactEnd:   u.PreferredContactEnd,
+			PreferredContactDays:  u.PreferredContactDays,
+			LastFollowupState:     u.LastFollowupState,
+			Note:              u.Note,
+		}
+		response = append(response, item)
 	}
 
 	JSONSuccess(c, http.StatusOK, gin.H{"contacts": response})

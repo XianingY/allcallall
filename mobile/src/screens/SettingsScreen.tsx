@@ -31,7 +31,8 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     updateCameraFacing,
     updateVideoQuality,
     updateVideoMaxBitrateKbps,
-    updateVideoAdaptiveBitrateEnabled
+    updateVideoAdaptiveBitrateEnabled,
+    updateBusinessAssistantEnabled
   } = useSettings();
   const { tier, usage } = useCommercial();
   const translationUsage = React.useMemo(() => findTranslationUsage(usage), [usage]);
@@ -120,6 +121,21 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
               </Text>
             </View>
           </TouchableOpacity>
+
+          <View style={styles.settingItem}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>Business Assistant</Text>
+              <Text style={styles.settingDescription}>
+                控制通话后的 AI 跟进卡与跟进任务生成。
+              </Text>
+            </View>
+            <Switch
+              trackColor={{ false: "#767577", true: "#81b0ff" }}
+              thumbColor={settings.businessAssistantEnabled ? "#f5dd4b" : "#f4f3f4"}
+              onValueChange={updateBusinessAssistantEnabled}
+              value={settings.businessAssistantEnabled}
+            />
+          </View>
         </View>
 
         <View style={styles.section}>

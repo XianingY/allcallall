@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/allcallall/backend/internal/commerce"
+	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/user"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -123,6 +124,37 @@ func (s *Service) StartSession(ctx context.Context, owner string, req StartReque
 		Msg("translation session started")
 
 	return session, nil
+}
+
+func (s *Service) RecordTranscriptSegment(
+	ctx context.Context,
+	userID uint64,
+	callID string,
+	fromEmail string,
+	toEmail string,
+	sourceLang string,
+	targetLang string,
+	result Result,
+) error {
+	if s.commercial == nil || userID == 0 || strings.TrimSpace(callID) == "" || !result.IsFinal {
+		return nil
+	}
+	peerID, err := parseOwnerUserID(ctx, s.users, toEmail)
+	if err != nil {
+		return err
+	}
+	return s.commercial.RecordTranscriptSegment(ctx, models.CallTranscriptSegment{
+		CallID:         strings.TrimSpace(callID),
+		UserID:         userID,
+		PeerUserID:     peerID,
+		FromEmail:      fromEmail,
+		ToEmail:        toEmail,
+		OriginalText:   strings.TrimSpace(result.OriginalText),
+		TranslatedText: strings.TrimSpace(result.TranslatedText),
+		SourceLang:     normalizeLang(sourceLang),
+		TargetLang:     normalizeLang(targetLang),
+		TimestampMS:    result.TimestampMS,
+	})
 }
 
 func parseOwnerUserID(ctx context.Context, users *user.Service, owner string) (uint64, error) {
