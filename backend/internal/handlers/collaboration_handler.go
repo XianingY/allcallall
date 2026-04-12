@@ -53,9 +53,14 @@ func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGrou
 
 	protected.GET("/conversations", h.handleListConversations)
 	protected.POST("/conversations", h.handleCreateConversation)
+	protected.GET("/conversations/:id", h.handleGetConversation)
+	protected.PATCH("/conversations/:id", h.handleUpdateConversation)
 	protected.GET("/conversations/:id/messages", h.handleListMessages)
 	protected.POST("/conversations/:id/messages", h.handleCreateMessage)
 	protected.POST("/conversations/:id/read", h.handleMarkConversationRead)
+	protected.GET("/conversations/:id/notes", h.handleListConversationNotes)
+	protected.POST("/conversations/:id/notes", h.handleCreateConversationNote)
+	protected.POST("/conversations/:id/rooms", h.handleCreateConversationRoom)
 	protected.GET("/chat/ws", h.handleChatWS)
 
 	protected.POST("/rooms", h.handleCreateRoom)
@@ -64,6 +69,7 @@ func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGrou
 	protected.POST("/rooms/:roomId/leave", h.handleLeaveRoom)
 	protected.POST("/rooms/:roomId/offer", h.handleRoomOffer)
 	protected.POST("/rooms/:roomId/ice", h.handleRoomIce)
+	protected.POST("/rooms/:roomId/media", h.handleRoomMediaState)
 	protected.GET("/rooms/:roomId/state", h.handleRoomState)
 
 	protected.POST("/rooms/:roomId/recording/start", h.handleStartRecording)
@@ -111,17 +117,36 @@ type organizationInviteResponse struct {
 }
 
 type conversationResponse struct {
-	ID                 uint64     `json:"id"`
-	OrganizationID     uint64     `json:"organization_id"`
-	TeamID             *uint64    `json:"team_id,omitempty"`
-	RoomID             *uint64    `json:"room_id,omitempty"`
-	Type               string     `json:"type"`
-	Title              string     `json:"title"`
-	Topic              string     `json:"topic,omitempty"`
-	LastMessageAt      *time.Time `json:"last_message_at,omitempty"`
-	LastMessagePreview string     `json:"last_message_preview,omitempty"`
-	LastMessageType    string     `json:"last_message_type,omitempty"`
-	UnreadCount        int64      `json:"unread_count"`
+	ID                  uint64     `json:"id"`
+	OrganizationID      uint64     `json:"organization_id"`
+	TeamID              *uint64    `json:"team_id,omitempty"`
+	RoomID              *uint64    `json:"room_id,omitempty"`
+	Type                string     `json:"type"`
+	Title               string     `json:"title"`
+	Topic               string     `json:"topic,omitempty"`
+	Status              string     `json:"status"`
+	AssigneeUserID      *uint64    `json:"assignee_user_id,omitempty"`
+	AssigneeEmail       string     `json:"assignee_email,omitempty"`
+	AssigneeDisplayName string     `json:"assignee_display_name,omitempty"`
+	Priority            string     `json:"priority"`
+	ContactID           *uint64    `json:"contact_id,omitempty"`
+	LastInternalNoteAt  *time.Time `json:"last_internal_note_at,omitempty"`
+	LastMessageAt       *time.Time `json:"last_message_at,omitempty"`
+	LastMessagePreview  string     `json:"last_message_preview,omitempty"`
+	LastMessageType     string     `json:"last_message_type,omitempty"`
+	UnreadCount         int64      `json:"unread_count"`
+	ActiveRoomID        *uint64    `json:"active_room_id,omitempty"`
+	ActiveRoomTitle     string     `json:"active_room_title,omitempty"`
+	LatestRoomID        *uint64    `json:"latest_room_id,omitempty"`
+	LatestRoomTitle     string     `json:"latest_room_title,omitempty"`
+	LatestRecordingID   *uint64    `json:"latest_recording_id,omitempty"`
+}
+
+type conversationDetailResponse struct {
+	Conversation   conversationResponse          `json:"conversation"`
+	LatestNote     *conversationNoteResponse     `json:"latest_note,omitempty"`
+	LatestRoom     *roomListItemResponse         `json:"latest_room,omitempty"`
+	LatestFollowup *conversationFollowupResponse `json:"latest_followup,omitempty"`
 }
 
 type messageResponse struct {
@@ -138,16 +163,72 @@ type messageResponse struct {
 }
 
 type roomStateResponse struct {
-	Room            models.CallRoom          `json:"room"`
-	Members         []models.CallRoomMember  `json:"members"`
-	Events          []models.CallRoomEvent   `json:"events"`
-	ActiveRecording *models.RecordingSession `json:"active_recording,omitempty"`
-	ConversationID  *uint64                  `json:"conversation_id,omitempty"`
+	Room              models.CallRoom                   `json:"room"`
+	Members           []collaboration.RoomMemberSummary `json:"members"`
+	Events            []models.CallRoomEvent            `json:"events"`
+	ActiveRecording   *models.RecordingSession          `json:"active_recording,omitempty"`
+	ConversationID    *uint64                           `json:"conversation_id,omitempty"`
+	ConversationTitle string                            `json:"conversation_title,omitempty"`
+	ParticipantCount  int64                             `json:"participant_count"`
+	IsActive          bool                              `json:"is_active"`
+	HasRecording      bool                              `json:"has_recording"`
+	LatestRecordingID *uint64                           `json:"latest_recording_id,omitempty"`
+}
+
+type roomListItemResponse struct {
+	ID                uint64     `json:"id"`
+	OrganizationID    uint64     `json:"organization_id"`
+	TeamID            *uint64    `json:"team_id,omitempty"`
+	ConversationID    *uint64    `json:"conversation_id,omitempty"`
+	ConversationTitle string     `json:"conversation_title,omitempty"`
+	Title             string     `json:"title"`
+	Status            string     `json:"status"`
+	CreatedBy         uint64     `json:"created_by"`
+	StartedAt         *time.Time `json:"started_at,omitempty"`
+	EndedAt           *time.Time `json:"ended_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	ParticipantCount  int64      `json:"participant_count"`
+	IsActive          bool       `json:"is_active"`
+	HasRecording      bool       `json:"has_recording"`
+	LatestRecordingID *uint64    `json:"latest_recording_id,omitempty"`
+}
+
+type conversationNoteResponse struct {
+	ID                uint64    `json:"id"`
+	OrganizationID    uint64    `json:"organization_id"`
+	ConversationID    uint64    `json:"conversation_id"`
+	AuthorID          uint64    `json:"author_id"`
+	AuthorEmail       string    `json:"author_email"`
+	AuthorDisplayName string    `json:"author_display_name"`
+	Body              string    `json:"body"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+
+type conversationFollowupResponse struct {
+	SummaryCN   string   `json:"summary_cn,omitempty"`
+	SummaryEN   string   `json:"summary_en,omitempty"`
+	ActionItems []string `json:"action_items,omitempty"`
+	NextStep    string   `json:"next_step,omitempty"`
+}
+
+type recordingFileResponse struct {
+	ID                 uint64    `json:"id"`
+	RecordingSessionID uint64    `json:"recording_session_id"`
+	ObjectKey          string    `json:"object_key"`
+	ContentType        string    `json:"content_type"`
+	DurationSeconds    int64     `json:"duration_seconds"`
+	MetadataJSON       string    `json:"metadata_json,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+	DownloadURL        string    `json:"download_url"`
+	FileName           string    `json:"file_name"`
+	FileSizeBytes      int64     `json:"file_size_bytes"`
+	RecordingKind      string    `json:"recording_kind"`
 }
 
 type recordingResponse struct {
 	Session models.RecordingSession `json:"session"`
-	Files   []models.RecordingFile  `json:"files"`
+	Files   []recordingFileResponse `json:"files"`
 }
 
 type pipelineResponse struct {
@@ -329,7 +410,16 @@ func (h *CollaborationHandler) handleListConversations(c *gin.Context) {
 	if !ok {
 		return
 	}
-	items, err := h.service.ListConversations(c.Request.Context(), orgID, claims.UserID)
+	var contactID *uint64
+	if raw := strings.TrimSpace(c.Query("contact_id")); raw != "" {
+		parsed, err := parseUintParam(raw)
+		if err != nil {
+			JSONError(c, http.StatusBadRequest, "invalid contact id")
+			return
+		}
+		contactID = &parsed
+	}
+	items, err := h.service.ListConversations(c.Request.Context(), orgID, claims.UserID, c.Query("filter"), contactID)
 	if err != nil {
 		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Uint64("organization_id", orgID).Msg("list conversations failed")
 		JSONError(c, http.StatusBadRequest, err.Error())
@@ -358,6 +448,47 @@ func (h *CollaborationHandler) handleCreateConversation(c *gin.Context) {
 		return
 	}
 	JSONSuccess(c, http.StatusCreated, gin.H{"conversation": toConversationResponse(collaboration.ConversationSummary{Conversation: *conv})})
+}
+
+func (h *CollaborationHandler) handleGetConversation(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	conversationID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	detail, err := h.service.GetConversation(c.Request.Context(), orgID, claims.UserID, conversationID)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"conversation": toConversationDetailResponse(*detail)})
+}
+
+func (h *CollaborationHandler) handleUpdateConversation(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	conversationID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	var req collaboration.UpdateConversationInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := h.service.UpdateConversation(c.Request.Context(), orgID, claims.UserID, conversationID, req)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"conversation": toConversationResponse(*item)})
 }
 
 func (h *CollaborationHandler) handleListMessages(c *gin.Context) {
@@ -420,6 +551,80 @@ func (h *CollaborationHandler) handleMarkConversationRead(c *gin.Context) {
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
+}
+
+func (h *CollaborationHandler) handleListConversationNotes(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	conversationID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	items, err := h.service.ListConversationNotes(c.Request.Context(), orgID, claims.UserID, conversationID, 20)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response := make([]conversationNoteResponse, 0, len(items))
+	for _, item := range items {
+		response = append(response, toConversationNoteResponse(item))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"notes": response})
+}
+
+func (h *CollaborationHandler) handleCreateConversationNote(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	conversationID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	var req struct {
+		Body string `json:"body"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := h.service.CreateConversationNote(c.Request.Context(), orgID, claims.UserID, conversationID, req.Body)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusCreated, gin.H{"note": toConversationNoteResponse(*item)})
+}
+
+func (h *CollaborationHandler) handleCreateConversationRoom(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	conversationID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	var req struct {
+		Title string `json:"title"`
+	}
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			JSONError(c, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	room, err := h.service.CreateConversationRoom(c.Request.Context(), orgID, claims.UserID, conversationID, req.Title)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusCreated, gin.H{"room": toRoomStateResponse(*room)})
 }
 
 func (h *CollaborationHandler) handleChatWS(c *gin.Context) {
@@ -568,6 +773,28 @@ func (h *CollaborationHandler) handleRoomIce(c *gin.Context) {
 		return
 	}
 	if err := h.service.AddRoomICECandidate(c.Request.Context(), orgID, claims.UserID, roomID, payload); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
+}
+
+func (h *CollaborationHandler) handleRoomMediaState(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	roomID, err := parseUintParam(c.Param("roomId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid room id")
+		return
+	}
+	var req collaboration.RoomMediaStateInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.service.UpdateRoomMediaState(c.Request.Context(), orgID, claims.UserID, roomID, req); err != nil {
 		JSONError(c, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -919,18 +1146,49 @@ func toOrganizationInviteResponse(item models.OrganizationInvite) organizationIn
 
 func toConversationResponse(item collaboration.ConversationSummary) conversationResponse {
 	return conversationResponse{
-		ID:                 item.ID,
-		OrganizationID:     item.OrganizationID,
-		TeamID:             item.TeamID,
-		RoomID:             item.RoomID,
-		Type:               item.Type,
-		Title:              item.Title,
-		Topic:              item.Topic,
-		LastMessageAt:      item.LastMessageAt,
-		LastMessagePreview: item.LastMessagePreview,
-		LastMessageType:    item.LastMessageType,
-		UnreadCount:        item.UnreadCount,
+		ID:                  item.ID,
+		OrganizationID:      item.OrganizationID,
+		TeamID:              item.TeamID,
+		RoomID:              item.RoomID,
+		Type:                item.Type,
+		Title:               item.Title,
+		Topic:               item.Topic,
+		Status:              item.Status,
+		AssigneeUserID:      item.AssigneeUserID,
+		AssigneeEmail:       item.AssigneeEmail,
+		AssigneeDisplayName: item.AssigneeDisplayName,
+		Priority:            item.Priority,
+		ContactID:           item.ContactID,
+		LastInternalNoteAt:  item.LastInternalNoteAt,
+		LastMessageAt:       item.LastMessageAt,
+		LastMessagePreview:  item.LastMessagePreview,
+		LastMessageType:     item.LastMessageType,
+		UnreadCount:         item.UnreadCount,
+		ActiveRoomID:        item.ActiveRoomID,
+		ActiveRoomTitle:     item.ActiveRoomTitle,
+		LatestRoomID:        item.LatestRoomID,
+		LatestRoomTitle:     item.LatestRoomTitle,
+		LatestRecordingID:   item.LatestRecordingID,
 	}
+}
+
+func toConversationDetailResponse(item collaboration.ConversationDetail) conversationDetailResponse {
+	response := conversationDetailResponse{
+		Conversation: toConversationResponse(item.Conversation),
+	}
+	if item.LatestNote != nil {
+		note := toConversationNoteResponse(*item.LatestNote)
+		response.LatestNote = &note
+	}
+	if item.LatestRoom != nil {
+		room := toRoomListItemResponse(*item.LatestRoom)
+		response.LatestRoom = &room
+	}
+	if item.LatestFollowup != nil {
+		followup := toConversationFollowupResponse(*item.LatestFollowup)
+		response.LatestFollowup = &followup
+	}
+	return response
 }
 
 func toMessageResponse(item collaboration.MessageRecord) messageResponse {
@@ -956,18 +1214,82 @@ func toMessageResponse(item collaboration.MessageRecord) messageResponse {
 
 func toRoomStateResponse(state collaboration.RoomState) roomStateResponse {
 	return roomStateResponse{
-		Room:            state.Room,
-		Members:         state.Members,
-		Events:          state.Events,
-		ActiveRecording: state.ActiveRecording,
-		ConversationID:  state.ConversationID,
+		Room:              state.Room,
+		Members:           state.Members,
+		Events:            state.Events,
+		ActiveRecording:   state.ActiveRecording,
+		ConversationID:    state.ConversationID,
+		ConversationTitle: state.ConversationTitle,
+		ParticipantCount:  state.ParticipantCount,
+		IsActive:          state.IsActive,
+		HasRecording:      state.HasRecording,
+		LatestRecordingID: state.LatestRecordingID,
 	}
 }
 
 func toRecordingResponse(item collaboration.RecordingView) recordingResponse {
+	files := make([]recordingFileResponse, 0, len(item.Files))
+	for _, file := range item.Files {
+		files = append(files, recordingFileResponse{
+			ID:                 file.ID,
+			RecordingSessionID: file.RecordingSessionID,
+			ObjectKey:          file.ObjectKey,
+			ContentType:        file.ContentType,
+			DurationSeconds:    file.DurationSeconds,
+			MetadataJSON:       file.MetadataJSON,
+			CreatedAt:          file.CreatedAt,
+			DownloadURL:        file.DownloadURL,
+			FileName:           file.FileName,
+			FileSizeBytes:      file.FileSizeBytes,
+			RecordingKind:      file.RecordingKind,
+		})
+	}
 	return recordingResponse{
 		Session: item.Session,
-		Files:   item.Files,
+		Files:   files,
+	}
+}
+
+func toRoomListItemResponse(item collaboration.RoomListItem) roomListItemResponse {
+	return roomListItemResponse{
+		ID:                item.ID,
+		OrganizationID:    item.OrganizationID,
+		TeamID:            item.TeamID,
+		ConversationID:    item.ConversationID,
+		ConversationTitle: item.ConversationTitle,
+		Title:             item.Title,
+		Status:            item.Status,
+		CreatedBy:         item.CreatedBy,
+		StartedAt:         item.StartedAt,
+		EndedAt:           item.EndedAt,
+		CreatedAt:         item.CreatedAt,
+		UpdatedAt:         item.UpdatedAt,
+		ParticipantCount:  item.ParticipantCount,
+		IsActive:          item.IsActive,
+		HasRecording:      item.HasRecording,
+		LatestRecordingID: item.LatestRecordingID,
+	}
+}
+
+func toConversationNoteResponse(item collaboration.ConversationNoteRecord) conversationNoteResponse {
+	return conversationNoteResponse{
+		ID:                item.ID,
+		OrganizationID:    item.OrganizationID,
+		ConversationID:    item.ConversationID,
+		AuthorID:          item.AuthorID,
+		AuthorEmail:       item.AuthorEmail,
+		AuthorDisplayName: item.AuthorDisplayName,
+		Body:              item.Body,
+		CreatedAt:         item.CreatedAt,
+	}
+}
+
+func toConversationFollowupResponse(item collaboration.ConversationFollowupSummary) conversationFollowupResponse {
+	return conversationFollowupResponse{
+		SummaryCN:   item.SummaryCN,
+		SummaryEN:   item.SummaryEN,
+		ActionItems: item.ActionItems,
+		NextStep:    item.NextStep,
 	}
 }
 

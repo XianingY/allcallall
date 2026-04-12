@@ -13,7 +13,7 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import TextField from "../components/TextField";
 import PrimaryButton from "../components/PrimaryButton";
 import { RootStackParamList } from "../navigation/AppNavigator";
-import { createConversation } from "../api/collaboration";
+import { createConversation, fetchRoomState, listConversations, type ConversationRecord } from "../api/collaboration";
 import {
   fetchCallFollowup,
   fetchCallHistory,
@@ -64,6 +64,7 @@ const ContactDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const [lastCallId, setLastCallId] = useState<string | null>(null);
   const [followup, setFollowup] = useState<CallFollowupRecord | null>(null);
   const [tasks, setTasks] = useState<FollowUpTaskRecord[]>([]);
+  const [linkedConversations, setLinkedConversations] = useState<ConversationRecord[]>([]);
 
   const loadProfile = useCallback(async () => {
     if (!token) {
@@ -71,9 +72,10 @@ const ContactDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     }
     try {
       setLoading(true);
-      const [remoteProfile, calls] = await Promise.all([
+      const [remoteProfile, calls, conversations] = await Promise.all([
         fetchContactProfile(token, contact.id),
-        fetchCallHistory(token, 365)
+        fetchCallHistory(token, 365),
+        listConversations(token, "all", contact.id)
       ]);
       setProfile({
         company: remoteProfile.company ?? "",
@@ -88,6 +90,7 @@ const ContactDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         last_followup_state: remoteProfile.last_followup_state ?? "",
         note: remoteProfile.note ?? ""
       });
+      setLinkedConversations(conversations);
       const contactCalls = calls.filter((item) => item.caller_email === contact.email || item.callee_email === contact.email);
       if (contactCalls.length > 0) {
         setLastCall(contactCalls[0].started_at);
@@ -219,6 +222,37 @@ const ContactDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     }
   };
 
+  const handleOpenLinkedConversation = useCallback((conversation: ConversationRecord) => {
+    navigation.navigate("ConversationDetail", { conversation });
+  }, [navigation]);
+
+  const handleOpenRecentMeeting = useCallback(async (conversation: ConversationRecord) => {
+    if (!token) {
+      return;
+    }
+    const roomId = conversation.active_room_id || conversation.latest_room_id;
+    if (!roomId) {
+      return;
+    }
+    try {
+      const room = await fetchRoomState(token, roomId);
+      navigation.navigate("PreJoin", {
+        roomId: room.room.id,
+        title: room.room.title,
+        conversationId: room.conversation_id ?? null,
+        joinOptions: {
+          audioEnabled: true,
+          videoEnabled: true,
+          cameraFacing: "front",
+          speakerOn: true,
+        },
+      });
+    } catch (error) {
+      console.error("[ContactDetailScreen] Failed to open linked room:", error);
+      Alert.alert("打开会议失败", "无法打开关联会议。");
+    }
+  }, [navigation, token]);
+
   const lastCallLabel = useMemo(() => {
     if (!lastCall) {
       return "暂无通话记录";
@@ -292,6 +326,32 @@ const ContactDetailScreen: React.FC<Props> = ({ route, navigation }) => {
           numberOfLines={4}
         />
         <PrimaryButton title={saving ? "保存中..." : "保存联系人资料"} onPress={() => void handleSave()} disabled={saving || loading} />
+      </View>
+
+      <View style={styles.formCard}>
+        <Text style={styles.sectionTitle}>关联 Inbox 线程</Text>
+        {linkedConversations.length > 0 ? (
+          linkedConversations.slice(0, 3).map((conversation) => (
+            <View key={conversation.id} style={styles.linkedCard}>
+              <Text style={styles.linkedTitle}>{conversation.title || conversation.type}</Text>
+              <Text style={styles.linkedMeta}>状态 {conversation.status} · 优先级 {conversation.priority}</Text>
+              <Text style={styles.linkedMeta}>负责人 {conversation.assignee_display_name || conversation.assignee_email || "未指派"}</Text>
+              {conversation.active_room_id || conversation.latest_room_id ? (
+                <Text style={styles.linkedMeta}>
+                  最近会议 {conversation.active_room_title || conversation.latest_room_title || "Meeting"}
+                </Text>
+              ) : null}
+              <View style={styles.linkedActions}>
+                <PrimaryButton title="打开线程" onPress={() => handleOpenLinkedConversation(conversation)} style={styles.linkedButton} />
+                {conversation.active_room_id || conversation.latest_room_id ? (
+                  <PrimaryButton title="打开会议" onPress={() => void handleOpenRecentMeeting(conversation)} style={styles.linkedSecondaryButton} />
+                ) : null}
+              </View>
+            </View>
+          ))
+        ) : (
+          <Text style={styles.impactText}>该联系人暂时还没有绑定到协作线程。</Text>
+        )}
       </View>
 
       <View style={styles.impactCard}>
@@ -386,6 +446,34 @@ const styles = StyleSheet.create({
     marginTop: 12,
     color: "#94a3b8",
     fontSize: 12
+  },
+  linkedCard: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10
+  },
+  linkedTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0f172a"
+  },
+  linkedMeta: {
+    marginTop: 6,
+    color: "#475569"
+  },
+  linkedActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12
+  },
+  linkedButton: {
+    flex: 1
+  },
+  linkedSecondaryButton: {
+    flex: 1,
+    backgroundColor: "#475569"
   },
   removeButton: {
     backgroundColor: "#dc2626",

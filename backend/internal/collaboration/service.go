@@ -78,11 +78,38 @@ type CreateConversationInput struct {
 	MemberIDs []uint64 `json:"member_ids"`
 }
 
+type UpdateConversationInput struct {
+	Status         *string `json:"status"`
+	AssigneeUserID *uint64 `json:"assignee_user_id"`
+	Priority       *string `json:"priority"`
+	ContactID      *uint64 `json:"contact_id"`
+}
+
 type ConversationSummary struct {
 	models.Conversation
-	LastMessagePreview string `json:"last_message_preview"`
-	LastMessageType    string `json:"last_message_type"`
-	UnreadCount        int64  `json:"unread_count"`
+	AssigneeEmail       string  `json:"assignee_email,omitempty"`
+	AssigneeDisplayName string  `json:"assignee_display_name,omitempty"`
+	LastMessagePreview  string  `json:"last_message_preview"`
+	LastMessageType     string  `json:"last_message_type"`
+	UnreadCount         int64   `json:"unread_count"`
+	ActiveRoomID        *uint64 `json:"active_room_id,omitempty"`
+	ActiveRoomTitle     string  `json:"active_room_title,omitempty"`
+	LatestRoomID        *uint64 `json:"latest_room_id,omitempty"`
+	LatestRoomTitle     string  `json:"latest_room_title,omitempty"`
+	LatestRecordingID   *uint64 `json:"latest_recording_id,omitempty"`
+}
+
+type ConversationDetail struct {
+	Conversation   ConversationSummary          `json:"conversation"`
+	LatestNote     *ConversationNoteRecord      `json:"latest_note,omitempty"`
+	LatestRoom     *RoomListItem                `json:"latest_room,omitempty"`
+	LatestFollowup *ConversationFollowupSummary `json:"latest_followup,omitempty"`
+}
+
+type ConversationNoteRecord struct {
+	models.ConversationNote
+	AuthorEmail       string `json:"author_email"`
+	AuthorDisplayName string `json:"author_display_name"`
 }
 
 type MessageInput struct {
@@ -104,12 +131,52 @@ type CreateRoomInput struct {
 	ParticipantIDs []uint64 `json:"participant_ids"`
 }
 
+type RoomMediaStateInput struct {
+	AudioEnabled    *bool  `json:"audio_enabled"`
+	VideoEnabled    *bool  `json:"video_enabled"`
+	ConnectionState string `json:"connection_state"`
+}
+
 type RoomState struct {
-	Room            models.CallRoom          `json:"room"`
-	Members         []models.CallRoomMember  `json:"members"`
-	Events          []models.CallRoomEvent   `json:"events"`
-	ActiveRecording *models.RecordingSession `json:"active_recording,omitempty"`
-	ConversationID  *uint64                  `json:"conversation_id,omitempty"`
+	Room              models.CallRoom          `json:"room"`
+	Members           []RoomMemberSummary      `json:"members"`
+	Events            []models.CallRoomEvent   `json:"events"`
+	ActiveRecording   *models.RecordingSession `json:"active_recording,omitempty"`
+	ConversationID    *uint64                  `json:"conversation_id,omitempty"`
+	ConversationTitle string                   `json:"conversation_title,omitempty"`
+	ParticipantCount  int64                    `json:"participant_count"`
+	IsActive          bool                     `json:"is_active"`
+	HasRecording      bool                     `json:"has_recording"`
+	LatestRecordingID *uint64                  `json:"latest_recording_id,omitempty"`
+}
+
+type RoomListItem struct {
+	ID                uint64     `json:"id"`
+	OrganizationID    uint64     `json:"organization_id"`
+	TeamID            *uint64    `json:"team_id,omitempty"`
+	ConversationID    *uint64    `json:"conversation_id,omitempty"`
+	ConversationTitle string     `json:"conversation_title,omitempty"`
+	Title             string     `json:"title"`
+	Status            string     `json:"status"`
+	CreatedBy         uint64     `json:"created_by"`
+	StartedAt         *time.Time `json:"started_at,omitempty"`
+	EndedAt           *time.Time `json:"ended_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	ParticipantCount  int64      `json:"participant_count"`
+	IsActive          bool       `json:"is_active"`
+	HasRecording      bool       `json:"has_recording"`
+	LatestRecordingID *uint64    `json:"latest_recording_id,omitempty"`
+}
+
+type RoomMemberSummary struct {
+	models.CallRoomMember
+	UserEmail        string `json:"user_email"`
+	UserDisplayName  string `json:"user_display_name"`
+	AudioEnabled     bool   `json:"audio_enabled"`
+	VideoEnabled     bool   `json:"video_enabled"`
+	ConnectionState  string `json:"connection_state"`
+	IsHost           bool   `json:"is_host"`
 }
 
 type RoomOfferResult struct {
@@ -144,9 +211,24 @@ type PipelineView struct {
 	Stages []models.PipelineStage `json:"stages"`
 }
 
+type RecordingFileView struct {
+	models.RecordingFile
+	DownloadURL   string `json:"download_url"`
+	FileName      string `json:"file_name"`
+	FileSizeBytes int64  `json:"file_size_bytes"`
+	RecordingKind string `json:"recording_kind"`
+}
+
 type RecordingView struct {
 	Session models.RecordingSession `json:"session"`
-	Files   []models.RecordingFile  `json:"files"`
+	Files   []RecordingFileView     `json:"files"`
+}
+
+type ConversationFollowupSummary struct {
+	SummaryCN   string   `json:"summary_cn,omitempty"`
+	SummaryEN   string   `json:"summary_en,omitempty"`
+	ActionItems []string `json:"action_items,omitempty"`
+	NextStep    string   `json:"next_step,omitempty"`
 }
 
 type currentOrgMember struct {
@@ -395,56 +477,69 @@ func (s *Service) UpdateOrganizationPolicy(ctx context.Context, organizationID, 
 	return &policy, nil
 }
 
-func (s *Service) ListConversations(ctx context.Context, organizationID, userID uint64) ([]ConversationSummary, error) {
+func (s *Service) ListConversations(ctx context.Context, organizationID, userID uint64, filter string, contactID *uint64) ([]ConversationSummary, error) {
 	if _, _, err := s.ResolveOrganization(ctx, userID, organizationID); err != nil {
 		return nil, err
 	}
-	var convs []models.Conversation
-	if err := s.db.WithContext(ctx).
+	query := s.db.WithContext(ctx).
 		Table("conversations").
 		Joins("JOIN conversation_members ON conversation_members.conversation_id = conversations.id").
-		Where("conversations.organization_id = ? AND conversation_members.user_id = ?", organizationID, userID).
+		Where("conversations.organization_id = ? AND conversation_members.user_id = ?", organizationID, userID)
+
+	switch strings.TrimSpace(strings.ToLower(filter)) {
+	case "", "all":
+	case "my":
+		query = query.Where("conversations.assignee_user_id = ?", userID)
+	case models.ConversationStatusOpen, models.ConversationStatusPending, models.ConversationStatusResolved:
+		query = query.Where("conversations.status = ?", filter)
+	case "channels":
+		query = query.Where("conversations.type = ?", models.ConversationTypeChannel)
+	}
+	if contactID != nil && *contactID != 0 {
+		query = query.Where("conversations.contact_id = ?", *contactID)
+	}
+
+	var convs []models.Conversation
+	if err := query.
 		Order("conversations.last_message_at DESC, conversations.updated_at DESC").
 		Find(&convs).Error; err != nil {
 		return nil, err
 	}
 	result := make([]ConversationSummary, 0, len(convs))
 	for _, conv := range convs {
-		item := ConversationSummary{Conversation: conv}
-		if conv.Type == models.ConversationTypeDirect && strings.TrimSpace(conv.Title) == "" {
-			var peer models.User
-			err := s.db.WithContext(ctx).
-				Table("conversation_members").
-				Select("users.*").
-				Joins("JOIN users ON users.id = conversation_members.user_id").
-				Where("conversation_members.conversation_id = ? AND conversation_members.user_id <> ?", conv.ID, userID).
-				Take(&peer).Error
-			if err == nil {
-				if strings.TrimSpace(peer.DisplayName) != "" {
-					item.Title = peer.DisplayName
-				} else {
-					item.Title = peer.Email
-				}
-			}
-		}
-		var last models.Message
-		if err := s.db.WithContext(ctx).Where("conversation_id = ?", conv.ID).Order("created_at DESC").Take(&last).Error; err == nil {
-			item.LastMessagePreview = truncate(last.Body, 120)
-			item.LastMessageType = last.Type
-		}
-		var unread int64
-		var member models.ConversationMember
-		if err := s.db.WithContext(ctx).Where("conversation_id = ? AND user_id = ?", conv.ID, userID).Take(&member).Error; err == nil {
-			query := s.db.WithContext(ctx).Model(&models.Message{}).Where("conversation_id = ? AND sender_id <> ?", conv.ID, userID)
-			if member.LastReadAt != nil {
-				query = query.Where("created_at > ?", *member.LastReadAt)
-			}
-			_ = query.Count(&unread).Error
-			item.UnreadCount = unread
+		item, err := s.buildConversationSummary(ctx, conv, userID)
+		if err != nil {
+			return nil, err
 		}
 		result = append(result, item)
 	}
 	return result, nil
+}
+
+func (s *Service) GetConversation(ctx context.Context, organizationID, userID, conversationID uint64) (*ConversationDetail, error) {
+	if err := s.ensureConversationMember(ctx, organizationID, userID, conversationID); err != nil {
+		return nil, err
+	}
+	var conv models.Conversation
+	if err := s.db.WithContext(ctx).Where("organization_id = ? AND id = ?", organizationID, conversationID).Take(&conv).Error; err != nil {
+		return nil, err
+	}
+	summary, err := s.buildConversationSummary(ctx, conv, userID)
+	if err != nil {
+		return nil, err
+	}
+	detail := &ConversationDetail{Conversation: summary}
+
+	if note, err := s.latestConversationNote(ctx, organizationID, conversationID); err == nil {
+		detail.LatestNote = note
+	}
+	if room, err := s.latestConversationRoom(ctx, organizationID, conversationID); err == nil {
+		detail.LatestRoom = room
+	}
+	if followup, err := s.latestConversationFollowup(ctx, conversationID); err == nil {
+		detail.LatestFollowup = followup
+	}
+	return detail, nil
 }
 
 func (s *Service) CreateConversation(ctx context.Context, organizationID, userID uint64, input CreateConversationInput) (*models.Conversation, error) {
@@ -470,6 +565,8 @@ func (s *Service) CreateConversation(ctx context.Context, organizationID, userID
 		Type:           input.Type,
 		Title:          strings.TrimSpace(input.Title),
 		Topic:          strings.TrimSpace(input.Topic),
+		Status:         models.ConversationStatusOpen,
+		Priority:       models.ConversationPriorityNormal,
 		CreatedBy:      userID,
 	}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -503,6 +600,207 @@ func (s *Service) CreateConversation(ctx context.Context, organizationID, userID
 	return conv, nil
 }
 
+func (s *Service) UpdateConversation(ctx context.Context, organizationID, userID, conversationID uint64, input UpdateConversationInput) (*ConversationSummary, error) {
+	if err := s.ensureConversationMember(ctx, organizationID, userID, conversationID); err != nil {
+		return nil, err
+	}
+	var conv models.Conversation
+	if err := s.db.WithContext(ctx).Where("organization_id = ? AND id = ?", organizationID, conversationID).Take(&conv).Error; err != nil {
+		return nil, err
+	}
+
+	updates := map[string]any{}
+	systemEvents := make([]MessageInput, 0, 3)
+	changedFields := make([]string, 0, 4)
+
+	if input.Status != nil {
+		status, err := normalizeConversationStatus(*input.Status)
+		if err != nil {
+			return nil, err
+		}
+		if conv.Status != status {
+			updates["status"] = status
+			changedFields = append(changedFields, "status")
+			systemEvents = append(systemEvents, MessageInput{
+				Type: models.MessageTypeSystem,
+				Body: fmt.Sprintf("会话状态已更新为 %s。", status),
+				Metadata: map[string]any{
+					"event_type": "conversation.status_changed",
+					"status":     status,
+				},
+			})
+		}
+	}
+
+	if input.Priority != nil {
+		priority, err := normalizeConversationPriority(*input.Priority)
+		if err != nil {
+			return nil, err
+		}
+		if conv.Priority != priority {
+			updates["priority"] = priority
+			changedFields = append(changedFields, "priority")
+			systemEvents = append(systemEvents, MessageInput{
+				Type: models.MessageTypeSystem,
+				Body: fmt.Sprintf("会话优先级已调整为 %s。", priority),
+				Metadata: map[string]any{
+					"event_type": "conversation.priority_changed",
+					"priority":   priority,
+				},
+			})
+		}
+	}
+
+	if input.AssigneeUserID != nil {
+		assignValue := *input.AssigneeUserID
+		var assignPtr *uint64
+		if assignValue != 0 {
+			assignPtr = &assignValue
+			var count int64
+			if err := s.db.WithContext(ctx).Model(&models.ConversationMember{}).
+				Where("conversation_id = ? AND user_id = ?", conversationID, assignValue).
+				Count(&count).Error; err != nil {
+				return nil, err
+			}
+			if count == 0 {
+				return nil, errors.New("assignee must be a conversation member")
+			}
+		}
+		currentAssignee := uint64(0)
+		if conv.AssigneeUserID != nil {
+			currentAssignee = *conv.AssigneeUserID
+		}
+		if currentAssignee != assignValue {
+			updates["assignee_user_id"] = assignPtr
+			changedFields = append(changedFields, "assignee_user_id")
+			body := "负责人已清空。"
+			metadata := map[string]any{"event_type": "conversation.assignee_changed"}
+			if assignPtr != nil {
+				body = fmt.Sprintf("会话负责人已更新为用户 #%d。", assignValue)
+				metadata["assignee_user_id"] = assignValue
+			}
+			systemEvents = append(systemEvents, MessageInput{
+				Type:     models.MessageTypeSystem,
+				Body:     body,
+				Metadata: metadata,
+			})
+		}
+	}
+
+	if input.ContactID != nil {
+		if *input.ContactID == 0 {
+			updates["contact_id"] = nil
+		} else {
+			updates["contact_id"] = *input.ContactID
+		}
+		changedFields = append(changedFields, "contact_id")
+	}
+
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if len(updates) > 0 {
+			updates["updated_at"] = time.Now()
+			if err := tx.Model(&models.Conversation{}).
+				Where("id = ? AND organization_id = ?", conversationID, organizationID).
+				Updates(updates).Error; err != nil {
+				return err
+			}
+		}
+		for _, event := range systemEvents {
+			if _, err := s.createMessageTx(ctx, tx, organizationID, userID, conversationID, event, false); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var updated models.Conversation
+	if err := s.db.WithContext(ctx).Where("organization_id = ? AND id = ?", organizationID, conversationID).Take(&updated).Error; err != nil {
+		return nil, err
+	}
+	summary, err := s.buildConversationSummary(ctx, updated, userID)
+	if err != nil {
+		return nil, err
+	}
+	changes := map[string]any{}
+	for _, field := range uniqueStrings(changedFields) {
+		switch field {
+		case "status":
+			changes["status"] = summary.Status
+		case "priority":
+			changes["priority"] = summary.Priority
+		case "assignee_user_id":
+			changes["assignee_user_id"] = summary.AssigneeUserID
+			changes["assignee_email"] = summary.AssigneeEmail
+			changes["assignee_display_name"] = summary.AssigneeDisplayName
+		case "contact_id":
+			changes["contact_id"] = summary.ContactID
+		}
+	}
+	s.publishConversationPatchUpdate(ctx, organizationID, conversationID, changes)
+	return &summary, nil
+}
+
+func (s *Service) ListConversationNotes(ctx context.Context, organizationID, userID, conversationID uint64, limit int) ([]ConversationNoteRecord, error) {
+	if err := s.ensureConversationMember(ctx, organizationID, userID, conversationID); err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	var notes []ConversationNoteRecord
+	err := s.db.WithContext(ctx).
+		Table("conversation_notes").
+		Select("conversation_notes.*, users.email AS author_email, users.display_name AS author_display_name").
+		Joins("JOIN users ON users.id = conversation_notes.author_id").
+		Where("conversation_notes.organization_id = ? AND conversation_notes.conversation_id = ?", organizationID, conversationID).
+		Order("conversation_notes.created_at DESC").
+		Limit(limit).
+		Find(&notes).Error
+	return notes, err
+}
+
+func (s *Service) CreateConversationNote(ctx context.Context, organizationID, userID, conversationID uint64, body string) (*ConversationNoteRecord, error) {
+	if err := s.ensureConversationMember(ctx, organizationID, userID, conversationID); err != nil {
+		return nil, err
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return nil, errors.New("note body required")
+	}
+	note := &models.ConversationNote{
+		OrganizationID: organizationID,
+		ConversationID: conversationID,
+		AuthorID:       userID,
+		Body:           body,
+	}
+	now := time.Now()
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(note).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.Conversation{}).
+			Where("id = ? AND organization_id = ?", conversationID, organizationID).
+			Updates(map[string]any{
+				"last_internal_note_at": now,
+				"updated_at":            now,
+			}).Error
+	}); err != nil {
+		return nil, err
+	}
+	record, err := s.loadConversationNote(ctx, note.ID)
+	if err != nil {
+		return nil, err
+	}
+	s.publishConversationPatchUpdate(ctx, organizationID, conversationID, map[string]any{
+		"last_internal_note_at": record.CreatedAt,
+	})
+	s.publishConversationEvent(ctx, organizationID, conversationID, "conversation.note.created", record)
+	return record, nil
+}
+
 func (s *Service) ListMessages(ctx context.Context, organizationID, userID, conversationID uint64, limit int) ([]MessageRecord, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 100
@@ -526,43 +824,14 @@ func (s *Service) CreateMessage(ctx context.Context, organizationID, userID, con
 	if err := s.ensureConversationMember(ctx, organizationID, userID, conversationID); err != nil {
 		return nil, err
 	}
-	if input.Type == "" {
-		input.Type = models.MessageTypeText
-	}
-	if !isValidMessageType(input.Type) {
-		return nil, errors.New("invalid message type")
-	}
-	body := strings.TrimSpace(input.Body)
-	if input.Type == models.MessageTypeText && body == "" {
-		return nil, errors.New("message body required")
-	}
-	metadataJSON := ""
-	if len(input.Metadata) > 0 {
-		raw, err := json.Marshal(input.Metadata)
-		if err != nil {
-			return nil, err
-		}
-		metadataJSON = string(raw)
-	}
-	message := &models.Message{
-		OrganizationID: organizationID,
-		ConversationID: conversationID,
-		SenderID:       userID,
-		Type:           input.Type,
-		Body:           body,
-		MetadataJSON:   metadataJSON,
-	}
+	message := &models.Message{}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(message).Error; err != nil {
+		created, err := s.createMessageTx(ctx, tx, organizationID, userID, conversationID, input, false)
+		if err != nil {
 			return err
 		}
-		now := time.Now()
-		return tx.Model(&models.Conversation{}).
-			Where("id = ?", conversationID).
-			Updates(map[string]any{
-				"last_message_at": now,
-				"updated_at":      now,
-			}).Error
+		*message = *created
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -662,6 +931,11 @@ func (s *Service) CreateRoom(ctx context.Context, organizationID, userID uint64,
 		CreatedBy:      userID,
 	}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if input.ConversationID != nil {
+			if err := s.ensureConversationMemberTx(ctx, tx, organizationID, userID, *input.ConversationID); err != nil {
+				return err
+			}
+		}
 		if err := tx.Create(room).Error; err != nil {
 			return err
 		}
@@ -690,17 +964,59 @@ func (s *Service) CreateRoom(ctx context.Context, organizationID, userID uint64,
 				return err
 			}
 		}
-		return tx.Create(&models.CallRoomEvent{
+		if err := tx.Create(&models.CallRoomEvent{
 			RoomID:      room.ID,
 			UserID:      userID,
 			Type:        "room.created",
 			PayloadJSON: `{"status":"scheduled"}`,
-		}).Error
+		}).Error; err != nil {
+			return err
+		}
+		return s.createConversationSystemMessageTx(ctx, tx, organizationID, userID, room.ConversationID, "meeting.created", fmt.Sprintf("会议“%s”已创建。", room.Title), map[string]any{
+			"room_id":    room.ID,
+			"room_title": room.Title,
+			"status":     room.Status,
+		})
 	})
 	if err != nil {
 		return nil, err
 	}
-	return s.GetRoomState(ctx, organizationID, userID, room.ID)
+	state, err := s.GetRoomState(ctx, organizationID, userID, room.ID)
+	if err != nil {
+		return nil, err
+	}
+	if room.ConversationID != nil {
+		s.publishConversationPatchUpdate(ctx, organizationID, *room.ConversationID, map[string]any{
+			"active_room_id":    room.ID,
+			"active_room_title": room.Title,
+			"latest_room_id":    room.ID,
+			"latest_room_title": room.Title,
+		})
+	}
+	s.publishRoomEvent(ctx, organizationID, room.ID, "room.updated", map[string]any{
+		"room_id":           room.ID,
+		"event_type":        "meeting.created",
+		"title":             room.Title,
+		"status":            room.Status,
+		"participant_count": state.ParticipantCount,
+		"is_active":         state.IsActive,
+	})
+	return state, nil
+}
+
+func (s *Service) CreateConversationRoom(ctx context.Context, organizationID, userID, conversationID uint64, title string) (*RoomState, error) {
+	if err := s.ensureConversationMember(ctx, organizationID, userID, conversationID); err != nil {
+		return nil, err
+	}
+	memberIDs, err := s.listConversationMemberIDs(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	return s.CreateRoom(ctx, organizationID, userID, CreateRoomInput{
+		Title:          defaultString(strings.TrimSpace(title), "Team Meeting"),
+		ConversationID: &conversationID,
+		ParticipantIDs: memberIDs,
+	})
 }
 
 func (s *Service) ListRooms(ctx context.Context, organizationID, userID uint64) ([]RoomState, error) {
@@ -723,6 +1039,12 @@ func (s *Service) ListRooms(ctx context.Context, organizationID, userID uint64) 
 		}
 		result = append(result, *state)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].IsActive != result[j].IsActive {
+			return result[i].IsActive
+		}
+		return result[i].Room.UpdatedAt.After(result[j].Room.UpdatedAt)
+	})
 	return result, nil
 }
 
@@ -753,17 +1075,42 @@ func (s *Service) JoinRoom(ctx context.Context, organizationID, userID, roomID u
 				return err
 			}
 		}
-		return tx.Create(&models.CallRoomEvent{
+		if err := tx.Create(&models.CallRoomEvent{
 			RoomID:      roomID,
 			UserID:      userID,
 			Type:        "room.join",
 			PayloadJSON: fmt.Sprintf(`{"joined_at":"%s"}`, now.Format(time.RFC3339)),
-		}).Error
+		}).Error; err != nil {
+			return err
+		}
+		return s.createConversationSystemMessageTx(ctx, tx, organizationID, userID, room.ConversationID, "meeting.joined", "有成员加入了会议。", map[string]any{
+			"room_id":   roomID,
+			"user_id":   userID,
+			"joined_at": now.Format(time.RFC3339),
+		})
 	})
 	if err != nil {
 		return nil, err
 	}
-	return s.GetRoomState(ctx, organizationID, userID, roomID)
+	state, err := s.GetRoomState(ctx, organizationID, userID, roomID)
+	if err != nil {
+		return nil, err
+	}
+	s.publishRoomEvent(ctx, organizationID, roomID, "room.updated", map[string]any{
+		"room_id":           roomID,
+		"event_type":        "meeting.joined",
+		"participant_count": state.ParticipantCount,
+		"is_active":         state.IsActive,
+	})
+	if state.ConversationID != nil {
+		s.publishConversationPatchUpdate(ctx, organizationID, *state.ConversationID, map[string]any{
+			"active_room_id":    state.Room.ID,
+			"active_room_title": state.Room.Title,
+			"latest_room_id":    state.Room.ID,
+			"latest_room_title": state.Room.Title,
+		})
+	}
+	return state, nil
 }
 
 func (s *Service) HandleRoomOffer(ctx context.Context, organizationID, userID, roomID uint64, sdp string) (*RoomOfferResult, error) {
@@ -831,6 +1178,10 @@ func (s *Service) LeaveRoom(ctx context.Context, organizationID, userID, roomID 
 	}
 	now := time.Now()
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var room models.CallRoom
+		if err := tx.Where("id = ? AND organization_id = ?", roomID, organizationID).Take(&room).Error; err != nil {
+			return err
+		}
 		if err := tx.Model(&models.CallRoomMember{}).
 			Where("room_id = ? AND user_id = ?", roomID, userID).
 			Updates(map[string]any{"left_at": now, "updated_at": now}).Error; err != nil {
@@ -851,12 +1202,18 @@ func (s *Service) LeaveRoom(ctx context.Context, organizationID, userID, roomID 
 			return err
 		}
 		if activeCount == 0 {
-			return tx.Model(&models.CallRoom{}).
+			if err := tx.Model(&models.CallRoom{}).
 				Where("id = ?", roomID).
 				Updates(map[string]any{
 					"status":   models.RoomStatusEnded,
 					"ended_at": now,
-				}).Error
+				}).Error; err != nil {
+				return err
+			}
+			return s.createConversationSystemMessageTx(ctx, tx, organizationID, userID, room.ConversationID, "meeting.ended", fmt.Sprintf("会议“%s”已结束。", room.Title), map[string]any{
+				"room_id":  roomID,
+				"ended_at": now.Format(time.RFC3339),
+			})
 		}
 		return nil
 	}); err != nil {
@@ -865,7 +1222,29 @@ func (s *Service) LeaveRoom(ctx context.Context, organizationID, userID, roomID 
 	if s.media != nil {
 		_ = s.media.LeaveRoomParticipant(strconv.FormatUint(roomID, 10), strconv.FormatUint(userID, 10))
 	}
-	return s.GetRoomState(ctx, organizationID, userID, roomID)
+	state, err := s.GetRoomState(ctx, organizationID, userID, roomID)
+	if err != nil {
+		return nil, err
+	}
+	if state.ConversationID != nil {
+		changes := map[string]any{
+			"latest_room_id":    state.Room.ID,
+			"latest_room_title": state.Room.Title,
+		}
+		if state.Room.Status == models.RoomStatusEnded {
+			changes["active_room_id"] = nil
+			changes["active_room_title"] = ""
+		}
+		s.publishConversationPatchUpdate(ctx, organizationID, *state.ConversationID, changes)
+	}
+	s.publishRoomEvent(ctx, organizationID, state.Room.ID, "room.updated", map[string]any{
+		"room_id":           state.Room.ID,
+		"event_type":        "meeting.ended",
+		"participant_count": state.ParticipantCount,
+		"is_active":         state.IsActive,
+		"status":            state.Room.Status,
+	})
+	return state, nil
 }
 
 func (s *Service) SaveRoomSignalEvent(ctx context.Context, organizationID, userID, roomID uint64, eventType string, payload any) error {
@@ -893,6 +1272,31 @@ func (s *Service) SaveRoomSignalEvent(ctx context.Context, organizationID, userI
 	}).Error
 }
 
+func (s *Service) UpdateRoomMediaState(ctx context.Context, organizationID, userID, roomID uint64, input RoomMediaStateInput) error {
+	if input.AudioEnabled == nil && input.VideoEnabled == nil && strings.TrimSpace(input.ConnectionState) == "" {
+		return errors.New("at least one media field is required")
+	}
+	payload := map[string]any{}
+	if input.AudioEnabled != nil {
+		payload["audio_enabled"] = *input.AudioEnabled
+	}
+	if input.VideoEnabled != nil {
+		payload["video_enabled"] = *input.VideoEnabled
+	}
+	if value := strings.TrimSpace(input.ConnectionState); value != "" {
+		payload["connection_state"] = value
+	}
+	if err := s.SaveRoomSignalEvent(ctx, organizationID, userID, roomID, "room.media.updated", payload); err != nil {
+		return err
+	}
+	s.publishRoomEvent(ctx, organizationID, roomID, "room.media.updated", map[string]any{
+		"room_id": roomID,
+		"user_id": userID,
+		"media":   payload,
+	})
+	return nil
+}
+
 func (s *Service) GetRoomState(ctx context.Context, organizationID, userID, roomID uint64) (*RoomState, error) {
 	if _, _, err := s.ResolveOrganization(ctx, userID, organizationID); err != nil {
 		return nil, err
@@ -901,9 +1305,69 @@ func (s *Service) GetRoomState(ctx context.Context, organizationID, userID, room
 	if err := s.db.WithContext(ctx).Where("id = ? AND organization_id = ?", roomID, organizationID).Take(&room).Error; err != nil {
 		return nil, err
 	}
-	var members []models.CallRoomMember
-	if err := s.db.WithContext(ctx).Where("room_id = ?", roomID).Order("created_at ASC").Find(&members).Error; err != nil {
+	var members []RoomMemberSummary
+	if err := s.db.WithContext(ctx).
+		Table("call_room_members").
+		Select("call_room_members.*, users.email AS user_email, users.display_name AS user_display_name").
+		Joins("JOIN users ON users.id = call_room_members.user_id").
+		Where("call_room_members.room_id = ?", roomID).
+		Order("call_room_members.created_at ASC").
+		Find(&members).Error; err != nil {
 		return nil, err
+	}
+	type roomMediaState struct {
+		AudioEnabled    *bool  `json:"audio_enabled"`
+		VideoEnabled    *bool  `json:"video_enabled"`
+		ConnectionState string `json:"connection_state"`
+	}
+	var mediaEvents []models.CallRoomEvent
+	if err := s.db.WithContext(ctx).
+		Where("room_id = ? AND type = ?", roomID, "room.media.updated").
+		Order("created_at DESC").
+		Limit(200).
+		Find(&mediaEvents).Error; err != nil {
+		return nil, err
+	}
+	latestMediaState := make(map[uint64]roomMediaState)
+	for _, event := range mediaEvents {
+		if _, exists := latestMediaState[event.UserID]; exists {
+			continue
+		}
+		var state roomMediaState
+		if err := json.Unmarshal([]byte(event.PayloadJSON), &state); err != nil {
+			continue
+		}
+		latestMediaState[event.UserID] = state
+	}
+	participantCount := int64(0)
+	for index := range members {
+		member := &members[index]
+		member.IsHost = member.Role == models.OrganizationRoleOwner
+		switch {
+		case member.LeftAt != nil:
+			member.ConnectionState = "left"
+		case member.JoinedAt != nil:
+			member.ConnectionState = "connected"
+		default:
+			member.ConnectionState = "invited"
+		}
+		isActiveParticipant := member.LeftAt == nil && member.JoinedAt != nil
+		if isActiveParticipant {
+			participantCount += 1
+		}
+		member.AudioEnabled = isActiveParticipant
+		member.VideoEnabled = isActiveParticipant
+		if mediaState, ok := latestMediaState[member.UserID]; ok {
+			if mediaState.AudioEnabled != nil {
+				member.AudioEnabled = *mediaState.AudioEnabled
+			}
+			if mediaState.VideoEnabled != nil {
+				member.VideoEnabled = *mediaState.VideoEnabled
+			}
+			if mediaState.ConnectionState != "" {
+				member.ConnectionState = mediaState.ConnectionState
+			}
+		}
 	}
 	var events []models.CallRoomEvent
 	if err := s.db.WithContext(ctx).Where("room_id = ?", roomID).Order("created_at DESC").Limit(50).Find(&events).Error; err != nil {
@@ -911,17 +1375,36 @@ func (s *Service) GetRoomState(ctx context.Context, organizationID, userID, room
 	}
 	var recording models.RecordingSession
 	var recordingPtr *models.RecordingSession
+	var latestRecordingID *uint64
 	if err := s.db.WithContext(ctx).
 		Where("room_id = ? AND status IN ?", roomID, []string{models.RecordingStatusRecording, models.RecordingStatusProcessing}).
 		Order("id DESC").Take(&recording).Error; err == nil {
 		recordingPtr = &recording
 	}
+	var latestRecording models.RecordingSession
+	if err := s.db.WithContext(ctx).
+		Where("room_id = ?", roomID).
+		Order("id DESC").Take(&latestRecording).Error; err == nil {
+		latestRecordingID = &latestRecording.ID
+	}
+	conversationTitle := ""
+	if room.ConversationID != nil {
+		var conv models.Conversation
+		if err := s.db.WithContext(ctx).Select("title").Where("id = ?", *room.ConversationID).Take(&conv).Error; err == nil {
+			conversationTitle = conv.Title
+		}
+	}
 	return &RoomState{
-		Room:            room,
-		Members:         members,
-		Events:          events,
-		ActiveRecording: recordingPtr,
-		ConversationID:  room.ConversationID,
+		Room:              room,
+		Members:           members,
+		Events:            events,
+		ActiveRecording:   recordingPtr,
+		ConversationID:    room.ConversationID,
+		ConversationTitle: conversationTitle,
+		ParticipantCount:  participantCount,
+		IsActive:          room.Status == models.RoomStatusActive,
+		HasRecording:      recordingPtr != nil || latestRecordingID != nil,
+		LatestRecordingID: latestRecordingID,
 	}, nil
 }
 
@@ -977,7 +1460,32 @@ func (s *Service) StartRecording(ctx context.Context, organizationID, userID, ro
 			return nil, err
 		}
 	}
-	return s.GetRecording(ctx, organizationID, userID, session.ID)
+	if room.ConversationID != nil {
+		_ = s.createConversationSystemMessage(ctx, organizationID, userID, room.ConversationID, "meeting.recording.started", "会议录音已开始。", map[string]any{
+			"room_id":      roomID,
+			"recording_id": session.ID,
+			"started_at":   now.Format(time.RFC3339),
+		})
+		s.publishConversationPatchUpdate(ctx, organizationID, *room.ConversationID, map[string]any{
+			"latest_recording_id": session.ID,
+		})
+	}
+	recording, err := s.GetRecording(ctx, organizationID, userID, session.ID)
+	if err != nil {
+		return nil, err
+	}
+	state, err := s.GetRoomState(ctx, organizationID, userID, roomID)
+	if err == nil {
+		s.publishRoomEvent(ctx, organizationID, roomID, "room.updated", map[string]any{
+			"room_id":             roomID,
+			"event_type":          "meeting.recording.started",
+			"participant_count":   state.ParticipantCount,
+			"is_active":           state.IsActive,
+			"has_recording":       true,
+			"latest_recording_id": session.ID,
+		})
+	}
+	return recording, nil
 }
 
 func (s *Service) StopRecording(ctx context.Context, organizationID, userID, roomID uint64) (*RecordingView, error) {
@@ -1004,7 +1512,38 @@ func (s *Service) StopRecording(ctx context.Context, organizationID, userID, roo
 	if err := s.persistRecordingArtifacts(ctx, organizationID, roomID, session, now); err != nil {
 		return nil, err
 	}
-	return s.GetRecording(ctx, organizationID, userID, session.ID)
+	var room models.CallRoom
+	if err := s.db.WithContext(ctx).Where("id = ? AND organization_id = ?", roomID, organizationID).Take(&room).Error; err == nil && room.ConversationID != nil {
+		view, viewErr := s.GetRecording(ctx, organizationID, userID, session.ID)
+		if viewErr == nil {
+			_ = s.createConversationSystemMessage(ctx, organizationID, userID, room.ConversationID, "meeting.recording.ready", "会议录音已生成，可下载查看。", map[string]any{
+				"room_id":              roomID,
+				"recording_id":         session.ID,
+				"participant_count":    s.countRoomParticipants(ctx, roomID),
+				"room_title":           room.Title,
+				"recording_file_count": len(view.Files),
+			})
+			s.publishConversationPatchUpdate(ctx, organizationID, *room.ConversationID, map[string]any{
+				"latest_recording_id": session.ID,
+			})
+		}
+	}
+	recording, err := s.GetRecording(ctx, organizationID, userID, session.ID)
+	if err != nil {
+		return nil, err
+	}
+	state, err := s.GetRoomState(ctx, organizationID, userID, roomID)
+	if err == nil {
+		s.publishRoomEvent(ctx, organizationID, roomID, "room.updated", map[string]any{
+			"room_id":             roomID,
+			"event_type":          "meeting.recording.ready",
+			"participant_count":   state.ParticipantCount,
+			"is_active":           state.IsActive,
+			"has_recording":       true,
+			"latest_recording_id": session.ID,
+		})
+	}
+	return recording, nil
 }
 
 func (s *Service) ListRecordings(ctx context.Context, organizationID, userID uint64) ([]RecordingView, error) {
@@ -1017,8 +1556,7 @@ func (s *Service) ListRecordings(ctx context.Context, organizationID, userID uin
 	}
 	result := make([]RecordingView, 0, len(sessions))
 	for _, session := range sessions {
-		var files []models.RecordingFile
-		_ = s.db.WithContext(ctx).Where("recording_session_id = ?", session.ID).Find(&files).Error
+		files, _ := s.loadRecordingFiles(ctx, session)
 		result = append(result, RecordingView{Session: session, Files: files})
 	}
 	return result, nil
@@ -1032,8 +1570,8 @@ func (s *Service) GetRecording(ctx context.Context, organizationID, userID, reco
 	if err := s.db.WithContext(ctx).Where("organization_id = ? AND id = ?", organizationID, recordingID).Take(&session).Error; err != nil {
 		return nil, err
 	}
-	var files []models.RecordingFile
-	if err := s.db.WithContext(ctx).Where("recording_session_id = ?", session.ID).Find(&files).Error; err != nil {
+	files, err := s.loadRecordingFiles(ctx, session)
+	if err != nil {
 		return nil, err
 	}
 	return &RecordingView{Session: session, Files: files}, nil
@@ -1052,6 +1590,361 @@ func (s *Service) GetRecordingFile(ctx context.Context, organizationID, userID, 
 		return nil, nil, err
 	}
 	return &session, &file, nil
+}
+
+func (s *Service) buildConversationSummary(ctx context.Context, conv models.Conversation, userID uint64) (ConversationSummary, error) {
+	if strings.TrimSpace(conv.Status) == "" {
+		conv.Status = models.ConversationStatusOpen
+	}
+	if strings.TrimSpace(conv.Priority) == "" {
+		conv.Priority = models.ConversationPriorityNormal
+	}
+	item := ConversationSummary{Conversation: conv}
+	if conv.Type == models.ConversationTypeDirect && strings.TrimSpace(conv.Title) == "" {
+		var peer models.User
+		err := s.db.WithContext(ctx).
+			Table("conversation_members").
+			Select("users.*").
+			Joins("JOIN users ON users.id = conversation_members.user_id").
+			Where("conversation_members.conversation_id = ? AND conversation_members.user_id <> ?", conv.ID, userID).
+			Take(&peer).Error
+		if err == nil {
+			if strings.TrimSpace(peer.DisplayName) != "" {
+				item.Title = peer.DisplayName
+			} else {
+				item.Title = peer.Email
+			}
+		}
+	}
+	if conv.AssigneeUserID != nil {
+		var assignee models.User
+		if err := s.db.WithContext(ctx).Select("email, display_name").Where("id = ?", *conv.AssigneeUserID).Take(&assignee).Error; err == nil {
+			item.AssigneeEmail = assignee.Email
+			item.AssigneeDisplayName = assignee.DisplayName
+		}
+	}
+	var last models.Message
+	if err := s.db.WithContext(ctx).Where("conversation_id = ?", conv.ID).Order("created_at DESC").Take(&last).Error; err == nil {
+		item.LastMessagePreview = truncate(last.Body, 120)
+		item.LastMessageType = last.Type
+	}
+	var unread int64
+	var member models.ConversationMember
+	if err := s.db.WithContext(ctx).Where("conversation_id = ? AND user_id = ?", conv.ID, userID).Take(&member).Error; err == nil {
+		query := s.db.WithContext(ctx).Model(&models.Message{}).Where("conversation_id = ? AND sender_id <> ?", conv.ID, userID)
+		if member.LastReadAt != nil {
+			query = query.Where("created_at > ?", *member.LastReadAt)
+		}
+		_ = query.Count(&unread).Error
+		item.UnreadCount = unread
+	}
+
+	var activeRoom models.CallRoom
+	if err := s.db.WithContext(ctx).
+		Where("organization_id = ? AND conversation_id = ? AND status IN ?", conv.OrganizationID, conv.ID, []string{models.RoomStatusScheduled, models.RoomStatusActive}).
+		Order("updated_at DESC").
+		Take(&activeRoom).Error; err == nil {
+		item.ActiveRoomID = &activeRoom.ID
+	}
+	var recording models.RecordingSession
+	if err := s.db.WithContext(ctx).
+		Table("recording_sessions").
+		Select("recording_sessions.*").
+		Joins("JOIN call_rooms ON call_rooms.id = recording_sessions.room_id").
+		Where("call_rooms.organization_id = ? AND call_rooms.conversation_id = ?", conv.OrganizationID, conv.ID).
+		Order("recording_sessions.id DESC").
+		Take(&recording).Error; err == nil {
+		item.LatestRecordingID = &recording.ID
+	}
+	var latestRoom models.CallRoom
+	if err := s.db.WithContext(ctx).
+		Where("organization_id = ? AND conversation_id = ?", conv.OrganizationID, conv.ID).
+		Order("updated_at DESC").
+		Take(&latestRoom).Error; err == nil {
+		item.LatestRoomID = &latestRoom.ID
+		item.LatestRoomTitle = latestRoom.Title
+	}
+	if item.ActiveRoomID != nil {
+		var activeRoom models.CallRoom
+		if err := s.db.WithContext(ctx).Select("title").Where("id = ?", *item.ActiveRoomID).Take(&activeRoom).Error; err == nil {
+			item.ActiveRoomTitle = activeRoom.Title
+		}
+	}
+	return item, nil
+}
+
+func (s *Service) latestConversationNote(ctx context.Context, organizationID, conversationID uint64) (*ConversationNoteRecord, error) {
+	var note ConversationNoteRecord
+	err := s.db.WithContext(ctx).
+		Table("conversation_notes").
+		Select("conversation_notes.*, users.email AS author_email, users.display_name AS author_display_name").
+		Joins("JOIN users ON users.id = conversation_notes.author_id").
+		Where("conversation_notes.organization_id = ? AND conversation_notes.conversation_id = ?", organizationID, conversationID).
+		Order("conversation_notes.created_at DESC").
+		Take(&note).Error
+	if err != nil {
+		return nil, err
+	}
+	return &note, nil
+}
+
+func (s *Service) loadConversationNote(ctx context.Context, noteID uint64) (*ConversationNoteRecord, error) {
+	var note ConversationNoteRecord
+	err := s.db.WithContext(ctx).
+		Table("conversation_notes").
+		Select("conversation_notes.*, users.email AS author_email, users.display_name AS author_display_name").
+		Joins("JOIN users ON users.id = conversation_notes.author_id").
+		Where("conversation_notes.id = ?", noteID).
+		Take(&note).Error
+	if err != nil {
+		return nil, err
+	}
+	return &note, nil
+}
+
+func (s *Service) latestConversationRoom(ctx context.Context, organizationID, conversationID uint64) (*RoomListItem, error) {
+	var room models.CallRoom
+	if err := s.db.WithContext(ctx).
+		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
+		Order("updated_at DESC").
+		Take(&room).Error; err != nil {
+		return nil, err
+	}
+	item := &RoomListItem{
+		ID:             room.ID,
+		OrganizationID: room.OrganizationID,
+		TeamID:         room.TeamID,
+		ConversationID: room.ConversationID,
+		Title:          room.Title,
+		Status:         room.Status,
+		CreatedBy:      room.CreatedBy,
+		StartedAt:      room.StartedAt,
+		EndedAt:        room.EndedAt,
+		CreatedAt:      room.CreatedAt,
+		UpdatedAt:      room.UpdatedAt,
+	}
+	if room.ConversationID != nil {
+		var conv models.Conversation
+		if err := s.db.WithContext(ctx).Select("title").Where("id = ?", *room.ConversationID).Take(&conv).Error; err == nil {
+			item.ConversationTitle = conv.Title
+		}
+	}
+	return item, nil
+}
+
+func (s *Service) latestConversationFollowup(ctx context.Context, conversationID uint64) (*ConversationFollowupSummary, error) {
+	var message models.Message
+	if err := s.db.WithContext(ctx).
+		Where("conversation_id = ? AND type = ?", conversationID, models.MessageTypeCallEvent).
+		Order("created_at DESC").
+		Take(&message).Error; err != nil {
+		return nil, err
+	}
+	callID := ""
+	if strings.TrimSpace(message.MetadataJSON) != "" {
+		var metadata map[string]any
+		if err := json.Unmarshal([]byte(message.MetadataJSON), &metadata); err == nil {
+			callID, _ = metadata["call_id"].(string)
+		}
+	}
+	callID = strings.TrimSpace(callID)
+	if callID == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var followup struct {
+		SummaryCN       string
+		SummaryEN       string
+		ActionItemsJSON string
+		NextStep        string
+	}
+	if err := s.db.WithContext(ctx).
+		Table("call_followups").
+		Select("summary_cn, summary_en, action_items_json, next_step").
+		Where("call_id = ?", callID).
+		Order("generated_at DESC").
+		Take(&followup).Error; err != nil {
+		return nil, err
+	}
+	var actionItems []string
+	if strings.TrimSpace(followup.ActionItemsJSON) != "" {
+		_ = json.Unmarshal([]byte(followup.ActionItemsJSON), &actionItems)
+	}
+	return &ConversationFollowupSummary{
+		SummaryCN:   followup.SummaryCN,
+		SummaryEN:   followup.SummaryEN,
+		ActionItems: actionItems,
+		NextStep:    followup.NextStep,
+	}, nil
+}
+
+func (s *Service) createMessageTx(ctx context.Context, tx *gorm.DB, organizationID, userID, conversationID uint64, input MessageInput, publish bool) (*models.Message, error) {
+	if input.Type == "" {
+		input.Type = models.MessageTypeText
+	}
+	if !isValidMessageType(input.Type) {
+		return nil, errors.New("invalid message type")
+	}
+	body := strings.TrimSpace(input.Body)
+	if input.Type == models.MessageTypeText && body == "" {
+		return nil, errors.New("message body required")
+	}
+	metadataJSON := ""
+	if len(input.Metadata) > 0 {
+		raw, err := json.Marshal(input.Metadata)
+		if err != nil {
+			return nil, err
+		}
+		metadataJSON = string(raw)
+	}
+	message := &models.Message{
+		OrganizationID: organizationID,
+		ConversationID: conversationID,
+		SenderID:       userID,
+		Type:           input.Type,
+		Body:           body,
+		MetadataJSON:   metadataJSON,
+	}
+	if err := tx.Create(message).Error; err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	if err := tx.Model(&models.Conversation{}).
+		Where("id = ?", conversationID).
+		Updates(map[string]any{
+			"last_message_at": now,
+			"updated_at":      now,
+		}).Error; err != nil {
+		return nil, err
+	}
+	if publish && s.publisher != nil {
+		record, err := s.loadMessageRecord(ctx, message.ID)
+		if err == nil {
+			memberIDs, _ := s.listConversationMemberIDsTx(ctx, tx, conversationID)
+			_ = s.publisher.PublishToUsers(ctx, organizationID, memberIDs, "message.created", record)
+		}
+	}
+	return message, nil
+}
+
+func (s *Service) createConversationSystemMessage(ctx context.Context, organizationID, userID uint64, conversationID *uint64, eventType, body string, metadata map[string]any) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return s.createConversationSystemMessageTx(ctx, tx, organizationID, userID, conversationID, eventType, body, metadata)
+	})
+}
+
+func (s *Service) createConversationSystemMessageTx(ctx context.Context, tx *gorm.DB, organizationID, userID uint64, conversationID *uint64, eventType, body string, metadata map[string]any) error {
+	if conversationID == nil || *conversationID == 0 {
+		return nil
+	}
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadata["event_type"] = eventType
+	_, err := s.createMessageTx(ctx, tx, organizationID, userID, *conversationID, MessageInput{
+		Type:     models.MessageTypeSystem,
+		Body:     body,
+		Metadata: metadata,
+	}, false)
+	return err
+}
+
+func (s *Service) ensureConversationMemberTx(ctx context.Context, tx *gorm.DB, organizationID, userID, conversationID uint64) error {
+	var count int64
+	err := tx.WithContext(ctx).
+		Table("conversation_members").
+		Joins("JOIN conversations ON conversations.id = conversation_members.conversation_id").
+		Where("conversation_members.conversation_id = ? AND conversation_members.user_id = ? AND conversations.organization_id = ?", conversationID, userID, organizationID).
+		Count(&count).Error
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrConversationAccessDenied
+	}
+	return nil
+}
+
+func (s *Service) loadRecordingFiles(ctx context.Context, session models.RecordingSession) ([]RecordingFileView, error) {
+	var files []models.RecordingFile
+	if err := s.db.WithContext(ctx).Where("recording_session_id = ?", session.ID).Find(&files).Error; err != nil {
+		return nil, err
+	}
+	result := make([]RecordingFileView, 0, len(files))
+	for _, file := range files {
+		fileName := filepath.Base(file.ObjectKey)
+		fileSize := int64(0)
+		if info, err := os.Stat(file.ObjectKey); err == nil {
+			fileSize = info.Size()
+		}
+		recordingKind := "mixed_audio"
+		if strings.EqualFold(fileName, "session.json") || strings.Contains(strings.ToLower(file.ContentType), "json") {
+			recordingKind = "manifest"
+		}
+		result = append(result, RecordingFileView{
+			RecordingFile: file,
+			DownloadURL:   fmt.Sprintf("/api/v1/recordings/%d/files/%d", session.ID, file.ID),
+			FileName:      fileName,
+			FileSizeBytes: fileSize,
+			RecordingKind: recordingKind,
+		})
+	}
+	return result, nil
+}
+
+func (s *Service) countRoomParticipants(ctx context.Context, roomID uint64) int64 {
+	var count int64
+	_ = s.db.WithContext(ctx).Model(&models.CallRoomMember{}).Where("room_id = ?", roomID).Count(&count).Error
+	return count
+}
+
+func (s *Service) listRoomMemberIDs(ctx context.Context, roomID uint64) ([]uint64, error) {
+	var ids []uint64
+	if err := s.db.WithContext(ctx).
+		Model(&models.CallRoomMember{}).
+		Where("room_id = ?", roomID).
+		Pluck("user_id", &ids).Error; err != nil {
+		return nil, err
+	}
+	return uniqueUint64s(ids), nil
+}
+
+func (s *Service) publishRoomEvent(ctx context.Context, organizationID, roomID uint64, event string, payload any) {
+	if s.publisher == nil {
+		return
+	}
+	memberIDs, err := s.listRoomMemberIDs(ctx, roomID)
+	if err != nil || len(memberIDs) == 0 {
+		return
+	}
+	_ = s.publisher.PublishToUsers(ctx, organizationID, memberIDs, event, payload)
+}
+
+func (s *Service) publishConversationEvent(ctx context.Context, organizationID, conversationID uint64, event string, payload any) {
+	if s.publisher == nil {
+		return
+	}
+	memberIDs, err := s.listConversationMemberIDs(ctx, conversationID)
+	if err != nil || len(memberIDs) == 0 {
+		return
+	}
+	_ = s.publisher.PublishToUsers(ctx, organizationID, memberIDs, event, payload)
+}
+
+func (s *Service) publishConversationPatchUpdate(ctx context.Context, organizationID, conversationID uint64, changes map[string]any) {
+	normalized := map[string]any{}
+	for key, value := range changes {
+		switch typed := value.(type) {
+		case string:
+			normalized[key] = typed
+		default:
+			normalized[key] = value
+		}
+	}
+	s.publishConversationEvent(ctx, organizationID, conversationID, "conversation.updated", map[string]any{
+		"conversation_id": conversationID,
+		"changed_fields":  mapKeys(normalized),
+		"changes":         normalized,
+	})
 }
 
 func (s *Service) ListPipelines(ctx context.Context, organizationID, userID uint64) ([]PipelineView, error) {
@@ -1273,6 +2166,8 @@ func (s *Service) createMeetingConversationTx(ctx context.Context, tx *gorm.DB, 
 		RoomID:         &roomID,
 		Type:           models.ConversationTypeMeeting,
 		Title:          defaultString(strings.TrimSpace(title), "Meeting"),
+		Status:         models.ConversationStatusOpen,
+		Priority:       models.ConversationPriorityNormal,
 		CreatedBy:      userID,
 	}
 	if err := tx.Create(conv).Error; err != nil {
@@ -1516,6 +2411,32 @@ func uniqueUint64s(items []uint64) []uint64 {
 	return result
 }
 
+func uniqueStrings(items []string) []string {
+	seen := make(map[string]struct{}, len(items))
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		result = append(result, item)
+	}
+	return result
+}
+
+func mapKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func isValidOrgRole(role string) bool {
 	switch role {
 	case models.OrganizationRoleOwner, models.OrganizationRoleAdmin, models.OrganizationRoleMember:
@@ -1540,6 +2461,34 @@ func isValidConversationType(kind string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func normalizeConversationStatus(status string) (string, error) {
+	switch strings.TrimSpace(strings.ToLower(status)) {
+	case "", models.ConversationStatusOpen:
+		return models.ConversationStatusOpen, nil
+	case models.ConversationStatusPending:
+		return models.ConversationStatusPending, nil
+	case models.ConversationStatusResolved:
+		return models.ConversationStatusResolved, nil
+	default:
+		return "", errors.New("invalid conversation status")
+	}
+}
+
+func normalizeConversationPriority(priority string) (string, error) {
+	switch strings.TrimSpace(strings.ToLower(priority)) {
+	case "", models.ConversationPriorityNormal:
+		return models.ConversationPriorityNormal, nil
+	case models.ConversationPriorityLow:
+		return models.ConversationPriorityLow, nil
+	case models.ConversationPriorityHigh:
+		return models.ConversationPriorityHigh, nil
+	case models.ConversationPriorityUrgent:
+		return models.ConversationPriorityUrgent, nil
+	default:
+		return "", errors.New("invalid conversation priority")
 	}
 }
 

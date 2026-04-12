@@ -38,6 +38,7 @@ func TestCollaborationHandlerRoomOfferReturnsAnswer(t *testing.T) {
 		&models.Team{},
 		&models.TeamMember{},
 		&models.Conversation{},
+		&models.ConversationNote{},
 		&models.ConversationMember{},
 		&models.Message{},
 		&models.MessageRead{},
@@ -133,5 +134,99 @@ func TestCollaborationHandlerRoomOfferReturnsAnswer(t *testing.T) {
 	}
 	if response.Answer.SDP == "" {
 		t.Fatal("expected non-empty answer sdp")
+	}
+}
+
+func TestCollaborationHandlerUpdatesConversation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "handlers-update.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.Organization{},
+		&models.OrganizationMember{},
+		&models.OrganizationPolicy{},
+		&models.Team{},
+		&models.TeamMember{},
+		&models.Conversation{},
+		&models.ConversationNote{},
+		&models.ConversationMember{},
+		&models.Message{},
+		&models.MessageRead{},
+		&models.Attachment{},
+		&models.CallRoom{},
+		&models.CallRoomMember{},
+		&models.CallRoomEvent{},
+		&models.RecordingSession{},
+		&models.RecordingFile{},
+		&models.RecordingConsent{},
+		&models.RecordingExport{},
+		&models.Pipeline{},
+		&models.PipelineStage{},
+		&models.Deal{},
+		&models.DealContact{},
+		&models.DealActivity{},
+	); err != nil {
+		t.Fatalf("auto migrate failed: %v", err)
+	}
+
+	userSvc := user.NewService(user.NewRepository(db))
+	service := collaboration.NewService(db, userSvc)
+	handler := NewCollaborationHandler(zerolog.Nop(), service, userSvc, collaboration.NewChatHub(zerolog.Nop()))
+
+	owner := models.User{Email: "owner@example.com", PasswordHash: "hash", DisplayName: "Owner", Status: "active"}
+	if err := db.Create(&owner).Error; err != nil {
+		t.Fatalf("create owner failed: %v", err)
+	}
+	org, err := service.CreateOrganization(context.Background(), owner.ID, "Workspace")
+	if err != nil {
+		t.Fatalf("create org failed: %v", err)
+	}
+	conv, err := service.CreateConversation(context.Background(), org.ID, owner.ID, collaboration.CreateConversationInput{
+		Type:  models.ConversationTypeChannel,
+		Title: "Inbox",
+	})
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		auth.SetClaimsToContext(c, &auth.Claims{UserID: owner.ID, Email: owner.Email})
+		c.Next()
+	})
+	handler.RegisterProtectedRoutes(router.Group("/api/v1"))
+
+	body, _ := json.Marshal(map[string]any{
+		"status":   models.ConversationStatusPending,
+		"priority": models.ConversationPriorityHigh,
+	})
+	req := httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/v1/conversations/%d", conv.ID), bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Organization-ID", fmt.Sprintf("%d", org.ID))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response struct {
+		Conversation struct {
+			Status   string `json:"status"`
+			Priority string `json:"priority"`
+		} `json:"conversation"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if response.Conversation.Status != models.ConversationStatusPending {
+		t.Fatalf("expected pending status, got %s", response.Conversation.Status)
+	}
+	if response.Conversation.Priority != models.ConversationPriorityHigh {
+		t.Fatalf("expected high priority, got %s", response.Conversation.Priority)
 	}
 }

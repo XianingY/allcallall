@@ -11,6 +11,15 @@ const (
 	ConversationTypeChannel = "channel"
 	ConversationTypeMeeting = "meeting"
 
+	ConversationStatusOpen     = "open"
+	ConversationStatusPending  = "pending"
+	ConversationStatusResolved = "resolved"
+
+	ConversationPriorityLow    = "low"
+	ConversationPriorityNormal = "normal"
+	ConversationPriorityHigh   = "high"
+	ConversationPriorityUrgent = "urgent"
+
 	MessageTypeText      = "text"
 	MessageTypeSystem    = "system"
 	MessageTypeCallEvent = "call_event"
@@ -126,21 +135,39 @@ func (OrganizationPolicy) TableName() string {
 }
 
 type Conversation struct {
-	ID             uint64     `gorm:"primaryKey;autoIncrement"`
-	OrganizationID uint64     `gorm:"not null;index"`
-	TeamID         *uint64    `gorm:"index"`
-	RoomID         *uint64    `gorm:"index"`
-	Type           string     `gorm:"size:32;not null;index"`
-	Title          string     `gorm:"size:180"`
-	Topic          string     `gorm:"size:500"`
-	CreatedBy      uint64     `gorm:"not null;index"`
-	LastMessageAt  *time.Time `gorm:"index"`
-	CreatedAt      time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`
+	ID                 uint64     `gorm:"primaryKey;autoIncrement"`
+	OrganizationID     uint64     `gorm:"not null;index"`
+	TeamID             *uint64    `gorm:"index"`
+	RoomID             *uint64    `gorm:"index"`
+	Type               string     `gorm:"size:32;not null;index"`
+	Title              string     `gorm:"size:180"`
+	Topic              string     `gorm:"size:500"`
+	Status             string     `gorm:"size:32;not null;default:'open';index"`
+	AssigneeUserID     *uint64    `gorm:"index"`
+	Priority           string     `gorm:"size:32;not null;default:'normal';index"`
+	ContactID          *uint64    `gorm:"index"`
+	LastInternalNoteAt *time.Time `gorm:"index"`
+	CreatedBy          uint64     `gorm:"not null;index"`
+	LastMessageAt      *time.Time `gorm:"index"`
+	CreatedAt          time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt          time.Time  `gorm:"autoUpdateTime"`
 }
 
 func (Conversation) TableName() string {
 	return "conversations"
+}
+
+type ConversationNote struct {
+	ID             uint64    `gorm:"primaryKey;autoIncrement"`
+	OrganizationID uint64    `gorm:"not null;index"`
+	ConversationID uint64    `gorm:"not null;index"`
+	AuthorID       uint64    `gorm:"not null;index"`
+	Body           string    `gorm:"type:text;not null"`
+	CreatedAt      time.Time `gorm:"autoCreateTime;index"`
+}
+
+func (ConversationNote) TableName() string {
+	return "conversation_notes"
 }
 
 type ConversationMember struct {

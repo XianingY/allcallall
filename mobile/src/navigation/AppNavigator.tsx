@@ -27,14 +27,20 @@ import DealDetailScreen from "../screens/DealDetailScreen";
 import RoomsScreen from "../screens/RoomsScreen";
 import RoomDetailScreen from "../screens/RoomDetailScreen";
 import RecordingsScreen from "../screens/RecordingsScreen";
+import PreJoinScreen from "../screens/PreJoinScreen";
+import MeetingParticipantsScreen from "../screens/MeetingParticipantsScreen";
 import type { User } from "../api/users";
-import type { ConversationRecord, DealRecord, RoomRecord } from "../api/collaboration";
+import type { ConversationRecord, DealRecord, MeetingJoinOptions, RoomRecord } from "../api/collaboration";
 
 export type RootStackParamList = {
   Login: undefined;
   Register: { email?: string };
   EmailVerification: { email?: string; returnToRegister?: boolean } | undefined;
   ForgotPassword: undefined;
+  Rooms: undefined;
+  PreJoin: { roomId: number; title?: string; conversationId?: number | null; joinOptions?: MeetingJoinOptions };
+  RoomDetail: { room: RoomRecord; joinOptions?: MeetingJoinOptions };
+  MeetingParticipants: { roomId: number; title?: string };
   Contacts: undefined;
   CallHistory: undefined;
   ContactDetail: { contact: User };
@@ -46,8 +52,6 @@ export type RootStackParamList = {
   ConversationDetail: { conversation: ConversationRecord };
   Deals: undefined;
   DealDetail: { deal: DealRecord };
-  Rooms: undefined;
-  RoomDetail: { room: RoomRecord };
   Recordings: undefined;
   ChangePassword: undefined;
   Settings: undefined;
@@ -79,9 +83,29 @@ const AppNavigator: React.FC = () => {
   }
 
   return (
-    <Stack.Navigator>
+    <Stack.Navigator initialRouteName={token ? "Rooms" : "Login"}>
       {token ? (
         <>
+          <Stack.Screen
+            name="Rooms"
+            component={RoomsScreen}
+            options={{ title: "会议 / Meetings" }}
+          />
+          <Stack.Screen
+            name="PreJoin"
+            component={PreJoinScreen}
+            options={{ title: "加入会议 / Pre-Join" }}
+          />
+          <Stack.Screen
+            name="RoomDetail"
+            component={RoomDetailScreen}
+            options={{ title: "会议中 / Meeting" }}
+          />
+          <Stack.Screen
+            name="MeetingParticipants"
+            component={MeetingParticipantsScreen}
+            options={{ title: "参会成员 / Participants" }}
+          />
           <Stack.Screen
             name="Contacts"
             component={ContactsScreen}
@@ -115,7 +139,7 @@ const AppNavigator: React.FC = () => {
           <Stack.Screen
             name="Conversations"
             component={ConversationsScreen}
-            options={{ title: "聊天会话 / Conversations" }}
+            options={{ title: "协作 Inbox / Inbox" }}
           />
           <Stack.Screen
             name="ConversationDetail"
@@ -126,16 +150,6 @@ const AppNavigator: React.FC = () => {
             name="Deals"
             component={DealsScreen}
             options={{ title: "商机流程 / Deals" }}
-          />
-          <Stack.Screen
-            name="Rooms"
-            component={RoomsScreen}
-            options={{ title: "团队会议 / Rooms" }}
-          />
-          <Stack.Screen
-            name="RoomDetail"
-            component={RoomDetailScreen}
-            options={{ title: "会议详情 / Room Detail" }}
           />
           <Stack.Screen
             name="Recordings"

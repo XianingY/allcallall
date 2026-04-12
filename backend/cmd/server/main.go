@@ -96,6 +96,7 @@ func main() {
 		&models.OrganizationInvite{},
 		&models.OrganizationPolicy{},
 		&models.Conversation{},
+		&models.ConversationNote{},
 		&models.ConversationMember{},
 		&models.Message{},
 		&models.MessageRead{},

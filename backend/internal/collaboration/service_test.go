@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pion/webrtc/v4"
@@ -32,6 +33,7 @@ func newServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *user.Service) {
 		&models.Team{},
 		&models.TeamMember{},
 		&models.Conversation{},
+		&models.ConversationNote{},
 		&models.ConversationMember{},
 		&models.Message{},
 		&models.MessageRead{},
@@ -116,6 +118,97 @@ func TestServiceAppendDirectCallEventByEmail(t *testing.T) {
 	}
 }
 
+func TestServiceUpdateConversationAndNotes(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	ctx := context.Background()
+
+	owner := createTestUser(t, db, "owner@example.com", "Owner")
+	agent := createTestUser(t, db, "agent@example.com", "Agent")
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Workspace")
+	if err != nil {
+		t.Fatalf("create organization failed: %v", err)
+	}
+	addOrgMember(t, db, org.ID, agent.ID, models.OrganizationRoleMember)
+
+	conv, err := svc.CreateConversation(ctx, org.ID, owner.ID, CreateConversationInput{
+		Type:      models.ConversationTypeChannel,
+		Title:     "Support Inbox",
+		MemberIDs: []uint64{agent.ID},
+	})
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	updated, err := svc.UpdateConversation(ctx, org.ID, owner.ID, conv.ID, UpdateConversationInput{
+		Status:         ptrString(models.ConversationStatusPending),
+		Priority:       ptrString(models.ConversationPriorityHigh),
+		AssigneeUserID: ptrUint64(agent.ID),
+	})
+	if err != nil {
+		t.Fatalf("update conversation failed: %v", err)
+	}
+	if updated.Status != models.ConversationStatusPending {
+		t.Fatalf("expected pending status, got %s", updated.Status)
+	}
+	if updated.Priority != models.ConversationPriorityHigh {
+		t.Fatalf("expected high priority, got %s", updated.Priority)
+	}
+	if updated.AssigneeUserID == nil || *updated.AssigneeUserID != agent.ID {
+		t.Fatal("expected assignee to be set")
+	}
+
+	note, err := svc.CreateConversationNote(ctx, org.ID, owner.ID, conv.ID, "Need bilingual follow-up by tomorrow")
+	if err != nil {
+		t.Fatalf("create conversation note failed: %v", err)
+	}
+	if note.Body == "" {
+		t.Fatal("expected note body")
+	}
+
+	notes, err := svc.ListConversationNotes(ctx, org.ID, owner.ID, conv.ID, 10)
+	if err != nil {
+		t.Fatalf("list conversation notes failed: %v", err)
+	}
+	if len(notes) == 0 {
+		t.Fatal("expected at least one note")
+	}
+
+	myItems, err := svc.ListConversations(ctx, org.ID, agent.ID, "my", nil)
+	if err != nil {
+		t.Fatalf("list my conversations failed: %v", err)
+	}
+	if len(myItems) != 1 {
+		t.Fatalf("expected 1 my conversation, got %d", len(myItems))
+	}
+
+	resolvedItems, err := svc.ListConversations(ctx, org.ID, agent.ID, "resolved", nil)
+	if err != nil {
+		t.Fatalf("list resolved conversations failed: %v", err)
+	}
+	if len(resolvedItems) != 0 {
+		t.Fatalf("expected 0 resolved conversations, got %d", len(resolvedItems))
+	}
+
+	contactID := uint64(42)
+	updated, err = svc.UpdateConversation(ctx, org.ID, owner.ID, conv.ID, UpdateConversationInput{
+		ContactID: &contactID,
+	})
+	if err != nil {
+		t.Fatalf("bind contact to conversation failed: %v", err)
+	}
+	if updated.ContactID == nil || *updated.ContactID != contactID {
+		t.Fatal("expected contact to be bound")
+	}
+
+	linkedItems, err := svc.ListConversations(ctx, org.ID, agent.ID, "all", &contactID)
+	if err != nil {
+		t.Fatalf("list conversations by contact failed: %v", err)
+	}
+	if len(linkedItems) != 1 {
+		t.Fatalf("expected 1 linked conversation, got %d", len(linkedItems))
+	}
+}
+
 func TestServiceRoomOfferAndRecordingArtifacts(t *testing.T) {
 	svc, db, _ := newServiceTestEnv(t)
 	ctx := context.Background()
@@ -196,4 +289,36 @@ func TestServiceRoomOfferAndRecordingArtifacts(t *testing.T) {
 	if !foundManifest {
 		t.Fatal("expected session.json recording artifact")
 	}
+
+	var systemMessages []models.Message
+	if err := db.Where("conversation_id = ? AND type = ?", *roomState.ConversationID, models.MessageTypeSystem).Order("id ASC").Find(&systemMessages).Error; err != nil {
+		t.Fatalf("load system messages failed: %v", err)
+	}
+	if len(systemMessages) == 0 {
+		t.Fatal("expected system messages for room lifecycle")
+	}
+	foundMeetingCreated := false
+	foundRecordingReady := false
+	for _, message := range systemMessages {
+		if strings.Contains(message.MetadataJSON, "meeting.created") {
+			foundMeetingCreated = true
+		}
+		if strings.Contains(message.MetadataJSON, "meeting.recording.ready") {
+			foundRecordingReady = true
+		}
+	}
+	if !foundMeetingCreated {
+		t.Fatal("expected meeting.created system message")
+	}
+	if !foundRecordingReady {
+		t.Fatal("expected meeting.recording.ready system message")
+	}
+}
+
+func ptrString(value string) *string {
+	return &value
+}
+
+func ptrUint64(value uint64) *uint64 {
+	return &value
 }

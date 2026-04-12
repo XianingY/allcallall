@@ -25,10 +25,47 @@ export interface ConversationRecord {
   type: string;
   title: string;
   topic?: string;
+  status: string;
+  assignee_user_id?: number | null;
+  assignee_email?: string;
+  assignee_display_name?: string;
+  priority: string;
+  contact_id?: number | null;
+  last_internal_note_at?: string | null;
   last_message_at?: string | null;
   last_message_preview?: string;
   last_message_type?: string;
   unread_count: number;
+  active_room_id?: number | null;
+  active_room_title?: string;
+  latest_room_id?: number | null;
+  latest_room_title?: string;
+  latest_recording_id?: number | null;
+}
+
+export interface ConversationNoteRecord {
+  id: number;
+  organization_id: number;
+  conversation_id: number;
+  author_id: number;
+  author_email: string;
+  author_display_name: string;
+  body: string;
+  created_at: string;
+}
+
+export interface ConversationFollowupRecord {
+  summary_cn?: string;
+  summary_en?: string;
+  action_items?: string[];
+  next_step?: string;
+}
+
+export interface ConversationDetailRecord {
+  conversation: ConversationRecord;
+  latest_note?: ConversationNoteRecord | null;
+  latest_room?: RoomListItemRecord | null;
+  latest_followup?: ConversationFollowupRecord | null;
 }
 
 export interface MessageRecord {
@@ -49,6 +86,12 @@ export interface RoomMemberRecord {
   room_id: number;
   user_id: number;
   role: string;
+  user_email?: string;
+  user_display_name?: string;
+  audio_enabled?: boolean;
+  video_enabled?: boolean;
+  connection_state?: string;
+  is_host?: boolean;
   joined_at?: string | null;
   left_at?: string | null;
 }
@@ -82,6 +125,10 @@ export interface RecordingFileRecord {
   duration_seconds: number;
   metadata_json?: string;
   created_at: string;
+  download_url: string;
+  file_name: string;
+  file_size_bytes: number;
+  recording_kind: string;
 }
 
 export interface RecordingRecord {
@@ -107,6 +154,65 @@ export interface RoomRecord {
   events: RoomEventRecord[];
   active_recording?: RecordingSessionRecord | null;
   conversation_id?: number | null;
+  conversation_title?: string;
+  participant_count: number;
+  is_active: boolean;
+  has_recording: boolean;
+  latest_recording_id?: number | null;
+}
+
+export interface RoomListItemRecord {
+  id: number;
+  organization_id: number;
+  team_id?: number | null;
+  conversation_id?: number | null;
+  conversation_title?: string;
+  title: string;
+  status: string;
+  created_by: number;
+  started_at?: string | null;
+  ended_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  participant_count: number;
+  is_active: boolean;
+  has_recording: boolean;
+  latest_recording_id?: number | null;
+}
+
+export interface RoomOfferAnswer {
+  type: string;
+  sdp: string;
+}
+
+export interface MeetingJoinOptions {
+  audioEnabled: boolean;
+  videoEnabled: boolean;
+  cameraFacing: "front" | "back";
+  speakerOn: boolean;
+}
+
+export interface MeetingParticipantView {
+  user_id: number;
+  display_name: string;
+  email: string;
+  is_host: boolean;
+  connection_state: string;
+  audio_enabled: boolean;
+  video_enabled: boolean;
+}
+
+export interface MeetingDeviceState {
+  audioEnabled: boolean;
+  videoEnabled: boolean;
+  speakerOn: boolean;
+  cameraFacing: "front" | "back";
+}
+
+export interface MeetingControlState {
+  joined: boolean;
+  joining: boolean;
+  connectionState: "idle" | "connecting" | "connected" | "reconnecting" | "failed";
 }
 
 export interface PipelineStageRecord {
@@ -188,10 +294,21 @@ export const updateOrganizationPolicy = async (
   return response.data.policy;
 };
 
-export const listConversations = async (token: string) => {
+export const listConversations = async (token: string, filter?: string, contactId?: number) => {
   const api = createApiClient(token);
-  const response = await api.get<{ conversations: ConversationRecord[] }>("/conversations");
+  const response = await api.get<{ conversations: ConversationRecord[] }>("/conversations", {
+    params: {
+      ...(filter ? { filter } : {}),
+      ...(contactId ? { contact_id: contactId } : {})
+    }
+  });
   return response.data.conversations;
+};
+
+export const fetchConversationDetail = async (token: string, conversationId: number) => {
+  const api = createApiClient(token);
+  const response = await api.get<{ conversation: ConversationDetailRecord }>(`/conversations/${conversationId}`);
+  return response.data.conversation;
 };
 
 export interface CreateConversationPayload {
@@ -205,6 +322,19 @@ export interface CreateConversationPayload {
 export const createConversation = async (token: string, payload: CreateConversationPayload) => {
   const api = createApiClient(token);
   const response = await api.post<{ conversation: ConversationRecord }>("/conversations", payload);
+  return response.data.conversation;
+};
+
+export interface UpdateConversationPayload {
+  status?: string;
+  assignee_user_id?: number | null;
+  priority?: string;
+  contact_id?: number | null;
+}
+
+export const updateConversation = async (token: string, conversationId: number, payload: UpdateConversationPayload) => {
+  const api = createApiClient(token);
+  const response = await api.patch<{ conversation: ConversationRecord }>(`/conversations/${conversationId}`, payload);
   return response.data.conversation;
 };
 
@@ -227,6 +357,12 @@ export const createRoom = async (token: string, payload: CreateRoomPayload) => {
   return response.data.room;
 };
 
+export const createConversationRoom = async (token: string, conversationId: number, title?: string) => {
+  const api = createApiClient(token);
+  const response = await api.post<{ room: RoomRecord }>(`/conversations/${conversationId}/rooms`, title ? { title } : {});
+  return response.data.room;
+};
+
 export const fetchRoomState = async (token: string, roomId: number) => {
   const api = createApiClient(token);
   const response = await api.get<{ room: RoomRecord }>(`/rooms/${roomId}/state`);
@@ -237,6 +373,34 @@ export const joinRoom = async (token: string, roomId: number) => {
   const api = createApiClient(token);
   const response = await api.post<{ room: RoomRecord }>(`/rooms/${roomId}/join`);
   return response.data.room;
+};
+
+export const sendRoomOffer = async (token: string, roomId: number, sdp: string) => {
+  const api = createApiClient(token);
+  const response = await api.post<{ room: RoomRecord; answer: RoomOfferAnswer }>(`/rooms/${roomId}/offer`, { sdp });
+  return response.data;
+};
+
+export interface RoomIceCandidatePayload {
+  candidate?: string;
+  sdpMid?: string | null;
+  sdpMLineIndex?: number | null;
+}
+
+export interface RoomMediaStatePayload {
+  audio_enabled?: boolean;
+  video_enabled?: boolean;
+  connection_state?: string;
+}
+
+export const addRoomIceCandidate = async (token: string, roomId: number, payload: RoomIceCandidatePayload) => {
+  const api = createApiClient(token);
+  await api.post(`/rooms/${roomId}/ice`, payload);
+};
+
+export const updateRoomMediaState = async (token: string, roomId: number, payload: RoomMediaStatePayload) => {
+  const api = createApiClient(token);
+  await api.post(`/rooms/${roomId}/media`, payload);
 };
 
 export const leaveRoom = async (token: string, roomId: number) => {
@@ -305,6 +469,18 @@ export const createMessage = async (token: string, conversationId: number, paylo
 export const markConversationRead = async (token: string, conversationId: number) => {
   const api = createApiClient(token);
   await api.post(`/conversations/${conversationId}/read`);
+};
+
+export const listConversationNotes = async (token: string, conversationId: number) => {
+  const api = createApiClient(token);
+  const response = await api.get<{ notes: ConversationNoteRecord[] }>(`/conversations/${conversationId}/notes`);
+  return response.data.notes;
+};
+
+export const createConversationNote = async (token: string, conversationId: number, body: string) => {
+  const api = createApiClient(token);
+  const response = await api.post<{ note: ConversationNoteRecord }>(`/conversations/${conversationId}/notes`, { body });
+  return response.data.note;
 };
 
 export const listPipelines = async (token: string) => {

@@ -8,17 +8,25 @@ import { AuthProvider } from "./src/context/AuthContext";
 import { CommercialProvider } from "./src/context/CommercialContext";
 import { FollowUpProvider } from "./src/context/FollowUpContext";
 import { OrganizationProvider } from "./src/context/OrganizationContext";
+import RoomCallProvider from "./src/context/RoomCallContext";
 import { SignalingProvider } from "./src/context/SignalingContext";
 import { SettingsProvider } from "./src/context/SettingsContext";
 import AppNavigator from "./src/navigation/AppNavigator";
 import { navigationRef } from "./src/navigation/navigationRef";
 import PushNotificationService from "./src/services/PushNotificationService";
 import CallOverlay from "./src/components/CallOverlay";
-import { parseInvitationCodeFromURL } from "./src/utils/invitations";
+import { parseInvitationCodeFromURL, parseRoomIdFromURL } from "./src/utils/invitations";
 
 const App = () => {
   React.useEffect(() => {
     const handleURL = (url: string | null | undefined) => {
+      const roomId = parseRoomIdFromURL(url);
+      if (roomId) {
+        if (navigationRef.isReady()) {
+          navigationRef.navigate("PreJoin", { roomId });
+        }
+        return;
+      }
       const code = parseInvitationCodeFromURL(url);
       if (!code) {
         return;
@@ -50,13 +58,15 @@ const App = () => {
           <CommercialProvider>
             <FollowUpProvider>
               <SettingsProvider>
-                <SignalingProvider>
-                  <NavigationContainer ref={navigationRef}>
-                    <AppNavigator />
-                    <CallOverlay />
-                    <StatusBar style="auto" />
-                  </NavigationContainer>
-                </SignalingProvider>
+                <RoomCallProvider>
+                  <SignalingProvider>
+                    <NavigationContainer ref={navigationRef}>
+                      <AppNavigator />
+                      <CallOverlay />
+                      <StatusBar style="auto" />
+                    </NavigationContainer>
+                  </SignalingProvider>
+                </RoomCallProvider>
               </SettingsProvider>
             </FollowUpProvider>
           </CommercialProvider>

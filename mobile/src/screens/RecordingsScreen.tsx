@@ -28,13 +28,13 @@ const RecordingsScreen: React.FC = () => {
     }
   }, [token]);
 
-  const handleDownload = useCallback(async (recordingId: number, fileId: number, objectKey: string) => {
+  const handleDownload = useCallback(async (recordingId: number, fileId: number, fileName: string) => {
     if (!token) {
       return;
     }
     try {
       const request = buildRecordingDownloadRequest(token, recordingId, fileId);
-      const destination = `${RNFS.DocumentDirectoryPath}/${objectKey.split("/").pop() ?? `recording-${fileId}`}`;
+      const destination = `${RNFS.DocumentDirectoryPath}/${fileName || `recording-${fileId}`}`;
       const result = await RNFS.downloadFile({
         ...request,
         toFile: destination,
@@ -74,11 +74,12 @@ const RecordingsScreen: React.FC = () => {
             <Text style={styles.meta}>文件数 {item.files.length}</Text>
             {item.files.map((file) => (
               <View key={file.id} style={styles.fileRow}>
-                <Text style={styles.fileType}>{file.content_type}</Text>
-                <Text style={styles.filePath}>{file.object_key}</Text>
+                <Text style={styles.fileType}>{file.recording_kind} · {file.content_type}</Text>
+                <Text style={styles.filePath}>{file.file_name}</Text>
+                <Text style={styles.meta}>大小 {file.file_size_bytes} bytes · 时长 {file.duration_seconds}s</Text>
                 <PrimaryButton
                   title="下载"
-                  onPress={() => void handleDownload(item.session.id, file.id, file.object_key)}
+                  onPress={() => void handleDownload(item.session.id, file.id, file.file_name)}
                   style={styles.downloadButton}
                 />
               </View>

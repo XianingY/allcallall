@@ -12,3 +12,20 @@ export const parseInvitationCodeFromURL = (value: string | null | undefined) => 
   }
   return null;
 };
+
+export const parseRoomIdFromURL = (value: string | null | undefined) => {
+  if (!value) {
+    return null;
+  }
+  const marker = "/rooms/";
+  const index = value.indexOf(marker);
+  if (index >= 0) {
+    const parsed = Number(value.slice(index + marker.length).split(/[?#]/)[0]);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (value.startsWith("allcallall://rooms/")) {
+    const parsed = Number(value.replace("allcallall://rooms/", "").split(/[?#]/)[0]);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
