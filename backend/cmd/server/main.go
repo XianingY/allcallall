@@ -15,14 +15,17 @@ import (
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/cache"
 	"github.com/allcallall/backend/internal/config"
+	"github.com/allcallall/backend/internal/commerce"
 	"github.com/allcallall/backend/internal/contact"
 	"github.com/allcallall/backend/internal/database"
 	"github.com/allcallall/backend/internal/fcm"
 	"github.com/allcallall/backend/internal/handlers"
 	"github.com/allcallall/backend/internal/logger"
 	"github.com/allcallall/backend/internal/mail"
+	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/presence"
+	"github.com/allcallall/backend/internal/ratelimit"
 	"github.com/allcallall/backend/internal/server"
 	"github.com/allcallall/backend/internal/signaling"
 	"github.com/allcallall/backend/internal/translation"
@@ -39,6 +42,7 @@ func main() {
 	}
 
 	appLogger := logger.New(cfg.Logging.Level)
+	counterStore := metrics.NewCounterStore()
 
 	mode := os.Getenv("GIN_MODE")
 	if mode == "" {
@@ -46,7 +50,7 @@ func main() {
 	}
 	gin.SetMode(mode)
 
-	engine := server.NewEngine(appLogger)
+	engine := server.NewEngine(appLogger, counterStore)
 
 	// 健康检查接口
 	engine.GET("/ping", func(ctx *gin.Context) {
@@ -64,7 +68,20 @@ func main() {
 	defer sqlDB.Close()
 	appLogger.Info().Msg("mysql connection established")
 
-	if err := db.AutoMigrate(&models.User{}, &models.Contact{}, &models.EmailVerificationCode{}, &models.EmailSendLog{}); err != nil {
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.Contact{},
+		&models.EmailVerificationCode{},
+		&models.EmailSendLog{},
+		&models.CallSession{},
+		&models.UserBlock{},
+		&models.AbuseReport{},
+		&models.LegalAcceptance{},
+		&models.UserEntitlement{},
+		&models.UsageLedger{},
+		&models.BillingWebhookEvent{},
+		&models.DeletionAudit{},
+	); err != nil {
 		appLogger.Fatal().Err(err).Msg("auto migrate failed")
 	}
 
@@ -81,10 +98,12 @@ func main() {
 		}
 	}()
 
+	rateLimitSvc := ratelimit.NewService(redisClient)
+	commerceSvc := commerce.NewService(db)
 	userRepo := user.NewRepository(db)
 	userSvc := user.NewService(userRepo)
 	contactRepo := contact.NewRepository(db)
-	contactSvc := contact.NewService(contactRepo, userSvc)
+	contactSvc := contact.NewService(contactRepo, userSvc, commerceSvc)
 
 	// 初始化邮件服务
 	// Initialize mail service
@@ -118,7 +137,12 @@ func main() {
 	emailHandler := handlers.NewEmailHandler(appLogger, verificationCodeSvc)
 	presenceManager := presence.NewManager(redisClient, appLogger, userSvc)
 
-	userHandler := handlers.NewUserHandler(appLogger, userSvc, presenceManager, contactSvc)
+	userHandler := handlers.NewUserHandler(appLogger, userSvc, presenceManager, contactSvc, handlers.UserHandlerOptions{
+		Commerce: commerceSvc,
+		Limits:   rateLimitSvc,
+		Metrics:  counterStore,
+	})
+	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, rateLimitSvc, counterStore)
 	webrtcHandler := handlers.NewWebRTCHandler(appLogger, cfg.WebRTC)
 	signalingHub := signaling.NewHub(redisClient, appLogger, presenceManager)
 
@@ -130,6 +154,7 @@ func main() {
 	}
 	signalingHub.WithUserService(userSvc)
 	signalingHub.WithFCMManager(fcmManager)
+	signalingHub.WithCommercialService(commerceSvc, counterStore)
 
 	// 初始化 Pion WebRTC 媒体引擎
 	// Initialize Pion WebRTC media engine
@@ -164,7 +189,10 @@ func main() {
 		}
 
 		if translationProvider != nil {
-			translationSvc := translation.NewService(appLogger, translationProvider, cfg.Translation.MaxSessionsPerUser)
+			translationSvc := translation.NewService(appLogger, translationProvider, cfg.Translation.MaxSessionsPerUser, translation.Dependencies{
+				Commerce: commerceSvc,
+				Users:    userSvc,
+			})
 			translationWSHandler = handlers.NewTranslationWSHandler(appLogger, translationSvc, signalingHub)
 			appLogger.Info().
 				Str("provider", translationProvider.Name()).
@@ -177,11 +205,13 @@ func main() {
 		AuthHandler:      authHandler,
 		EmailHandler:     emailHandler,
 		UserHandler:      userHandler,
+		Commercial:       commercialHandler,
 		SignalingHandler: signalingHandler,
 		SignalingPoll:    signalingPollHandler,
 		WebRTCHandler:    webrtcHandler,
 		TranslationWS:    translationWSHandler,
 		AuthMiddleware:   auth.Middleware(jwtManager),
+		Metrics:          counterStore,
 	})
 
 	httpServer := &http.Server{

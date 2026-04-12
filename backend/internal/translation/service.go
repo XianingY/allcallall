@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/allcallall/backend/internal/commerce"
+	"github.com/allcallall/backend/internal/user"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -26,21 +28,39 @@ type Service struct {
 	logger             zerolog.Logger
 	provider           Provider
 	maxSessionsPerUser int
+	commercial         *commerce.Service
+	users              *user.Service
 
 	mu                 sync.Mutex
 	sessionCountByUser map[string]int
 }
 
+type Dependencies struct {
+	Commerce *commerce.Service
+	Users    *user.Service
+}
+
 // NewService 创建翻译服务
 // NewService initializes translation service.
-func NewService(log zerolog.Logger, provider Provider, maxSessionsPerUser int) *Service {
+func NewService(
+	log zerolog.Logger,
+	provider Provider,
+	maxSessionsPerUser int,
+	deps ...Dependencies,
+) *Service {
 	if maxSessionsPerUser <= 0 {
 		maxSessionsPerUser = 2
+	}
+	var dep Dependencies
+	if len(deps) > 0 {
+		dep = deps[0]
 	}
 	return &Service{
 		logger:             log.With().Str("component", "translation_service").Logger(),
 		provider:           provider,
 		maxSessionsPerUser: maxSessionsPerUser,
+		commercial:         dep.Commerce,
+		users:              dep.Users,
 		sessionCountByUser: make(map[string]int),
 	}
 }
@@ -53,6 +73,17 @@ func (s *Service) StartSession(ctx context.Context, owner string, req StartReque
 	}
 	if err := validateStartRequest(req); err != nil {
 		return nil, err
+	}
+	if s.commercial != nil {
+		userID := req.OwnerID
+		if userID == 0 {
+			var err error
+			userID, err = parseOwnerUserID(ctx, s.users, owner)
+			if err != nil {
+				return nil, err
+			}
+		}
+		req.OwnerID = userID
 	}
 
 	s.mu.Lock()
@@ -67,7 +98,12 @@ func (s *Service) StartSession(ctx context.Context, owner string, req StartReque
 	sessionID := uuid.NewString()
 	session := newSession(sessionID, owner, req, func() {
 		s.releaseSession(owner)
-	})
+	}, func(hookCtx context.Context, deltaMinutes int64) error {
+		if s.commercial == nil || req.OwnerID == 0 {
+			return nil
+		}
+		return s.commercial.ConsumeTranslationMinutes(hookCtx, req.OwnerID, deltaMinutes)
+	}, 0)
 
 	providerSession, err := s.provider.Start(ctx, sessionID, req, session.emit)
 	if err != nil {
@@ -86,6 +122,17 @@ func (s *Service) StartSession(ctx context.Context, owner string, req StartReque
 		Msg("translation session started")
 
 	return session, nil
+}
+
+func parseOwnerUserID(ctx context.Context, users *user.Service, owner string) (uint64, error) {
+	if users == nil {
+		return 0, errors.New("user service not configured")
+	}
+	userModel, err := users.GetByEmail(ctx, owner)
+	if err != nil {
+		return 0, err
+	}
+	return userModel.ID, nil
 }
 
 func (s *Service) releaseSession(owner string) {

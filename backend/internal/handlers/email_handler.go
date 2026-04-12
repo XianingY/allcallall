@@ -31,13 +31,15 @@ func NewEmailHandler(
 
 // sendVerificationCodeRequest 发送验证码请求
 type sendVerificationCodeRequest struct {
-	Email string `json:"email" binding:"required,email"`
+	Email   string `json:"email" binding:"required,email"`
+	Purpose string `json:"purpose"`
 }
 
 // verifyCodeRequest 验证码校验请求
 type verifyCodeRequest struct {
-	Email string `json:"email" binding:"required,email"`
-	Code  string `json:"code" binding:"required,len=6,numeric"`
+	Email   string `json:"email" binding:"required,email"`
+	Code    string `json:"code" binding:"required,len=6,numeric"`
+	Purpose string `json:"purpose"`
 }
 
 // successResponse 通用成功响应
@@ -61,7 +63,7 @@ func (h *EmailHandler) handleSendVerificationCode(c *gin.Context) {
 		return
 	}
 
-	if err := h.verificationCodeService.GenerateAndSend(req.Email); err != nil {
+	if err := h.verificationCodeService.GenerateAndSendForPurpose(req.Email, req.Purpose); err != nil {
 		h.logger.Warn().Err(err).Str("email", req.Email).Msg("send verification code failed")
 
 		// 根据错误类型返回不同的状态码
@@ -88,7 +90,7 @@ func (h *EmailHandler) handleVerifyCode(c *gin.Context) {
 		return
 	}
 
-	if err := h.verificationCodeService.Verify(req.Email, req.Code); err != nil {
+	if err := h.verificationCodeService.VerifyForPurpose(req.Email, req.Code, req.Purpose); err != nil {
 		h.logger.Warn().Err(err).Str("email", req.Email).Msg("verification code check failed")
 
 		// 根据错误类型返回不同的状态码

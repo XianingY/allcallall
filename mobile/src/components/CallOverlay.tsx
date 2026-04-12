@@ -8,6 +8,7 @@ import { useSubtitleStore } from "../store/useSubtitleStore";
 import { E2EEIndicator } from "./E2EEIndicator";
 import TranslationControl from "./translation/TranslationControl";
 import TranslationOverlay from "./translation/TranslationOverlay";
+import { navigationRef } from "../navigation/navigationRef";
 
 const CallOverlay: React.FC = () => {
   const {
@@ -35,10 +36,14 @@ const CallOverlay: React.FC = () => {
     translationOnlineStatus,
     translationInitStatus,
     translationInitError,
+    translationQuotaRemaining,
+    translationRequiresPremium,
+    translationPaywallReason,
     toggleTranslation,
     setTranslationLanguage,
     setTranslationSourceLanguage,
-    retryTranslationInitialization
+    retryTranslationInitialization,
+    dismissTranslationPaywall
   } = useSignaling();
   const subtitles = useSubtitleStore((state) => state.subtitles);
 
@@ -226,6 +231,13 @@ const CallOverlay: React.FC = () => {
                 translationServiceError={translationInitError}
                 onRetryInitialize={() => {
                   void retryTranslationInitialization();
+                }}
+                quotaRemaining={translationQuotaRemaining}
+                premiumRequired={translationRequiresPremium}
+                paywallReason={translationPaywallReason}
+                onUpgradePress={() => {
+                  dismissTranslationPaywall();
+                  navigationRef.current?.navigate("Subscription");
                 }}
               />
             </View>

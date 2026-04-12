@@ -8,6 +8,7 @@ type EmailVerificationCode struct {
 	ID            uint64 `gorm:"primaryKey;autoIncrement"`
 	Email         string `gorm:"size:255;uniqueIndex:idx_email_code;not null;index:idx_email_created"`
 	Code          string `gorm:"size:6;index:idx_email_code;not null"`
+	Purpose       string `gorm:"size:50;not null;default:'register';index:idx_email_purpose"`
 	IsVerified    bool   `gorm:"default:false;index"`
 	VerifiedAt    *time.Time
 	ConsumedAt    *time.Time `gorm:"index"`

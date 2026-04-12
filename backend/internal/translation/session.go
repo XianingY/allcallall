@@ -13,6 +13,7 @@ import (
 type Session struct {
 	ID         string
 	Owner      string
+	OwnerID    uint64
 	CallID     string
 	To         string
 	SourceLang string
@@ -26,6 +27,10 @@ type Session struct {
 	eventsMu sync.RWMutex
 	closed   atomic.Bool
 	onClose  func()
+
+	usageMu           sync.Mutex
+	chargedMinutes    int64
+	usageChargeHook   func(ctx context.Context, deltaMinutes int64) error
 }
 
 func newSession(
@@ -33,10 +38,13 @@ func newSession(
 	owner string,
 	req StartRequest,
 	onClose func(),
+	usageChargeHook func(ctx context.Context, deltaMinutes int64) error,
+	initialChargedMinutes int64,
 ) *Session {
 	return &Session{
 		ID:         sessionID,
 		Owner:      owner,
+		OwnerID:    req.OwnerID,
 		CallID:     req.CallID,
 		To:         req.To,
 		SourceLang: req.SourceLang,
@@ -44,6 +52,8 @@ func newSession(
 		CreatedAt:  time.Now().UTC(),
 		events:     make(chan Event, 32),
 		onClose:    onClose,
+		chargedMinutes: initialChargedMinutes,
+		usageChargeHook: usageChargeHook,
 	}
 }
 
@@ -92,6 +102,9 @@ func (s *Session) SendAudio(ctx context.Context, chunk AudioChunk) error {
 	if s.closed.Load() {
 		return errors.New("translation session already closed")
 	}
+	if err := s.chargeUsage(ctx); err != nil {
+		return err
+	}
 
 	s.providerMu.RLock()
 	provider := s.provider
@@ -100,6 +113,26 @@ func (s *Session) SendAudio(ctx context.Context, chunk AudioChunk) error {
 		return errors.New("translation provider session not initialized")
 	}
 	return provider.SendAudio(ctx, chunk)
+}
+
+func (s *Session) chargeUsage(ctx context.Context) error {
+	if s.usageChargeHook == nil {
+		return nil
+	}
+
+	s.usageMu.Lock()
+	defer s.usageMu.Unlock()
+
+	elapsedMinutes := int64(time.Since(s.CreatedAt).Minutes()) + 1
+	delta := elapsedMinutes - s.chargedMinutes
+	if delta <= 0 {
+		return nil
+	}
+	if err := s.usageChargeHook(ctx, delta); err != nil {
+		return err
+	}
+	s.chargedMinutes = elapsedMinutes
+	return nil
 }
 
 // Stop 停止会话

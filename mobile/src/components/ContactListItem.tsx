@@ -12,13 +12,17 @@ interface Props {
   };
   onCall: (email: string) => void;
   onRemove: (contact: User) => void;
+  onBlock?: (contact: User) => void;
+  onReport?: (contact: User) => void;
 }
 
 const ContactListItem: React.FC<Props> = ({
   contact,
   presence,
   onCall,
-  onRemove
+  onRemove,
+  onBlock,
+  onReport
 }) => {
   return (
     <View style={styles.container}>
@@ -43,6 +47,22 @@ const ContactListItem: React.FC<Props> = ({
         >
           <Text style={styles.buttonText}>删除 / Remove</Text>
         </TouchableOpacity>
+        {onBlock ? (
+          <TouchableOpacity
+            style={[styles.button, styles.block]}
+            onPress={() => onBlock(contact)}
+          >
+            <Text style={styles.buttonText}>拉黑</Text>
+          </TouchableOpacity>
+        ) : null}
+        {onReport ? (
+          <TouchableOpacity
+            style={[styles.button, styles.report]}
+            onPress={() => onReport(contact)}
+          >
+            <Text style={styles.buttonText}>举报</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     </View>
   );
@@ -87,6 +107,12 @@ const styles = StyleSheet.create({
   },
   remove: {
     backgroundColor: "#dc2626"
+  },
+  block: {
+    backgroundColor: "#6b21a8"
+  },
+  report: {
+    backgroundColor: "#d97706"
   },
   buttonText: {
     color: "#fff",

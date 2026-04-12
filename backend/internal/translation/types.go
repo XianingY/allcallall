@@ -5,6 +5,7 @@ import "context"
 // StartRequest 翻译会话启动参数
 // StartRequest defines session-level translation options.
 type StartRequest struct {
+	OwnerID    uint64
 	CallID     string
 	To         string
 	SourceLang string

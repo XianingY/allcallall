@@ -45,6 +45,7 @@ var ErrEmailAlreadyUsed = errors.New("email already registered")
 // ErrInvalidCredentials 凭证无效
 // ErrInvalidCredentials indicates wrong password or email.
 var ErrInvalidCredentials = errors.New("invalid credentials")
+var ErrUserDeleted = errors.New("user account deleted")
 
 // Register 注册用户
 // Register creates a new user with hashed password.
@@ -67,6 +68,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*models.User,
 		Email:        in.Email,
 		PasswordHash: string(hash),
 		DisplayName:  in.DisplayName,
+		Status:       models.UserStatusActive,
 	}
 
 	if err := s.repo.Create(ctx, user); err != nil {
@@ -85,6 +87,9 @@ func (s *Service) Authenticate(ctx context.Context, in LoginInput) (*models.User
 			return nil, ErrInvalidCredentials
 		}
 		return nil, err
+	}
+	if user.Status == models.UserStatusDeleted {
+		return nil, ErrUserDeleted
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(in.Password)); err != nil {
@@ -175,4 +180,16 @@ func (s *Service) GetFCMToken(ctx context.Context, userID uint64) (string, error
 		return "", err
 	}
 	return user.FCMToken, nil
+}
+
+// ResetPassword updates password hash after purpose-scoped verification succeeded.
+func (s *Service) ResetPassword(ctx context.Context, userID uint64, newPassword string) error {
+	if err := ValidatePasswordStrength(newPassword); err != nil {
+		return err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return s.repo.ResetPasswordHash(ctx, userID, string(hash))
 }

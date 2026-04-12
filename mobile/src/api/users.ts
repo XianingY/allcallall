@@ -4,6 +4,8 @@ export interface User {
   id: number;
   email: string;
   display_name: string;
+  status?: string;
+  deleted_at?: string | null;
 }
 
 export interface PresenceRecord {

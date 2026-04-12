@@ -97,3 +97,21 @@ func (r *Repository) UpdateFCMToken(ctx context.Context, userID uint64, fcmToken
 		Where("id = ?", userID).
 		Update("fcm_token", fcmToken).Error
 }
+
+// ResetPasswordHash updates password hash without validating previous password.
+func (r *Repository) ResetPasswordHash(ctx context.Context, userID uint64, passwordHash string) error {
+	return r.db.WithContext(ctx).Model(&models.User{}).
+		Where("id = ?", userID).
+		Update("password_hash", passwordHash).Error
+}
+
+// UpdateAccountStatus updates user lifecycle status and deleted timestamp.
+func (r *Repository) UpdateAccountStatus(ctx context.Context, userID uint64, status string, deletedAt *time.Time) error {
+	updates := map[string]any{
+		"status":     status,
+		"deleted_at": deletedAt,
+	}
+	return r.db.WithContext(ctx).Model(&models.User{}).
+		Where("id = ?", userID).
+		Updates(updates).Error
+}

@@ -31,6 +31,10 @@ interface TranslationControlProps {
   isTranslating?: boolean;
   detectedLanguage?: string;
   onPlayAudio?: () => void;
+  quotaRemaining?: number | null;
+  premiumRequired?: boolean;
+  paywallReason?: string | null;
+  onUpgradePress?: () => void;
 }
 
 const SUPPORTED_LANGUAGES = [
@@ -74,6 +78,10 @@ const TranslationControl: React.FC<TranslationControlProps> = ({
   translationServiceStatus = 'idle',
   translationServiceError = null,
   onRetryInitialize,
+  quotaRemaining = null,
+  premiumRequired = false,
+  paywallReason = null,
+  onUpgradePress,
 }) => {
   const [pickerType, setPickerType] = useState<'source' | 'target' | null>(null);
 
@@ -143,6 +151,23 @@ const TranslationControl: React.FC<TranslationControlProps> = ({
               {onRetryInitialize ? (
                 <TouchableOpacity style={styles.retryButton} onPress={onRetryInitialize}>
                   <Text style={styles.retryButtonText}>重试</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
+
+          {quotaRemaining !== null ? (
+            <View style={styles.quotaBox}>
+              <Text style={styles.quotaText}>免费翻译剩余 {quotaRemaining} 分钟</Text>
+            </View>
+          ) : null}
+
+          {premiumRequired && paywallReason ? (
+            <View style={styles.paywallBox}>
+              <Text style={styles.paywallText}>{paywallReason}</Text>
+              {onUpgradePress ? (
+                <TouchableOpacity style={styles.upgradeButton} onPress={onUpgradePress}>
+                  <Text style={styles.upgradeButtonText}>升级 Premium</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -283,6 +308,40 @@ const styles = StyleSheet.create({
     color: '#fecaca',
     fontSize: 12,
     flex: 1
+  },
+  quotaBox: {
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(30, 64, 175, 0.18)'
+  },
+  quotaText: {
+    color: '#bfdbfe',
+    fontSize: 12
+  },
+  paywallBox: {
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(251, 191, 36, 0.2)'
+  },
+  paywallText: {
+    color: '#fde68a',
+    fontSize: 12,
+    lineHeight: 18
+  },
+  upgradeButton: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    backgroundColor: '#f59e0b',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6
+  },
+  upgradeButtonText: {
+    color: '#111827',
+    fontSize: 12,
+    fontWeight: '800'
   },
   retryButton: {
     backgroundColor: '#ef4444',

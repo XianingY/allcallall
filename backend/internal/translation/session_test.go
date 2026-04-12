@@ -13,7 +13,7 @@ func TestSessionSendAudioAndStop(t *testing.T) {
 		SourceLang: "zh",
 		TargetLang: "en",
 		ChunkMS:    400,
-	}, nil)
+	}, nil, nil, 0)
 	session.setProvider(provider)
 
 	if err := session.SendAudio(context.Background(), AudioChunk{Seq: 1, PCM16Base64: "AA==", SampleRate: 16000, Channels: 1, TimestampMS: 1}); err != nil {

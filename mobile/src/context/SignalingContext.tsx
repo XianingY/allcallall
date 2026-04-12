@@ -35,6 +35,7 @@ import {
 } from "../config";
 import { fetchWebRTCConfig } from "../api/webrtc";
 import { useAuthContext } from "./AuthContext";
+import { useCommercial } from "./CommercialContext";
 import { useSettings } from "./SettingsContext";
 import AudioService from "../services/AudioServiceExpo";
 import VibrationService from "../services/VibrationService";
@@ -85,6 +86,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   children
 }) => {
   const { token } = useAuthContext();
+  const { tier, usage, refreshCommercialState } = useCommercial();
   const { settings } = useSettings();
   const [status, setStatus] = useState<CallStatus>("idle");
   const [session, setSession] = useState<CallSession | null>(null);
@@ -112,6 +114,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const [translationOnlineStatus, setTranslationOnlineStatus] = useState<OnlineTranslationStatus>("idle");
   const [translationInitStatus, setTranslationInitStatus] = useState<TranslationInitStatus>("idle");
   const [translationInitError, setTranslationInitError] = useState<string | null>(null);
+  const [translationPaywallReason, setTranslationPaywallReason] = useState<string | null>(null);
 
   const [e2eeEnabled, setE2eeEnabled] = useState<boolean>(false);
   const [e2eeFingerprint, setE2eeFingerprint] = useState<string | null>(null);
@@ -145,6 +148,15 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     setIsSpeakerOn(AudioService.getSpeakerphone());
   }, []);
+
+  const translationQuota = useMemo(
+    () => usage.find((item) => item.feature === "translation_minutes"),
+    [usage]
+  );
+  const translationQuotaRemaining = translationQuota?.unlimited
+    ? null
+    : translationQuota?.remaining_units ?? null;
+  const translationRequiresPremium = tier !== "premium" && translationQuotaRemaining === 0;
 
   useEffect(() => {
     sessionRef.current = session;
@@ -995,6 +1007,12 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
             }
           },
           onProviderError: (code, message, recoverable) => {
+            if (message.toLowerCase().includes("quota")) {
+              setTranslationPaywallReason("本月免费翻译时长已用尽，升级 Premium 后可继续使用实时翻译。");
+              setTranslationEnabled(false);
+              void refreshCommercialState();
+              return;
+            }
             setTranslationInitError(`${code}: ${message}`);
             if (!recoverable) {
               setTranslationInitStatus("failed");
@@ -1035,7 +1053,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       setTranslationOnlineStatus("error");
       return false;
     }
-  }, [pushLocalSubtitle, sendFinalSubtitleToPeer, token, translationLanguage, translationSourceLanguage]);
+  }, [pushLocalSubtitle, refreshCommercialState, sendFinalSubtitleToPeer, token, translationLanguage, translationSourceLanguage]);
 
   const retryTranslationInitialization = useCallback(async () => {
     if (!translationEnabled || statusRef.current !== "in_call") {
@@ -1054,14 +1072,22 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       await stopOnlinePipeline();
       setTranslationInitStatus("idle");
       setTranslationInitError(null);
+      setTranslationPaywallReason(null);
       useSubtitleStore.getState().clearSubtitles();
+      return;
+    }
+
+    if (translationRequiresPremium) {
+      setTranslationPaywallReason("本月免费翻译时长已用尽，升级 Premium 后可继续使用实时翻译。");
+      setTranslationEnabled(false);
       return;
     }
 
     setTranslationEnabled(true);
     setTranslationInitStatus("idle");
     setTranslationInitError(null);
-  }, [stopOnlinePipeline]);
+    setTranslationPaywallReason(null);
+  }, [stopOnlinePipeline, translationRequiresPremium]);
 
   useEffect(() => {
     if (!translationEnabled || status !== "in_call" || !sessionRef.current?.peerEmail) {
@@ -1112,14 +1138,15 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   const value = useMemo<SignalingContextValue>(() => ({
     status, session, connectionReady, localStream, remoteStream, networkQuality, isVideoEnabled, isAudioEnabled, isRemoteVideoEnabled, isRemoteAudioEnabled, cameraFacing,
     videoQuality, setVideoQuality, videoMaxBitrateKbps, setVideoMaxBitrateKbps, e2eeEnabled, e2eeFingerprint, e2eeSessionEstablished, translationEnabled, translationLanguage,
-    translationSourceLanguage, translationMode, translationOnlineStatus, translationInitStatus, translationInitError,
+    translationSourceLanguage, translationMode, translationOnlineStatus, translationInitStatus, translationInitError, translationQuotaRemaining, translationRequiresPremium, translationPaywallReason,
     startCall, acceptCall, rejectCall, endCall, toggleVideo, toggleAudio, switchCamera, toggleSpeaker, isSpeakerOn, toggleTranslation,
     setTranslationLanguage: setTranslationLanguage,
     setTranslationSourceLanguage: setTranslationSourceLanguage,
-    retryTranslationInitialization
+    retryTranslationInitialization,
+    dismissTranslationPaywall: () => setTranslationPaywallReason(null)
   }), [status, session, connectionReady, localStream, remoteStream, networkQuality, isVideoEnabled, isAudioEnabled, isRemoteVideoEnabled, isRemoteAudioEnabled, cameraFacing,
     videoQuality, videoMaxBitrateKbps, e2eeEnabled, e2eeFingerprint, e2eeSessionEstablished, translationEnabled, translationLanguage, translationSourceLanguage, translationMode,
-    translationOnlineStatus, translationInitStatus, translationInitError,
+    translationOnlineStatus, translationInitStatus, translationInitError, translationQuotaRemaining, translationRequiresPremium, translationPaywallReason,
     startCall, acceptCall, rejectCall, endCall, toggleVideo, toggleAudio, switchCamera, toggleSpeaker, isSpeakerOn, toggleTranslation, retryTranslationInitialization]);
 
   return <SignalingContext.Provider value={value}>{children}</SignalingContext.Provider>;

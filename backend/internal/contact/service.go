@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/allcallall/backend/internal/commerce"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/user"
 )
@@ -11,15 +12,21 @@ import (
 // Service 联系人业务逻辑
 // Service coordinates contact operations with user service.
 type Service struct {
-	repo  *Repository
-	users *user.Service
+	repo       *Repository
+	users      *user.Service
+	commercial *commerce.Service
 }
 
 // NewService 构造函数
-func NewService(repo *Repository, users *user.Service) *Service {
+func NewService(repo *Repository, users *user.Service, commercial ...*commerce.Service) *Service {
+	var commercialSvc *commerce.Service
+	if len(commercial) > 0 {
+		commercialSvc = commercial[0]
+	}
 	return &Service{
-		repo:  repo,
-		users: users,
+		repo:       repo,
+		users:      users,
+		commercial: commercialSvc,
 	}
 }
 
@@ -37,6 +44,15 @@ func (s *Service) AddByEmail(ctx context.Context, ownerID uint64, ownerEmail, ta
 	}
 	if target.ID == ownerID {
 		return ErrSelfContact
+	}
+	if s.commercial != nil {
+		blocked, err := s.commercial.AreUsersBlocked(ctx, ownerID, target.ID)
+		if err != nil {
+			return err
+		}
+		if blocked {
+			return commerce.ErrUserBlocked
+		}
 	}
 
 	exists, err := s.repo.ContactExists(ctx, ownerID, target.ID)

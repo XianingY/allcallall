@@ -144,6 +144,10 @@ func (h *AuthHandler) handleLogin(c *gin.Context) {
 			JSONError(c, http.StatusUnauthorized, "invalid credentials")
 			return
 		}
+		if err == user.ErrUserDeleted {
+			JSONError(c, http.StatusForbidden, "account deleted")
+			return
+		}
 		h.logger.Error().Err(err).Msg("login failed")
 		JSONError(c, http.StatusInternalServerError, "failed to login")
 		return

@@ -10,6 +10,7 @@ import * as Keychain from "react-native-keychain";
 
 import * as authApi from "../api/auth";
 import { User } from "../api/users";
+import BillingService from "../services/BillingService";
 import PushNotificationService from "../services/PushNotificationService";
 
 const KEYCHAIN_SERVICE = "com.allcallall.auth";
@@ -78,6 +79,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         loading: false
       });
       PushNotificationService.setAuthToken(parsed.token);
+      await BillingService.initialize(`user:${parsed.user.id}`);
     } catch (error) {
       console.warn("Failed to load auth state from secure storage", error);
       setState((current) => ({ ...current, loading: false }));
@@ -91,6 +93,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const persistState = useCallback(async (token: string, user: User) => {
     setState({ token, user, loading: false });
     PushNotificationService.setAuthToken(token);
+    await BillingService.initialize(`user:${user.id}`);
 
     // 存储到安全存储（支持生物识别）
     // Store to secure storage (with biometric protection)
@@ -124,6 +127,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const clearState = useCallback(async () => {
     setState({ token: null, user: null, loading: false });
     PushNotificationService.setAuthToken(null);
+    await BillingService.logout();
     await Keychain.resetGenericPassword({ service: KEYCHAIN_SERVICE });
   }, []);
 

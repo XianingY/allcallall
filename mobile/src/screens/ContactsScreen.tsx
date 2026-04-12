@@ -20,6 +20,7 @@ import {
   User,
   PresenceRecord
 } from "../api/users";
+import { createAbuseReport, createBlock } from "../api/commercial";
 import ContactListItem from "../components/ContactListItem";
 import PrimaryButton from "../components/PrimaryButton";
 import TextField from "../components/TextField";
@@ -150,6 +151,69 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
     [loadContacts, loadPresence, token]
   );
 
+  const handleBlockUser = useCallback(
+    (contact: User) => {
+      if (!token) {
+        return;
+      }
+      Alert.alert(
+        "拉黑用户 / Block User",
+        `拉黑后 ${contact.display_name || contact.email} 将无法搜索、加联系人或呼叫你。`,
+        [
+          { text: "取消", style: "cancel" },
+          {
+            text: "确认拉黑",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await createBlock(token, contact.id);
+                await removeContact(token, contact.id);
+                await loadContacts();
+                Alert.alert("已拉黑", "该用户已被加入黑名单。");
+              } catch (error) {
+                console.error("[ContactsScreen] Failed to block user:", error);
+                Alert.alert("操作失败", "无法拉黑该用户。");
+              }
+            }
+          }
+        ]
+      );
+    },
+    [loadContacts, token]
+  );
+
+  const handleReportUser = useCallback(
+    (contact: User) => {
+      if (!token) {
+        return;
+      }
+      Alert.alert(
+        "举报用户 / Report User",
+        `举报 ${contact.display_name || contact.email} 为骚扰、垃圾信息或其他不当行为。`,
+        [
+          { text: "取消", style: "cancel" },
+          {
+            text: "提交举报",
+            onPress: async () => {
+              try {
+                await createAbuseReport(token, {
+                  reported_user_id: contact.id,
+                  category: "general_abuse",
+                  details: `Reported from contacts list for ${contact.email}`
+                });
+                Alert.alert("举报已提交", "支持团队会根据记录进行处理。");
+              } catch (error) {
+                console.error("[ContactsScreen] Failed to report user:", error);
+                Alert.alert("提交失败", "当前无法提交举报。");
+              }
+            }
+          }
+        ]
+      );
+    },
+    [token]
+  );
+
   const handleStartCall = useCallback(
     (email: string) => {
       if (!connectionReady) {
@@ -182,6 +246,12 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
         <View style={styles.headerButtons}>
           <TouchableOpacity
             style={styles.settingsButton}
+            onPress={() => navigation.navigate("CallHistory")}
+          >
+            <Text style={styles.settingsText}>最近通话</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.settingsButton}
             onPress={() => navigation.navigate("Settings")}
           >
             <Text style={styles.settingsText}>设置 / Settings</Text>
@@ -191,6 +261,12 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
             onPress={() => navigation.navigate("ChangePassword")}
           >
             <Text style={styles.changePasswordText}>改密码 / Change Password</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.changePasswordButton}
+            onPress={() => navigation.navigate("Subscription")}
+          >
+            <Text style={styles.changePasswordText}>Premium</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.logoutButton} onPress={logout}>
             <Text style={styles.logoutText}>退出登录 / Logout</Text>
@@ -224,6 +300,8 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
             presence={presence[item.email]}
             onCall={handleStartCall}
             onRemove={handleRemoveContact}
+            onBlock={handleBlockUser}
+            onReport={handleReportUser}
           />
         )}
         contentContainerStyle={styles.listContent}

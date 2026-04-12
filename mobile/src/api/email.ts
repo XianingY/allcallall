@@ -15,6 +15,8 @@ export interface VerifyCodeResponse {
   message: string;
 }
 
+export type VerificationPurpose = "register" | "password_reset" | "account_deletion";
+
 // 创建 API 实例
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -55,11 +57,14 @@ apiClient.interceptors.response.use(
  * 发送邮箱验证码
  * @param email 邮箱地址
  */
-export const sendVerificationCode = async (email: string): Promise<void> => {
+export const sendVerificationCode = async (
+  email: string,
+  purpose: VerificationPurpose = "register"
+): Promise<void> => {
   try {
     await apiClient.post<ApiResponse<SendVerificationCodeResponse>>(
       "/email/send-verification-code",
-      { email }
+      { email, purpose }
     );
   } catch (error) {
     const axiosError = error as AxiosError<{ message?: string }>;
@@ -73,11 +78,15 @@ export const sendVerificationCode = async (email: string): Promise<void> => {
  * @param email 邮箱地址
  * @param code 6位验证码
  */
-export const verifyCode = async (email: string, code: string): Promise<void> => {
+export const verifyCode = async (
+  email: string,
+  code: string,
+  purpose: VerificationPurpose = "register"
+): Promise<void> => {
   try {
     await apiClient.post<ApiResponse<VerifyCodeResponse>>(
       "/email/verify-code",
-      { email, code }
+      { email, code, purpose }
     );
   } catch (error) {
     const axiosError = error as AxiosError<{ message?: string }>;

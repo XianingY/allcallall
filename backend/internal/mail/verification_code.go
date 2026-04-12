@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -19,6 +20,13 @@ var (
 	ErrVerificationCodeIncorrect        = errors.New("verification code is incorrect")
 	ErrEmailNotVerifiedForRegistration  = errors.New("email must be verified before registration")
 	ErrVerificationAlreadyConsumed      = errors.New("verified email state has already been consumed")
+	ErrEmailNotVerifiedForPurpose       = errors.New("email must be verified for the requested purpose")
+)
+
+const (
+	PurposeRegister       = "register"
+	PurposePasswordReset  = "password_reset"
+	PurposeAccountDeletion = "account_deletion"
 )
 
 // VerificationCodeService 验证码业务逻辑
@@ -51,8 +59,15 @@ func NewVerificationCodeService(
 // GenerateAndSend 生成并发送验证码
 // GenerateAndSend creates a verification code and sends it via email
 func (s *VerificationCodeService) GenerateAndSend(email string) error {
+	return s.GenerateAndSendForPurpose(email, PurposeRegister)
+}
+
+// GenerateAndSendForPurpose creates a verification code scoped to a specific purpose.
+func (s *VerificationCodeService) GenerateAndSendForPurpose(email string, purpose string) error {
 	// 1. 检查防刷限制
-	blocked, err := s.isEmailBlocked(email)
+	email = strings.TrimSpace(strings.ToLower(email))
+	purpose = normalizePurpose(purpose)
+	blocked, err := s.isEmailBlocked(email, purpose)
 	if err != nil {
 		return err
 	}
@@ -68,7 +83,7 @@ func (s *VerificationCodeService) GenerateAndSend(email string) error {
 
 	// 3. 删除旧验证码
 	if err := s.db.
-		Where("email = ? AND consumed_at IS NULL", email).
+		Where("email = ? AND purpose = ? AND consumed_at IS NULL", email, purpose).
 		Delete(&models.EmailVerificationCode{}).Error; err != nil {
 		return fmt.Errorf("delete old codes: %w", err)
 	}
@@ -78,6 +93,7 @@ func (s *VerificationCodeService) GenerateAndSend(email string) error {
 	verification := &models.EmailVerificationCode{
 		Email:        email,
 		Code:         code,
+		Purpose:      purpose,
 		ExpiresAt:    now.Add(s.validityTime),
 		MaxAttempts:  s.maxRetries,
 		AttemptCount: 0,
@@ -100,11 +116,18 @@ func (s *VerificationCodeService) GenerateAndSend(email string) error {
 // Verify 验证码校验
 // Verify checks if the provided code matches the stored code for the email
 func (s *VerificationCodeService) Verify(email, inputCode string) error {
+	return s.VerifyForPurpose(email, inputCode, PurposeRegister)
+}
+
+// VerifyForPurpose checks if the provided code matches the stored code for the email+purpose pair.
+func (s *VerificationCodeService) VerifyForPurpose(email, inputCode string, purpose string) error {
 	var verification models.EmailVerificationCode
+	email = strings.TrimSpace(strings.ToLower(email))
+	purpose = normalizePurpose(purpose)
 
 	// 查询验证码记录
 	if err := s.db.
-		Where("email = ? AND is_verified = ?", email, false).
+		Where("email = ? AND purpose = ? AND is_verified = ?", email, purpose, false).
 		Where("consumed_at IS NULL").
 		Order("created_at DESC").
 		First(&verification).Error; err != nil {
@@ -157,14 +180,23 @@ func (s *VerificationCodeService) Verify(email, inputCode string) error {
 // EnsureVerifiedForRegistration 检查邮箱是否存在可消费的已验证状态
 // EnsureVerifiedForRegistration ensures the email has a verified state ready for registration.
 func (s *VerificationCodeService) EnsureVerifiedForRegistration(email string) error {
+	return s.EnsureVerifiedForPurpose(email, PurposeRegister)
+}
+
+func (s *VerificationCodeService) EnsureVerifiedForPurpose(email string, purpose string) error {
 	var verification models.EmailVerificationCode
+	email = strings.TrimSpace(strings.ToLower(email))
+	purpose = normalizePurpose(purpose)
 
 	if err := s.db.
-		Where("email = ? AND is_verified = ? AND consumed_at IS NULL", email, true).
+		Where("email = ? AND purpose = ? AND is_verified = ? AND consumed_at IS NULL", email, purpose, true).
 		Order("verified_at DESC").
 		First(&verification).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrEmailNotVerifiedForRegistration
+			if purpose == PurposeRegister {
+				return ErrEmailNotVerifiedForRegistration
+			}
+			return ErrEmailNotVerifiedForPurpose
 		}
 		return err
 	}
@@ -175,10 +207,16 @@ func (s *VerificationCodeService) EnsureVerifiedForRegistration(email string) er
 // ConsumeVerifiedRegistration 将已验证状态标记为已消费，避免重复注册复用
 // ConsumeVerifiedRegistration marks a verified email state as consumed after registration succeeds.
 func (s *VerificationCodeService) ConsumeVerifiedRegistration(email string) error {
+	return s.ConsumeVerifiedPurpose(email, PurposeRegister)
+}
+
+func (s *VerificationCodeService) ConsumeVerifiedPurpose(email string, purpose string) error {
 	var verification models.EmailVerificationCode
+	email = strings.TrimSpace(strings.ToLower(email))
+	purpose = normalizePurpose(purpose)
 
 	if err := s.db.
-		Where("email = ? AND is_verified = ? AND consumed_at IS NULL", email, true).
+		Where("email = ? AND purpose = ? AND is_verified = ? AND consumed_at IS NULL", email, purpose, true).
 		Order("verified_at DESC").
 		First(&verification).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -210,12 +248,27 @@ func (s *VerificationCodeService) generateRandomCode(length int) (string, error)
 }
 
 // 检查邮箱是否被封禁
-func (s *VerificationCodeService) isEmailBlocked(email string) (bool, error) {
+func (s *VerificationCodeService) isEmailBlocked(email string, purpose ...string) (bool, error) {
+	currentPurpose := PurposeRegister
+	if len(purpose) > 0 {
+		currentPurpose = normalizePurpose(purpose[0])
+	}
 	var count int64
 	result := s.db.
 		Model(&models.EmailVerificationCode{}).
-		Where("email = ? AND blocked_until > ?", email, time.Now()).
+		Where("email = ? AND purpose = ? AND blocked_until > ?", email, currentPurpose, time.Now()).
 		Count(&count)
 
 	return count > 0, result.Error
+}
+
+func normalizePurpose(purpose string) string {
+	switch strings.TrimSpace(strings.ToLower(purpose)) {
+	case PurposePasswordReset:
+		return PurposePasswordReset
+	case PurposeAccountDeletion:
+		return PurposeAccountDeletion
+	default:
+		return PurposeRegister
+	}
 }

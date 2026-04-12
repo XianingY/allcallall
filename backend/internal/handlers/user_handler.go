@@ -4,13 +4,17 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 
 	"github.com/allcallall/backend/internal/auth"
+	"github.com/allcallall/backend/internal/commerce"
 	"github.com/allcallall/backend/internal/contact"
+	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/presence"
+	"github.com/allcallall/backend/internal/ratelimit"
 	"github.com/allcallall/backend/internal/user"
 )
 
@@ -21,16 +25,38 @@ type UserHandler struct {
 	users    *user.Service
 	presence *presence.Manager
 	contacts *contact.Service
+	commerce *commerce.Service
+	limits   *ratelimit.Service
+	metrics  *metrics.CounterStore
+}
+
+type UserHandlerOptions struct {
+	Commerce *commerce.Service
+	Limits   *ratelimit.Service
+	Metrics  *metrics.CounterStore
 }
 
 // NewUserHandler 构造函数
 // NewUserHandler creates a UserHandler.
-func NewUserHandler(log zerolog.Logger, users *user.Service, presence *presence.Manager, contacts *contact.Service) *UserHandler {
+func NewUserHandler(
+	log zerolog.Logger,
+	users *user.Service,
+	presence *presence.Manager,
+	contacts *contact.Service,
+	options ...UserHandlerOptions,
+) *UserHandler {
+	var opt UserHandlerOptions
+	if len(options) > 0 {
+		opt = options[0]
+	}
 	return &UserHandler{
 		logger:   log.With().Str("component", "user_handler").Logger(),
 		users:    users,
 		presence: presence,
 		contacts: contacts,
+		commerce: opt.Commerce,
+		limits:   opt.Limits,
+		metrics:  opt.Metrics,
 	}
 }
 
@@ -84,6 +110,19 @@ func (h *UserHandler) handleSearch(c *gin.Context) {
 		JSONSuccess(c, http.StatusOK, gin.H{"results": []userDTO{}})
 		return
 	}
+	if h.limits != nil {
+		allowed, retryAfter, err := h.limits.Allow(c.Request.Context(), "user-search:"+strconv.FormatUint(claims.UserID, 10), 60, time.Hour)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("search rate limit failed")
+			JSONError(c, http.StatusInternalServerError, "failed to search users")
+			return
+		}
+		if !allowed {
+			c.Header("Retry-After", strconv.FormatInt(retryAfter, 10))
+			JSONError(c, http.StatusTooManyRequests, "too many search requests")
+			return
+		}
+	}
 
 	results, err := h.users.SearchByEmail(c.Request.Context(), query, 10)
 	if err != nil {
@@ -97,6 +136,17 @@ func (h *UserHandler) handleSearch(c *gin.Context) {
 		// 不返回自己
 		if u.Email == claims.Email {
 			continue
+		}
+		if h.commerce != nil {
+			blocked, blockErr := h.commerce.AreUsersBlocked(c.Request.Context(), claims.UserID, u.ID)
+			if blockErr != nil {
+				h.logger.Error().Err(blockErr).Msg("search block lookup failed")
+				JSONError(c, http.StatusInternalServerError, "failed to search users")
+				return
+			}
+			if blocked {
+				continue
+			}
 		}
 		response = append(response, userDTO{
 			ID:          u.ID,
@@ -174,6 +224,8 @@ func (h *UserHandler) handleAddContact(c *gin.Context) {
 			JSONError(c, http.StatusConflict, "contact already exists")
 		case contact.ErrSelfContact:
 			JSONError(c, http.StatusBadRequest, "cannot add yourself")
+		case commerce.ErrUserBlocked:
+			JSONError(c, http.StatusForbidden, "user is blocked")
 		default:
 			h.logger.Error().Err(err).Msg("add contact failed")
 			JSONError(c, http.StatusInternalServerError, "failed to add contact")

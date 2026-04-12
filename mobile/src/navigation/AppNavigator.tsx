@@ -9,14 +9,26 @@ import EmailVerificationScreen from "../screens/EmailVerificationScreen";
 import ContactsScreen from "../screens/ContactsScreen";
 import ChangePasswordScreen from "../screens/ChangePasswordScreen";
 import SettingsScreen from "../screens/SettingsScreen";
+import ForgotPasswordScreen from "../screens/ForgotPasswordScreen";
+import CallHistoryScreen from "../screens/CallHistoryScreen";
+import SubscriptionScreen from "../screens/SubscriptionScreen";
+import LegalScreen from "../screens/LegalScreen";
+import BlockedUsersScreen from "../screens/BlockedUsersScreen";
+import DeleteAccountScreen from "../screens/DeleteAccountScreen";
 
 export type RootStackParamList = {
   Login: undefined;
   Register: { email?: string };
   EmailVerification: { email?: string; returnToRegister?: boolean } | undefined;
+  ForgotPassword: undefined;
   Contacts: undefined;
+  CallHistory: undefined;
   ChangePassword: undefined;
   Settings: undefined;
+  Subscription: undefined;
+  Legal: undefined;
+  BlockedUsers: undefined;
+  DeleteAccount: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -50,6 +62,11 @@ const AppNavigator: React.FC = () => {
             options={{ headerShown: false }}
           />
           <Stack.Screen
+            name="CallHistory"
+            component={CallHistoryScreen}
+            options={{ title: "最近通话 / Recent Calls" }}
+          />
+          <Stack.Screen
             name="ChangePassword"
             component={ChangePasswordScreen}
             options={{ title: "修改密码 / Change Password" }}
@@ -58,6 +75,26 @@ const AppNavigator: React.FC = () => {
             name="Settings"
             component={SettingsScreen}
             options={{ title: "设置 / Settings" }}
+          />
+          <Stack.Screen
+            name="Subscription"
+            component={SubscriptionScreen}
+            options={{ title: "Premium / Subscription" }}
+          />
+          <Stack.Screen
+            name="Legal"
+            component={LegalScreen}
+            options={{ title: "法律与合规 / Legal" }}
+          />
+          <Stack.Screen
+            name="BlockedUsers"
+            component={BlockedUsersScreen}
+            options={{ title: "黑名单 / Blocked Users" }}
+          />
+          <Stack.Screen
+            name="DeleteAccount"
+            component={DeleteAccountScreen}
+            options={{ title: "删除账号 / Delete Account" }}
           />
         </>
       ) : (
@@ -71,6 +108,11 @@ const AppNavigator: React.FC = () => {
             name="Register"
             component={RegisterScreen}
             options={{ title: "AllCallAll 注册 / Register" }}
+          />
+          <Stack.Screen
+            name="ForgotPassword"
+            component={ForgotPasswordScreen}
+            options={{ title: "重置密码 / Forgot Password" }}
           />
           <Stack.Screen
             name="EmailVerification"

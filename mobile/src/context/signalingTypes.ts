@@ -57,6 +57,9 @@ export interface SignalingContextValue {
   translationOnlineStatus: OnlineTranslationStatus;
   translationInitStatus: TranslationInitStatus;
   translationInitError: string | null;
+  translationQuotaRemaining: number | null;
+  translationRequiresPremium: boolean;
+  translationPaywallReason: string | null;
   startCall: (email: string) => Promise<void>;
   acceptCall: () => Promise<void>;
   rejectCall: () => void;
@@ -74,6 +77,7 @@ export interface SignalingContextValue {
   setTranslationLanguage: (language: string) => void;
   setTranslationSourceLanguage: (language: string) => void;
   retryTranslationInitialization: () => Promise<void>;
+  dismissTranslationPaywall: () => void;
 }
 
 export type SignalingEvents = {
