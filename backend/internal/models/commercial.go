@@ -169,24 +169,26 @@ func (CallTranscriptSegment) TableName() string {
 
 // CallFollowup stores one structured follow-up card per completed call.
 type CallFollowup struct {
-	ID               uint64     `gorm:"primaryKey;autoIncrement"`
-	CallID           string     `gorm:"size:64;not null;uniqueIndex"`
-	UserID           uint64     `gorm:"not null;index"`
-	PeerUserID       uint64     `gorm:"not null;index"`
-	Status           string     `gorm:"size:32;not null;default:'pending';index"`
-	Source           string     `gorm:"size:32;not null;default:'metadata'"`
-	SummaryCN        string     `gorm:"type:text"`
-	SummaryEN        string     `gorm:"type:text"`
-	KeyPointsJSON    string     `gorm:"type:longtext"`
-	ActionItemsJSON  string     `gorm:"type:longtext"`
-	NextStep         string     `gorm:"type:text"`
-	RiskFlagsJSON    string     `gorm:"type:longtext"`
-	FollowupDraftCN  string     `gorm:"type:text"`
-	FollowupDraftEN  string     `gorm:"type:text"`
-	GeneratedAt      *time.Time `gorm:"index"`
-	TranscriptCount  int64      `gorm:"not null;default:0"`
-	CreatedAt        time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt        time.Time  `gorm:"autoUpdateTime"`
+	ID              uint64     `gorm:"primaryKey;autoIncrement"`
+	CallID          string     `gorm:"size:64;not null;uniqueIndex"`
+	OrganizationID  uint64     `gorm:"not null;default:0;index"`
+	UserID          uint64     `gorm:"not null;index"`
+	PeerUserID      uint64     `gorm:"not null;index"`
+	DealID          *uint64    `gorm:"index"`
+	Status          string     `gorm:"size:32;not null;default:'pending';index"`
+	Source          string     `gorm:"size:32;not null;default:'metadata'"`
+	SummaryCN       string     `gorm:"type:text"`
+	SummaryEN       string     `gorm:"type:text"`
+	KeyPointsJSON   string     `gorm:"type:longtext"`
+	ActionItemsJSON string     `gorm:"type:longtext"`
+	NextStep        string     `gorm:"type:text"`
+	RiskFlagsJSON   string     `gorm:"type:longtext"`
+	FollowupDraftCN string     `gorm:"type:text"`
+	FollowupDraftEN string     `gorm:"type:text"`
+	GeneratedAt     *time.Time `gorm:"index"`
+	TranscriptCount int64      `gorm:"not null;default:0"`
+	CreatedAt       time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt       time.Time  `gorm:"autoUpdateTime"`
 }
 
 func (CallFollowup) TableName() string {
@@ -196,9 +198,11 @@ func (CallFollowup) TableName() string {
 // FollowUpTask stores callback/message/scheduling work derived from calls.
 type FollowUpTask struct {
 	ID             uint64     `gorm:"primaryKey;autoIncrement"`
+	OrganizationID uint64     `gorm:"not null;default:0;index"`
 	UserID         uint64     `gorm:"not null;index"`
 	PeerUserID     uint64     `gorm:"not null;index"`
 	CallID         string     `gorm:"size:64;index"`
+	DealID         *uint64    `gorm:"index"`
 	Type           string     `gorm:"size:32;not null;index"`
 	Status         string     `gorm:"size:32;not null;default:'open';index"`
 	Title          string     `gorm:"size:180;not null"`

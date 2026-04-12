@@ -13,6 +13,7 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import TextField from "../components/TextField";
 import PrimaryButton from "../components/PrimaryButton";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import { createConversation } from "../api/collaboration";
 import {
   fetchCallFollowup,
   fetchCallHistory,
@@ -184,6 +185,22 @@ const ContactDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     await startCall(contact.email);
   };
 
+  const handleOpenChat = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+    try {
+      const conversation = await createConversation(token, {
+        type: "direct",
+        member_ids: [contact.id]
+      });
+      navigation.navigate("ConversationDetail", { conversation });
+    } catch (error) {
+      console.error("[ContactDetailScreen] Failed to open direct conversation:", error);
+      Alert.alert("打开聊天失败", "无法创建或打开与该联系人的私聊会话。");
+    }
+  }, [contact.id, navigation, token]);
+
   const handleRemove = async () => {
     if (!token) {
       return;
@@ -217,6 +234,7 @@ const ContactDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         <Text style={styles.meta}>最近通话: {lastCallLabel}</Text>
         <Text style={styles.meta}>我的账号: {user?.email}</Text>
         <PrimaryButton title="一键再次呼叫" onPress={() => void handleCall()} />
+        <PrimaryButton title="打开私聊" onPress={() => void handleOpenChat()} style={styles.chatButton} />
       </View>
 
       {settings.businessAssistantEnabled ? (
@@ -302,6 +320,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 18,
     padding: 18
+  },
+  chatButton: {
+    marginTop: 10,
+    backgroundColor: "#0f172a"
   },
   name: {
     fontSize: 24,

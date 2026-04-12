@@ -14,6 +14,7 @@ import (
 
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/cache"
+	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/commerce"
 	"github.com/allcallall/backend/internal/config"
 	"github.com/allcallall/backend/internal/contact"
@@ -88,6 +89,29 @@ func main() {
 		&models.CallTranscriptSegment{},
 		&models.CallFollowup{},
 		&models.FollowUpTask{},
+		&models.Organization{},
+		&models.OrganizationMember{},
+		&models.Team{},
+		&models.TeamMember{},
+		&models.OrganizationInvite{},
+		&models.OrganizationPolicy{},
+		&models.Conversation{},
+		&models.ConversationMember{},
+		&models.Message{},
+		&models.MessageRead{},
+		&models.Attachment{},
+		&models.CallRoom{},
+		&models.CallRoomMember{},
+		&models.CallRoomEvent{},
+		&models.RecordingSession{},
+		&models.RecordingFile{},
+		&models.RecordingConsent{},
+		&models.RecordingExport{},
+		&models.Pipeline{},
+		&models.PipelineStage{},
+		&models.Deal{},
+		&models.DealContact{},
+		&models.DealActivity{},
 	); err != nil {
 		appLogger.Fatal().Err(err).Msg("auto migrate failed")
 	}
@@ -109,6 +133,9 @@ func main() {
 	commerceSvc := commerce.NewService(db, counterStore)
 	userRepo := user.NewRepository(db)
 	userSvc := user.NewService(userRepo)
+	collaborationSvc := collaboration.NewService(db, userSvc)
+	chatHub := collaboration.NewChatHub(appLogger)
+	collaborationSvc.WithPublisher(chatHub)
 	contactRepo := contact.NewRepository(db)
 	contactSvc := contact.NewService(contactRepo, userSvc, commerceSvc)
 	invitationSvc := invitation.NewService(db, userSvc, contactSvc, commerceSvc)
@@ -142,7 +169,8 @@ func main() {
 	}
 
 	authHandler := handlers.NewAuthHandler(appLogger, userSvc, jwtManager, verificationCodeSvc, handlers.AuthHandlerOptions{
-		Commerce: commerceSvc,
+		Commerce:      commerceSvc,
+		Collaboration: collaborationSvc,
 	})
 	emailHandler := handlers.NewEmailHandler(appLogger, verificationCodeSvc, handlers.EmailHandlerOptions{
 		Metrics: counterStore,
@@ -155,6 +183,7 @@ func main() {
 		Metrics:  counterStore,
 	})
 	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, mailSvc, rateLimitSvc, counterStore)
+	collaborationHandler := handlers.NewCollaborationHandler(appLogger, collaborationSvc, userSvc, chatHub)
 	invitationHandler := handlers.NewInvitationHandler(appLogger, invitationSvc, contactSvc, userSvc)
 	webrtcHandler := handlers.NewWebRTCHandler(appLogger, cfg.WebRTC)
 	signalingHub := signaling.NewHub(redisClient, appLogger, presenceManager)
@@ -168,6 +197,7 @@ func main() {
 	signalingHub.WithUserService(userSvc)
 	signalingHub.WithFCMManager(fcmManager)
 	signalingHub.WithCommercialService(commerceSvc, counterStore)
+	signalingHub.WithCollaborationService(collaborationSvc)
 
 	// 初始化 Pion WebRTC 媒体引擎
 	// Initialize Pion WebRTC media engine
@@ -219,6 +249,7 @@ func main() {
 		EmailHandler:     emailHandler,
 		UserHandler:      userHandler,
 		Commercial:       commercialHandler,
+		Collaboration:    collaborationHandler,
 		Invitations:      invitationHandler,
 		SignalingHandler: signalingHandler,
 		SignalingPoll:    signalingPollHandler,

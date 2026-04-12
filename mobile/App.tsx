@@ -7,6 +7,7 @@ import { Linking } from "react-native";
 import { AuthProvider } from "./src/context/AuthContext";
 import { CommercialProvider } from "./src/context/CommercialContext";
 import { FollowUpProvider } from "./src/context/FollowUpContext";
+import { OrganizationProvider } from "./src/context/OrganizationContext";
 import { SignalingProvider } from "./src/context/SignalingContext";
 import { SettingsProvider } from "./src/context/SettingsContext";
 import AppNavigator from "./src/navigation/AppNavigator";
@@ -45,19 +46,21 @@ const App = () => {
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <CommercialProvider>
-          <FollowUpProvider>
-            <SettingsProvider>
-              <SignalingProvider>
-                <NavigationContainer ref={navigationRef}>
-                  <AppNavigator />
-                  <CallOverlay />
-                  <StatusBar style="auto" />
-                </NavigationContainer>
-              </SignalingProvider>
-            </SettingsProvider>
-          </FollowUpProvider>
-        </CommercialProvider>
+        <OrganizationProvider>
+          <CommercialProvider>
+            <FollowUpProvider>
+              <SettingsProvider>
+                <SignalingProvider>
+                  <NavigationContainer ref={navigationRef}>
+                    <AppNavigator />
+                    <CallOverlay />
+                    <StatusBar style="auto" />
+                  </NavigationContainer>
+                </SignalingProvider>
+              </SettingsProvider>
+            </FollowUpProvider>
+          </CommercialProvider>
+        </OrganizationProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );

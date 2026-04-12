@@ -8,6 +8,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/allcallall/backend/internal/auth"
+	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/commerce"
 	"github.com/allcallall/backend/internal/mail"
 	"github.com/allcallall/backend/internal/models"
@@ -22,10 +23,12 @@ type AuthHandler struct {
 	jwtManager            *auth.Manager
 	verificationCodeStore *mail.VerificationCodeService
 	commerce              *commerce.Service
+	collaboration         *collaboration.Service
 }
 
 type AuthHandlerOptions struct {
-	Commerce *commerce.Service
+	Commerce      *commerce.Service
+	Collaboration *collaboration.Service
 }
 
 // NewAuthHandler 构造函数
@@ -47,6 +50,7 @@ func NewAuthHandler(
 		jwtManager:            jwt,
 		verificationCodeStore: verificationCodes,
 		commerce:              opts.Commerce,
+		collaboration:         opts.Collaboration,
 	}
 }
 
@@ -135,6 +139,11 @@ func (h *AuthHandler) handleRegister(c *gin.Context) {
 	if h.commerce != nil {
 		if err := h.commerce.AcceptLegal(c.Request.Context(), userModel.ID); err != nil {
 			h.logger.Error().Err(err).Uint64("user_id", userModel.ID).Msg("record legal acceptance failed after registration")
+		}
+	}
+	if h.collaboration != nil {
+		if _, err := h.collaboration.EnsurePersonalOrganization(c.Request.Context(), userModel.ID, userModel.DisplayName); err != nil {
+			h.logger.Error().Err(err).Uint64("user_id", userModel.ID).Msg("ensure personal organization failed after registration")
 		}
 	}
 

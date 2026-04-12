@@ -33,22 +33,23 @@ func (Invitation) TableName() string {
 
 // ContactProfile stores business-facing metadata for a directional contact.
 type ContactProfile struct {
-	ID                uint64    `gorm:"primaryKey;autoIncrement"`
-	OwnerID           uint64    `gorm:"not null;index;uniqueIndex:idx_contact_profile_owner_contact"`
-	ContactUserID     uint64    `gorm:"not null;index;uniqueIndex:idx_contact_profile_owner_contact"`
-	Company           string    `gorm:"size:120"`
-	Role              string    `gorm:"size:120"`
-	Timezone          string    `gorm:"size:64"`
-	DefaultSourceLang string    `gorm:"size:16"`
-	DefaultTargetLang string    `gorm:"size:16"`
-	RelationshipStatus string   `gorm:"size:32;not null;default:'new'"`
-	PreferredContactStart string `gorm:"size:8"`
-	PreferredContactEnd   string `gorm:"size:8"`
-	PreferredContactDays  string `gorm:"size:32"`
-	LastFollowupState     string `gorm:"size:32"`
-	Note              string    `gorm:"size:500"`
-	CreatedAt         time.Time `gorm:"autoCreateTime"`
-	UpdatedAt         time.Time `gorm:"autoUpdateTime"`
+	ID                    uint64    `gorm:"primaryKey;autoIncrement"`
+	OrganizationID        uint64    `gorm:"not null;default:0;index;uniqueIndex:idx_contact_profile_org_owner_contact"`
+	OwnerID               uint64    `gorm:"not null;index;uniqueIndex:idx_contact_profile_org_owner_contact"`
+	ContactUserID         uint64    `gorm:"not null;index;uniqueIndex:idx_contact_profile_org_owner_contact"`
+	Company               string    `gorm:"size:120"`
+	Role                  string    `gorm:"size:120"`
+	Timezone              string    `gorm:"size:64"`
+	DefaultSourceLang     string    `gorm:"size:16"`
+	DefaultTargetLang     string    `gorm:"size:16"`
+	RelationshipStatus    string    `gorm:"size:32;not null;default:'new'"`
+	PreferredContactStart string    `gorm:"size:8"`
+	PreferredContactEnd   string    `gorm:"size:8"`
+	PreferredContactDays  string    `gorm:"size:32"`
+	LastFollowupState     string    `gorm:"size:32"`
+	Note                  string    `gorm:"size:500"`
+	CreatedAt             time.Time `gorm:"autoCreateTime"`
+	UpdatedAt             time.Time `gorm:"autoUpdateTime"`
 }
 
 func (ContactProfile) TableName() string {

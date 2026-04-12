@@ -13,6 +13,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
+	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/commerce"
 	"github.com/allcallall/backend/internal/fcm"
 	"github.com/allcallall/backend/internal/media"
@@ -34,6 +35,7 @@ type Hub struct {
 	users       *user.Service
 	fcmManager  *fcm.Manager
 	commercial  *commerce.Service
+	collab      *collaboration.Service
 	metrics     *metrics.CounterStore
 
 	mu      sync.RWMutex
@@ -110,6 +112,11 @@ func (h *Hub) WithCommercialService(service *commerce.Service, counters *metrics
 	h.commercial = service
 	h.metrics = counters
 	h.logger.Info().Msg("commercial service attached to signaling hub")
+}
+
+func (h *Hub) WithCollaborationService(service *collaboration.Service) {
+	h.collab = service
+	h.logger.Info().Msg("collaboration service attached to signaling hub")
 }
 
 // HandleConnection 处理单个连接
@@ -435,13 +442,30 @@ func (h *Hub) recordCallLifecycle(ctx context.Context, msg SignalMessage) {
 	switch msg.Type {
 	case TypeCallAccept:
 		_ = h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusAnswered, "")
+		if h.collab != nil {
+			_ = h.collab.AppendDirectCallEventByEmail(ctx, msg.From, msg.To, msg.CallID, "call.accepted", map[string]any{
+				"status": models.CallStatusAnswered,
+			})
+		}
 		if h.metrics != nil {
 			h.metrics.Inc("call_answer_total")
 		}
 	case TypeCallReject:
 		_ = h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusRejected, "rejected")
+		if h.collab != nil {
+			_ = h.collab.AppendDirectCallEventByEmail(ctx, msg.From, msg.To, msg.CallID, "call.rejected", map[string]any{
+				"status": models.CallStatusRejected,
+				"reason": "rejected",
+			})
+		}
 	case TypeCallEnd:
 		_ = h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusEnded, "ended")
+		if h.collab != nil {
+			_ = h.collab.AppendDirectCallEventByEmail(ctx, msg.From, msg.To, msg.CallID, "call.ended", map[string]any{
+				"status": models.CallStatusEnded,
+				"reason": "ended",
+			})
+		}
 		if h.metrics != nil {
 			h.metrics.Inc("call_ended_total")
 		}

@@ -35,6 +35,7 @@ import TextField from "../components/TextField";
 import PresenceBadge from "../components/PresenceBadge";
 import { useCommercial } from "../context/CommercialContext";
 import { useFollowUps } from "../context/FollowUpContext";
+import { useOrganization } from "../context/OrganizationContext";
 import { useSettings } from "../context/SettingsContext";
 import { useSignaling } from "../context/SignalingContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
@@ -75,6 +76,7 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
   const { user, token, logout } = useAuthContext();
   useCommercial();
   const { items: followUpItems, refreshFollowUps } = useFollowUps();
+  const { currentOrganization } = useOrganization();
   const { settings } = useSettings();
   const {
     startCall,
@@ -439,6 +441,9 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
         <View>
           <Text style={styles.greeting}>你好, {user?.display_name || ""}</Text>
           <Text style={styles.subtitle}>{user?.email}</Text>
+          {currentOrganization ? (
+            <Text style={styles.workspaceText}>工作区 / Workspace: {currentOrganization.name}</Text>
+          ) : null}
         </View>
         <View style={styles.headerButtons}>
           <TouchableOpacity
@@ -477,6 +482,15 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
           online={presence[user?.email ?? ""]?.online ?? false}
           lastSeen={presence[user?.email ?? ""]?.last_seen ?? null}
         />
+      </View>
+
+      <View style={styles.workspaceActionsCard}>
+        <Text style={styles.sectionTitle}>协作平台 / Collaboration</Text>
+        <View style={styles.workspaceActions}>
+          <PrimaryButton title="工作区" onPress={() => navigation.navigate("Organizations")} style={styles.workspaceButton} />
+          <PrimaryButton title="聊天" onPress={() => navigation.navigate("Conversations")} style={styles.workspaceButton} />
+          <PrimaryButton title="商机" onPress={() => navigation.navigate("Deals")} style={styles.workspaceButton} />
+        </View>
       </View>
 
       {!checklistDismissed ? (
@@ -791,11 +805,32 @@ const styles = StyleSheet.create({
     color: "#111827",
     fontWeight: "600"
   },
+  workspaceText: {
+    marginTop: 6,
+    color: "#2563eb",
+    fontWeight: "600"
+  },
   presenceCard: {
     backgroundColor: "#fff",
     padding: 18,
     borderRadius: 16,
     marginBottom: 24
+  },
+  workspaceActionsCard: {
+    backgroundColor: "#fff",
+    padding: 18,
+    borderRadius: 16,
+    marginBottom: 18
+  },
+  workspaceActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12
+  },
+  workspaceButton: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10
   },
   onboardingCard: {
     backgroundColor: "#fff",

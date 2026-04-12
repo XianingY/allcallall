@@ -19,7 +19,13 @@ import ContactDetailScreen from "../screens/ContactDetailScreen";
 import InvitationScreen from "../screens/InvitationScreen";
 import InvitationAcceptScreen from "../screens/InvitationAcceptScreen";
 import FollowUpsScreen from "../screens/FollowUpsScreen";
+import OrganizationsScreen from "../screens/OrganizationsScreen";
+import ConversationsScreen from "../screens/ConversationsScreen";
+import ConversationDetailScreen from "../screens/ConversationDetailScreen";
+import DealsScreen from "../screens/DealsScreen";
+import DealDetailScreen from "../screens/DealDetailScreen";
 import type { User } from "../api/users";
+import type { ConversationRecord, DealRecord } from "../api/collaboration";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -32,6 +38,11 @@ export type RootStackParamList = {
   Invitation: undefined;
   InvitationAccept: { code?: string } | undefined;
   FollowUps: undefined;
+  Organizations: undefined;
+  Conversations: undefined;
+  ConversationDetail: { conversation: ConversationRecord };
+  Deals: undefined;
+  DealDetail: { deal: DealRecord };
   ChangePassword: undefined;
   Settings: undefined;
   Subscription: undefined;
@@ -89,6 +100,31 @@ const AppNavigator: React.FC = () => {
             name="Invitation"
             component={InvitationScreen}
             options={{ title: "邀请试用 / Invite Contact" }}
+          />
+          <Stack.Screen
+            name="Organizations"
+            component={OrganizationsScreen}
+            options={{ title: "组织与工作区 / Organizations" }}
+          />
+          <Stack.Screen
+            name="Conversations"
+            component={ConversationsScreen}
+            options={{ title: "聊天会话 / Conversations" }}
+          />
+          <Stack.Screen
+            name="ConversationDetail"
+            component={ConversationDetailScreen}
+            options={{ title: "会话详情 / Conversation" }}
+          />
+          <Stack.Screen
+            name="Deals"
+            component={DealsScreen}
+            options={{ title: "商机流程 / Deals" }}
+          />
+          <Stack.Screen
+            name="DealDetail"
+            component={DealDetailScreen}
+            options={{ title: "商机详情 / Deal Detail" }}
           />
           <Stack.Screen
             name="InvitationAccept"
