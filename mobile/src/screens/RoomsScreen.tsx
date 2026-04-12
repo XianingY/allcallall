@@ -2,7 +2,16 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
-import { createRoom, listRecordings, listRooms, type ConversationRecord, type RecordingRecord, type RoomRecord } from "../api/collaboration";
+import {
+  createRoom,
+  fetchConversationDetail,
+  listRecordings,
+  listRooms,
+  type ConversationDetailRecord,
+  type ConversationRecord,
+  type RecordingRecord,
+  type RoomRecord,
+} from "../api/collaboration";
 import TextField from "../components/TextField";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
@@ -16,6 +25,7 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
   const { currentOrganization } = useOrganization();
   const [items, setItems] = useState<RoomRecord[]>([]);
   const [recordings, setRecordings] = useState<RecordingRecord[]>([]);
+  const [meetingSummaries, setMeetingSummaries] = useState<Record<number, ConversationDetailRecord>>({});
   const [loading, setLoading] = useState(false);
   const [title, setTitle] = useState("");
   const [joinCode, setJoinCode] = useState("");
@@ -31,8 +41,24 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
         listRooms(token),
         listRecordings(token),
       ]);
+      const summaryCandidates = rooms
+        .filter((room) => !room.is_active && room.conversation_id)
+        .slice(0, 3);
+      const summaryEntries = await Promise.all(
+        summaryCandidates.map(async (room) => {
+          try {
+            const detail = await fetchConversationDetail(token, room.conversation_id!);
+            return [room.conversation_id!, detail] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
       setItems(rooms);
       setRecordings(recordingItems);
+      setMeetingSummaries(
+        Object.fromEntries(summaryEntries.filter((entry): entry is readonly [number, ConversationDetailRecord] => entry !== null))
+      );
     } catch (error) {
       console.error("[RoomsScreen] Failed to load rooms:", error);
       Alert.alert("加载失败", "无法加载会议列表。");
@@ -49,6 +75,10 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
   const upcomingRooms = useMemo(() => items.filter((item) => !item.is_active && item.room.status === "scheduled"), [items]);
   const recentRooms = useMemo(() => items.slice(0, 6), [items]);
   const recentRecordings = useMemo(() => recordings.slice(0, 3), [recordings]);
+  const recentMeetingSummaries = useMemo(
+    () => items.filter((item) => !item.is_active && item.conversation_id && meetingSummaries[item.conversation_id]).slice(0, 3),
+    [items, meetingSummaries]
+  );
   const roomMap = useMemo(() => new Map(items.map((item) => [item.room.id, item])), [items]);
 
   const buildConversationTarget = useCallback((room: RoomRecord): ConversationRecord | null => {
@@ -234,6 +264,57 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
                 })}
               </View>
             ) : null}
+            {recentMeetingSummaries.length > 0 ? (
+              <View>
+                <Text style={styles.sectionTitle}>Recent meeting summaries</Text>
+                {recentMeetingSummaries.map((room) => {
+                  const detail = room.conversation_id ? meetingSummaries[room.conversation_id] : undefined;
+                  const followup = detail?.latest_followup;
+                  return (
+                    <View key={`summary-${room.room.id}`} style={styles.assetCard}>
+                      <Text style={styles.cardTitle}>{room.room.title}</Text>
+                      <Text style={styles.cardMeta}>
+                        {room.conversation_title || "关联线程"} · 会后摘要
+                      </Text>
+                      <Text style={styles.summaryPreview}>
+                        {followup?.summary_cn || followup?.summary_en || "当前还没有生成会议摘要。"}
+                      </Text>
+                      {followup?.next_step ? (
+                        <Text style={styles.cardMeta}>下一步 {followup.next_step}</Text>
+                      ) : null}
+                      <View style={styles.assetActions}>
+                        <PrimaryButton
+                          title="回到线程摘要"
+                          onPress={() => {
+                            const target = buildConversationTarget(room);
+                            if (!target) {
+                              return;
+                            }
+                            navigation.navigate("ConversationDetail", { conversation: target });
+                          }}
+                          style={styles.assetButton}
+                        />
+                        <PrimaryButton
+                          title="重新加入会议"
+                          onPress={() => navigation.navigate("PreJoin", {
+                            roomId: room.room.id,
+                            title: room.room.title,
+                            conversationId: room.conversation_id ?? null,
+                            joinOptions: {
+                              audioEnabled: true,
+                              videoEnabled: true,
+                              cameraFacing: "front",
+                              speakerOn: true,
+                            },
+                          })}
+                          style={styles.assetButtonSecondary}
+                        />
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
             <Text style={styles.sectionTitle}>Recent</Text>
           </View>
         }
@@ -344,6 +425,11 @@ const styles = StyleSheet.create({
   assetButtonSecondary: {
     flex: 1,
     backgroundColor: "#475569",
+  },
+  summaryPreview: {
+    color: "#0f172a",
+    marginTop: 10,
+    lineHeight: 20,
   },
   empty: {
     color: "#64748b",

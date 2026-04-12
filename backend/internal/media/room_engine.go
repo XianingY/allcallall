@@ -305,7 +305,9 @@ func (r *RoomEngine) removeParticipantLocked(room *mediaRoom, participantID stri
 }
 
 func (r *RoomEngine) handleRemoteTrack(roomID, participantID string, track *webrtc.TrackRemote) {
-	localTrack, err := webrtc.NewTrackLocalStaticRTP(track.Codec().RTPCodecCapability, track.ID(), track.StreamID())
+	relayTrackID := fmt.Sprintf("participant-%s-%s-%s", participantID, track.Kind().String(), sanitizeFilePart(track.ID()))
+	relayStreamID := fmt.Sprintf("participant-%s", participantID)
+	localTrack, err := webrtc.NewTrackLocalStaticRTP(track.Codec().RTPCodecCapability, relayTrackID, relayStreamID)
 	if err != nil {
 		r.logger.Warn().Err(err).Str("room_id", roomID).Msg("failed to create local relay track")
 		return

@@ -41,6 +41,7 @@ import { useAuthContext } from "./AuthContext";
 type RemoteStreamRecord = {
   id: string;
   stream: MediaStream;
+  participantId?: number;
 };
 
 interface RoomCallContextValue {
@@ -86,6 +87,7 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
   const roomRef = useRef<RoomRecord | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamMapRef = useRef<Map<string, MediaStream>>(new Map());
+  const remoteStreamParticipantRef = useRef<Map<string, number | undefined>>(new Map());
 
   useEffect(() => {
     roomRef.current = room;
@@ -130,6 +132,7 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
 
   const clearRemoteStreams = useCallback(() => {
     remoteStreamMapRef.current.clear();
+    remoteStreamParticipantRef.current.clear();
     setRemoteStreams([]);
   }, []);
 
@@ -223,7 +226,26 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
   }, [ensureMediaPermissions]);
 
   const syncRemoteStreams = useCallback(() => {
-    setRemoteStreams(Array.from(remoteStreamMapRef.current.entries()).map(([id, stream]) => ({ id, stream })));
+    setRemoteStreams(
+      Array.from(remoteStreamMapRef.current.entries()).map(([id, stream]) => ({
+        id,
+        stream,
+        participantId: remoteStreamParticipantRef.current.get(id),
+      }))
+    );
+  }, []);
+
+  const parseParticipantId = useCallback((streamId?: string, trackId?: string) => {
+    const candidate = [streamId, trackId].find((value) => typeof value === "string" && value.includes("participant-"));
+    if (!candidate) {
+      return undefined;
+    }
+    const match = candidate.match(/participant-(\d+)/);
+    if (!match) {
+      return undefined;
+    }
+    const parsed = Number(match[1]);
+    return Number.isFinite(parsed) ? parsed : undefined;
   }, []);
 
   const renegotiate = useCallback(async (roomId: number) => {
@@ -276,6 +298,8 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
       (pc as any).ontrack = (event: any) => {
         const stream = event.streams[0] ?? new MediaStream([event.track]);
         const key = stream.id || `${event.track.kind}-${event.track.id}`;
+        const participantId = parseParticipantId(stream.id, event.track?.id);
+        remoteStreamParticipantRef.current.set(key, participantId);
         if (!remoteStreamMapRef.current.has(key)) {
           remoteStreamMapRef.current.set(key, stream);
         } else {
@@ -294,6 +318,7 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
             .forEach((track) => current.removeTrack(track));
           if (current.getTracks().length === 0) {
             remoteStreamMapRef.current.delete(key);
+            remoteStreamParticipantRef.current.delete(key);
           }
           syncRemoteStreams();
         };
@@ -340,7 +365,7 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
       setControlState({ joined: false, joining: false, connectionState: "failed" });
       throw error;
     }
-  }, [clearRemoteStreams, closePeer, loadIceServers, preparePreview, syncRemoteStreams, syncRoomMediaState, token]);
+  }, [clearRemoteStreams, closePeer, loadIceServers, parseParticipantId, preparePreview, syncRemoteStreams, syncRoomMediaState, token]);
 
   const leaveMeetingInternal = useCallback(async (notifyBackend: boolean) => {
     const currentRoomId = roomRef.current?.room.id;

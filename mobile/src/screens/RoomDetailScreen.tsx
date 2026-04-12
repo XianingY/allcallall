@@ -133,7 +133,9 @@ const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       isHost: currentUserMember?.is_host ?? false,
     });
     remoteStreams.forEach((item, index) => {
-      const member = currentRoom.members.find((candidate) => candidate.user_id !== user?.id && candidate.connection_state !== "left" && candidate.joined_at) ?? currentRoom.members[index + 1];
+      const member = currentRoom.members.find((candidate) => candidate.user_id === item.participantId)
+        ?? currentRoom.members.find((candidate) => candidate.user_id !== user?.id && candidate.connection_state !== "left" && candidate.joined_at)
+        ?? currentRoom.members[index + 1];
       tiles.push({
         id: item.id,
         label: member?.user_display_name || member?.user_email || `Participant ${index + 1}`,
