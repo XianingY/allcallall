@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
+import * as Clipboard from "expo-clipboard";
 
 import {
   createRoom,
@@ -18,12 +19,14 @@ import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
 import { useOrganization } from "../context/OrganizationContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import { buildRoomShareLinks, parseRoomIdFromURL } from "../utils/invitations";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Rooms">;
 
 const RoomsScreen: React.FC<Props> = ({ navigation }) => {
   const { token } = useAuthContext();
   const { currentOrganization } = useOrganization();
+  const { width } = useWindowDimensions();
   const [items, setItems] = useState<RoomRecord[]>([]);
   const [recordings, setRecordings] = useState<RecordingRecord[]>([]);
   const [meetingSummaries, setMeetingSummaries] = useState<Record<number, ConversationDetailRecord>>({});
@@ -88,6 +91,7 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
     [items, meetingSummaries]
   );
   const roomMap = useMemo(() => new Map(items.map((item) => [item.room.id, item])), [items]);
+  const isWideScreen = width >= 1100;
 
   const buildConversationTarget = useCallback((room: RoomRecord): ConversationRecord | null => {
     if (!room.conversation_id) {
@@ -138,9 +142,9 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const handleJoinByCode = () => {
-    const roomId = Number(joinCode.trim());
+    const roomId = parseRoomIdFromURL(joinCode.trim()) ?? Number(joinCode.trim());
     if (!Number.isFinite(roomId) || roomId <= 0) {
-      Alert.alert("会议号无效", "请输入正确的会议房间 ID。");
+      Alert.alert("会议号无效", "请输入正确的会议房间 ID 或 Web 会议链接。");
       return;
     }
     navigation.navigate("PreJoin", {
@@ -152,6 +156,12 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
         speakerOn: true,
       },
     });
+  };
+
+  const handleCopyRoomLink = async (roomId: number) => {
+    const links = buildRoomShareLinks(roomId);
+    await Clipboard.setStringAsync(links.webURL);
+    Alert.alert("已复制", "Web 会议链接已复制到剪贴板。");
   };
 
   const renderRoomCard = (room: RoomRecord) => (
@@ -177,26 +187,35 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
       <Text style={styles.cardMeta}>参会人数 {room.participant_count} · 事件 {room.events.length}</Text>
       {room.conversation_title ? <Text style={styles.cardMeta}>所属线程 {room.conversation_title}</Text> : null}
       {room.has_recording ? <Text style={styles.recordingMeta}>已有录音资产</Text> : null}
-      {!room.is_active && room.conversation_id ? (
+      <View style={styles.roomCardActions}>
         <PrimaryButton
-          title="回到线程摘要"
-          onPress={() => {
-            const target = buildConversationTarget(room);
-            if (!target) {
-              return;
-            }
-            navigation.navigate("ConversationDetail", { conversation: target });
-          }}
-          style={styles.threadButton}
+          title="复制 Web 链接"
+          onPress={() => void handleCopyRoomLink(room.room.id)}
+          style={styles.threadButtonSecondary}
         />
-      ) : null}
+        {!room.is_active && room.conversation_id ? (
+          <PrimaryButton
+            title="回到线程摘要"
+            onPress={() => {
+              const target = buildConversationTarget(room);
+              if (!target) {
+                return;
+              }
+              navigation.navigate("ConversationDetail", { conversation: target });
+            }}
+            style={styles.threadButton}
+          />
+        ) : null}
+      </View>
     </Pressable>
   );
 
   return (
     <View style={styles.container}>
       <Text style={styles.heading}>{currentOrganization?.name ?? "当前工作区"} Meetings</Text>
-      <Text style={styles.subheading}>发起、加入、继续进行中的会议。</Text>
+      <Text style={styles.subheading}>
+        {loading ? "正在刷新会议、摘要与录音资产…" : "发起、加入、继续进行中的会议。"}
+      </Text>
 
       <View style={styles.quickActionsCard}>
         <Text style={styles.sectionTitle}>Quick actions</Text>
@@ -211,7 +230,7 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
           label="按会议号加入"
           value={joinCode}
           onChangeText={setJoinCode}
-          placeholder="输入 room ID"
+          placeholder="输入 room ID 或 /rooms/123 链接"
         />
         <PrimaryButton title="Join by room ID" onPress={handleJoinByCode} disabled={!joinCode.trim()} style={styles.secondaryAction} />
       </View>
@@ -223,55 +242,21 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
         <PrimaryButton title="Settings" onPress={() => navigation.navigate("Settings")} style={styles.navButton} />
       </View>
 
-      <FlatList
-        data={recentRooms}
-        keyExtractor={(item) => String(item.room.id)}
-        refreshing={loading}
-        onRefresh={() => void loadData()}
-        ListHeaderComponent={
-          <View>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={undefined}
+      >
+        <View style={isWideScreen ? styles.desktopContent : undefined}>
+          <View style={isWideScreen ? styles.primaryColumn : undefined}>
             <Text style={styles.sectionTitle}>Active / Upcoming</Text>
             {activeRooms.length > 0 ? activeRooms.map(renderRoomCard) : null}
             {upcomingRooms.length > 0 ? upcomingRooms.slice(0, 3).map(renderRoomCard) : null}
-            {recentRecordings.length > 0 ? (
-              <View>
-                <Text style={styles.sectionTitle}>Recent recording assets</Text>
-                {recentRecordings.map((recording) => {
-                  const room = roomMap.get(recording.session.room_id);
-                  return (
-                    <View key={recording.session.id} style={styles.assetCard}>
-                      <Text style={styles.cardTitle}>{room?.room.title || `会议 #${recording.session.room_id}`}</Text>
-                      <Text style={styles.cardMeta}>
-                        录音会话 #{recording.session.id} · 文件 {recording.files.length} 个
-                      </Text>
-                      <Text style={styles.cardMeta}>
-                        最近产物 {recording.files[0]?.recording_kind || "mixed_audio"} · {recording.files[0]?.duration_seconds || 0}s
-                      </Text>
-                      <View style={styles.assetActions}>
-                        <PrimaryButton
-                          title="查看录音资产"
-                          onPress={() => navigation.navigate("Recordings")}
-                          style={styles.assetButton}
-                        />
-                        {room?.conversation_id ? (
-                          <PrimaryButton
-                            title="回到线程摘要"
-                            onPress={() => {
-                              const target = buildConversationTarget(room);
-                              if (!target) {
-                                return;
-                              }
-                              navigation.navigate("ConversationDetail", { conversation: target });
-                            }}
-                            style={styles.assetButtonSecondary}
-                          />
-                        ) : null}
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            ) : null}
+            {recentRooms.length === 0 ? <Text style={styles.empty}>当前工作区还没有会议。</Text> : null}
+            {!isWideScreen ? <Text style={styles.sectionTitle}>Recent</Text> : null}
+            {!isWideScreen ? recentRooms.map(renderRoomCard) : null}
+          </View>
+
+          <View style={isWideScreen ? styles.secondaryColumn : undefined}>
             {recentMeetingSummaries.length > 0 ? (
               <View>
                 <Text style={styles.sectionTitle}>Recent meeting summaries</Text>
@@ -323,6 +308,45 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
                 })}
               </View>
             ) : null}
+            {recentRecordings.length > 0 ? (
+              <View>
+                <Text style={styles.sectionTitle}>Recent recording assets</Text>
+                {recentRecordings.map((recording) => {
+                  const room = roomMap.get(recording.session.room_id);
+                  return (
+                    <View key={recording.session.id} style={styles.assetCard}>
+                      <Text style={styles.cardTitle}>{room?.room.title || `会议 #${recording.session.room_id}`}</Text>
+                      <Text style={styles.cardMeta}>
+                        录音会话 #{recording.session.id} · 文件 {recording.files.length} 个
+                      </Text>
+                      <Text style={styles.cardMeta}>
+                        最近产物 {recording.files[0]?.recording_kind || "mixed_audio"} · {recording.files[0]?.duration_seconds || 0}s
+                      </Text>
+                      <View style={styles.assetActions}>
+                        <PrimaryButton
+                          title="查看录音资产"
+                          onPress={() => navigation.navigate("Recordings")}
+                          style={styles.assetButton}
+                        />
+                        {room?.conversation_id ? (
+                          <PrimaryButton
+                            title="回到线程摘要"
+                            onPress={() => {
+                              const target = buildConversationTarget(room);
+                              if (!target) {
+                                return;
+                              }
+                              navigation.navigate("ConversationDetail", { conversation: target });
+                            }}
+                            style={styles.assetButtonSecondary}
+                          />
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
             {pendingMeetingTasks.length > 0 ? (
               <View>
                 <Text style={styles.sectionTitle}>Pending meeting follow-ups</Text>
@@ -337,12 +361,15 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
                 ))}
               </View>
             ) : null}
-            <Text style={styles.sectionTitle}>Recent</Text>
+            {isWideScreen ? (
+              <View>
+                <Text style={styles.sectionTitle}>Recent</Text>
+                {recentRooms.map(renderRoomCard)}
+              </View>
+            ) : null}
           </View>
-        }
-        renderItem={({ item }) => renderRoomCard(item)}
-        ListEmptyComponent={<Text style={styles.empty}>当前工作区还没有会议。</Text>}
-      />
+        </View>
+      </ScrollView>
     </View>
   );
 };
@@ -352,6 +379,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8fafc",
     padding: 16,
+  },
+  scrollContent: {
+    paddingBottom: 24,
+  },
+  desktopContent: {
+    flexDirection: "row",
+    gap: 18,
+    alignItems: "flex-start",
+  },
+  primaryColumn: {
+    flex: 1.2,
+  },
+  secondaryColumn: {
+    flex: 1,
   },
   heading: {
     fontSize: 24,
@@ -426,6 +467,16 @@ const styles = StyleSheet.create({
   threadButton: {
     marginTop: 12,
     backgroundColor: "#334155",
+    flex: 1,
+  },
+  threadButtonSecondary: {
+    marginTop: 12,
+    backgroundColor: "#0f172a",
+    flex: 1,
+  },
+  roomCardActions: {
+    flexDirection: "row",
+    gap: 10,
   },
   assetCard: {
     backgroundColor: "#ffffff",

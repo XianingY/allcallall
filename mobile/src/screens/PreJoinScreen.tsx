@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, StyleSheet, Text, View } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { RTCView } from "react-native-webrtc";
 
 import { fetchRoomState, type MeetingJoinOptions, type RoomRecord } from "../api/collaboration";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
 import { useRoomCall } from "../context/RoomCallContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import { RTCView } from "../platform/rtc";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PreJoin">;
 
@@ -59,7 +59,7 @@ const PreJoinScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const previewUrl = useMemo(() => {
     try {
-      return localStream?.toURL() ?? null;
+      return localStream?.toURL?.() ?? null;
     } catch {
       return null;
     }

@@ -9,8 +9,6 @@ import React, {
 } from "react";
 import {
   Alert,
-  PermissionsAndroid,
-  Platform
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -19,7 +17,7 @@ import {
   RTCIceCandidate,
   RTCSessionDescription,
   mediaDevices as webrtcMediaDevices
-} from "react-native-webrtc";
+} from "../platform/rtc";
 
 import {
   MediaUpdatePayload,
@@ -42,6 +40,7 @@ import AudioService from "../services/AudioServiceExpo";
 import VibrationService from "../services/VibrationService";
 import VideoService, { CameraFacing, VideoQuality } from "../services/VideoService";
 import CameraPermissionService from "../services/CameraPermissionService";
+import permissionsAdapter from "../platform/permissionsAdapter";
 import OnlineTranslationService, {
   type OnlineTranslationStatus,
   type OnlineTranslationResult
@@ -218,18 +217,8 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [status, session, settings.audioNotificationsEnabled, settings.vibrationEnabled]);
 
   const ensureAudioPermission = useCallback(async () => {
-    if (Platform.OS === "android") {
-      try {
-        const permissions: string[] = [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO];
-        if (Platform.Version >= 31) permissions.push(PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT);
-        permissions.push(PermissionsAndroid.PERMISSIONS.CAMERA);
-        const result = await PermissionsAndroid.requestMultiple(permissions as any);
-        return permissions.every((p) => (result as any)[p] === PermissionsAndroid.RESULTS.GRANTED);
-      } catch {
-        return false;
-      }
-    }
-    return true;
+    const result = await permissionsAdapter.requestMeetingPermissions();
+    return result.allGranted;
   }, []);
 
   const syncRemoteMediaFlags = useCallback((trackState: RemoteTrackState<MediaTrack>) => {

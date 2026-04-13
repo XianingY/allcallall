@@ -7,13 +7,12 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { PermissionsAndroid, Platform } from "react-native";
 import {
   MediaStream,
   RTCPeerConnection,
   RTCSessionDescription,
   mediaDevices as webrtcMediaDevices,
-} from "react-native-webrtc";
+} from "../platform/rtc";
 
 import {
   addRoomIceCandidate,
@@ -32,6 +31,7 @@ import {
   type RoomRecord,
 } from "../api/collaboration";
 import { fetchWebRTCConfig } from "../api/webrtc";
+import permissionsAdapter from "../platform/permissionsAdapter";
 import AudioService from "../services/AudioServiceExpo";
 import VideoService, { type CameraFacing } from "../services/VideoService";
 import { DEFAULT_ICE_SERVERS } from "./signalingConstants";
@@ -106,20 +106,8 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
   }, [localStream]);
 
   const ensureMediaPermissions = useCallback(async () => {
-    if (Platform.OS !== "android") {
-      return true;
-    }
-    try {
-      const permissions: string[] = [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO];
-      if (Platform.Version >= 31) {
-        permissions.push(PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT);
-      }
-      permissions.push(PermissionsAndroid.PERMISSIONS.CAMERA);
-      const result = await PermissionsAndroid.requestMultiple(permissions as never);
-      return permissions.every((permission) => (result as Record<string, string>)[permission] === PermissionsAndroid.RESULTS.GRANTED);
-    } catch {
-      return false;
-    }
+    const result = await permissionsAdapter.requestMeetingPermissions();
+    return result.allGranted;
   }, []);
 
   const loadIceServers = useCallback(async () => {

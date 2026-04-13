@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, FlatList, Linking, StyleSheet, Text, View } from "react-native";
+import { Alert, FlatList, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import RNFS from "react-native-fs";
+import * as Clipboard from "expo-clipboard";
 
 import {
   buildRecordingDownloadRequest,
@@ -25,7 +25,9 @@ import { useOrganization } from "../context/OrganizationContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import PrimaryButton from "../components/PrimaryButton";
 import TextField from "../components/TextField";
+import fileDownloadAdapter from "../platform/fileDownload";
 import ChatRealtimeService from "../services/ChatRealtimeService";
+import { buildConversationShareLinks } from "../utils/invitations";
 
 type Props = NativeStackScreenProps<RootStackParamList, "ConversationDetail">;
 
@@ -35,6 +37,7 @@ const PRIORITY_OPTIONS = ["low", "normal", "high", "urgent"] as const;
 const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const { token, user } = useAuthContext();
   const { currentOrganization } = useOrganization();
+  const { width } = useWindowDimensions();
   const [detail, setDetail] = useState<ConversationDetailRecord | null>(null);
   const [contacts, setContacts] = useState<User[]>([]);
   const [notes, setNotes] = useState<ConversationNoteRecord[]>([]);
@@ -43,9 +46,18 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const [draft, setDraft] = useState("");
   const [noteDraft, setNoteDraft] = useState("");
   const [loading, setLoading] = useState(false);
-  const conversationId = route.params.conversation.id;
+  const conversationId = route.params.conversationId ?? route.params.conversation?.id ?? 0;
 
-  const conversation = detail?.conversation ?? route.params.conversation;
+  const conversation = detail?.conversation ?? route.params.conversation ?? {
+    id: conversationId,
+    organization_id: currentOrganization?.id ?? 0,
+    type: "direct",
+    title: "协作线程",
+    status: "open",
+    priority: "normal",
+    unread_count: 0,
+  };
+  const isWideScreen = width >= 1180;
 
   const loadData = useCallback(async () => {
     if (!token) {
@@ -132,6 +144,12 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     () => contacts.find((item) => item.id === conversation.contact_id),
     [contacts, conversation.contact_id]
   );
+
+  const handleCopyConversationLink = async () => {
+    const links = buildConversationShareLinks(conversationId);
+    await Clipboard.setStringAsync(links.webURL);
+    Alert.alert("已复制", "线程 Web 链接已复制到剪贴板。");
+  };
 
   const handleSend = async () => {
     if (!token || !draft.trim()) {
@@ -256,20 +274,11 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     }
     try {
       const request = buildRecordingDownloadRequest(token, recordingId, fileId);
-      const destination = `${RNFS.DocumentDirectoryPath}/${fileName || `recording-${fileId}`}`;
-      const result = await RNFS.downloadFile({
-        ...request,
-        toFile: destination,
-        background: true,
-        discretionary: true
-      }).promise;
-      if (result.statusCode < 200 || result.statusCode >= 300) {
-        throw new Error(`download failed with status ${result.statusCode}`);
-      }
+      const result = await fileDownloadAdapter.download(request, fileName || `recording-${fileId}`);
       try {
-        await Linking.openURL(`file://${destination}`);
+        await fileDownloadAdapter.open(result);
       } catch {
-        Alert.alert("下载完成", `文件已保存到 ${destination}`);
+        Alert.alert("下载完成", `文件已保存到 ${result.location}`);
       }
     } catch (error) {
       console.error("[ConversationDetailScreen] Failed to download recording:", error);
@@ -277,8 +286,8 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     }
   };
 
-  return (
-    <View style={styles.container}>
+  const workspacePane = (
+    <>
       <Text style={styles.heading}>{conversation.title || "协作线程"}</Text>
 
       <View style={styles.summaryCard}>
@@ -286,6 +295,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         <Text style={styles.summaryText}>状态 {detail?.workspace.status || conversation.status}</Text>
         <Text style={styles.summaryText}>优先级 {detail?.workspace.priority || conversation.priority}</Text>
         <Text style={styles.summaryText}>关联联系人 {boundContact?.display_name || boundContact?.email || "未绑定"}</Text>
+        <PrimaryButton title="复制线程 Web 链接" onPress={() => void handleCopyConversationLink()} style={styles.inlineButtonSecondary} />
         {detail?.latest_room ? (
           <PrimaryButton
             title="进入当前会议"
@@ -449,41 +459,64 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         placeholder="记录交接说明、风险点或下一步动作"
       />
       <PrimaryButton title="添加内部备注" onPress={handleAddNote} disabled={!noteDraft.trim()} style={styles.createNoteButton} />
+    </>
+  );
 
-      <FlatList
-        data={messages}
-        keyExtractor={(item) => String(item.id)}
-        refreshing={loading}
-        onRefresh={() => void loadData()}
-        contentContainerStyle={styles.listContent}
-        renderItem={({ item }) => {
-          const isMine = item.sender_id === user?.id;
-          const isSystem = item.type === "system";
-          return (
-            <View style={[
-              styles.messageBubble,
-              isSystem ? styles.systemBubble : isMine ? styles.mine : styles.theirs
-            ]}>
-              <Text style={styles.sender}>{item.sender_display_name || item.sender_email}</Text>
-              <Text style={styles.body}>{item.body || item.type}</Text>
-              {item.metadata?.event_type ? (
-                <Text style={styles.systemMeta}>{String(item.metadata.event_type)}</Text>
-              ) : null}
-              <Text style={styles.time}>{new Date(item.created_at).toLocaleString()}</Text>
-            </View>
-          );
-        }}
-        ListFooterComponent={
-          <View style={styles.composer}>
-            <TextField
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="输入线程消息"
-            />
-            <PrimaryButton title="发送消息" onPress={handleSend} disabled={!draft.trim()} />
+  const messagePane = (
+    <FlatList
+      data={messages}
+      keyExtractor={(item) => String(item.id)}
+      refreshing={loading}
+      onRefresh={() => void loadData()}
+      contentContainerStyle={styles.listContent}
+      renderItem={({ item }) => {
+        const isMine = item.sender_id === user?.id;
+        const isSystem = item.type === "system";
+        return (
+          <View style={[
+            styles.messageBubble,
+            isSystem ? styles.systemBubble : isMine ? styles.mine : styles.theirs
+          ]}>
+            <Text style={styles.sender}>{item.sender_display_name || item.sender_email}</Text>
+            <Text style={styles.body}>{item.body || item.type}</Text>
+            {item.metadata?.event_type ? (
+              <Text style={styles.systemMeta}>{String(item.metadata.event_type)}</Text>
+            ) : null}
+            <Text style={styles.time}>{new Date(item.created_at).toLocaleString()}</Text>
           </View>
-        }
-      />
+        );
+      }}
+      ListFooterComponent={
+        <View style={styles.composer}>
+          <TextField
+            value={draft}
+            onChangeText={setDraft}
+            placeholder="输入线程消息"
+          />
+          <PrimaryButton title="发送消息" onPress={handleSend} disabled={!draft.trim()} />
+        </View>
+      }
+    />
+  );
+
+  return (
+    <View style={styles.container}>
+      {isWideScreen ? (
+        <View style={styles.desktopLayout}>
+          <ScrollView style={styles.workspaceColumn} contentContainerStyle={styles.workspaceColumnContent}>
+            {workspacePane}
+          </ScrollView>
+          <View style={styles.messageColumn}>
+            {messagePane}
+          </View>
+        </View>
+      ) : (
+        <>
+          {workspacePane}
+
+          {messagePane}
+        </>
+      )}
     </View>
   );
 };
@@ -493,6 +526,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8fafc",
     padding: 16
+  },
+  desktopLayout: {
+    flex: 1,
+    flexDirection: "row",
+    gap: 18,
+  },
+  workspaceColumn: {
+    flex: 0.95,
+  },
+  workspaceColumnContent: {
+    paddingBottom: 24,
+  },
+  messageColumn: {
+    flex: 1.1,
   },
   heading: {
     fontSize: 22,
@@ -513,6 +560,10 @@ const styles = StyleSheet.create({
   },
   inlineButton: {
     marginTop: 12
+  },
+  inlineButtonSecondary: {
+    marginTop: 12,
+    backgroundColor: "#334155",
   },
   buttonRow: {
     flexDirection: "row",

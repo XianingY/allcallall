@@ -7,10 +7,10 @@ import React, {
   useState
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Keychain from "react-native-keychain";
 
 import * as authApi from "../api/auth";
 import { acceptInvitation, User } from "../api/users";
+import secureStorage from "../platform/secureStorage";
 import AnalyticsService from "../services/AnalyticsService";
 import BillingService from "../services/BillingService";
 import PushNotificationService from "../services/PushNotificationService";
@@ -46,22 +46,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     loading: true
   });
 
-  const authPrompt = useMemo<Keychain.AuthenticationPrompt>(
-    () => ({
-      title: "Unlock AllCallAll",
-      cancel: "Cancel"
-    }),
-    []
-  );
+  const authPromptTitle = useMemo(() => "Unlock AllCallAll", []);
 
   const bootstrap = useCallback(async () => {
     try {
       // 从安全存储中读取 token 和 user 数据
       // Read token and user data from secure storage
-      const credentials = await Keychain.getGenericPassword({
-        service: KEYCHAIN_SERVICE,
-        authenticationPrompt: authPrompt
-      });
+      const credentials = await secureStorage.load(KEYCHAIN_SERVICE, authPromptTitle);
 
       if (!credentials) {
         setState((current) => ({ ...current, loading: false }));
@@ -72,7 +63,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       try {
         parsed = JSON.parse(credentials.password) as { token: string; user: User };
       } catch {
-        await Keychain.resetGenericPassword({ service: KEYCHAIN_SERVICE });
+        await secureStorage.clear(KEYCHAIN_SERVICE);
         setState((current) => ({ ...current, loading: false }));
         return;
       }
@@ -88,7 +79,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       console.warn("Failed to load auth state from secure storage", error);
       setState((current) => ({ ...current, loading: false }));
     }
-  }, [authPrompt]);
+  }, [authPromptTitle]);
 
   useEffect(() => {
     bootstrap();
@@ -102,22 +93,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     // 存储到安全存储（支持生物识别）
     // Store to secure storage (with biometric protection)
     const secret = JSON.stringify({ token, user });
-    const baseOptions: Keychain.SetOptions = {
-      service: KEYCHAIN_SERVICE,
-      accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-      securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE
-    };
-
     try {
-      const biometryType = await Keychain.getSupportedBiometryType();
-      if (biometryType) {
-        await Keychain.setGenericPassword("user_session", secret, {
-          ...baseOptions,
-          accessControl: Keychain.ACCESS_CONTROL.BIOMETRY_ANY_OR_DEVICE_PASSCODE,
-          storage: Keychain.STORAGE_TYPE.AES_GCM
-        });
-        return;
-      }
+      const biometricAvailable = await secureStorage.supportsBiometricProtection();
+      await secureStorage.save(KEYCHAIN_SERVICE, "user_session", secret, {
+        requireBiometric: biometricAvailable,
+        promptTitle: authPromptTitle
+      });
+      return;
     } catch (error) {
       console.warn(
         "[AuthContext] Failed to enable biometric keychain storage; falling back",
@@ -125,8 +107,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       );
     }
 
-    await Keychain.setGenericPassword("user_session", secret, baseOptions);
-  }, []);
+    await secureStorage.save(KEYCHAIN_SERVICE, "user_session", secret);
+  }, [authPromptTitle]);
 
   const flushPendingInvitation = useCallback(async (accessToken: string) => {
     try {
@@ -146,7 +128,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     setState({ token: null, user: null, loading: false });
     PushNotificationService.setAuthToken(null);
     await BillingService.logout();
-    await Keychain.resetGenericPassword({ service: KEYCHAIN_SERVICE });
+    await secureStorage.clear(KEYCHAIN_SERVICE);
   }, []);
 
   const login = useCallback(

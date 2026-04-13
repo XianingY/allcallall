@@ -14,13 +14,28 @@ import (
 // Service 用户业务逻辑
 // Service handles high-level user operations.
 type Service struct {
-	repo *Repository
+	repo               *Repository
+	pushDevicesEnabled bool
+}
+
+type ServiceOption func(*Service)
+
+func WithPushDeviceSupport() ServiceOption {
+	return func(s *Service) {
+		s.pushDevicesEnabled = true
+	}
 }
 
 // NewService 构造函数
 // NewService constructs a Service.
-func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo *Repository, options ...ServiceOption) *Service {
+	svc := &Service{repo: repo}
+	for _, option := range options {
+		if option != nil {
+			option(svc)
+		}
+	}
+	return svc
 }
 
 // RegisterInput 注册输入
@@ -170,6 +185,44 @@ func (s *Service) SaveFCMToken(ctx context.Context, userID uint64, fcmToken stri
 		return errors.New("fcm token cannot be empty")
 	}
 	return s.repo.UpdateFCMToken(ctx, userID, strings.TrimSpace(fcmToken))
+}
+
+type SavePushRegistrationInput struct {
+	Token      string
+	Provider   string
+	Platform   string
+	DeviceName string
+	AppVersion string
+}
+
+func (s *Service) SavePushRegistration(ctx context.Context, userID uint64, in SavePushRegistrationInput) error {
+	token := strings.TrimSpace(in.Token)
+	if token == "" {
+		return errors.New("fcm token cannot be empty")
+	}
+	if err := s.repo.UpdateFCMToken(ctx, userID, token); err != nil {
+		return err
+	}
+	if !s.pushDevicesEnabled {
+		return nil
+	}
+	return s.repo.SavePushDevice(ctx, &models.PushDevice{
+		UserID:         userID,
+		Provider:       defaultPushValue(in.Provider, "fcm"),
+		Platform:       defaultPushValue(in.Platform, "android"),
+		DeviceName:     strings.TrimSpace(in.DeviceName),
+		AppVersion:     strings.TrimSpace(in.AppVersion),
+		Token:          token,
+		LastRegistered: time.Now(),
+	})
+}
+
+func defaultPushValue(value string, fallback string) string {
+	trimmed := strings.TrimSpace(strings.ToLower(value))
+	if trimmed == "" {
+		return fallback
+	}
+	return trimmed
 }
 
 // GetFCMToken 获取用户的 FCM Token

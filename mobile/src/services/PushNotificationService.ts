@@ -9,12 +9,12 @@
  * - 推送消息处理
  * - 来电通知处理
  */
-
-import messaging from '@react-native-firebase/messaging';
 import { Platform } from 'react-native';
 import { NavigationContainerRef } from '@react-navigation/native';
 
 import { saveFCMToken } from '../api/users';
+import { getAppVersion, getDeviceName, getPlatformTarget } from "../platform/appMetadata";
+import pushAdapter from "../platform/pushAdapter";
 
 export type NotificationType = 'incoming_call' | 'call_ended' | 'generic';
 
@@ -50,7 +50,7 @@ class PushNotificationService {
    */
   private async initialize(): Promise<void> {
     try {
-      if (this.notificationsEnabled) {
+      if (this.notificationsEnabled && pushAdapter.isSupported()) {
         await this.requestPermission();
       }
       await this.getFCMToken();
@@ -69,16 +69,11 @@ class PushNotificationService {
    */
   private async requestPermission(): Promise<boolean> {
     try {
-      const authStatus = await messaging().requestPermission();
-      const enabled =
-        authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-        authStatus === messaging.AuthorizationStatus.PROVISIONAL;
-
-      if (enabled) {
-        return true;
+      const enabled = await pushAdapter.requestPermission();
+      if (!enabled) {
+        console.warn("[PushNotificationService] Notification permission denied or unsupported");
       }
-      console.warn("[PushNotificationService] Notification permission denied");
-      return false;
+      return enabled;
     } catch (error) {
       console.error("[PushNotificationService] Error requesting permission:", error);
       return false;
@@ -90,7 +85,7 @@ class PushNotificationService {
    */
   private async getFCMToken(): Promise<string | null> {
     try {
-      const token = await messaging().getToken();
+      const token = await pushAdapter.getToken();
       if (token) {
         this.currentToken = token;
         return token;
@@ -108,11 +103,11 @@ class PushNotificationService {
    * 设置前台消息处理器
    */
   private setupMessageHandlers(): void {
-    messaging().onMessage(async (remoteMessage) => {
+    pushAdapter.onMessage(async (remoteMessage) => {
       this.handleMessage(remoteMessage);
     });
 
-    messaging().onNotificationOpenedApp((remoteMessage) => {
+    pushAdapter.onNotificationOpenedApp((remoteMessage) => {
       this.handleNotificationTap(remoteMessage);
     });
   }
@@ -121,7 +116,7 @@ class PushNotificationService {
    * 设置后台消息处理器
    */
   private setupBackgroundMessageHandler(): void {
-    messaging().setBackgroundMessageHandler(async (remoteMessage) => {
+    pushAdapter.setBackgroundMessageHandler(async (remoteMessage) => {
       this.handleMessage(remoteMessage);
     });
   }
@@ -130,7 +125,7 @@ class PushNotificationService {
    * 设置 Token 刷新监听器
    */
   private setupOnTokenRefreshListener(): void {
-    messaging().onTokenRefresh((token) => {
+    pushAdapter.onTokenRefresh((token) => {
       void this.sendTokenToServer(token);
     });
   }
@@ -232,7 +227,12 @@ class PushNotificationService {
       if (!this.authToken) {
         return;
       }
-      await saveFCMToken(this.authToken, token);
+      await saveFCMToken(this.authToken, token, {
+        provider: pushAdapter.getProvider(),
+        platform: getPlatformTarget(),
+        device_name: getDeviceName(),
+        app_version: getAppVersion(),
+      });
     } catch (error) {
       console.error("[PushNotificationService] Error syncing token to backend:", error);
     }
@@ -252,7 +252,12 @@ class PushNotificationService {
       return;
     }
 
-    await saveFCMToken(this.authToken, this.currentToken);
+    await saveFCMToken(this.authToken, this.currentToken, {
+      provider: pushAdapter.getProvider(),
+      platform: getPlatformTarget(),
+      device_name: getDeviceName(),
+      app_version: getAppVersion(),
+    });
   }
 
   public setAuthToken(authToken: string | null): void {
@@ -289,7 +294,7 @@ class PushNotificationService {
    */
   public async unregisterToken(): Promise<void> {
     try {
-      await messaging().unregisterDeviceForRemoteMessages();
+      await pushAdapter.unregister();
       this.currentToken = null;
     } catch (error) {
       console.error("[PushNotificationService] Error unregistering token:", error);
@@ -301,12 +306,7 @@ class PushNotificationService {
    */
   public async checkPermission(): Promise<boolean> {
     try {
-      const authStatus = await messaging().hasPermission();
-      const enabled =
-        authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-        authStatus === messaging.AuthorizationStatus.PROVISIONAL;
-
-      return enabled;
+      return pushAdapter.hasPermission();
     } catch (error) {
       console.error("[PushNotificationService] Error checking permission:", error);
       return false;
@@ -318,7 +318,7 @@ class PushNotificationService {
    */
   public getPlatformInfo(): { platform: string; version: string } {
     return {
-      platform: Platform.OS,
+      platform: getPlatformTarget(),
       version: Platform.Version.toString()
     };
   }

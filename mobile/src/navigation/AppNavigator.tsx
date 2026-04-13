@@ -49,7 +49,7 @@ export type RootStackParamList = {
   FollowUps: undefined;
   Organizations: undefined;
   Conversations: undefined;
-  ConversationDetail: { conversation: ConversationRecord };
+  ConversationDetail: { conversation?: ConversationRecord; conversationId?: number };
   Deals: undefined;
   DealDetail: { deal: DealRecord };
   Recordings: undefined;

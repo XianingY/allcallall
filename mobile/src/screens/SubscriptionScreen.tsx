@@ -8,13 +8,13 @@ import {
   View
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import type { PurchasesOffering } from "react-native-purchases";
 
 import { getRevenueCatConfig } from "../api/commercial";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
 import { useCommercial } from "../context/CommercialContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import type { BillingOffering as PurchasesOffering } from "../platform/billingAdapter";
 import AnalyticsService from "../services/AnalyticsService";
 import BillingService from "../services/BillingService";
 import { findTranslationUsage, formatTranslationUsageSummary } from "../utils/usage";

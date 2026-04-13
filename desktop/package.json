@@ -1,0 +1,13 @@
+{
+  "name": "allcallall-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "main": "main.cjs",
+  "scripts": {
+    "dev": "electron .",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^31.0.2"
+  }
+}

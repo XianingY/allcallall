@@ -9,7 +9,6 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { RTCView } from "react-native-webrtc";
 import * as Clipboard from "expo-clipboard";
 
 import PrimaryButton from "../components/PrimaryButton";
@@ -17,7 +16,9 @@ import { useAuthContext } from "../context/AuthContext";
 import { useOrganization } from "../context/OrganizationContext";
 import { useRoomCall } from "../context/RoomCallContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import { RTCView } from "../platform/rtc";
 import ChatRealtimeService from "../services/ChatRealtimeService";
+import { buildRoomShareLinks } from "../utils/invitations";
 
 type Props = NativeStackScreenProps<RootStackParamList, "RoomDetail">;
 
@@ -124,9 +125,10 @@ const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const currentRoom = room ?? route.params.room;
   const roomWidth = Math.max(width - 32, 280);
+  const isDesktopLayout = width >= 1180;
   const localPreviewUrl = useMemo(() => {
     try {
-      return localStream?.toURL() ?? null;
+      return localStream?.toURL?.() ?? null;
     } catch {
       return null;
     }
@@ -153,7 +155,7 @@ const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         id: item.id,
         label: member?.user_display_name || member?.user_email || `Participant ${index + 1}`,
         email: member?.user_email,
-        streamURL: item.stream.toURL(),
+        streamURL: item.stream.toURL?.() ?? null,
         audioEnabled: member?.audio_enabled,
         videoEnabled: member?.video_enabled,
         isHost: member?.is_host,
@@ -196,8 +198,9 @@ const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   };
 
   const handleCopyMeetingLink = async () => {
-    await Clipboard.setStringAsync(`allcallall://rooms/${currentRoom.room.id}`);
-    Alert.alert("已复制", "会议链接已复制到剪贴板。");
+    const links = buildRoomShareLinks(currentRoom.room.id);
+    await Clipboard.setStringAsync(links.webURL);
+    Alert.alert("已复制", "Web 会议链接已复制到剪贴板。");
   };
 
   const currentUserMembership = currentRoom.members.find((member) => member.user_id === user?.id);
@@ -272,20 +275,20 @@ const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     );
   };
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>{currentRoom.room.title}</Text>
-        <Text style={styles.meta}>
-          {controlState.connectionState === "connected" ? "Connected" : controlState.connectionState} · {currentRoom.participant_count} 人
-        </Text>
-        <Text style={styles.meta}>
-          {currentRoom.active_recording ? "Recording live" : "Recording idle"} · {canRecord ? "Host controls enabled" : "Participant"}
-        </Text>
-      </View>
+  const headerBlock = (
+    <View style={styles.header}>
+      <Text style={styles.title}>{currentRoom.room.title}</Text>
+      <Text style={styles.meta}>
+        {controlState.connectionState === "connected" ? "Connected" : controlState.connectionState} · {currentRoom.participant_count} 人
+      </Text>
+      <Text style={styles.meta}>
+        {currentRoom.active_recording ? "Recording live" : "Recording idle"} · {canRecord ? "Host controls enabled" : "Participant"}
+      </Text>
+    </View>
+  );
 
-      {renderGallery()}
-
+  const sidePanel = (
+    <>
       <View style={styles.summaryCard}>
         <Text style={styles.summaryText}>会议状态 {currentRoom.room.status}</Text>
         {currentRoom.conversation_title ? <Text style={styles.summaryText}>所属线程 {currentRoom.conversation_title}</Text> : null}
@@ -375,6 +378,26 @@ const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         )}
         ListHeaderComponent={<Text style={styles.eventsHeading}>最近事件</Text>}
       />
+    </>
+  );
+
+  return (
+    <View style={styles.container}>
+      {isDesktopLayout ? (
+        <View style={styles.desktopLayout}>
+          <View style={styles.desktopGalleryColumn}>
+            {headerBlock}
+            {renderGallery()}
+          </View>
+          <View style={styles.desktopSidebar}>{sidePanel}</View>
+        </View>
+      ) : (
+        <>
+          {headerBlock}
+          {renderGallery()}
+          {sidePanel}
+        </>
+      )}
     </View>
   );
 };
@@ -384,6 +407,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#020617",
     padding: 16,
+  },
+  desktopLayout: {
+    flex: 1,
+    flexDirection: "row",
+    gap: 18,
+  },
+  desktopGalleryColumn: {
+    flex: 1.35,
+    justifyContent: "center",
+  },
+  desktopSidebar: {
+    flex: 0.9,
   },
   header: {
     marginBottom: 14,

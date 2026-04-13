@@ -3,7 +3,7 @@
  * 负责视频流管理、摄像头控制、视频质量管理等功能
  */
 
-import { mediaDevices as webrtcMediaDevices, MediaStream } from "react-native-webrtc";
+import { mediaDevices as webrtcMediaDevices, MediaStream } from "../platform/rtc";
 
 export type CameraFacing = "front" | "back";
 export type VideoQuality = "low" | "medium" | "high";

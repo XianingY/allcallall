@@ -1,5 +1,5 @@
 import React from "react";
-import { NavigationContainer } from "@react-navigation/native";
+import { LinkingOptions, NavigationContainer } from "@react-navigation/native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Linking } from "react-native";
@@ -12,10 +12,41 @@ import RoomCallProvider from "./src/context/RoomCallContext";
 import { SignalingProvider } from "./src/context/SignalingContext";
 import { SettingsProvider } from "./src/context/SettingsContext";
 import AppNavigator from "./src/navigation/AppNavigator";
+import type { RootStackParamList } from "./src/navigation/AppNavigator";
 import { navigationRef } from "./src/navigation/navigationRef";
 import PushNotificationService from "./src/services/PushNotificationService";
 import CallOverlay from "./src/components/CallOverlay";
-import { parseInvitationCodeFromURL, parseRoomIdFromURL } from "./src/utils/invitations";
+import {
+  parseConversationIdFromURL,
+  parseInvitationCodeFromURL,
+  parseRoomIdFromURL,
+} from "./src/utils/invitations";
+
+const linking: LinkingOptions<RootStackParamList> = {
+  prefixes: ["allcallall://"],
+  config: {
+    screens: {
+      Rooms: "meetings",
+      PreJoin: {
+        path: "rooms/:roomId",
+        parse: {
+          roomId: (value: string) => Number(value),
+        },
+      },
+      Conversations: "inbox",
+      ConversationDetail: {
+        path: "conversations/:conversationId",
+        parse: {
+          conversationId: (value: string) => Number(value),
+        },
+      },
+      Contacts: "contacts",
+      FollowUps: "follow-ups",
+      Settings: "settings",
+      InvitationAccept: "invite/:code",
+    },
+  },
+};
 
 const App = () => {
   React.useEffect(() => {
@@ -24,6 +55,13 @@ const App = () => {
       if (roomId) {
         if (navigationRef.isReady()) {
           navigationRef.navigate("PreJoin", { roomId });
+        }
+        return;
+      }
+      const conversationId = parseConversationIdFromURL(url);
+      if (conversationId) {
+        if (navigationRef.isReady()) {
+          navigationRef.navigate("ConversationDetail", { conversationId });
         }
         return;
       }
@@ -60,7 +98,7 @@ const App = () => {
               <SettingsProvider>
                 <RoomCallProvider>
                   <SignalingProvider>
-                    <NavigationContainer ref={navigationRef}>
+                    <NavigationContainer ref={navigationRef} linking={linking}>
                       <AppNavigator />
                       <CallOverlay />
                       <StatusBar style="auto" />

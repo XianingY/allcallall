@@ -1,4 +1,4 @@
-import type { MediaStream } from "react-native-webrtc";
+import type { MediaStream } from "../platform/rtc";
 
 import type {
   MediaUpdatePayload,

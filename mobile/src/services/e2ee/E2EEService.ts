@@ -12,7 +12,7 @@
  * This E2EE layer protects against SFU eavesdropping (when SFU is added in future).
  */
 
-import * as Keychain from "react-native-keychain";
+import secureStorage from "../../platform/secureStorage";
 
 const KEYCHAIN_SERVICE_E2EE = "com.allcallall.e2ee";
 
@@ -135,15 +135,7 @@ export async function deriveSessionKey(
  */
 export async function storeIdentityKeyPair(keyPair: E2EEKeyPair): Promise<void> {
   try {
-    await Keychain.setGenericPassword(
-      "e2ee_identity",
-      JSON.stringify(keyPair),
-      {
-        service: KEYCHAIN_SERVICE_E2EE,
-        accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-        securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE
-      }
-    );
+    await secureStorage.save(KEYCHAIN_SERVICE_E2EE, "e2ee_identity", JSON.stringify(keyPair));
   } catch (error) {
     console.error("[E2EE] Failed to store identity key pair", error);
     throw new Error("E2EE key storage failed");
@@ -155,9 +147,7 @@ export async function storeIdentityKeyPair(keyPair: E2EEKeyPair): Promise<void> 
  */
 export async function loadIdentityKeyPair(): Promise<E2EEKeyPair | null> {
   try {
-    const credentials = await Keychain.getGenericPassword({
-      service: KEYCHAIN_SERVICE_E2EE
-    });
+    const credentials = await secureStorage.load(KEYCHAIN_SERVICE_E2EE);
 
     if (!credentials) {
       return null;

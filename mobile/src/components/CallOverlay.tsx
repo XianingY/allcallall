@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
-import { RTCView } from "react-native-webrtc";
 import { activateKeepAwake, deactivateKeepAwake } from "expo-keep-awake";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useSignaling } from "../context/SignalingContext";
+import { RTCView } from "../platform/rtc";
 import { useSubtitleStore } from "../store/useSubtitleStore";
 import { FIRST_TRANSLATION_HINT_SEEN_STORAGE_KEY } from "../constants/onboarding";
 import { E2EEIndicator } from "./E2EEIndicator";
@@ -118,7 +118,7 @@ const CallOverlay: React.FC = () => {
   const getStreamURL = (stream: any): string | null => {
     if (!stream) return null;
     try {
-      const url = stream.toURL();
+      const url = stream.toURL?.();
       return typeof url === "string" && url.length > 0 ? url : null;
     } catch (error) {
       console.warn("[CallOverlay] stream toURL failed:", error);

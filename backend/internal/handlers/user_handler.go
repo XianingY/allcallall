@@ -370,7 +370,11 @@ func (h *UserHandler) handleChangePassword(c *gin.Context) {
 }
 
 type saveFCMTokenRequest struct {
-	FCMToken string `json:"fcm_token" binding:"required"`
+	FCMToken   string `json:"fcm_token" binding:"required"`
+	Provider   string `json:"provider"`
+	Platform   string `json:"platform"`
+	DeviceName string `json:"device_name"`
+	AppVersion string `json:"app_version"`
 }
 
 func (h *UserHandler) handleSaveFCMToken(c *gin.Context) {
@@ -386,7 +390,13 @@ func (h *UserHandler) handleSaveFCMToken(c *gin.Context) {
 		return
 	}
 
-	if err := h.users.SaveFCMToken(c.Request.Context(), claims.UserID, req.FCMToken); err != nil {
+	if err := h.users.SavePushRegistration(c.Request.Context(), claims.UserID, user.SavePushRegistrationInput{
+		Token:      req.FCMToken,
+		Provider:   req.Provider,
+		Platform:   req.Platform,
+		DeviceName: req.DeviceName,
+		AppVersion: req.AppVersion,
+	}); err != nil {
 		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Msg("save fcm token failed")
 		JSONError(c, http.StatusInternalServerError, "failed to save fcm token")
 		return

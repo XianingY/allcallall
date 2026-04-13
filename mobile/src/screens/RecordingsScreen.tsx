@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, FlatList, Linking, StyleSheet, Text, View } from "react-native";
-import RNFS from "react-native-fs";
+import { Alert, FlatList, StyleSheet, Text, View } from "react-native";
 
 import { buildRecordingDownloadRequest, listRecordings, type RecordingRecord } from "../api/collaboration";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
+import fileDownloadAdapter from "../platform/fileDownload";
 
 const RecordingsScreen: React.FC = () => {
   const { token } = useAuthContext();
@@ -34,20 +34,11 @@ const RecordingsScreen: React.FC = () => {
     }
     try {
       const request = buildRecordingDownloadRequest(token, recordingId, fileId);
-      const destination = `${RNFS.DocumentDirectoryPath}/${fileName || `recording-${fileId}`}`;
-      const result = await RNFS.downloadFile({
-        ...request,
-        toFile: destination,
-        background: true,
-        discretionary: true
-      }).promise;
-      if (result.statusCode < 200 || result.statusCode >= 300) {
-        throw new Error(`download failed with status ${result.statusCode}`);
-      }
+      const result = await fileDownloadAdapter.download(request, fileName || `recording-${fileId}`);
       try {
-        await Linking.openURL(`file://${destination}`);
+        await fileDownloadAdapter.open(result);
       } catch {
-        Alert.alert("下载完成", `文件已保存到 ${destination}`);
+        Alert.alert("下载完成", `文件已保存到 ${result.location}`);
       }
     } catch (error) {
       console.error("[RecordingsScreen] Failed to download recording:", error);

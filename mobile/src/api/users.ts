@@ -144,7 +144,14 @@ export const changePassword = async (token: string, data: ChangePasswordRequest)
   return response.data;
 };
 
-export const saveFCMToken = async (token: string, fcmToken: string) => {
+export interface SavePushTokenPayload {
+  provider?: string;
+  platform?: string;
+  device_name?: string;
+  app_version?: string;
+}
+
+export const saveFCMToken = async (token: string, fcmToken: string, metadata?: SavePushTokenPayload) => {
   const api = createApiClient(token);
-  await api.post("/users/fcm-token", { fcm_token: fcmToken });
+  await api.post("/users/fcm-token", { fcm_token: fcmToken, ...metadata });
 };

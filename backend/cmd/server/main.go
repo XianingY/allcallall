@@ -104,6 +104,7 @@ func main() {
 		&models.Message{},
 		&models.MessageRead{},
 		&models.Attachment{},
+		&models.PushDevice{},
 		&models.CallRoom{},
 		&models.CallRoomMember{},
 		&models.CallRoomEvent{},
@@ -136,7 +137,7 @@ func main() {
 	rateLimitSvc := ratelimit.NewService(redisClient)
 	commerceSvc := commerce.NewService(db, counterStore)
 	userRepo := user.NewRepository(db)
-	userSvc := user.NewService(userRepo)
+	userSvc := user.NewService(userRepo, user.WithPushDeviceSupport())
 	collaborationSvc := collaboration.NewService(db, userSvc)
 	collaborationSvc.WithMetrics(counterStore)
 	chatHub := collaboration.NewChatHub(appLogger)

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/allcallall/backend/internal/models"
 )
@@ -103,6 +104,26 @@ func (r *Repository) ResetPasswordHash(ctx context.Context, userID uint64, passw
 	return r.db.WithContext(ctx).Model(&models.User{}).
 		Where("id = ?", userID).
 		Update("password_hash", passwordHash).Error
+}
+
+// SavePushDevice upserts one push registration with platform metadata.
+func (r *Repository) SavePushDevice(ctx context.Context, device *models.PushDevice) error {
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "user_id"},
+				{Name: "token"},
+			},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"provider",
+				"platform",
+				"device_name",
+				"app_version",
+				"last_registered",
+				"updated_at",
+			}),
+		}).
+		Create(device).Error
 }
 
 // UpdateAccountStatus updates user lifecycle status and deleted timestamp.
