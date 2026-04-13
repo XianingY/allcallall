@@ -7,6 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { Platform } from "react-native";
 import {
   MediaStream,
   RTCPeerConnection,
@@ -96,6 +97,8 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamMapRef = useRef<Map<string, MediaStream>>(new Map());
   const remoteStreamParticipantRef = useRef<Map<string, number | undefined>>(new Map());
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptRef = useRef(0);
 
   useEffect(() => {
     roomRef.current = room;
@@ -142,6 +145,11 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
   }, []);
 
   const closePeer = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    reconnectAttemptRef.current = 0;
     if (peerRef.current) {
       try {
         peerRef.current.close();
@@ -306,6 +314,38 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
     setRoom(result.room);
   }, [token]);
 
+  const scheduleReconnect = useCallback((roomId: number) => {
+    if (reconnectTimeoutRef.current || !peerRef.current) {
+      return;
+    }
+    reconnectTimeoutRef.current = setTimeout(() => {
+      reconnectTimeoutRef.current = null;
+      reconnectAttemptRef.current += 1;
+      void (async () => {
+        try {
+          setControlState((current) => ({
+            ...current,
+            joining: false,
+            connectionState: "reconnecting",
+          }));
+          await refreshRoom(roomId);
+          await renegotiate(roomId);
+        } catch (error) {
+          console.error("[RoomCallContext] Failed to renegotiate room connection:", error);
+          if (reconnectAttemptRef.current < 2) {
+            scheduleReconnect(roomId);
+            return;
+          }
+          setControlState((current) => ({
+            ...current,
+            joining: false,
+            connectionState: "failed",
+          }));
+        }
+      })();
+    }, 1200);
+  }, [refreshRoom, renegotiate]);
+
   const joinMeeting = useCallback(async (roomId: number, options: MeetingJoinOptions) => {
     if (!token) {
       return;
@@ -377,12 +417,40 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
               : nextState === "disconnected"
                 ? "reconnecting"
                 : "connecting";
+        if (nextState === "connected") {
+          reconnectAttemptRef.current = 0;
+          if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = null;
+          }
+        }
         setControlState((current) => ({
           joined: current.joined || nextState === "connected",
           joining: nextState === "connecting",
           connectionState: nextConnectionState,
         }));
         void syncRoomMediaState({ connectionState: nextConnectionState });
+      };
+
+      (pc as any).oniceconnectionstatechange = () => {
+        const nextIceState = (pc as any).iceConnectionState as string;
+        if (nextIceState === "connected" || nextIceState === "completed") {
+          reconnectAttemptRef.current = 0;
+          if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = null;
+          }
+          void refreshRoom(roomId);
+          return;
+        }
+        if (nextIceState === "disconnected" || nextIceState === "failed") {
+          setControlState((current) => ({
+            ...current,
+            connectionState: "reconnecting",
+          }));
+          void syncRoomMediaState({ connectionState: "reconnecting" });
+          scheduleReconnect(roomId);
+        }
       };
 
       const offer = await pc.createOffer({
@@ -407,7 +475,18 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
       setControlState({ joined: false, joining: false, connectionState: "failed" });
       throw error;
     }
-  }, [clearRemoteStreams, closePeer, loadIceServers, parseParticipantId, preparePreview, syncRemoteStreams, syncRoomMediaState, token]);
+  }, [
+    clearRemoteStreams,
+    closePeer,
+    loadIceServers,
+    parseParticipantId,
+    preparePreview,
+    refreshRoom,
+    scheduleReconnect,
+    syncRemoteStreams,
+    syncRoomMediaState,
+    token,
+  ]);
 
   const leaveMeetingInternal = useCallback(async (notifyBackend: boolean) => {
     const currentRoomId = roomRef.current?.room.id;
@@ -488,6 +567,9 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
   const switchCamera = useCallback(async () => {
     const current = localStreamRef.current;
     if (!current || !deviceState.videoEnabled) {
+      return;
+    }
+    if (Platform.OS === "web") {
       return;
     }
     const nextFacing: CameraFacing = deviceState.cameraFacing === "front" ? "back" : "front";

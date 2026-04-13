@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -43,6 +44,7 @@ const SubscriptionScreen: React.FC<Props> = () => {
     [entitlements]
   );
   const storefrontReady = Boolean(config && monthlyPackage && yearlyPackage);
+  const billingSupported = Platform.OS !== "web";
 
   const loadOfferings = useCallback(async () => {
     if (!user) {
@@ -65,8 +67,11 @@ const SubscriptionScreen: React.FC<Props> = () => {
   }, [user]);
 
   useEffect(() => {
+    if (!billingSupported) {
+      return;
+    }
     void loadOfferings();
-  }, [loadOfferings]);
+  }, [billingSupported, loadOfferings]);
 
   const handlePurchase = async (pkg: PurchasesOffering["availablePackages"][number]) => {
     try {
@@ -128,6 +133,15 @@ const SubscriptionScreen: React.FC<Props> = () => {
         <Text style={styles.statusMeta}>{formatTranslationUsageSummary(usageSummary)}</Text>
       </View>
 
+      {!billingSupported ? (
+        <View style={styles.placeholderCard}>
+          <Text style={styles.placeholderTitle}>Web 端暂不支持订阅购买</Text>
+          <Text style={styles.placeholderText}>
+            当前浏览器版本优先支持会议、Inbox、录音下载和摘要查看。购买、恢复与管理订阅请先使用移动端。
+          </Text>
+        </View>
+      ) : null}
+
       <View style={styles.planCard}>
         <Text style={styles.planTitle}>Free</Text>
         <Text style={styles.planBullet}>无限基础 1:1 音视频和联系人</Text>
@@ -142,7 +156,7 @@ const SubscriptionScreen: React.FC<Props> = () => {
         <Text style={styles.planBullet}>最近通话保留 365 天</Text>
       </View>
 
-      {storefrontReady ? (
+      {billingSupported && storefrontReady ? (
         [monthlyPackage, yearlyPackage].map((pkg) =>
           pkg ? (
           <View key={pkg.identifier} style={styles.packageRow}>
@@ -162,19 +176,19 @@ const SubscriptionScreen: React.FC<Props> = () => {
           </View>
           ) : null
         )
-      ) : (
+      ) : billingSupported ? (
         <View style={styles.placeholderCard}>
           <Text style={styles.placeholderTitle}>订阅商店配置尚未完成</Text>
           <Text style={styles.placeholderText}>
             当前只支持 `premium_monthly` 和 `premium_yearly`。缺少任一 SKU 或 offering 未映射时，不开放购买入口。
           </Text>
         </View>
-      )}
+      ) : null}
 
-      <TouchableOpacity style={styles.secondaryButton} onPress={() => void handleRestore()}>
+      <TouchableOpacity style={styles.secondaryButton} onPress={() => void handleRestore()} disabled={!billingSupported}>
         <Text style={styles.secondaryButtonText}>恢复购买</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.secondaryButton} onPress={() => void handleManage()}>
+      <TouchableOpacity style={styles.secondaryButton} onPress={() => void handleManage()} disabled={!billingSupported}>
         <Text style={styles.secondaryButtonText}>管理订阅</Text>
       </TouchableOpacity>
     </ScrollView>

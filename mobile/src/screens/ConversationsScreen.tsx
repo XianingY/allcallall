@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, FlatList, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, FlatList, Pressable, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { createConversation, listConversations, type ConversationRecord } from "../api/collaboration";
@@ -24,10 +24,12 @@ const FILTERS: Array<{ key: InboxFilter; label: string }> = [
 const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
   const { token } = useAuthContext();
   const { currentOrganization } = useOrganization();
+  const { width } = useWindowDimensions();
   const [items, setItems] = useState<ConversationRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [channelName, setChannelName] = useState("");
   const [activeFilter, setActiveFilter] = useState<InboxFilter>("my");
+  const isWideScreen = width >= 1100;
 
   const loadData = useCallback(async () => {
     if (!token || !currentOrganization) {
@@ -104,72 +106,78 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.heading}>
-        {currentOrganization?.name ?? "当前工作区"} Inbox
-      </Text>
-      <Text style={styles.subheading}>围绕负责人、状态和会议推进团队协作。</Text>
+      <View style={isWideScreen ? styles.desktopLayout : undefined}>
+        <View style={isWideScreen ? styles.desktopSidebar : undefined}>
+          <Text style={styles.heading}>
+            {currentOrganization?.name ?? "当前工作区"} Inbox
+          </Text>
+          <Text style={styles.subheading}>围绕负责人、状态和会议推进团队协作。</Text>
 
-      <View style={styles.filterRow}>
-        {FILTERS.map((filter) => (
-          <Pressable
-            key={filter.key}
-            style={[styles.filterChip, activeFilter === filter.key && styles.filterChipActive]}
-            onPress={() => setActiveFilter(filter.key)}
-          >
-            <Text style={[styles.filterText, activeFilter === filter.key && styles.filterTextActive]}>{filter.label}</Text>
-          </Pressable>
-        ))}
-      </View>
-
-      <TextField
-        label="新建频道"
-        value={channelName}
-        onChangeText={setChannelName}
-        placeholder="例如：跨境客服升级处理"
-      />
-      <PrimaryButton
-        title="创建频道"
-        onPress={handleCreateChannel}
-        disabled={!channelName.trim()}
-        style={styles.createButton}
-      />
-
-      <FlatList
-        data={items}
-        keyExtractor={(item) => String(item.id)}
-        refreshing={loading}
-        onRefresh={() => void loadData()}
-        renderItem={({ item }) => {
-          const assignee = item.assignee_display_name || item.assignee_email || "未指派";
-          return (
-            <TouchableOpacity
-              style={styles.card}
-              onPress={() => navigation.navigate("ConversationDetail", { conversation: item })}
-            >
-              <View style={styles.row}>
-                <Text style={styles.title}>{item.title || item.type}</Text>
-                {item.unread_count > 0 ? <Text style={styles.badge}>{item.unread_count}</Text> : null}
-              </View>
-              <View style={styles.metaRow}>
-                <Text style={styles.metaPill}>{item.status.toUpperCase()}</Text>
-                <Text style={styles.metaPill}>{item.priority.toUpperCase()}</Text>
-                {item.active_room_id ? <Text style={styles.metaPill}>MEETING</Text> : null}
-                {item.latest_recording_id ? <Text style={styles.metaPill}>RECORDING</Text> : null}
-              </View>
-              <Text style={styles.assignee}>负责人 {assignee}</Text>
-              {item.active_room_title || item.latest_room_title ? (
-                <Text style={styles.roomHint}>会议 {item.active_room_title || item.latest_room_title}</Text>
-              ) : null}
-              <Text style={styles.preview}>{item.last_message_preview || "暂无消息"}</Text>
-            </TouchableOpacity>
-          );
-        }}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>当前筛选下还没有协作线程。</Text>
+          <View style={styles.filterRow}>
+            {FILTERS.map((filter) => (
+              <Pressable
+                key={filter.key}
+                style={[styles.filterChip, activeFilter === filter.key && styles.filterChipActive]}
+                onPress={() => setActiveFilter(filter.key)}
+              >
+                <Text style={[styles.filterText, activeFilter === filter.key && styles.filterTextActive]}>{filter.label}</Text>
+              </Pressable>
+            ))}
           </View>
-        }
-      />
+
+          <TextField
+            label="新建频道"
+            value={channelName}
+            onChangeText={setChannelName}
+            placeholder="例如：跨境客服升级处理"
+          />
+          <PrimaryButton
+            title="创建频道"
+            onPress={handleCreateChannel}
+            disabled={!channelName.trim()}
+            style={styles.createButton}
+          />
+        </View>
+
+        <View style={isWideScreen ? styles.desktopMain : undefined}>
+          <FlatList
+            data={items}
+            keyExtractor={(item) => String(item.id)}
+            refreshing={loading}
+            onRefresh={() => void loadData()}
+            renderItem={({ item }) => {
+              const assignee = item.assignee_display_name || item.assignee_email || "未指派";
+              return (
+                <TouchableOpacity
+                  style={styles.card}
+                  onPress={() => navigation.navigate("ConversationDetail", { conversation: item })}
+                >
+                  <View style={styles.row}>
+                    <Text style={styles.title}>{item.title || item.type}</Text>
+                    {item.unread_count > 0 ? <Text style={styles.badge}>{item.unread_count}</Text> : null}
+                  </View>
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaPill}>{item.status.toUpperCase()}</Text>
+                    <Text style={styles.metaPill}>{item.priority.toUpperCase()}</Text>
+                    {item.active_room_id ? <Text style={styles.metaPill}>MEETING</Text> : null}
+                    {item.latest_recording_id ? <Text style={styles.metaPill}>RECORDING</Text> : null}
+                  </View>
+                  <Text style={styles.assignee}>负责人 {assignee}</Text>
+                  {item.active_room_title || item.latest_room_title ? (
+                    <Text style={styles.roomHint}>会议 {item.active_room_title || item.latest_room_title}</Text>
+                  ) : null}
+                  <Text style={styles.preview}>{item.last_message_preview || "暂无消息"}</Text>
+                </TouchableOpacity>
+              );
+            }}
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <Text style={styles.emptyText}>当前筛选下还没有协作线程。</Text>
+              </View>
+            }
+          />
+        </View>
+      </View>
     </View>
   );
 };
@@ -179,6 +187,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8fafc",
     padding: 16
+  },
+  desktopLayout: {
+    flex: 1,
+    flexDirection: "row",
+    gap: 18,
+  },
+  desktopSidebar: {
+    width: 320,
+  },
+  desktopMain: {
+    flex: 1,
   },
   heading: {
     fontSize: 22,
