@@ -55,6 +55,9 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 		deps.Commercial.RegisterPublicRoutes(api)
 		deps.Commercial.RegisterInternalRoutes(api)
 	}
+	if deps.Collaboration != nil {
+		deps.Collaboration.RegisterInternalRoutes(api)
+	}
 	if deps.Invitations != nil {
 		deps.Invitations.RegisterPublicRoutes(api)
 	}

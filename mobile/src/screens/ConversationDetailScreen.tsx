@@ -59,9 +59,10 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         listConversationNotes(token, conversationId),
         listContacts(token)
       ]);
-      const nextRecording = nextDetail.conversation.latest_recording_id
-        ? await fetchRecording(token, nextDetail.conversation.latest_recording_id)
-        : null;
+      const nextRecording = nextDetail.workspace?.latest_recording
+        ?? (nextDetail.conversation.latest_recording_id
+          ? await fetchRecording(token, nextDetail.conversation.latest_recording_id)
+          : null);
       setDetail(nextDetail);
       setContacts(nextContacts);
       setNotes(nextNotes);
@@ -89,7 +90,25 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       void loadData();
     };
     const handleEvent = (event: { event: string; organization_id: number; payload: unknown }) => {
-      if (["message.created", "conversation.updated", "conversation.note.created"].includes(event.event)) {
+      if (event.event === "conversation.updated") {
+        const payload = event.payload as { conversation_id?: number; changes?: Partial<ConversationDetailRecord["conversation"]> } | undefined;
+        if (payload?.conversation_id === conversationId && payload.changes) {
+          const changes = payload.changes;
+          setDetail((previous) => previous ? {
+            ...previous,
+            conversation: { ...previous.conversation, ...changes },
+            workspace: {
+              ...previous.workspace,
+              assignee_user_id: changes.assignee_user_id ?? previous.workspace.assignee_user_id,
+              assignee_label: changes.assignee_display_name || changes.assignee_email || previous.workspace.assignee_label,
+              status: changes.status || previous.workspace.status,
+              priority: changes.priority || previous.workspace.priority,
+            },
+          } : previous);
+        }
+        return;
+      }
+      if (["message.created", "conversation.note.created", "room.recording.updated", "room.state.updated", "room.ended"].includes(event.event)) {
         void loadData();
       }
     };
@@ -100,7 +119,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       ChatRealtimeService.off("open", handleOpen);
       ChatRealtimeService.off("event", handleEvent);
     };
-  }, [currentOrganization, loadData, token]);
+  }, [conversationId, currentOrganization, loadData, token]);
 
   const assigneeLabel = useMemo(() => {
     if (conversation.assignee_user_id === user?.id) {
@@ -263,9 +282,9 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       <Text style={styles.heading}>{conversation.title || "协作线程"}</Text>
 
       <View style={styles.summaryCard}>
-        <Text style={styles.summaryText}>负责人 {assigneeLabel}</Text>
-        <Text style={styles.summaryText}>状态 {conversation.status}</Text>
-        <Text style={styles.summaryText}>优先级 {conversation.priority}</Text>
+        <Text style={styles.summaryText}>负责人 {detail?.workspace.assignee_label || assigneeLabel}</Text>
+        <Text style={styles.summaryText}>状态 {detail?.workspace.status || conversation.status}</Text>
+        <Text style={styles.summaryText}>优先级 {detail?.workspace.priority || conversation.priority}</Text>
         <Text style={styles.summaryText}>关联联系人 {boundContact?.display_name || boundContact?.email || "未绑定"}</Text>
         {detail?.latest_room ? (
           <PrimaryButton
@@ -352,13 +371,21 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         </View>
       )}
 
-      {detail?.latest_note ? (
+      {detail?.workspace ? (
         <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>最近内部备注</Text>
-          <Text style={styles.infoBody}>{detail.latest_note.body}</Text>
-          <Text style={styles.infoMeta}>
-            {detail.latest_note.author_display_name || detail.latest_note.author_email} · {new Date(detail.latest_note.created_at).toLocaleString()}
-          </Text>
+          <Text style={styles.infoTitle}>顶部工作区</Text>
+          {detail.workspace.latest_meeting ? <Text style={styles.infoMeta}>最近会议 {detail.workspace.latest_meeting.title}</Text> : null}
+          {detail.workspace.latest_recording ? <Text style={styles.infoMeta}>最近录音资产 #{detail.workspace.latest_recording.session.id}</Text> : null}
+          {detail.workspace.meeting_summary?.summary ? <Text style={styles.infoBody}>{detail.workspace.meeting_summary.summary}</Text> : null}
+          {detail.workspace.meeting_summary?.action_items?.length ? (
+            <Text style={styles.infoMeta}>Action items {detail.workspace.meeting_summary.action_items.join(" / ")}</Text>
+          ) : null}
+          {detail.workspace.meeting_summary?.next_step ? <Text style={styles.infoMeta}>Next step {detail.workspace.meeting_summary.next_step}</Text> : null}
+          {detail.workspace.latest_note ? (
+            <Text style={styles.infoMeta}>
+              最近备注 {detail.workspace.latest_note.author_display_name || detail.workspace.latest_note.author_email} · {new Date(detail.workspace.latest_note.created_at).toLocaleString()}
+            </Text>
+          ) : null}
         </View>
       ) : null}
 
@@ -379,8 +406,12 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       {detail?.latest_followup ? (
         <View style={styles.infoCard}>
           <Text style={styles.infoTitle}>最近会议/通话摘要</Text>
-          <Text style={styles.infoBody}>{detail.latest_followup.summary_cn || detail.latest_followup.summary_en || "暂无摘要"}</Text>
-          {detail.latest_followup.next_step ? <Text style={styles.infoMeta}>下一步 {detail.latest_followup.next_step}</Text> : null}
+          <Text style={styles.infoBody}>
+            {detail.workspace.meeting_summary?.summary || detail.latest_followup.summary_cn || detail.latest_followup.summary_en || "暂无摘要"}
+          </Text>
+          {(detail.workspace.meeting_summary?.next_step || detail.latest_followup.next_step) ? (
+            <Text style={styles.infoMeta}>下一步 {detail.workspace.meeting_summary?.next_step || detail.latest_followup.next_step}</Text>
+          ) : null}
         </View>
       ) : null}
 

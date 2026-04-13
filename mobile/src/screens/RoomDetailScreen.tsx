@@ -49,6 +49,7 @@ const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     refreshRoom,
     startRecording,
     stopRecording,
+    applyRoomEvent,
   } = useRoomCall();
   const { token, user } = useAuthContext();
   const { currentOrganization } = useOrganization();
@@ -96,8 +97,20 @@ const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       if (!payload?.room_id || payload.room_id !== route.params.room.room.id) {
         return;
       }
+      if (["room.member.updated", "room.state.updated", "room.recording.updated", "room.ended"].includes(event.event)) {
+        applyRoomEvent({
+          event: event.event,
+          organization_id: currentOrganization.id,
+          payload: event.payload,
+        });
+        return;
+      }
       if (event.event === "room.updated" || event.event === "room.media.updated") {
-        void refreshRoom(route.params.room.room.id);
+        applyRoomEvent({
+          event: event.event === "room.media.updated" ? "room.member.updated" : "room.state.updated",
+          organization_id: currentOrganization.id,
+          payload: event.payload,
+        });
       }
     };
     ChatRealtimeService.connect(token, currentOrganization.id);
@@ -107,7 +120,7 @@ const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       ChatRealtimeService.off("open", handleOpen);
       ChatRealtimeService.off("event", handleEvent);
     };
-  }, [currentOrganization, refreshRoom, route.params.room.room.id, token]);
+  }, [applyRoomEvent, currentOrganization, refreshRoom, route.params.room.room.id, token]);
 
   const currentRoom = room ?? route.params.room;
   const roomWidth = Math.max(width - 32, 280);

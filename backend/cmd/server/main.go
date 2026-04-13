@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
 
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/cache"
@@ -30,6 +32,7 @@ import (
 	"github.com/allcallall/backend/internal/ratelimit"
 	"github.com/allcallall/backend/internal/server"
 	"github.com/allcallall/backend/internal/signaling"
+	"github.com/allcallall/backend/internal/storage"
 	"github.com/allcallall/backend/internal/translation"
 	"github.com/allcallall/backend/internal/translation/providers"
 	"github.com/allcallall/backend/internal/user"
@@ -135,8 +138,24 @@ func main() {
 	userRepo := user.NewRepository(db)
 	userSvc := user.NewService(userRepo)
 	collaborationSvc := collaboration.NewService(db, userSvc)
+	collaborationSvc.WithMetrics(counterStore)
 	chatHub := collaboration.NewChatHub(appLogger)
 	collaborationSvc.WithPublisher(chatHub)
+	recordingStorage, err := storage.NewRecordingStorage(storage.Config{
+		Driver:        storage.Driver(strings.TrimSpace(os.Getenv("RECORDING_STORAGE_DRIVER"))),
+		LocalRoot:     strings.TrimSpace(os.Getenv("RECORDING_STORAGE_DIR")),
+		S3Bucket:      strings.TrimSpace(os.Getenv("RECORDING_S3_BUCKET")),
+		S3Region:      strings.TrimSpace(os.Getenv("RECORDING_S3_REGION")),
+		S3Endpoint:    strings.TrimSpace(os.Getenv("RECORDING_S3_ENDPOINT")),
+		S3AccessKeyID: strings.TrimSpace(os.Getenv("RECORDING_S3_ACCESS_KEY_ID")),
+		S3SecretKey:   strings.TrimSpace(os.Getenv("RECORDING_S3_SECRET_ACCESS_KEY")),
+		S3ForcePath:   strings.TrimSpace(os.Getenv("RECORDING_S3_FORCE_PATH_STYLE")) == "1",
+		PublicBaseURL: strings.TrimSpace(os.Getenv("RECORDING_PUBLIC_BASE_URL")),
+	})
+	if err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to initialize recording storage")
+	}
+	collaborationSvc.WithRecordingStorage(recordingStorage)
 	contactRepo := contact.NewRepository(db)
 	contactSvc := contact.NewService(contactRepo, userSvc, commerceSvc)
 	invitationSvc := invitation.NewService(db, userSvc, contactSvc, commerceSvc)
@@ -261,6 +280,8 @@ func main() {
 		Metrics:          counterStore,
 	})
 
+	startRecordingCleanupWorker(rootCtx, appLogger, collaborationSvc)
+
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
 		Handler:      engine,
@@ -287,4 +308,49 @@ func main() {
 	} else {
 		appLogger.Info().Msg("http server gracefully stopped")
 	}
+}
+
+func startRecordingCleanupWorker(ctx context.Context, log zerolog.Logger, collaborationSvc *collaboration.Service) {
+	intervalMinutes := 60
+	if raw := strings.TrimSpace(os.Getenv("RECORDING_CLEANUP_INTERVAL_MIN")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			intervalMinutes = parsed
+		}
+	}
+	interval := time.Duration(intervalMinutes) * time.Minute
+	log.Info().
+		Int("interval_min", intervalMinutes).
+		Msg("recording cleanup worker enabled")
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		run := func() {
+			runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			result, err := collaborationSvc.CleanupExpiredRecordings(runCtx, time.Now(), 200)
+			if err != nil {
+				log.Error().Err(err).Msg("recording cleanup worker failed")
+				return
+			}
+			if result.Deleted > 0 {
+				log.Info().
+					Int("checked", result.Checked).
+					Int("deleted", result.Deleted).
+					Msg("recording cleanup worker completed")
+			}
+		}
+
+		run()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				run()
+			}
+		}
+	}()
 }

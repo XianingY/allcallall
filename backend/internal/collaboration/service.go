@@ -16,7 +16,9 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/media"
+	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/storage"
 	"github.com/allcallall/backend/internal/user"
 )
 
@@ -32,15 +34,27 @@ type EventPublisher interface {
 	PublishToUsers(ctx context.Context, organizationID uint64, userIDs []uint64, event string, payload any) error
 }
 
+type counterRecorder interface {
+	Inc(name string)
+	Add(name string, delta int64)
+}
+
 type Service struct {
 	db        *gorm.DB
 	users     *user.Service
 	publisher EventPublisher
 	media     *media.Engine
+	storage   storage.RecordingStorage
+	metrics   counterRecorder
 }
 
 func NewService(db *gorm.DB, users *user.Service) *Service {
-	return &Service{db: db, users: users}
+	svc := &Service{db: db, users: users}
+	svc.metrics = metrics.NewCounterStore()
+	if localStorage, err := storage.NewRecordingStorage(storage.Config{Driver: storage.DriverLocal}); err == nil {
+		svc.storage = localStorage
+	}
+	return svc
 }
 
 func (s *Service) WithPublisher(publisher EventPublisher) {
@@ -49,6 +63,18 @@ func (s *Service) WithPublisher(publisher EventPublisher) {
 
 func (s *Service) WithMediaEngine(engine *media.Engine) {
 	s.media = engine
+}
+
+func (s *Service) WithRecordingStorage(recordingStorage storage.RecordingStorage) {
+	if recordingStorage != nil {
+		s.storage = recordingStorage
+	}
+}
+
+func (s *Service) WithMetrics(counters counterRecorder) {
+	if counters != nil {
+		s.metrics = counters
+	}
 }
 
 type OrganizationSummary struct {
@@ -104,6 +130,25 @@ type ConversationDetail struct {
 	LatestNote     *ConversationNoteRecord      `json:"latest_note,omitempty"`
 	LatestRoom     *RoomListItem                `json:"latest_room,omitempty"`
 	LatestFollowup *ConversationFollowupSummary `json:"latest_followup,omitempty"`
+	Workspace      ConversationWorkspace        `json:"workspace"`
+}
+
+type ConversationWorkspace struct {
+	LatestMeeting   *RoomListItem           `json:"latest_meeting,omitempty"`
+	LatestRecording *RecordingView          `json:"latest_recording,omitempty"`
+	MeetingSummary  *MeetingSummaryCard     `json:"meeting_summary,omitempty"`
+	LatestNote      *ConversationNoteRecord `json:"latest_note,omitempty"`
+	AssigneeUserID  *uint64                 `json:"assignee_user_id,omitempty"`
+	AssigneeLabel   string                  `json:"assignee_label,omitempty"`
+	Status          string                  `json:"status"`
+	Priority        string                  `json:"priority"`
+}
+
+type MeetingSummaryCard struct {
+	Summary     string   `json:"summary"`
+	ActionItems []string `json:"action_items,omitempty"`
+	NextStep    string   `json:"next_step,omitempty"`
+	Assignee    string   `json:"assignee,omitempty"`
 }
 
 type ConversationNoteRecord struct {
@@ -171,12 +216,14 @@ type RoomListItem struct {
 
 type RoomMemberSummary struct {
 	models.CallRoomMember
-	UserEmail        string `json:"user_email"`
-	UserDisplayName  string `json:"user_display_name"`
-	AudioEnabled     bool   `json:"audio_enabled"`
-	VideoEnabled     bool   `json:"video_enabled"`
-	ConnectionState  string `json:"connection_state"`
-	IsHost           bool   `json:"is_host"`
+	UserEmail       string `json:"user_email"`
+	UserDisplayName string `json:"user_display_name"`
+	Joined          bool   `json:"joined"`
+	Left            bool   `json:"left"`
+	AudioEnabled    bool   `json:"audio_enabled"`
+	VideoEnabled    bool   `json:"video_enabled"`
+	ConnectionState string `json:"connection_state"`
+	IsHost          bool   `json:"is_host"`
 }
 
 type RoomOfferResult struct {
@@ -222,6 +269,23 @@ type RecordingFileView struct {
 type RecordingView struct {
 	Session models.RecordingSession `json:"session"`
 	Files   []RecordingFileView     `json:"files"`
+}
+
+type SupportRoomView struct {
+	State        *RoomState             `json:"state"`
+	RecentEvents []models.CallRoomEvent `json:"recent_events"`
+	Recording    *RecordingView         `json:"latest_recording,omitempty"`
+}
+
+type SupportRecordingView struct {
+	Recording RecordingView              `json:"recording"`
+	Room      *RoomListItem              `json:"room,omitempty"`
+	Policy    *models.OrganizationPolicy `json:"policy,omitempty"`
+}
+
+type CleanupExpiredRecordingResult struct {
+	Checked int `json:"checked"`
+	Deleted int `json:"deleted"`
 }
 
 type ConversationFollowupSummary struct {
@@ -538,6 +602,27 @@ func (s *Service) GetConversation(ctx context.Context, organizationID, userID, c
 	}
 	if followup, err := s.latestConversationFollowup(ctx, conversationID); err == nil {
 		detail.LatestFollowup = followup
+	}
+	detail.Workspace = ConversationWorkspace{
+		LatestMeeting:  detail.LatestRoom,
+		LatestNote:     detail.LatestNote,
+		AssigneeUserID: summary.AssigneeUserID,
+		AssigneeLabel:  firstNonEmpty(summary.AssigneeDisplayName, summary.AssigneeEmail),
+		Status:         summary.Status,
+		Priority:       summary.Priority,
+	}
+	if detail.LatestFollowup != nil {
+		detail.Workspace.MeetingSummary = &MeetingSummaryCard{
+			Summary:     firstNonEmpty(detail.LatestFollowup.SummaryCN, detail.LatestFollowup.SummaryEN),
+			ActionItems: append([]string{}, detail.LatestFollowup.ActionItems...),
+			NextStep:    detail.LatestFollowup.NextStep,
+			Assignee:    detail.Workspace.AssigneeLabel,
+		}
+	}
+	if summary.LatestRecordingID != nil {
+		if recording, err := s.GetRecording(ctx, organizationID, userID, *summary.LatestRecordingID); err == nil {
+			detail.Workspace.LatestRecording = recording
+		}
 	}
 	return detail, nil
 }
@@ -993,14 +1078,7 @@ func (s *Service) CreateRoom(ctx context.Context, organizationID, userID uint64,
 			"latest_room_title": room.Title,
 		})
 	}
-	s.publishRoomEvent(ctx, organizationID, room.ID, "room.updated", map[string]any{
-		"room_id":           room.ID,
-		"event_type":        "meeting.created",
-		"title":             room.Title,
-		"status":            room.Status,
-		"participant_count": state.ParticipantCount,
-		"is_active":         state.IsActive,
-	})
+	s.publishRoomStateUpdated(ctx, organizationID, state, "meeting.created")
 	return state, nil
 }
 
@@ -1053,6 +1131,7 @@ func (s *Service) JoinRoom(ctx context.Context, organizationID, userID, roomID u
 		return nil, err
 	}
 	now := time.Now()
+	s.metrics.Inc("meeting_join_total")
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var room models.CallRoom
 		if err := tx.Where("id = ? AND organization_id = ?", roomID, organizationID).Take(&room).Error; err != nil {
@@ -1090,18 +1169,18 @@ func (s *Service) JoinRoom(ctx context.Context, organizationID, userID, roomID u
 		})
 	})
 	if err != nil {
+		s.metrics.Inc("meeting_join_fail_total")
 		return nil, err
 	}
 	state, err := s.GetRoomState(ctx, organizationID, userID, roomID)
 	if err != nil {
+		s.metrics.Inc("meeting_join_fail_total")
 		return nil, err
 	}
-	s.publishRoomEvent(ctx, organizationID, roomID, "room.updated", map[string]any{
-		"room_id":           roomID,
-		"event_type":        "meeting.joined",
-		"participant_count": state.ParticipantCount,
-		"is_active":         state.IsActive,
-	})
+	if member := findRoomMember(state.Members, userID); member != nil {
+		s.publishRoomMemberUpdated(ctx, organizationID, roomID, *member)
+	}
+	s.publishRoomStateUpdated(ctx, organizationID, state, "meeting.joined")
 	if state.ConversationID != nil {
 		s.publishConversationPatchUpdate(ctx, organizationID, *state.ConversationID, map[string]any{
 			"active_room_id":    state.Room.ID,
@@ -1226,6 +1305,9 @@ func (s *Service) LeaveRoom(ctx context.Context, organizationID, userID, roomID 
 	if err != nil {
 		return nil, err
 	}
+	if member := findRoomMember(state.Members, userID); member != nil {
+		s.publishRoomMemberUpdated(ctx, organizationID, roomID, *member)
+	}
 	if state.ConversationID != nil {
 		changes := map[string]any{
 			"latest_room_id":    state.Room.ID,
@@ -1237,13 +1319,11 @@ func (s *Service) LeaveRoom(ctx context.Context, organizationID, userID, roomID 
 		}
 		s.publishConversationPatchUpdate(ctx, organizationID, *state.ConversationID, changes)
 	}
-	s.publishRoomEvent(ctx, organizationID, state.Room.ID, "room.updated", map[string]any{
-		"room_id":           state.Room.ID,
-		"event_type":        "meeting.ended",
-		"participant_count": state.ParticipantCount,
-		"is_active":         state.IsActive,
-		"status":            state.Room.Status,
-	})
+	if state.Room.Status == models.RoomStatusEnded {
+		s.publishRoomEnded(ctx, organizationID, state)
+	} else {
+		s.publishRoomStateUpdated(ctx, organizationID, state, "meeting.left")
+	}
 	return state, nil
 }
 
@@ -1287,13 +1367,19 @@ func (s *Service) UpdateRoomMediaState(ctx context.Context, organizationID, user
 		payload["connection_state"] = value
 	}
 	if err := s.SaveRoomSignalEvent(ctx, organizationID, userID, roomID, "room.media.updated", payload); err != nil {
+		s.metrics.Inc("room_media_state_update_fail_total")
 		return err
 	}
-	s.publishRoomEvent(ctx, organizationID, roomID, "room.media.updated", map[string]any{
-		"room_id": roomID,
-		"user_id": userID,
-		"media":   payload,
-	})
+	s.metrics.Inc("room_media_state_update_total")
+	memberSummary := RoomMemberSummary{
+		CallRoomMember: models.CallRoomMember{RoomID: roomID, UserID: userID},
+	}
+	if state, err := s.GetRoomState(ctx, organizationID, userID, roomID); err == nil {
+		if member := findRoomMember(state.Members, userID); member != nil {
+			memberSummary = *member
+		}
+	}
+	s.publishRoomMemberUpdated(ctx, organizationID, roomID, memberSummary)
 	return nil
 }
 
@@ -1343,6 +1429,8 @@ func (s *Service) GetRoomState(ctx context.Context, organizationID, userID, room
 	for index := range members {
 		member := &members[index]
 		member.IsHost = member.Role == models.OrganizationRoleOwner
+		member.Joined = member.JoinedAt != nil && member.LeftAt == nil
+		member.Left = member.LeftAt != nil
 		switch {
 		case member.LeftAt != nil:
 			member.ConnectionState = "left"
@@ -1368,6 +1456,8 @@ func (s *Service) GetRoomState(ctx context.Context, organizationID, userID, room
 				member.ConnectionState = mediaState.ConnectionState
 			}
 		}
+		member.Joined = member.ConnectionState != "left" && member.JoinedAt != nil
+		member.Left = member.ConnectionState == "left"
 	}
 	var events []models.CallRoomEvent
 	if err := s.db.WithContext(ctx).Where("room_id = ?", roomID).Order("created_at DESC").Limit(50).Find(&events).Error; err != nil {
@@ -1444,6 +1534,7 @@ func (s *Service) StartRecording(ctx context.Context, organizationID, userID, ro
 	if err := s.db.WithContext(ctx).Create(session).Error; err != nil {
 		return nil, err
 	}
+	s.metrics.Inc("recording_start_total")
 	var members []models.CallRoomMember
 	_ = s.db.WithContext(ctx).Where("room_id = ? AND left_at IS NULL", roomID).Find(&members).Error
 	for _, member := range members {
@@ -1476,14 +1567,7 @@ func (s *Service) StartRecording(ctx context.Context, organizationID, userID, ro
 	}
 	state, err := s.GetRoomState(ctx, organizationID, userID, roomID)
 	if err == nil {
-		s.publishRoomEvent(ctx, organizationID, roomID, "room.updated", map[string]any{
-			"room_id":             roomID,
-			"event_type":          "meeting.recording.started",
-			"participant_count":   state.ParticipantCount,
-			"is_active":           state.IsActive,
-			"has_recording":       true,
-			"latest_recording_id": session.ID,
-		})
+		s.publishRoomRecordingUpdated(ctx, organizationID, state, session.ID, "meeting.recording.started")
 	}
 	return recording, nil
 }
@@ -1509,6 +1593,7 @@ func (s *Service) StopRecording(ctx context.Context, organizationID, userID, roo
 	if err := s.db.WithContext(ctx).Save(&session).Error; err != nil {
 		return nil, err
 	}
+	s.metrics.Inc("recording_stop_total")
 	if err := s.persistRecordingArtifacts(ctx, organizationID, roomID, session, now); err != nil {
 		return nil, err
 	}
@@ -1534,14 +1619,7 @@ func (s *Service) StopRecording(ctx context.Context, organizationID, userID, roo
 	}
 	state, err := s.GetRoomState(ctx, organizationID, userID, roomID)
 	if err == nil {
-		s.publishRoomEvent(ctx, organizationID, roomID, "room.updated", map[string]any{
-			"room_id":             roomID,
-			"event_type":          "meeting.recording.ready",
-			"participant_count":   state.ParticipantCount,
-			"is_active":           state.IsActive,
-			"has_recording":       true,
-			"latest_recording_id": session.ID,
-		})
+		s.publishRoomRecordingUpdated(ctx, organizationID, state, session.ID, "meeting.recording.ready")
 	}
 	return recording, nil
 }
@@ -1586,10 +1664,144 @@ func (s *Service) GetRecordingFile(ctx context.Context, organizationID, userID, 
 		return nil, nil, err
 	}
 	var file models.RecordingFile
-	if err := s.db.WithContext(ctx).Where("recording_session_id = ? AND id = ?", session.ID, fileID).Take(&file).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("recording_session_id = ? AND id = ? AND deleted_at IS NULL", session.ID, fileID).Take(&file).Error; err != nil {
 		return nil, nil, err
 	}
 	return &session, &file, nil
+}
+
+func RecordingFileObjectRef(file models.RecordingFile) storage.ObjectRef {
+	return storage.ObjectRef{
+		Driver: storage.Driver(strings.TrimSpace(file.StorageDriver)),
+		Bucket: strings.TrimSpace(file.StorageBucket),
+		Key:    strings.TrimSpace(file.ObjectKey),
+		ETag:   strings.TrimSpace(file.ETag),
+	}
+}
+
+func (s *Service) GetRecordingDownloadURL(ctx context.Context, objectRef storage.ObjectRef) (string, error) {
+	if s.storage == nil {
+		return "", errors.New("recording storage not configured")
+	}
+	url, err := s.storage.SignedDownloadURL(ctx, objectRef, 15*time.Minute)
+	if err != nil {
+		s.metrics.Inc("recording_download_unauthorized_total")
+		return "", err
+	}
+	s.metrics.Inc("recording_download_total")
+	return url, nil
+}
+
+func (s *Service) ResolveLocalRecordingPath(objectRef storage.ObjectRef) (string, bool) {
+	if s.storage == nil {
+		return "", false
+	}
+	return s.storage.OpenLocal(objectRef)
+}
+
+func (s *Service) GetSupportRoom(ctx context.Context, roomID uint64) (*SupportRoomView, error) {
+	var room models.CallRoom
+	if err := s.db.WithContext(ctx).Where("id = ?", roomID).Take(&room).Error; err != nil {
+		return nil, err
+	}
+	state, err := s.GetRoomState(ctx, room.OrganizationID, room.CreatedBy, roomID)
+	if err != nil {
+		return nil, err
+	}
+	var events []models.CallRoomEvent
+	if err := s.db.WithContext(ctx).
+		Where("room_id = ?", roomID).
+		Order("created_at DESC").
+		Limit(100).
+		Find(&events).Error; err != nil {
+		return nil, err
+	}
+	var latestSession models.RecordingSession
+	var recording *RecordingView
+	if err := s.db.WithContext(ctx).
+		Where("room_id = ?", roomID).
+		Order("id DESC").
+		Take(&latestSession).Error; err == nil {
+		if view, err := s.GetRecording(ctx, room.OrganizationID, room.CreatedBy, latestSession.ID); err == nil {
+			recording = view
+		}
+	}
+	return &SupportRoomView{
+		State:        state,
+		RecentEvents: events,
+		Recording:    recording,
+	}, nil
+}
+
+func (s *Service) GetSupportRecording(ctx context.Context, recordingID uint64) (*SupportRecordingView, error) {
+	var session models.RecordingSession
+	if err := s.db.WithContext(ctx).Where("id = ?", recordingID).Take(&session).Error; err != nil {
+		return nil, err
+	}
+	view, err := s.GetRecording(ctx, session.OrganizationID, session.StartedBy, recordingID)
+	if err != nil {
+		return nil, err
+	}
+	var roomItem *RoomListItem
+	if room, err := s.latestRoomByID(ctx, session.OrganizationID, session.RoomID); err == nil {
+		roomItem = room
+	}
+	var policy models.OrganizationPolicy
+	var policyPtr *models.OrganizationPolicy
+	if err := s.db.WithContext(ctx).Where("organization_id = ?", session.OrganizationID).Take(&policy).Error; err == nil {
+		policyPtr = &policy
+	}
+	return &SupportRecordingView{
+		Recording: *view,
+		Room:      roomItem,
+		Policy:    policyPtr,
+	}, nil
+}
+
+func (s *Service) CleanupExpiredRecordings(ctx context.Context, now time.Time, limit int) (*CleanupExpiredRecordingResult, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	result := &CleanupExpiredRecordingResult{}
+	if s.storage == nil {
+		return result, nil
+	}
+
+	var files []models.RecordingFile
+	if err := s.db.WithContext(ctx).
+		Where("deleted_at IS NULL AND retention_until IS NOT NULL AND retention_until <= ?", now).
+		Order("retention_until ASC").
+		Limit(limit).
+		Find(&files).Error; err != nil {
+		return nil, err
+	}
+	result.Checked = len(files)
+	if len(files) == 0 {
+		return result, nil
+	}
+
+	for _, file := range files {
+		objectRef := RecordingFileObjectRef(file)
+		if err := s.storage.Delete(ctx, objectRef); err != nil {
+			s.metrics.Inc("recording_retention_delete_fail_total")
+			return result, err
+		}
+		if err := s.db.WithContext(ctx).
+			Model(&models.RecordingFile{}).
+			Where("id = ?", file.ID).
+			Updates(map[string]any{
+				"deleted_at": now,
+			}).Error; err != nil {
+			s.metrics.Inc("recording_retention_delete_fail_total")
+			return result, err
+		}
+		result.Deleted++
+	}
+
+	if result.Deleted > 0 {
+		s.metrics.Add("recording_retention_deleted_total", int64(result.Deleted))
+	}
+	return result, nil
 }
 
 func (s *Service) buildConversationSummary(ctx context.Context, conv models.Conversation, userID uint64) (ConversationSummary, error) {
@@ -1707,6 +1919,16 @@ func (s *Service) latestConversationRoom(ctx context.Context, organizationID, co
 	if err := s.db.WithContext(ctx).
 		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
 		Order("updated_at DESC").
+		Take(&room).Error; err != nil {
+		return nil, err
+	}
+	return s.latestRoomByID(ctx, organizationID, room.ID)
+}
+
+func (s *Service) latestRoomByID(ctx context.Context, organizationID, roomID uint64) (*RoomListItem, error) {
+	var room models.CallRoom
+	if err := s.db.WithContext(ctx).
+		Where("organization_id = ? AND id = ?", organizationID, roomID).
 		Take(&room).Error; err != nil {
 		return nil, err
 	}
@@ -1866,15 +2088,17 @@ func (s *Service) ensureConversationMemberTx(ctx context.Context, tx *gorm.DB, o
 
 func (s *Service) loadRecordingFiles(ctx context.Context, session models.RecordingSession) ([]RecordingFileView, error) {
 	var files []models.RecordingFile
-	if err := s.db.WithContext(ctx).Where("recording_session_id = ?", session.ID).Find(&files).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("recording_session_id = ? AND deleted_at IS NULL", session.ID).Find(&files).Error; err != nil {
 		return nil, err
 	}
 	result := make([]RecordingFileView, 0, len(files))
 	for _, file := range files {
 		fileName := filepath.Base(file.ObjectKey)
-		fileSize := int64(0)
-		if info, err := os.Stat(file.ObjectKey); err == nil {
-			fileSize = info.Size()
+		fileSize := file.FileSizeBytes
+		if fileSize == 0 && strings.EqualFold(file.StorageDriver, string(storage.DriverLocal)) {
+			if info, err := os.Stat(file.ObjectKey); err == nil {
+				fileSize = info.Size()
+			}
 		}
 		recordingKind := "mixed_audio"
 		if strings.EqualFold(fileName, "session.json") || strings.Contains(strings.ToLower(file.ContentType), "json") {
@@ -1914,9 +2138,12 @@ func (s *Service) publishRoomEvent(ctx context.Context, organizationID, roomID u
 	}
 	memberIDs, err := s.listRoomMemberIDs(ctx, roomID)
 	if err != nil || len(memberIDs) == 0 {
+		s.metrics.Inc("room_event_broadcast_fail_total")
 		return
 	}
-	_ = s.publisher.PublishToUsers(ctx, organizationID, memberIDs, event, payload)
+	if err := s.publisher.PublishToUsers(ctx, organizationID, memberIDs, event, payload); err != nil {
+		s.metrics.Inc("room_event_broadcast_fail_total")
+	}
 }
 
 func (s *Service) publishConversationEvent(ctx context.Context, organizationID, conversationID uint64, event string, payload any) {
@@ -1945,6 +2172,65 @@ func (s *Service) publishConversationPatchUpdate(ctx context.Context, organizati
 		"changed_fields":  mapKeys(normalized),
 		"changes":         normalized,
 	})
+}
+
+func (s *Service) publishRoomMemberUpdated(ctx context.Context, organizationID, roomID uint64, member RoomMemberSummary) {
+	payload := map[string]any{
+		"room_id": roomID,
+		"member":  member,
+	}
+	s.publishRoomEvent(ctx, organizationID, roomID, "room.member.updated", payload)
+	s.publishRoomEvent(ctx, organizationID, roomID, "room.media.updated", payload)
+}
+
+func (s *Service) publishRoomStateUpdated(ctx context.Context, organizationID uint64, state *RoomState, eventType string) {
+	if state == nil {
+		return
+	}
+	payload := map[string]any{
+		"room_id":             state.Room.ID,
+		"event_type":          eventType,
+		"status":              state.Room.Status,
+		"participant_count":   state.ParticipantCount,
+		"is_active":           state.IsActive,
+		"has_recording":       state.HasRecording,
+		"latest_recording_id": state.LatestRecordingID,
+	}
+	s.publishRoomEvent(ctx, organizationID, state.Room.ID, "room.state.updated", payload)
+	s.publishRoomEvent(ctx, organizationID, state.Room.ID, "room.updated", payload)
+}
+
+func (s *Service) publishRoomRecordingUpdated(ctx context.Context, organizationID uint64, state *RoomState, recordingID uint64, eventType string) {
+	if state == nil {
+		return
+	}
+	payload := map[string]any{
+		"room_id":             state.Room.ID,
+		"event_type":          eventType,
+		"participant_count":   state.ParticipantCount,
+		"is_active":           state.IsActive,
+		"has_recording":       true,
+		"latest_recording_id": recordingID,
+	}
+	s.publishRoomEvent(ctx, organizationID, state.Room.ID, "room.recording.updated", payload)
+	s.publishRoomEvent(ctx, organizationID, state.Room.ID, "room.updated", payload)
+}
+
+func (s *Service) publishRoomEnded(ctx context.Context, organizationID uint64, state *RoomState) {
+	if state == nil {
+		return
+	}
+	payload := map[string]any{
+		"room_id":             state.Room.ID,
+		"event_type":          "meeting.ended",
+		"status":              state.Room.Status,
+		"participant_count":   state.ParticipantCount,
+		"is_active":           state.IsActive,
+		"has_recording":       state.HasRecording,
+		"latest_recording_id": state.LatestRecordingID,
+	}
+	s.publishRoomEvent(ctx, organizationID, state.Room.ID, "room.ended", payload)
+	s.publishRoomEvent(ctx, organizationID, state.Room.ID, "room.updated", payload)
 }
 
 func (s *Service) ListPipelines(ctx context.Context, organizationID, userID uint64) ([]PipelineView, error) {
@@ -2367,16 +2653,39 @@ func (s *Service) persistRecordingArtifacts(ctx context.Context, organizationID,
 		return err
 	}
 
+	retentionUntil := stoppedAt.Add(30 * 24 * time.Hour)
+	var policy models.OrganizationPolicy
+	if err := s.db.WithContext(ctx).Where("organization_id = ?", organizationID).Take(&policy).Error; err == nil && policy.RecordingStorageDays > 0 {
+		retentionUntil = stoppedAt.Add(time.Duration(policy.RecordingStorageDays) * 24 * time.Hour)
+	}
 	if err := s.db.WithContext(ctx).Where("recording_session_id = ?", session.ID).Delete(&models.RecordingFile{}).Error; err != nil {
 		return err
 	}
 	for _, artifact := range artifacts {
+		if s.storage == nil {
+			return errors.New("recording storage not configured")
+		}
+		objectKey := buildRecordingObjectKey(organizationID, roomID, session.ID, artifact.ObjectKey)
+		stored, err := s.storage.SaveFile(ctx, artifact.ObjectKey, objectKey, artifact.ContentType)
+		if err != nil {
+			s.metrics.Inc("recording_storage_write_fail_total")
+			return err
+		}
+		fileSize := int64(0)
+		if info, err := os.Stat(artifact.ObjectKey); err == nil {
+			fileSize = info.Size()
+		}
 		file := models.RecordingFile{
 			RecordingSessionID: session.ID,
-			ObjectKey:          artifact.ObjectKey,
+			StorageDriver:      string(stored.Driver),
+			StorageBucket:      stored.Bucket,
+			ObjectKey:          stored.Key,
+			ETag:               stored.ETag,
 			ContentType:        artifact.ContentType,
+			FileSizeBytes:      fileSize,
 			DurationSeconds:    artifact.DurationSeconds,
 			MetadataJSON:       artifact.MetadataJSON,
+			RetentionUntil:     &retentionUntil,
 		}
 		if err := s.db.WithContext(ctx).Create(&file).Error; err != nil {
 			return err
@@ -2428,6 +2737,15 @@ func uniqueStrings(items []string) []string {
 	return result
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
 func mapKeys(values map[string]any) []string {
 	keys := make([]string, 0, len(values))
 	for key := range values {
@@ -2435,6 +2753,24 @@ func mapKeys(values map[string]any) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func findRoomMember(items []RoomMemberSummary, userID uint64) *RoomMemberSummary {
+	for index := range items {
+		if items[index].UserID == userID {
+			return &items[index]
+		}
+	}
+	return nil
+}
+
+func buildRecordingObjectKey(organizationID, roomID, sessionID uint64, srcPath string) string {
+	return filepath.ToSlash(filepath.Join(
+		fmt.Sprintf("org-%d", organizationID),
+		fmt.Sprintf("room-%d", roomID),
+		fmt.Sprintf("session-%d", sessionID),
+		filepath.Base(srcPath),
+	))
 }
 
 func isValidOrgRole(role string) bool {

@@ -230,3 +230,81 @@ func TestCollaborationHandlerUpdatesConversation(t *testing.T) {
 		t.Fatalf("expected high priority, got %s", response.Conversation.Priority)
 	}
 }
+
+func TestCollaborationHandlerSupportRoomRequiresToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "handlers-support.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.Organization{},
+		&models.OrganizationMember{},
+		&models.OrganizationPolicy{},
+		&models.Team{},
+		&models.TeamMember{},
+		&models.Conversation{},
+		&models.ConversationNote{},
+		&models.ConversationMember{},
+		&models.Message{},
+		&models.MessageRead{},
+		&models.Attachment{},
+		&models.CallRoom{},
+		&models.CallRoomMember{},
+		&models.CallRoomEvent{},
+		&models.RecordingSession{},
+		&models.RecordingFile{},
+		&models.RecordingConsent{},
+		&models.RecordingExport{},
+		&models.Pipeline{},
+		&models.PipelineStage{},
+		&models.Deal{},
+		&models.DealContact{},
+		&models.DealActivity{},
+	); err != nil {
+		t.Fatalf("auto migrate failed: %v", err)
+	}
+
+	userSvc := user.NewService(user.NewRepository(db))
+	service := collaboration.NewService(db, userSvc)
+	handler := NewCollaborationHandler(zerolog.Nop(), service, userSvc, collaboration.NewChatHub(zerolog.Nop()))
+
+	owner := models.User{Email: "owner@example.com", PasswordHash: "hash", DisplayName: "Owner", Status: "active"}
+	if err := db.Create(&owner).Error; err != nil {
+		t.Fatalf("create owner failed: %v", err)
+	}
+	org, err := service.CreateOrganization(context.Background(), owner.ID, "Workspace")
+	if err != nil {
+		t.Fatalf("create org failed: %v", err)
+	}
+	roomState, err := service.CreateRoom(context.Background(), org.ID, owner.ID, collaboration.CreateRoomInput{
+		Title: "Support Review",
+	})
+	if err != nil {
+		t.Fatalf("create room failed: %v", err)
+	}
+
+	router := gin.New()
+	api := router.Group("/api/v1")
+	handler.RegisterInternalRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/internal/support/rooms/%d", roomState.Room.ID), nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 without support token config, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	t.Setenv("SUPPORT_API_TOKEN", "support-secret")
+	req = httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/internal/support/rooms/%d", roomState.Room.ID), nil)
+	req.Header.Set("X-Support-Token", "support-secret")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 with support token, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}

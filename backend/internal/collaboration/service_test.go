@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pion/webrtc/v4"
 	"github.com/rs/zerolog"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/allcallall/backend/internal/media"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/storage"
 	"github.com/allcallall/backend/internal/user"
 )
 
@@ -55,7 +57,16 @@ func newServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *user.Service) {
 	}
 
 	userSvc := user.NewService(user.NewRepository(db))
-	return NewService(db, userSvc), db, userSvc
+	svc := NewService(db, userSvc)
+	recordingStorage, err := storage.NewRecordingStorage(storage.Config{
+		Driver:    storage.DriverLocal,
+		LocalRoot: filepath.Join(t.TempDir(), "recordings"),
+	})
+	if err != nil {
+		t.Fatalf("new recording storage failed: %v", err)
+	}
+	svc.WithRecordingStorage(recordingStorage)
+	return svc, db, userSvc
 }
 
 func createTestUser(t *testing.T, db *gorm.DB, email, displayName string) models.User {
@@ -312,6 +323,72 @@ func TestServiceRoomOfferAndRecordingArtifacts(t *testing.T) {
 	}
 	if !foundRecordingReady {
 		t.Fatal("expected meeting.recording.ready system message")
+	}
+}
+
+func TestServiceCleanupExpiredRecordings(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	ctx := context.Background()
+
+	owner := createTestUser(t, db, "owner@example.com", "Owner")
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Workspace")
+	if err != nil {
+		t.Fatalf("create organization failed: %v", err)
+	}
+
+	now := time.Now()
+	expiredPath := filepath.Join(t.TempDir(), "expired.ogg")
+	if err := os.WriteFile(expiredPath, []byte("expired-audio"), 0o644); err != nil {
+		t.Fatalf("write expired artifact failed: %v", err)
+	}
+	storedExpired, err := svc.storage.SaveFile(ctx, expiredPath, "org-1/room-1/session-1/expired.ogg", "audio/ogg")
+	if err != nil {
+		t.Fatalf("save expired artifact failed: %v", err)
+	}
+
+	session := models.RecordingSession{
+		OrganizationID: org.ID,
+		RoomID:         1,
+		StartedBy:      owner.ID,
+		Status:         models.RecordingStatusStopped,
+		StartedAt:      &now,
+		StoppedAt:      &now,
+	}
+	if err := db.Create(&session).Error; err != nil {
+		t.Fatalf("create recording session failed: %v", err)
+	}
+
+	expiredAt := now.Add(-time.Hour)
+	recordingFile := models.RecordingFile{
+		RecordingSessionID: session.ID,
+		StorageDriver:      string(storedExpired.Driver),
+		StorageBucket:      storedExpired.Bucket,
+		ObjectKey:          storedExpired.Key,
+		RetentionUntil:     &expiredAt,
+		ContentType:        "audio/ogg",
+		FileSizeBytes:      int64(len("expired-audio")),
+	}
+	if err := db.Create(&recordingFile).Error; err != nil {
+		t.Fatalf("create recording file failed: %v", err)
+	}
+
+	result, err := svc.CleanupExpiredRecordings(ctx, now, 10)
+	if err != nil {
+		t.Fatalf("cleanup expired recordings failed: %v", err)
+	}
+	if result.Checked != 1 || result.Deleted != 1 {
+		t.Fatalf("unexpected cleanup result: %+v", result)
+	}
+
+	var refreshed models.RecordingFile
+	if err := db.Where("id = ?", recordingFile.ID).Take(&refreshed).Error; err != nil {
+		t.Fatalf("reload recording file failed: %v", err)
+	}
+	if refreshed.DeletedAt == nil {
+		t.Fatal("expected deleted_at to be set")
+	}
+	if _, err := os.Stat(storedExpired.Key); !os.IsNotExist(err) {
+		t.Fatalf("expected stored file to be removed, got err=%v", err)
 	}
 }
 

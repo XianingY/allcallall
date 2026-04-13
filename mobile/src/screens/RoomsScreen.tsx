@@ -12,6 +12,7 @@ import {
   type RecordingRecord,
   type RoomRecord,
 } from "../api/collaboration";
+import { fetchFollowUps, type FollowUpListItem } from "../api/commercial";
 import TextField from "../components/TextField";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
@@ -26,6 +27,7 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
   const [items, setItems] = useState<RoomRecord[]>([]);
   const [recordings, setRecordings] = useState<RecordingRecord[]>([]);
   const [meetingSummaries, setMeetingSummaries] = useState<Record<number, ConversationDetailRecord>>({});
+  const [pendingMeetingTasks, setPendingMeetingTasks] = useState<FollowUpListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [title, setTitle] = useState("");
   const [joinCode, setJoinCode] = useState("");
@@ -37,9 +39,10 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
     }
     try {
       setLoading(true);
-      const [rooms, recordingItems] = await Promise.all([
+      const [rooms, recordingItems, followUps] = await Promise.all([
         listRooms(token),
         listRecordings(token),
+        fetchFollowUps(token),
       ]);
       const summaryCandidates = rooms
         .filter((room) => !room.is_active && room.conversation_id)
@@ -56,6 +59,11 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
       );
       setItems(rooms);
       setRecordings(recordingItems);
+      setPendingMeetingTasks(
+        followUps
+          .filter((item) => item.task.status !== "done" && item.task.status !== "cancelled")
+          .slice(0, 3)
+      );
       setMeetingSummaries(
         Object.fromEntries(summaryEntries.filter((entry): entry is readonly [number, ConversationDetailRecord] => entry !== null))
       );
@@ -277,10 +285,10 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
                         {room.conversation_title || "关联线程"} · 会后摘要
                       </Text>
                       <Text style={styles.summaryPreview}>
-                        {followup?.summary_cn || followup?.summary_en || "当前还没有生成会议摘要。"}
+                        {detail?.workspace?.meeting_summary?.summary || followup?.summary_cn || followup?.summary_en || "当前还没有生成会议摘要。"}
                       </Text>
-                      {followup?.next_step ? (
-                        <Text style={styles.cardMeta}>下一步 {followup.next_step}</Text>
+                      {(detail?.workspace?.meeting_summary?.next_step || followup?.next_step) ? (
+                        <Text style={styles.cardMeta}>下一步 {detail?.workspace?.meeting_summary?.next_step || followup?.next_step}</Text>
                       ) : null}
                       <View style={styles.assetActions}>
                         <PrimaryButton
@@ -313,6 +321,20 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
                     </View>
                   );
                 })}
+              </View>
+            ) : null}
+            {pendingMeetingTasks.length > 0 ? (
+              <View>
+                <Text style={styles.sectionTitle}>Pending meeting follow-ups</Text>
+                {pendingMeetingTasks.map((item) => (
+                  <View key={`followup-${item.task.id}`} style={styles.assetCard}>
+                    <Text style={styles.cardTitle}>{item.task.type === "callback" ? "待回拨会议" : "待跟进会议"}</Text>
+                    <Text style={styles.cardMeta}>
+                      {item.followup?.summary_cn || item.followup?.summary_en || "跟进任务待处理"}
+                    </Text>
+                    {item.task.due_at ? <Text style={styles.cardMeta}>到期 {new Date(item.task.due_at).toLocaleString()}</Text> : null}
+                  </View>
+                ))}
               </View>
             ) : null}
             <Text style={styles.sectionTitle}>Recent</Text>

@@ -87,6 +87,12 @@ func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGrou
 	protected.GET("/deals/:id/activities", h.handleListDealActivities)
 }
 
+func (h *CollaborationHandler) RegisterInternalRoutes(api *gin.RouterGroup) {
+	internal := api.Group("/internal/support")
+	internal.GET("/rooms/:roomId", h.handleSupportRoom)
+	internal.GET("/recordings/:id", h.handleSupportRecording)
+}
+
 type organizationResponse struct {
 	ID          uint64 `json:"id"`
 	Name        string `json:"name"`
@@ -147,6 +153,25 @@ type conversationDetailResponse struct {
 	LatestNote     *conversationNoteResponse     `json:"latest_note,omitempty"`
 	LatestRoom     *roomListItemResponse         `json:"latest_room,omitempty"`
 	LatestFollowup *conversationFollowupResponse `json:"latest_followup,omitempty"`
+	Workspace      conversationWorkspaceResponse `json:"workspace"`
+}
+
+type conversationWorkspaceResponse struct {
+	LatestMeeting   *roomListItemResponse       `json:"latest_meeting,omitempty"`
+	LatestRecording *recordingResponse          `json:"latest_recording,omitempty"`
+	MeetingSummary  *meetingSummaryCardResponse `json:"meeting_summary,omitempty"`
+	LatestNote      *conversationNoteResponse   `json:"latest_note,omitempty"`
+	AssigneeUserID  *uint64                     `json:"assignee_user_id,omitempty"`
+	AssigneeLabel   string                      `json:"assignee_label,omitempty"`
+	Status          string                      `json:"status"`
+	Priority        string                      `json:"priority"`
+}
+
+type meetingSummaryCardResponse struct {
+	Summary     string   `json:"summary"`
+	ActionItems []string `json:"action_items,omitempty"`
+	NextStep    string   `json:"next_step,omitempty"`
+	Assignee    string   `json:"assignee,omitempty"`
 }
 
 type messageResponse struct {
@@ -213,22 +238,39 @@ type conversationFollowupResponse struct {
 }
 
 type recordingFileResponse struct {
-	ID                 uint64    `json:"id"`
-	RecordingSessionID uint64    `json:"recording_session_id"`
-	ObjectKey          string    `json:"object_key"`
-	ContentType        string    `json:"content_type"`
-	DurationSeconds    int64     `json:"duration_seconds"`
-	MetadataJSON       string    `json:"metadata_json,omitempty"`
-	CreatedAt          time.Time `json:"created_at"`
-	DownloadURL        string    `json:"download_url"`
-	FileName           string    `json:"file_name"`
-	FileSizeBytes      int64     `json:"file_size_bytes"`
-	RecordingKind      string    `json:"recording_kind"`
+	ID                 uint64     `json:"id"`
+	RecordingSessionID uint64     `json:"recording_session_id"`
+	StorageDriver      string     `json:"storage_driver"`
+	StorageBucket      string     `json:"storage_bucket,omitempty"`
+	ObjectKey          string     `json:"object_key"`
+	ETag               string     `json:"etag,omitempty"`
+	ContentType        string     `json:"content_type"`
+	RetentionUntil     *time.Time `json:"retention_until,omitempty"`
+	DeletedAt          *time.Time `json:"deleted_at,omitempty"`
+	DurationSeconds    int64      `json:"duration_seconds"`
+	MetadataJSON       string     `json:"metadata_json,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	DownloadURL        string     `json:"download_url"`
+	FileName           string     `json:"file_name"`
+	FileSizeBytes      int64      `json:"file_size_bytes"`
+	RecordingKind      string     `json:"recording_kind"`
 }
 
 type recordingResponse struct {
 	Session models.RecordingSession `json:"session"`
 	Files   []recordingFileResponse `json:"files"`
+}
+
+type supportRoomResponse struct {
+	State        roomStateResponse      `json:"state"`
+	RecentEvents []models.CallRoomEvent `json:"recent_events"`
+	Recording    *recordingResponse     `json:"recording,omitempty"`
+}
+
+type supportRecordingResponse struct {
+	Recording recordingResponse           `json:"recording"`
+	Room      *roomListItemResponse       `json:"room,omitempty"`
+	Policy    *organizationPolicyResponse `json:"policy,omitempty"`
 }
 
 type pipelineResponse struct {
@@ -705,7 +747,11 @@ func (h *CollaborationHandler) handleJoinRoom(c *gin.Context) {
 	}
 	state, err := h.service.JoinRoom(c.Request.Context(), orgID, claims.UserID, roomID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		code := ""
+		if errors.Is(err, collaboration.ErrRoomAccessDenied) {
+			code = "ROOM_ACCESS_DENIED"
+		}
+		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"room": toRoomStateResponse(*state)})
@@ -723,7 +769,11 @@ func (h *CollaborationHandler) handleLeaveRoom(c *gin.Context) {
 	}
 	state, err := h.service.LeaveRoom(c.Request.Context(), orgID, claims.UserID, roomID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		code := ""
+		if errors.Is(err, collaboration.ErrRoomAccessDenied) {
+			code = "ROOM_ACCESS_DENIED"
+		}
+		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"room": toRoomStateResponse(*state)})
@@ -748,7 +798,11 @@ func (h *CollaborationHandler) handleRoomOffer(c *gin.Context) {
 	}
 	result, err := h.service.HandleRoomOffer(c.Request.Context(), orgID, claims.UserID, roomID, req.SDP)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		code := ""
+		if errors.Is(err, collaboration.ErrRoomAccessDenied) {
+			code = "ROOM_ACCESS_DENIED"
+		}
+		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{
@@ -773,7 +827,11 @@ func (h *CollaborationHandler) handleRoomIce(c *gin.Context) {
 		return
 	}
 	if err := h.service.AddRoomICECandidate(c.Request.Context(), orgID, claims.UserID, roomID, payload); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		code := ""
+		if errors.Is(err, collaboration.ErrRoomAccessDenied) {
+			code = "ROOM_ACCESS_DENIED"
+		}
+		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
@@ -795,7 +853,13 @@ func (h *CollaborationHandler) handleRoomMediaState(c *gin.Context) {
 		return
 	}
 	if err := h.service.UpdateRoomMediaState(c.Request.Context(), orgID, claims.UserID, roomID, req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		code := "ROOM_MEDIA_SYNC_FAILED"
+		if errors.Is(err, collaboration.ErrRoomAccessDenied) {
+			code = "ROOM_ACCESS_DENIED"
+		} else if strings.Contains(strings.ToLower(err.Error()), "required") {
+			code = "ROOM_PARTICIPANT_STATE_INVALID"
+		}
+		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
@@ -835,7 +899,11 @@ func (h *CollaborationHandler) handleRoomState(c *gin.Context) {
 	}
 	state, err := h.service.GetRoomState(c.Request.Context(), orgID, claims.UserID, roomID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		code := ""
+		if errors.Is(err, collaboration.ErrRoomAccessDenied) {
+			code = "ROOM_ACCESS_DENIED"
+		}
+		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"room": toRoomStateResponse(*state)})
@@ -875,7 +943,11 @@ func (h *CollaborationHandler) handleStopRecording(c *gin.Context) {
 	}
 	item, err := h.service.StopRecording(c.Request.Context(), orgID, claims.UserID, roomID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		code := ""
+		if errors.Is(err, collaboration.ErrRecordingNotAllowed) {
+			code = "RECORDING_NOT_ALLOWED"
+		}
+		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"recording": toRecordingResponse(*item)})
@@ -888,7 +960,7 @@ func (h *CollaborationHandler) handleListRecordings(c *gin.Context) {
 	}
 	items, err := h.service.ListRecordings(c.Request.Context(), orgID, claims.UserID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONErrorWithCode(c, http.StatusBadRequest, "RECORDING_LIST_FAILED", err.Error())
 		return
 	}
 	response := make([]recordingResponse, 0, len(items))
@@ -910,7 +982,7 @@ func (h *CollaborationHandler) handleGetRecording(c *gin.Context) {
 	}
 	item, err := h.service.GetRecording(c.Request.Context(), orgID, claims.UserID, recordingID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONErrorWithCode(c, http.StatusBadRequest, "RECORDING_NOT_FOUND", err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"recording": toRecordingResponse(*item)})
@@ -933,17 +1005,22 @@ func (h *CollaborationHandler) handleDownloadRecordingFile(c *gin.Context) {
 	}
 	_, file, err := h.service.GetRecordingFile(c.Request.Context(), orgID, claims.UserID, recordingID, fileID)
 	if err != nil {
-		JSONError(c, http.StatusNotFound, "recording file not found")
+		JSONErrorWithCode(c, http.StatusNotFound, "RECORDING_DOWNLOAD_NOT_FOUND", "recording file not found")
 		return
 	}
-	path := strings.TrimSpace(file.ObjectKey)
-	if path == "" {
-		JSONError(c, http.StatusNotFound, "recording file path missing")
+	objectRef := collaboration.RecordingFileObjectRef(*file)
+	if signedURL, err := h.service.GetRecordingDownloadURL(c.Request.Context(), objectRef); err == nil && (strings.HasPrefix(signedURL, "http://") || strings.HasPrefix(signedURL, "https://")) {
+		c.Redirect(http.StatusTemporaryRedirect, signedURL)
+		return
+	}
+	path, ok := h.service.ResolveLocalRecordingPath(objectRef)
+	if !ok || strings.TrimSpace(path) == "" {
+		JSONErrorWithCode(c, http.StatusNotFound, "RECORDING_DOWNLOAD_NOT_FOUND", "recording file path missing")
 		return
 	}
 	info, statErr := os.Stat(path)
 	if statErr != nil || info.IsDir() {
-		JSONError(c, http.StatusNotFound, "recording file not found")
+		JSONErrorWithCode(c, http.StatusNotFound, "RECORDING_DOWNLOAD_NOT_FOUND", "recording file not found")
 		return
 	}
 	filename := filepath.Base(path)
@@ -952,6 +1029,72 @@ func (h *CollaborationHandler) handleDownloadRecordingFile(c *gin.Context) {
 	}
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	c.File(path)
+}
+
+func (h *CollaborationHandler) requireSupportToken(c *gin.Context) bool {
+	expected := strings.TrimSpace(os.Getenv("SUPPORT_API_TOKEN"))
+	if expected == "" {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "SUPPORT_TOKEN_NOT_CONFIGURED", "support api token is not configured")
+		return false
+	}
+	if strings.TrimSpace(c.GetHeader("X-Support-Token")) != expected {
+		JSONErrorWithCode(c, http.StatusUnauthorized, "SUPPORT_UNAUTHORIZED", "unauthorized support request")
+		return false
+	}
+	return true
+}
+
+func (h *CollaborationHandler) handleSupportRoom(c *gin.Context) {
+	if !h.requireSupportToken(c) {
+		return
+	}
+	roomID, err := parseUintParam(c.Param("roomId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid room id")
+		return
+	}
+	item, err := h.service.GetSupportRoom(c.Request.Context(), roomID)
+	if err != nil {
+		JSONError(c, http.StatusInternalServerError, "failed to load support room")
+		return
+	}
+	response := supportRoomResponse{
+		State:        toRoomStateResponse(*item.State),
+		RecentEvents: item.RecentEvents,
+	}
+	if item.Recording != nil {
+		recording := toRecordingResponse(*item.Recording)
+		response.Recording = &recording
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"room": response})
+}
+
+func (h *CollaborationHandler) handleSupportRecording(c *gin.Context) {
+	if !h.requireSupportToken(c) {
+		return
+	}
+	recordingID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid recording id")
+		return
+	}
+	item, err := h.service.GetSupportRecording(c.Request.Context(), recordingID)
+	if err != nil {
+		JSONError(c, http.StatusInternalServerError, "failed to load support recording")
+		return
+	}
+	response := supportRecordingResponse{
+		Recording: toRecordingResponse(item.Recording),
+	}
+	if item.Room != nil {
+		room := toRoomListItemResponse(*item.Room)
+		response.Room = &room
+	}
+	if item.Policy != nil {
+		policy := toOrganizationPolicyResponse(*item.Policy)
+		response.Policy = &policy
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"recording": response})
 }
 
 func (h *CollaborationHandler) handleListPipelines(c *gin.Context) {
@@ -1175,6 +1318,12 @@ func toConversationResponse(item collaboration.ConversationSummary) conversation
 func toConversationDetailResponse(item collaboration.ConversationDetail) conversationDetailResponse {
 	response := conversationDetailResponse{
 		Conversation: toConversationResponse(item.Conversation),
+		Workspace: conversationWorkspaceResponse{
+			AssigneeUserID: item.Workspace.AssigneeUserID,
+			AssigneeLabel:  item.Workspace.AssigneeLabel,
+			Status:         item.Workspace.Status,
+			Priority:       item.Workspace.Priority,
+		},
 	}
 	if item.LatestNote != nil {
 		note := toConversationNoteResponse(*item.LatestNote)
@@ -1187,6 +1336,26 @@ func toConversationDetailResponse(item collaboration.ConversationDetail) convers
 	if item.LatestFollowup != nil {
 		followup := toConversationFollowupResponse(*item.LatestFollowup)
 		response.LatestFollowup = &followup
+	}
+	if item.Workspace.LatestMeeting != nil {
+		room := toRoomListItemResponse(*item.Workspace.LatestMeeting)
+		response.Workspace.LatestMeeting = &room
+	}
+	if item.Workspace.LatestRecording != nil {
+		recording := toRecordingResponse(*item.Workspace.LatestRecording)
+		response.Workspace.LatestRecording = &recording
+	}
+	if item.Workspace.MeetingSummary != nil {
+		response.Workspace.MeetingSummary = &meetingSummaryCardResponse{
+			Summary:     item.Workspace.MeetingSummary.Summary,
+			ActionItems: item.Workspace.MeetingSummary.ActionItems,
+			NextStep:    item.Workspace.MeetingSummary.NextStep,
+			Assignee:    item.Workspace.MeetingSummary.Assignee,
+		}
+	}
+	if item.Workspace.LatestNote != nil {
+		note := toConversationNoteResponse(*item.Workspace.LatestNote)
+		response.Workspace.LatestNote = &note
 	}
 	return response
 }
@@ -1233,8 +1402,13 @@ func toRecordingResponse(item collaboration.RecordingView) recordingResponse {
 		files = append(files, recordingFileResponse{
 			ID:                 file.ID,
 			RecordingSessionID: file.RecordingSessionID,
+			StorageDriver:      file.StorageDriver,
+			StorageBucket:      file.StorageBucket,
 			ObjectKey:          file.ObjectKey,
+			ETag:               file.ETag,
 			ContentType:        file.ContentType,
+			RetentionUntil:     file.RetentionUntil,
+			DeletedAt:          file.DeletedAt,
 			DurationSeconds:    file.DurationSeconds,
 			MetadataJSON:       file.MetadataJSON,
 			CreatedAt:          file.CreatedAt,

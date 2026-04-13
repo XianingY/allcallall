@@ -1,0 +1,244 @@
+package storage
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+)
+
+type Driver string
+
+const (
+	DriverLocal Driver = "local"
+	DriverS3    Driver = "s3"
+)
+
+type Config struct {
+	Driver        Driver
+	LocalRoot     string
+	S3Bucket      string
+	S3Region      string
+	S3Endpoint    string
+	S3AccessKeyID string
+	S3SecretKey   string
+	S3ForcePath   bool
+	PublicBaseURL string
+	PresignTTL    time.Duration
+}
+
+type ObjectRef struct {
+	Driver Driver
+	Bucket string
+	Key    string
+	ETag   string
+}
+
+type RecordingStorage interface {
+	SaveFile(ctx context.Context, srcPath, objectKey, contentType string) (*ObjectRef, error)
+	SignedDownloadURL(ctx context.Context, objectRef ObjectRef, ttl time.Duration) (string, error)
+	OpenLocal(objectRef ObjectRef) (string, bool)
+	Delete(ctx context.Context, objectRef ObjectRef) error
+}
+
+func NewRecordingStorage(cfg Config) (RecordingStorage, error) {
+	switch cfg.Driver {
+	case "", DriverLocal:
+		root := strings.TrimSpace(cfg.LocalRoot)
+		if root == "" {
+			root = "./recordings"
+		}
+		return &localRecordingStorage{root: root}, nil
+	case DriverS3:
+		return newS3RecordingStorage(cfg)
+	default:
+		return nil, fmt.Errorf("unsupported recording storage driver: %s", cfg.Driver)
+	}
+}
+
+type localRecordingStorage struct {
+	root string
+}
+
+func (s *localRecordingStorage) SaveFile(_ context.Context, srcPath, objectKey, _ string) (*ObjectRef, error) {
+	srcPath = strings.TrimSpace(srcPath)
+	objectKey = strings.TrimSpace(objectKey)
+	if srcPath == "" || objectKey == "" {
+		return nil, errors.New("source path and object key are required")
+	}
+	targetPath := filepath.Join(s.root, filepath.FromSlash(objectKey))
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return nil, err
+	}
+	if srcPath != targetPath {
+		if err := copyFile(srcPath, targetPath); err != nil {
+			return nil, err
+		}
+	}
+	return &ObjectRef{
+		Driver: DriverLocal,
+		Key:    targetPath,
+	}, nil
+}
+
+func (s *localRecordingStorage) SignedDownloadURL(_ context.Context, objectRef ObjectRef, _ time.Duration) (string, error) {
+	path, ok := s.OpenLocal(objectRef)
+	if !ok {
+		return "", os.ErrNotExist
+	}
+	return path, nil
+}
+
+func (s *localRecordingStorage) OpenLocal(objectRef ObjectRef) (string, bool) {
+	if objectRef.Driver != DriverLocal {
+		return "", false
+	}
+	return objectRef.Key, true
+}
+
+func (s *localRecordingStorage) Delete(_ context.Context, objectRef ObjectRef) error {
+	path, ok := s.OpenLocal(objectRef)
+	if !ok {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+type s3RecordingStorage struct {
+	client     *s3.Client
+	presign    *s3.PresignClient
+	bucket     string
+	publicBase string
+	defaultTTL time.Duration
+}
+
+func newS3RecordingStorage(cfg Config) (RecordingStorage, error) {
+	if strings.TrimSpace(cfg.S3Bucket) == "" {
+		return nil, errors.New("RECORDING_S3_BUCKET is required")
+	}
+	region := strings.TrimSpace(cfg.S3Region)
+	if region == "" {
+		region = "us-east-1"
+	}
+	loadOptions := []func(*awsconfig.LoadOptions) error{
+		awsconfig.WithRegion(region),
+	}
+	if strings.TrimSpace(cfg.S3AccessKeyID) != "" || strings.TrimSpace(cfg.S3SecretKey) != "" {
+		loadOptions = append(loadOptions, awsconfig.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(cfg.S3AccessKeyID, cfg.S3SecretKey, ""),
+		))
+	}
+	if strings.TrimSpace(cfg.S3Endpoint) != "" {
+		loadOptions = append(loadOptions, awsconfig.WithBaseEndpoint(cfg.S3Endpoint))
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), loadOptions...)
+	if err != nil {
+		return nil, err
+	}
+	client := s3.NewFromConfig(awsCfg, func(options *s3.Options) {
+		options.UsePathStyle = cfg.S3ForcePath
+	})
+	ttl := cfg.PresignTTL
+	if ttl <= 0 {
+		ttl = 15 * time.Minute
+	}
+	return &s3RecordingStorage{
+		client:     client,
+		presign:    s3.NewPresignClient(client),
+		bucket:     cfg.S3Bucket,
+		publicBase: strings.TrimSpace(cfg.PublicBaseURL),
+		defaultTTL: ttl,
+	}, nil
+}
+
+func (s *s3RecordingStorage) SaveFile(ctx context.Context, srcPath, objectKey, contentType string) (*ObjectRef, error) {
+	file, err := os.Open(strings.TrimSpace(srcPath))
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	uploader := manager.NewUploader(s.client)
+	input := &s3.PutObjectInput{
+		Bucket:      aws.String(s.bucket),
+		Key:         aws.String(strings.TrimSpace(objectKey)),
+		Body:        file,
+		ContentType: aws.String(strings.TrimSpace(contentType)),
+	}
+	result, err := uploader.Upload(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	etag := strings.Trim(aws.ToString(result.ETag), "\"")
+	return &ObjectRef{
+		Driver: DriverS3,
+		Bucket: s.bucket,
+		Key:    objectKey,
+		ETag:   etag,
+	}, nil
+}
+
+func (s *s3RecordingStorage) SignedDownloadURL(ctx context.Context, objectRef ObjectRef, ttl time.Duration) (string, error) {
+	if strings.TrimSpace(s.publicBase) != "" {
+		base, err := url.JoinPath(s.publicBase, objectRef.Key)
+		if err == nil {
+			return base, nil
+		}
+	}
+	if ttl <= 0 {
+		ttl = s.defaultTTL
+	}
+	request, err := s.presign.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(objectRef.Bucket),
+		Key:    aws.String(objectRef.Key),
+	}, func(options *s3.PresignOptions) {
+		options.Expires = ttl
+	})
+	if err != nil {
+		return "", err
+	}
+	return request.URL, nil
+}
+
+func (s *s3RecordingStorage) OpenLocal(_ ObjectRef) (string, bool) {
+	return "", false
+}
+
+func (s *s3RecordingStorage) Delete(ctx context.Context, objectRef ObjectRef) error {
+	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(objectRef.Bucket),
+		Key:    aws.String(objectRef.Key),
+	})
+	return err
+}
+
+func copyFile(srcPath, dstPath string) error {
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+	if _, err := io.Copy(dst, src); err != nil {
+		return err
+	}
+	return dst.Close()
+}

@@ -61,11 +61,30 @@ export interface ConversationFollowupRecord {
   next_step?: string;
 }
 
+export interface MeetingSummaryCard {
+  summary: string;
+  action_items?: string[];
+  next_step?: string;
+  assignee?: string;
+}
+
+export interface ConversationWorkspaceRecord {
+  latest_meeting?: RoomListItemRecord | null;
+  latest_recording?: RecordingRecord | null;
+  meeting_summary?: MeetingSummaryCard | null;
+  latest_note?: ConversationNoteRecord | null;
+  assignee_user_id?: number | null;
+  assignee_label?: string;
+  status: string;
+  priority: string;
+}
+
 export interface ConversationDetailRecord {
   conversation: ConversationRecord;
   latest_note?: ConversationNoteRecord | null;
   latest_room?: RoomListItemRecord | null;
   latest_followup?: ConversationFollowupRecord | null;
+  workspace: ConversationWorkspaceRecord;
 }
 
 export interface MessageRecord {
@@ -88,6 +107,8 @@ export interface RoomMemberRecord {
   role: string;
   user_email?: string;
   user_display_name?: string;
+  joined?: boolean;
+  left?: boolean;
   audio_enabled?: boolean;
   video_enabled?: boolean;
   connection_state?: string;
@@ -120,8 +141,13 @@ export interface RecordingSessionRecord {
 export interface RecordingFileRecord {
   id: number;
   recording_session_id: number;
+  storage_driver: string;
+  storage_bucket?: string;
   object_key: string;
+  etag?: string;
   content_type: string;
+  retention_until?: string | null;
+  deleted_at?: string | null;
   duration_seconds: number;
   metadata_json?: string;
   created_at: string;

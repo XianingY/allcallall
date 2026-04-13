@@ -290,13 +290,19 @@ func (RecordingSession) TableName() string {
 }
 
 type RecordingFile struct {
-	ID                 uint64    `gorm:"primaryKey;autoIncrement"`
-	RecordingSessionID uint64    `gorm:"not null;index"`
-	ObjectKey          string    `gorm:"size:500"`
-	ContentType        string    `gorm:"size:120"`
-	DurationSeconds    int64     `gorm:"not null;default:0"`
-	MetadataJSON       string    `gorm:"type:longtext"`
-	CreatedAt          time.Time `gorm:"autoCreateTime"`
+	ID                 uint64     `gorm:"primaryKey;autoIncrement"`
+	RecordingSessionID uint64     `gorm:"not null;index"`
+	StorageDriver      string     `gorm:"size:32;not null;default:'local'"`
+	StorageBucket      string     `gorm:"size:255"`
+	ObjectKey          string     `gorm:"size:500"`
+	ETag               string     `gorm:"size:255"`
+	ContentType        string     `gorm:"size:120"`
+	FileSizeBytes      int64      `gorm:"not null;default:0"`
+	DurationSeconds    int64      `gorm:"not null;default:0"`
+	MetadataJSON       string     `gorm:"type:longtext"`
+	RetentionUntil     *time.Time `gorm:"index"`
+	DeletedAt          *time.Time `gorm:"index"`
+	CreatedAt          time.Time  `gorm:"autoCreateTime"`
 }
 
 func (RecordingFile) TableName() string {
@@ -317,12 +323,15 @@ func (RecordingConsent) TableName() string {
 }
 
 type RecordingExport struct {
-	ID                 uint64    `gorm:"primaryKey;autoIncrement"`
-	RecordingSessionID uint64    `gorm:"not null;index"`
-	RequestedBy        uint64    `gorm:"not null;index"`
-	Status             string    `gorm:"size:32;not null;index"`
-	CreatedAt          time.Time `gorm:"autoCreateTime"`
-	UpdatedAt          time.Time `gorm:"autoUpdateTime"`
+	ID                 uint64     `gorm:"primaryKey;autoIncrement"`
+	RecordingSessionID uint64     `gorm:"not null;index"`
+	RequestedBy        uint64     `gorm:"not null;index"`
+	Reason             string     `gorm:"size:500"`
+	Status             string     `gorm:"size:32;not null;index"`
+	ExpiresAt          *time.Time `gorm:"index"`
+	DownloadCount      int64      `gorm:"not null;default:0"`
+	CreatedAt          time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt          time.Time  `gorm:"autoUpdateTime"`
 }
 
 func (RecordingExport) TableName() string {
