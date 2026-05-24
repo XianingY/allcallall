@@ -1,3 +1,4 @@
+import "react-native-get-random-values";
 import React from "react";
 import { LinkingOptions, NavigationContainer } from "@react-navigation/native";
 import { SafeAreaProvider } from "react-native-safe-area-context";

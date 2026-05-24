@@ -28,6 +28,7 @@ const normalizeLang = (value: string | undefined, fallback: "zh" | "en"): "zh" |
 const envHttp = readEnv(process.env.EXPO_PUBLIC_API_HTTP);
 const envWs = readEnv(process.env.EXPO_PUBLIC_API_WS);
 const forceTls = readEnv(process.env.EXPO_PUBLIC_FORCE_TLS) === "1";
+const e2eeMode = readEnv(process.env.EXPO_PUBLIC_E2EE_MODE)?.toLowerCase();
 
 const httpBase = forceTls
   ? normalizeTls(envHttp ?? DEFAULT_HTTP_HOST, "http")
@@ -49,6 +50,8 @@ export const REQUEST_TIMEOUT = 15_000; // 15秒超时，给邮件发送更多时
 export const RESTRICTED_NETWORK_MODE = readEnv(process.env.EXPO_PUBLIC_RESTRICTED_NETWORK) === "1";
 export const SIGNALING_TRANSPORT_MODE = readEnv(process.env.EXPO_PUBLIC_SIGNALING_TRANSPORT) ?? "auto";
 export const SIGNALING_SHAPING_ENABLED = readEnv(process.env.EXPO_PUBLIC_SIGNALING_SHAPING) === "1";
+export const E2EE_MODE = e2eeMode === "experimental" ? "experimental" : "off";
+export const E2EE_ENABLED = E2EE_MODE === "experimental";
 
 export type TranslationMode = "online";
 
