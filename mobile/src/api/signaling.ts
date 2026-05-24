@@ -19,6 +19,16 @@ export type MediaUpdatePayload = {
   videoEnabled: boolean;
 };
 
+export type SubtitlePayload = {
+  segment_id: string;
+  revision: number;
+  is_final: boolean;
+  original_text: string;
+  translated_text: string;
+  timestamp_ms: number;
+  source?: "online" | "remote";
+};
+
 export type SignalMessageType =
   | "call.invite"
   | "call.invite.ack"
@@ -30,6 +40,7 @@ export type SignalMessageType =
   | "call.sdp.answer"
   | "call.ice-restart.request"
   | "call.media_update"
+  | "call.subtitle"
   | "call.error"
   | "client.ping"
   | "server.pong";
@@ -44,6 +55,7 @@ export interface SignalMessage {
     | RTCIceCandidateInit
     | SdpRenegotiationPayload
     | MediaUpdatePayload
+    | SubtitlePayload
     | null;
 }
 

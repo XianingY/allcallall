@@ -4,7 +4,6 @@
  */
 
 import { Platform } from "react-native";
-import { mediaDevices } from "react-native-webrtc";
 
 export type AudioType = "incoming_call" | "ringback";
 
@@ -22,8 +21,8 @@ class AudioServiceWebRTC {
       // Web 平台使用 Web Audio API
       try {
         this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      } catch (error) {
-        console.warn("[AudioService] Failed to create AudioContext:", error);
+      } catch {
+        console.warn("[AudioService] Failed to create AudioContext");
       }
     }
   }
@@ -43,7 +42,6 @@ class AudioServiceWebRTC {
     if (!enabled) {
       this.stopAll();
     }
-    console.log("[AudioService] Audio enabled:", enabled);
   }
 
   /**
@@ -58,11 +56,9 @@ class AudioServiceWebRTC {
    */
   public async play(audioType: AudioType): Promise<void> {
     if (!this.enabled) {
-      console.log("[AudioService] Audio is disabled, skipping play");
       return;
     }
 
-    console.log(`[AudioService] Playing: ${audioType}`);
     this.playingAudio = audioType;
 
     try {
@@ -70,7 +66,6 @@ class AudioServiceWebRTC {
         await this.playWebAudio(audioType);
       } else {
         // React Native 平台：播放系统提示音或使用原生实现
-        console.log(`[AudioService] ${audioType} would play on native platform`);
         // 这里可以集成 react-native-sound 或其他音频库
       }
     } catch (error) {
@@ -136,13 +131,12 @@ class AudioServiceWebRTC {
    */
   public stop(audioType: AudioType): void {
     if (this.playingAudio === audioType) {
-      console.log(`[AudioService] Stopping: ${audioType}`);
       this.playingAudio = null;
 
       if (this.oscillator) {
         try {
           this.oscillator.stop();
-        } catch (error) {
+        } catch {
           // 忽略已经停止的振荡器错误
         }
         this.oscillator = null;
@@ -158,13 +152,12 @@ class AudioServiceWebRTC {
    * 停止所有音频
    */
   public stopAll(): void {
-    console.log("[AudioService] Stopping all audio");
     this.playingAudio = null;
 
     if (this.oscillator) {
       try {
         this.oscillator.stop();
-      } catch (error) {
+      } catch {
         // 忽略错误
       }
       this.oscillator = null;
@@ -183,7 +176,6 @@ class AudioServiceWebRTC {
     if (this.audioContext && this.audioContext.close) {
       this.audioContext.close();
     }
-    console.log("[AudioService] Disposed");
   }
 }
 

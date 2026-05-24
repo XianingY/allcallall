@@ -1,7 +1,7 @@
 # AllCallAll Project Makefile
 # Common commands for development
 
-.PHONY: help setup setup-android-onnxruntime build-android build-ios clean test
+.PHONY: help setup build-android build-ios clean test
 
 # Default target
 help:
@@ -9,9 +9,7 @@ help:
 	@echo "================================"
 	@echo ""
 	@echo "Setup:"
-	@echo "  make setup            - Initialize project (submodules, dependencies)"
-	@echo "  make setup-models     - Download ML models"
-	@echo "  make setup-android-onnxruntime - Prepare ONNX Runtime Android native libs"
+	@echo "  make setup            - Install project dependencies"
 	@echo ""
 	@echo "Build:"
 	@echo "  make build-android    - Build Android debug APK"
@@ -30,16 +28,9 @@ help:
 # ===========================
 
 setup:
-	@echo "Initializing git submodules..."
-	git submodule update --init --recursive
 	@echo "Installing mobile dependencies..."
 	cd mobile && npm install
 	@echo "Setup complete!"
-
-setup-models:
-	@echo "Downloading ML models..."
-	cd scripts/translation && ./download_models.sh
-	@echo "Models downloaded!"
 
 # ===========================
 # Build Commands
@@ -47,19 +38,13 @@ setup-models:
 
 build-android:
 	@echo "Building Android debug APK..."
-	$(MAKE) setup-android-onnxruntime
 	cd mobile && bash scripts/run-android-gradle-with-env.sh :app:assembleDebug
 	@echo "APK built at: mobile/android/app/build/outputs/apk/debug/"
 
 build-android-release:
 	@echo "Building Android release APK..."
-	$(MAKE) setup-android-onnxruntime
 	cd mobile && bash scripts/run-android-gradle-with-env.sh :app:assembleRelease
 	@echo "APK built at: mobile/android/app/build/outputs/apk/release/"
-
-setup-android-onnxruntime:
-	@echo "Preparing ONNX Runtime Android native libs..."
-	cd mobile && bash scripts/setup-android-onnxruntime.sh
 
 build-ios:
 	@echo "Building iOS..."
@@ -89,12 +74,6 @@ clean-android:
 	rm -rf mobile/android/app/build
 	rm -rf mobile/android/.gradle
 	cd mobile/android && ./gradlew clean
-
-clean-models:
-	@echo "Removing downloaded models..."
-	rm -rf models/**/*.bin
-	rm -rf models/**/*.onnx
-	rm -rf mobile/android/app/src/main/assets/models
 
 # ===========================
 # Test Commands

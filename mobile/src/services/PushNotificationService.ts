@@ -9,11 +9,12 @@
  * - 推送消息处理
  * - 来电通知处理
  */
-
-import messaging from '@react-native-firebase/messaging';
 import { Platform } from 'react-native';
 import { NavigationContainerRef } from '@react-navigation/native';
-import axios, { AxiosInstance } from 'axios';
+
+import { saveFCMToken } from '../api/users';
+import { getAppVersion, getDeviceName, getPlatformTarget } from "../platform/appMetadata";
+import pushAdapter from "../platform/pushAdapter";
 
 export type NotificationType = 'incoming_call' | 'call_ended' | 'generic';
 
@@ -25,17 +26,13 @@ interface IncomingCallPayload {
   display_name: string;
 }
 
-interface NotificationPayload {
-  type: NotificationType;
-  [key: string]: any;
-}
-
 class PushNotificationService {
   private static instance: PushNotificationService;
   private initialized: boolean = false;
   private navigationRef: React.RefObject<NavigationContainerRef<any>> | null = null;
-  private apiClient: AxiosInstance | null = null;
   private currentToken: string | null = null;
+  private authToken: string | null = null;
+  private notificationsEnabled: boolean = true;
 
   private constructor() {
     this.initialize();
@@ -52,26 +49,16 @@ class PushNotificationService {
    * 初始化推送通知服务
    */
   private async initialize(): Promise<void> {
-    console.log("[PushNotificationService] Initializing...");
-
     try {
-      // 请求通知权限
-      await this.requestPermission();
-
-      // 获取 FCM Token
+      if (this.notificationsEnabled && pushAdapter.isSupported()) {
+        await this.requestPermission();
+      }
       await this.getFCMToken();
-
-      // 设置消息监听器
       this.setupMessageHandlers();
-
-      // 设置后台消息处理器
       this.setupBackgroundMessageHandler();
-
-      // 设置退出监听器
       this.setupOnTokenRefreshListener();
 
       this.initialized = true;
-      console.log("[PushNotificationService] ✓ Initialized successfully");
     } catch (error) {
       console.error("[PushNotificationService] Failed to initialize:", error);
     }
@@ -81,21 +68,12 @@ class PushNotificationService {
    * 请求通知权限
    */
   private async requestPermission(): Promise<boolean> {
-    console.log("[PushNotificationService] Requesting notification permission...");
-
     try {
-      const authStatus = await messaging().requestPermission();
-      const enabled =
-        authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-        authStatus === messaging.AuthorizationStatus.PROVISIONAL;
-
-      if (enabled) {
-        console.log("[PushNotificationService] ✓ Notification permission granted");
-        return true;
-      } else {
-        console.warn("[PushNotificationService] ✗ Notification permission denied");
-        return false;
+      const enabled = await pushAdapter.requestPermission();
+      if (!enabled) {
+        console.warn("[PushNotificationService] Notification permission denied or unsupported");
       }
+      return enabled;
     } catch (error) {
       console.error("[PushNotificationService] Error requesting permission:", error);
       return false;
@@ -107,14 +85,14 @@ class PushNotificationService {
    */
   private async getFCMToken(): Promise<string | null> {
     try {
-      const token = await messaging().getToken();
+      const token = await pushAdapter.getToken();
       if (token) {
-        console.log("[PushNotificationService] ✓ FCM Token:", token.substring(0, 20) + "...");
+        this.currentToken = token;
         return token;
-      } else {
-        console.warn("[PushNotificationService] No FCM token available");
-        return null;
       }
+      this.currentToken = null;
+      console.warn("[PushNotificationService] No FCM token available");
+      return null;
     } catch (error) {
       console.error("[PushNotificationService] Error getting FCM token:", error);
       return null;
@@ -125,15 +103,11 @@ class PushNotificationService {
    * 设置前台消息处理器
    */
   private setupMessageHandlers(): void {
-    // 前台收到消息
-    messaging().onMessage(async (remoteMessage) => {
-      console.log("[PushNotificationService] Foreground message received:", remoteMessage);
+    pushAdapter.onMessage(async (remoteMessage) => {
       this.handleMessage(remoteMessage);
     });
 
-    // 通知点击事件
-    messaging().onNotificationOpenedApp((remoteMessage) => {
-      console.log("[PushNotificationService] Notification opened app:", remoteMessage);
+    pushAdapter.onNotificationOpenedApp((remoteMessage) => {
       this.handleNotificationTap(remoteMessage);
     });
   }
@@ -142,9 +116,7 @@ class PushNotificationService {
    * 设置后台消息处理器
    */
   private setupBackgroundMessageHandler(): void {
-    // 应用在后台时收到消息
-    messaging().setBackgroundMessageHandler(async (remoteMessage) => {
-      console.log("[PushNotificationService] Background message received:", remoteMessage);
+    pushAdapter.setBackgroundMessageHandler(async (remoteMessage) => {
       this.handleMessage(remoteMessage);
     });
   }
@@ -153,10 +125,8 @@ class PushNotificationService {
    * 设置 Token 刷新监听器
    */
   private setupOnTokenRefreshListener(): void {
-    messaging().onTokenRefresh((token) => {
-      console.log("[PushNotificationService] FCM token refreshed");
-      // TODO: 将新 token 发送到后端服务器
-      this.sendTokenToServer(token);
+    pushAdapter.onTokenRefresh((token) => {
+      void this.sendTokenToServer(token);
     });
   }
 
@@ -164,11 +134,13 @@ class PushNotificationService {
    * 处理推送消息
    */
   private handleMessage(remoteMessage: any): void {
+    if (!this.notificationsEnabled) {
+      return;
+    }
+
     try {
       const data = remoteMessage.data || {};
       const notificationType = data.type as NotificationType;
-
-      console.log(`[PushNotificationService] Handling message type: ${notificationType}`);
 
       switch (notificationType) {
         case 'incoming_call':
@@ -180,7 +152,7 @@ class PushNotificationService {
           break;
 
         default:
-          console.log("[PushNotificationService] Unknown notification type:", notificationType);
+          console.warn("[PushNotificationService] Unknown notification type:", notificationType);
       }
     } catch (error) {
       console.error("[PushNotificationService] Error handling message:", error);
@@ -190,17 +162,15 @@ class PushNotificationService {
   /**
    * 处理来电通知
    */
-  private handleIncomingCall(payload: IncomingCallPayload): void {
-    console.log(`[PushNotificationService] Incoming call from: ${payload.from_user}`);
+  private handleIncomingCall(_payload: IncomingCallPayload): void {
+    if (!this.notificationsEnabled) {
+      return;
+    }
 
     try {
-      // 当前应用已改为 CallOverlay 流程，不再导航到不存在的 IncomingCall 页面
-      // 仅触发铃声与震动，具体接听界面由实时信令状态驱动
       if (!this.navigationRef?.current) {
-        console.log("[PushNotificationService] Navigation ref not ready, skip navigation");
+        console.warn("[PushNotificationService] Navigation ref not ready; rely on signaling state");
       }
-
-      // 触发音频和震动
       this.triggerCallNotification();
     } catch (error) {
       console.error("[PushNotificationService] Error handling incoming call:", error);
@@ -211,23 +181,22 @@ class PushNotificationService {
    * 处理通话结束通知
    */
   private handleCallEnded(data: any): void {
-    console.log("[PushNotificationService] Call ended");
-
-    // 可以在这里处理通话结束逻辑，比如更新通话记录
+    void data;
   }
 
   /**
    * 处理通知点击
    */
   private handleNotificationTap(remoteMessage: any): void {
-    console.log("[PushNotificationService] Notification tapped");
+    if (!this.notificationsEnabled) {
+      return;
+    }
 
     const data = remoteMessage.data || {};
     const notificationType = data.type as NotificationType;
 
     if (notificationType === 'incoming_call') {
-      // 不再导航到不存在页面；由信令层恢复通话态
-      console.log("[PushNotificationService] incoming_call tap received; waiting signaling state");
+      console.warn("[PushNotificationService] incoming_call tap received; waiting signaling state");
     }
   }
 
@@ -235,6 +204,10 @@ class PushNotificationService {
    * 触发来电通知（音频 + 震动）
    */
   private triggerCallNotification(): void {
+    if (!this.notificationsEnabled) {
+      return;
+    }
+
     // 动态导入以避免循环依赖
     import('./AudioServiceExpo').then(({ default: AudioService }) => {
       AudioService.play("incoming_call");
@@ -251,21 +224,17 @@ class PushNotificationService {
   private async sendTokenToServer(token: string): Promise<void> {
     try {
       this.currentToken = token;
-      console.log("[PushNotificationService] Preparing to send token to server:", token.substring(0, 20) + "...");
-
-      // 从 localStorage 获取 JWT Token（需要用户已登录）
-      // 这里需要与认证系统集成
-      // 可以通过事件或其他方式在用户登录后立即发送
-      
-      // 示例实现（实际使用时需要获取有效的 JWT）：
-      // const token = await AsyncStorage.getItem('authToken');
-      // if (token) {
-      //   await this.updateFCMTokenOnBackend(token);
-      // } else {
-      //   console.log("[PushNotificationService] User not logged in yet, token will be sent after login");
-      // }
+      if (!this.authToken) {
+        return;
+      }
+      await saveFCMToken(this.authToken, token, {
+        provider: pushAdapter.getProvider(),
+        platform: getPlatformTarget(),
+        device_name: getDeviceName(),
+        app_version: getAppVersion(),
+      });
     } catch (error) {
-      console.error("[PushNotificationService] Error preparing to send token to server:", error);
+      console.error("[PushNotificationService] Error syncing token to backend:", error);
     }
   }
 
@@ -274,32 +243,36 @@ class PushNotificationService {
    * 应该在认证成功后调用此方法
    */
   public async sendCurrentTokenToBackend(authToken: string): Promise<void> {
+    this.authToken = authToken;
+    if (!this.currentToken) {
+      await this.getFCMToken();
+    }
     if (!this.currentToken) {
       console.warn("[PushNotificationService] No FCM token available");
       return;
     }
 
-    try {
-      console.log("[PushNotificationService] Sending FCM token to backend...");
-      
-      // 使用 authToken 发送请求
-      const response = await axios.post(
-        '/users/fcm-token',
-        { fcm_token: this.currentToken },
-        {
-          headers: {
-            'Authorization': `Bearer ${authToken}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      
-      console.log("[PushNotificationService] ✓ FCM token sent to backend successfully");
-      console.log("[PushNotificationService] Response:", response.data);
-    } catch (error) {
-      console.error("[PushNotificationService] Error sending token to backend:", error);
-      // 错误处理：可以在下次登录时重试
+    await saveFCMToken(this.authToken, this.currentToken, {
+      provider: pushAdapter.getProvider(),
+      platform: getPlatformTarget(),
+      device_name: getDeviceName(),
+      app_version: getAppVersion(),
+    });
+  }
+
+  public setAuthToken(authToken: string | null): void {
+    this.authToken = authToken;
+  }
+
+  public setNotificationsEnabled(enabled: boolean): void {
+    this.notificationsEnabled = enabled;
+    if (enabled) {
+      void this.requestPermission();
     }
+  }
+
+  public areNotificationsEnabled(): boolean {
+    return this.notificationsEnabled;
   }
 
   /**
@@ -321,8 +294,8 @@ class PushNotificationService {
    */
   public async unregisterToken(): Promise<void> {
     try {
-      await messaging().unregisterDeviceForRemoteMessages();
-      console.log("[PushNotificationService] FCM token unregistered");
+      await pushAdapter.unregister();
+      this.currentToken = null;
     } catch (error) {
       console.error("[PushNotificationService] Error unregistering token:", error);
     }
@@ -333,12 +306,7 @@ class PushNotificationService {
    */
   public async checkPermission(): Promise<boolean> {
     try {
-      const authStatus = await messaging().hasPermission();
-      const enabled =
-        authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-        authStatus === messaging.AuthorizationStatus.PROVISIONAL;
-
-      return enabled;
+      return pushAdapter.hasPermission();
     } catch (error) {
       console.error("[PushNotificationService] Error checking permission:", error);
       return false;
@@ -350,7 +318,7 @@ class PushNotificationService {
    */
   public getPlatformInfo(): { platform: string; version: string } {
     return {
-      platform: Platform.OS,
+      platform: getPlatformTarget(),
       version: Platform.Version.toString()
     };
   }
@@ -359,8 +327,7 @@ class PushNotificationService {
    * 清理资源
    */
   public dispose(): void {
-    console.log("[PushNotificationService] Disposing...");
-    // 清理监听器等资源
+    this.navigationRef = null;
   }
 }
 

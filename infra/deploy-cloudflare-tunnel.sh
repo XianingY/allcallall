@@ -117,8 +117,8 @@ JWT_SECRET=${JWT_SECRET}
 # 邮件配置（请按需手动修改）
 MAIL_PASSWORD=your_qq_email_auth_code
 
-# 应用配置
-APP_ENV=production
+# FCM 配置（可选）
+FCM_SERVICE_ACCOUNT_PATH=/opt/allcallall/secrets/firebase-service-account.json
 EOF
 
 # 让在 infra/ 目录执行 compose 时也能读取到同一份环境变量

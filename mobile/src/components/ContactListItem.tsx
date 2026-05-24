@@ -11,25 +11,32 @@ interface Props {
     last_seen?: string | null;
   };
   onCall: (email: string) => void;
-  onRemove: (contact: User) => void;
+  onPressDetail: (contact: User) => void;
+  onPressActions: (contact: User) => void;
 }
 
 const ContactListItem: React.FC<Props> = ({
   contact,
   presence,
   onCall,
-  onRemove
+  onPressDetail,
+  onPressActions
 }) => {
   return (
     <View style={styles.container}>
-      <View style={styles.info}>
+      <TouchableOpacity style={styles.info} onPress={() => onPressDetail(contact)}>
         <Text style={styles.name}>{contact.display_name || contact.email}</Text>
         <Text style={styles.email}>{contact.email}</Text>
+        {contact.profile?.company || contact.profile?.role ? (
+          <Text style={styles.businessMeta}>
+            {[contact.profile?.company, contact.profile?.role].filter(Boolean).join(" · ")}
+          </Text>
+        ) : null}
         <PresenceBadge
           online={presence?.online ?? false}
           lastSeen={presence?.last_seen ?? null}
         />
-      </View>
+      </TouchableOpacity>
       <View style={styles.actions}>
         <TouchableOpacity
           style={[styles.button, styles.call]}
@@ -38,10 +45,10 @@ const ContactListItem: React.FC<Props> = ({
           <Text style={styles.buttonText}>呼叫 / Call</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.button, styles.remove]}
-          onPress={() => onRemove(contact)}
+          style={[styles.button, styles.manage]}
+          onPress={() => onPressActions(contact)}
         >
-          <Text style={styles.buttonText}>删除 / Remove</Text>
+          <Text style={styles.buttonText}>更多 / More</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -73,6 +80,10 @@ const styles = StyleSheet.create({
     color: "#6b7280",
     marginBottom: 6
   },
+  businessMeta: {
+    color: "#334155",
+    marginBottom: 6
+  },
   actions: {
     flexDirection: "row",
     justifyContent: "space-between"
@@ -85,8 +96,8 @@ const styles = StyleSheet.create({
   call: {
     backgroundColor: "#2563eb"
   },
-  remove: {
-    backgroundColor: "#dc2626"
+  manage: {
+    backgroundColor: "#334155"
   },
   buttonText: {
     color: "#fff",

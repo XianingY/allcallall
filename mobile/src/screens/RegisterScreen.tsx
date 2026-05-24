@@ -6,7 +6,9 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  Alert
+  Alert,
+  Switch,
+  Linking
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
@@ -14,34 +16,72 @@ import TextField from "../components/TextField";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import { fetchCurrentLegal, type LegalInfo } from "../api/commercial";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Register">;
 
 const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
   const { register } = useAuthContext();
-  // 如果来自邮箱验证页面，会有预填的 email
   const { email: prefilledEmail } = route.params || {};
-  
+  const emailLocked = Boolean(prefilledEmail);
   const [email, setEmail] = useState(prefilledEmail || "");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [acceptCurrentLegal, setAcceptCurrentLegal] = useState(false);
+  const [legal, setLegal] = useState<LegalInfo | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const normalizedEmail = email.trim().toLowerCase();
+
+  React.useEffect(() => {
+    const loadLegal = async () => {
+      try {
+        setLegal(await fetchCurrentLegal());
+      } catch (error) {
+        console.warn("[RegisterScreen] Failed to load legal metadata:", error);
+      }
+    };
+    void loadLegal();
+  }, []);
+
+  const validateEmail = () => {
+    if (!normalizedEmail) {
+      Alert.alert("错误", "请输入邮箱");
+      return false;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(normalizedEmail)) {
+      Alert.alert("错误", "请输入有效的邮箱地址");
+      return false;
+    }
+    return true;
+  };
+
+  const handleStartVerification = () => {
+    if (!validateEmail()) {
+      return;
+    }
+
+    navigation.navigate("EmailVerification", {
+      email: normalizedEmail,
+      returnToRegister: true
+    });
+  };
+
   const handleRegister = async () => {
+    if (!emailLocked) {
+      navigation.navigate("EmailVerification", {
+        email: normalizedEmail,
+        returnToRegister: true
+      });
+      return;
+    }
+
     try {
-      // 验证输入
-      if (!email.trim()) {
-        Alert.alert("错误", "请输入邮箱");
+      if (!validateEmail()) {
         return;
       }
-
-      // 基础邮箱格式验证
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        Alert.alert("错误", "请输入有效的邮箱地址");
-        return;
-      }
-
       if (!password.trim()) {
         Alert.alert("错误", "请输入密码");
         return;
@@ -54,22 +94,13 @@ const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
         Alert.alert("错误", "请输入显示名称");
         return;
       }
-
-      // 判断是否已验证邮箱
-      if (prefilledEmail) {
-        // 邮箱已验证，直接调用注册
-        setLoading(true);
-        await register(email.trim().toLowerCase(), password, displayName.trim());
-        // 注册成功后会自动跳转到主屏幕
-      } else {
-        // 邮箱未验证，先跳转到验证页面
-        navigation.navigate("EmailVerification", {
-          email: email.trim().toLowerCase(),
-          onVerified: async () => {
-            // 验证完成后的回调
-          }
-        });
+      if (!acceptCurrentLegal) {
+        Alert.alert("错误", "请先接受当前服务条款和隐私政策");
+        return;
       }
+
+      setLoading(true);
+      await register(normalizedEmail, password, displayName.trim(), true);
     } catch (error) {
       console.error("Register error:", error);
       if (error instanceof Error) {
@@ -82,6 +113,18 @@ const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   };
 
+  const openLegalLink = async (url?: string | null) => {
+    if (!url) {
+      return;
+    }
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      console.warn("[RegisterScreen] Failed to open legal link:", error);
+      Alert.alert("打开失败", "当前无法打开法律文档链接。");
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -90,35 +133,77 @@ const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
       <View style={styles.header}>
         <Text style={styles.title}>创建账号 / Create account</Text>
         <Text style={styles.subtitle}>
-          通过邮箱使用 AllCallAll，开启实时通信
+          {emailLocked
+            ? "邮箱已验证，请继续设置显示名称和密码"
+            : "先完成邮箱验证，再继续创建账号"}
         </Text>
       </View>
       <View style={styles.form}>
-        <TextField
-          label="显示名称 / Display name"
-          autoCapitalize="words"
-          value={displayName}
-          onChangeText={setDisplayName}
-          editable={!loading}
-        />
         <TextField
           label="邮箱 / Email"
           autoCapitalize="none"
           keyboardType="email-address"
           value={email}
           onChangeText={setEmail}
-          editable={!loading && !prefilledEmail}  // 邮箱已验证时禁用编辑
+          editable={!loading && !emailLocked}
         />
-        <TextField
-          label="密码 / Password"
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-          editable={!loading}
-        />
+        {emailLocked ? (
+          <>
+            <TextField
+              label="显示名称 / Display name"
+              autoCapitalize="words"
+              value={displayName}
+              onChangeText={setDisplayName}
+              editable={!loading}
+            />
+            <TextField
+              label="密码 / Password"
+              secureTextEntry
+              value={password}
+              onChangeText={setPassword}
+              editable={!loading}
+            />
+            <View style={styles.legalCard}>
+              <View style={styles.legalToggleRow}>
+                <Switch
+                  value={acceptCurrentLegal}
+                  onValueChange={setAcceptCurrentLegal}
+                  disabled={loading}
+                />
+                <Text style={styles.legalText}>
+                  我已阅读并接受当前服务条款与隐私政策
+                </Text>
+              </View>
+              <View style={styles.legalLinks}>
+                <TouchableOpacity
+                  onPress={() => void openLegalLink(legal?.terms_url)}
+                  disabled={!legal?.terms_url}
+                >
+                  <Text style={styles.legalLinkText}>查看条款</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => void openLegalLink(legal?.privacy_policy_url)}
+                  disabled={!legal?.privacy_policy_url}
+                >
+                  <Text style={styles.legalLinkText}>查看隐私政策</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </>
+        ) : (
+          <Text style={styles.hintText}>
+            验证成功后会返回此页面继续填写显示名称和密码。
+          </Text>
+        )}
         <PrimaryButton
-          title={loading ? "注册中..." : "注册 / Register"}
-          onPress={handleRegister}
+          title={
+            emailLocked
+              ? loading
+                ? "注册中..."
+                : "完成注册 / Register"
+              : "验证邮箱 / Verify Email"
+          }
+          onPress={emailLocked ? handleRegister : handleStartVerification}
           disabled={loading}
         />
         <TouchableOpacity
@@ -156,6 +241,36 @@ const styles = StyleSheet.create({
   },
   form: {
     flex: 1
+  },
+  hintText: {
+    marginTop: 12,
+    color: "#6b7280",
+    lineHeight: 20
+  },
+  legalCard: {
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: "#eef2ff"
+  },
+  legalToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10
+  },
+  legalText: {
+    flex: 1,
+    color: "#1f2937",
+    lineHeight: 20
+  },
+  legalLinks: {
+    marginTop: 12,
+    flexDirection: "row",
+    gap: 16
+  },
+  legalLinkText: {
+    color: "#2563eb",
+    fontWeight: "600"
   },
   linkButton: {
     marginTop: 16,

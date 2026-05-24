@@ -74,6 +74,11 @@ func (s *Service) SendVerificationCode(email, code string) error {
 	return s.send(email, subject, body)
 }
 
+// SendHTMLEmail sends a generic HTML email.
+func (s *Service) SendHTMLEmail(to, subject, body string) error {
+	return s.send(to, subject, body)
+}
+
 // send 发送邮件（内部方法）
 // send is an internal method to send emails via SMTP
 func (s *Service) send(to, subject, body string) error {

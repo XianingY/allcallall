@@ -6,6 +6,7 @@
     "sdkVersion": "51.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "scheme": "allcallall",
     "splash": {
       "backgroundColor": "#ffffff",
       "resizeMode": "contain"
@@ -29,7 +30,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.allcallall.mobile",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Allow AllCallAll to access the microphone for voice calls"
+        "NSCameraUsageDescription": "Allow AllCallAll to access the camera for video meetings and calls",
+        "NSMicrophoneUsageDescription": "Allow AllCallAll to access the microphone for voice calls and meetings"
       }
     },
     "web": {

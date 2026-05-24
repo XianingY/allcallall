@@ -13,6 +13,7 @@ export interface RegisterPayload {
   email: string;
   password: string;
   display_name: string;
+  accept_current_legal: boolean;
 }
 
 export const register = async (payload: RegisterPayload) => {

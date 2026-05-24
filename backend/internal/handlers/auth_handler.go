@@ -1,12 +1,16 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 
 	"github.com/allcallall/backend/internal/auth"
+	"github.com/allcallall/backend/internal/collaboration"
+	"github.com/allcallall/backend/internal/commerce"
+	"github.com/allcallall/backend/internal/mail"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/user"
 )
@@ -14,25 +18,47 @@ import (
 // AuthHandler 认证处理器
 // AuthHandler exposes registration and login endpoints.
 type AuthHandler struct {
-	logger     zerolog.Logger
-	users      *user.Service
-	jwtManager *auth.Manager
+	logger                zerolog.Logger
+	users                 *user.Service
+	jwtManager            *auth.Manager
+	verificationCodeStore *mail.VerificationCodeService
+	commerce              *commerce.Service
+	collaboration         *collaboration.Service
+}
+
+type AuthHandlerOptions struct {
+	Commerce      *commerce.Service
+	Collaboration *collaboration.Service
 }
 
 // NewAuthHandler 构造函数
 // NewAuthHandler creates an AuthHandler.
-func NewAuthHandler(log zerolog.Logger, users *user.Service, jwt *auth.Manager) *AuthHandler {
+func NewAuthHandler(
+	log zerolog.Logger,
+	users *user.Service,
+	jwt *auth.Manager,
+	verificationCodes *mail.VerificationCodeService,
+	options ...AuthHandlerOptions,
+) *AuthHandler {
+	var opts AuthHandlerOptions
+	if len(options) > 0 {
+		opts = options[0]
+	}
 	return &AuthHandler{
-		logger:     log.With().Str("component", "auth_handler").Logger(),
-		users:      users,
-		jwtManager: jwt,
+		logger:                log.With().Str("component", "auth_handler").Logger(),
+		users:                 users,
+		jwtManager:            jwt,
+		verificationCodeStore: verificationCodes,
+		commerce:              opts.Commerce,
+		collaboration:         opts.Collaboration,
 	}
 }
 
 type registerRequest struct {
-	Email       string `json:"email" binding:"required,email"`
-	Password    string `json:"password" binding:"required,min=8"`
-	DisplayName string `json:"display_name" binding:"required"`
+	Email              string `json:"email" binding:"required,email"`
+	Password           string `json:"password" binding:"required,min=8"`
+	DisplayName        string `json:"display_name" binding:"required"`
+	AcceptCurrentLegal bool   `json:"accept_current_legal"`
 }
 
 type authResponse struct {
@@ -72,6 +98,21 @@ func (h *AuthHandler) handleRegister(c *gin.Context) {
 		JSONError(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if h.commerce != nil && !req.AcceptCurrentLegal {
+		JSONErrorWithCode(c, http.StatusBadRequest, "LEGAL_ACCEPTANCE_REQUIRED", "current terms and privacy acceptance required")
+		return
+	}
+
+	if err := h.verificationCodeStore.EnsureVerifiedForRegistration(req.Email); err != nil {
+		switch {
+		case errors.Is(err, mail.ErrEmailNotVerifiedForRegistration):
+			JSONError(c, http.StatusForbidden, "email verification required")
+		default:
+			h.logger.Error().Err(err).Msg("email verification lookup failed")
+			JSONError(c, http.StatusInternalServerError, "failed to verify email state")
+		}
+		return
+	}
 
 	userModel, err := h.users.Register(c.Request.Context(), user.RegisterInput{
 		Email:       req.Email,
@@ -87,6 +128,23 @@ func (h *AuthHandler) handleRegister(c *gin.Context) {
 			JSONError(c, http.StatusInternalServerError, "failed to register")
 		}
 		return
+	}
+
+	if err := h.verificationCodeStore.ConsumeVerifiedRegistration(req.Email); err != nil {
+		h.logger.Error().Err(err).Msg("consume verified email state failed")
+		JSONError(c, http.StatusInternalServerError, "failed to finalize registration")
+		return
+	}
+
+	if h.commerce != nil {
+		if err := h.commerce.AcceptLegal(c.Request.Context(), userModel.ID); err != nil {
+			h.logger.Error().Err(err).Uint64("user_id", userModel.ID).Msg("record legal acceptance failed after registration")
+		}
+	}
+	if h.collaboration != nil {
+		if _, err := h.collaboration.EnsurePersonalOrganization(c.Request.Context(), userModel.ID, userModel.DisplayName); err != nil {
+			h.logger.Error().Err(err).Uint64("user_id", userModel.ID).Msg("ensure personal organization failed after registration")
+		}
 	}
 
 	token, err := h.jwtManager.GenerateAccessToken(userModel.ID, userModel.Email)
@@ -116,6 +174,10 @@ func (h *AuthHandler) handleLogin(c *gin.Context) {
 	if err != nil {
 		if err == user.ErrInvalidCredentials {
 			JSONError(c, http.StatusUnauthorized, "invalid credentials")
+			return
+		}
+		if err == user.ErrUserDeleted {
+			JSONError(c, http.StatusForbidden, "account deleted")
 			return
 		}
 		h.logger.Error().Err(err).Msg("login failed")

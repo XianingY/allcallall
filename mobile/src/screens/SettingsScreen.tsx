@@ -11,11 +11,12 @@ import {
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import { useCommercial } from "../context/CommercialContext";
 import { useSettings } from "../context/SettingsContext";
 import type { VideoQuality } from "../services/VideoService";
 import AudioService from "../services/AudioServiceExpo";
 import VibrationService from "../services/VibrationService";
-import PushNotificationService from "../services/PushNotificationService";
+import { findTranslationUsage, formatTranslationUsageSummary } from "../utils/usage";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Settings">;
 
@@ -30,8 +31,11 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     updateCameraFacing,
     updateVideoQuality,
     updateVideoMaxBitrateKbps,
-    updateVideoAdaptiveBitrateEnabled
+    updateVideoAdaptiveBitrateEnabled,
+    updateBusinessAssistantEnabled
   } = useSettings();
+  const { tier, usage } = useCommercial();
+  const translationUsage = React.useMemo(() => findTranslationUsage(usage), [usage]);
 
   const [bitrateInput, setBitrateInput] = React.useState(settings.videoMaxBitrateKbps.toString());
 
@@ -80,6 +84,61 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scrollView}>
         <View style={styles.section}>
+          <Text style={styles.sectionTitle}>商业与合规 / Commercial</Text>
+
+          <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate("Subscription")}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>订阅与权益 / Subscription</Text>
+              <Text style={styles.settingDescription}>
+                当前 {tier === "premium" ? "Premium" : "Free"} · {formatTranslationUsageSummary(translationUsage)}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate("BlockedUsers")}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>黑名单 / Blocked Users</Text>
+              <Text style={styles.settingDescription}>
+                管理你主动拉黑的用户。
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate("Legal")}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>法律文档 / Legal</Text>
+              <Text style={styles.settingDescription}>
+                查看隐私政策、条款、支持邮箱和账号删除路径。
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.linkRow, styles.dangerRow]} onPress={() => navigation.navigate("DeleteAccount")}>
+            <View style={styles.settingInfo}>
+              <Text style={[styles.settingTitle, styles.dangerText]}>删除账号 / Delete Account</Text>
+              <Text style={styles.settingDescription}>
+                永久删除当前账号及关联数据。
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          <View style={styles.settingItem}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>Business Assistant</Text>
+              <Text style={styles.settingDescription}>
+                控制通话后的 AI 跟进卡与跟进任务生成。
+              </Text>
+            </View>
+            <Switch
+              trackColor={{ false: "#767577", true: "#81b0ff" }}
+              thumbColor={settings.businessAssistantEnabled ? "#f5dd4b" : "#f4f3f4"}
+              onValueChange={updateBusinessAssistantEnabled}
+              value={settings.businessAssistantEnabled}
+            />
+          </View>
+        </View>
+
+        <View style={styles.section}>
           <Text style={styles.sectionTitle}>通话设置 / Call Settings</Text>
 
           <View style={styles.settingItem}>
@@ -116,7 +175,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
             <View style={styles.settingInfo}>
               <Text style={styles.settingTitle}>推送通知 / Push Notifications</Text>
               <Text style={styles.settingDescription}>
-                开启后，即使应用在后台也能接收来电通知
+                控制客户端提醒与权限申请；不会停止服务端推送投递
               </Text>
             </View>
             <Switch
@@ -310,6 +369,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#6b7280",
     lineHeight: 18
+  },
+  linkRow: {
+    backgroundColor: "#f8fafc",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginBottom: 12
+  },
+  dangerRow: {
+    borderWidth: 1,
+    borderColor: "#fecaca"
+  },
+  dangerText: {
+    color: "#b91c1c"
   },
   infoBox: {
     backgroundColor: "#f0f9ff",

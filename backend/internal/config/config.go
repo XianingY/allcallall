@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -25,13 +26,14 @@ var (
 // Config 应用总配置结构
 // Config aggregates all application settings loaded from YAML/Env.
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	Redis    RedisConfig    `yaml:"redis"`
-	Mail     Mail           `yaml:"mail"`
-	JWT      JWTConfig      `yaml:"jwt"`
-	WebRTC   WebRTCConfig   `yaml:"webrtc"`
-	Logging  LoggingConfig  `yaml:"logging"`
+	Server      ServerConfig      `yaml:"server"`
+	Database    DatabaseConfig    `yaml:"database"`
+	Redis       RedisConfig       `yaml:"redis"`
+	Mail        Mail              `yaml:"mail"`
+	JWT         JWTConfig         `yaml:"jwt"`
+	WebRTC      WebRTCConfig      `yaml:"webrtc"`
+	Translation TranslationConfig `yaml:"translation"`
+	Logging     LoggingConfig     `yaml:"logging"`
 }
 
 // ServerConfig HTTP 服务相关配置
@@ -89,6 +91,27 @@ type ICEServer struct {
 // LoggingConfig controls logger severity.
 type LoggingConfig struct {
 	Level string `yaml:"level"`
+}
+
+// TranslationConfig 实时翻译配置
+// TranslationConfig controls realtime translation runtime behavior.
+type TranslationConfig struct {
+	Enabled            bool          `yaml:"enabled"`
+	Provider           string        `yaml:"provider"`
+	ChunkMS            int           `yaml:"chunk_ms"`
+	PartialDebounceMS  int           `yaml:"partial_debounce_ms"`
+	MaxSessionsPerUser int           `yaml:"max_sessions_per_user"`
+	VolcAST            VolcASTConfig `yaml:"volc_ast"`
+}
+
+// VolcASTConfig 火山 AST 配置
+// VolcASTConfig stores Volcengine AST provider options.
+type VolcASTConfig struct {
+	WSURL      string `yaml:"ws_url"`
+	AppKey     string `yaml:"app_key"`
+	AccessKey  string `yaml:"access_key"`
+	ResourceID string `yaml:"resource_id"`
+	AppID      string `yaml:"app_id"`
 }
 
 // Load 初始化并返回全局配置
@@ -192,9 +215,98 @@ func (c *Config) postProcess() error {
 		}
 	}
 
+	if c.Translation.Provider == "" {
+		c.Translation.Provider = "volc_ast"
+	}
+	if c.Translation.ChunkMS <= 0 {
+		c.Translation.ChunkMS = 400
+	}
+	if c.Translation.PartialDebounceMS <= 0 {
+		c.Translation.PartialDebounceMS = 600
+	}
+	if c.Translation.MaxSessionsPerUser <= 0 {
+		c.Translation.MaxSessionsPerUser = 2
+	}
+	if c.Translation.VolcAST.WSURL == "" {
+		c.Translation.VolcAST.WSURL = "wss://openspeech.bytedance.com/api/v4/ast/v2/translate"
+	}
+	if c.Translation.VolcAST.ResourceID == "" {
+		c.Translation.VolcAST.ResourceID = "volc.service_type.10053"
+	}
+
+	// 支持环境变量覆盖翻译配置
+	// Support environment variables override translation config
+	if enabled, ok, err := parseBoolEnv("TRANSLATION_ENABLED"); err != nil {
+		return err
+	} else if ok {
+		c.Translation.Enabled = enabled
+	}
+	if provider := os.Getenv("TRANSLATION_PROVIDER"); provider != "" {
+		c.Translation.Provider = provider
+	}
+	if chunkMS, ok, err := parseIntEnv("TRANSLATION_CHUNK_MS"); err != nil {
+		return err
+	} else if ok {
+		c.Translation.ChunkMS = chunkMS
+	}
+	if partialDebounceMS, ok, err := parseIntEnv("TRANSLATION_PARTIAL_DEBOUNCE_MS"); err != nil {
+		return err
+	} else if ok {
+		c.Translation.PartialDebounceMS = partialDebounceMS
+	}
+	if maxSessions, ok, err := parseIntEnv("TRANSLATION_MAX_SESSIONS_PER_USER"); err != nil {
+		return err
+	} else if ok {
+		c.Translation.MaxSessionsPerUser = maxSessions
+	}
+
+	if volcWSURL := os.Getenv("VOLC_AST_WS_URL"); volcWSURL != "" {
+		c.Translation.VolcAST.WSURL = volcWSURL
+	}
+	if volcAppKey := os.Getenv("VOLC_AST_APP_KEY"); volcAppKey != "" {
+		c.Translation.VolcAST.AppKey = volcAppKey
+	}
+	if volcAccessKey := os.Getenv("VOLC_AST_ACCESS_KEY"); volcAccessKey != "" {
+		c.Translation.VolcAST.AccessKey = volcAccessKey
+	}
+	if volcResourceID := os.Getenv("VOLC_AST_RESOURCE_ID"); volcResourceID != "" {
+		c.Translation.VolcAST.ResourceID = volcResourceID
+	}
+	if volcAppID := os.Getenv("VOLC_AST_APP_ID"); volcAppID != "" {
+		c.Translation.VolcAST.AppID = volcAppID
+	}
+
 	if c.JWT.Secret == "" {
 		return errors.New("config: jwt.secret must not be empty")
 	}
 
 	return nil
+}
+
+func parseBoolEnv(key string) (bool, bool, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return false, false, nil
+	}
+
+	switch strings.ToLower(raw) {
+	case "1", "true", "yes", "on":
+		return true, true, nil
+	case "0", "false", "no", "off":
+		return false, true, nil
+	default:
+		return false, true, fmt.Errorf("config: invalid %s value: %s", key, raw)
+	}
+}
+
+func parseIntEnv(key string) (int, bool, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return 0, false, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, true, fmt.Errorf("config: invalid %s value: %w", key, err)
+	}
+	return value, true, nil
 }

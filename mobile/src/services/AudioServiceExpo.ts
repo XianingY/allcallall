@@ -11,7 +11,6 @@
  */
 
 import { Audio, AVPlaybackStatus } from "expo-av";
-import { Platform } from "react-native";
 
 export type AudioType = "incoming_call" | "ringback";
 
@@ -66,7 +65,6 @@ class AudioServiceExpo {
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false
       });
-      console.log("[AudioService] Audio mode set");
       this.initialized = true;
 
       // 预加载音频文件
@@ -81,12 +79,10 @@ class AudioServiceExpo {
    */
   private async preloadAudioFiles(): Promise<void> {
     if (this.loading) {
-      console.log("[AudioService] Already loading audio files");
       return;
     }
 
     this.loading = true;
-    console.log("[AudioService] Preloading audio files...");
 
     try {
       const loadPromises = this.audioFiles.map(async (audioFile) => {
@@ -103,7 +99,6 @@ class AudioServiceExpo {
           await sound.setVolumeAsync(0.8);
 
           this.soundObjects.set(audioFile.type, sound);
-          console.log(`[AudioService] ✓ Loaded: ${audioFile.name}`);
         } catch (error) {
           console.error(`[AudioService] Failed to load ${audioFile.name}:`, error);
           // 如果加载失败，创建一个空的Sound对象作为占位符
@@ -113,7 +108,6 @@ class AudioServiceExpo {
       });
 
       await Promise.all(loadPromises);
-      console.log(`[AudioService] ✓ All audio files loaded (${this.soundObjects.size} files)`);
     } catch (error) {
       console.error("[AudioService] Error preloading audio files:", error);
     } finally {
@@ -125,7 +119,6 @@ class AudioServiceExpo {
    * 重新加载音频文件
    */
   public async reloadAudioFiles(): Promise<void> {
-    console.log("[AudioService] Reloading audio files...");
     await this.unloadAudioFiles();
     await this.preloadAudioFiles();
   }
@@ -134,7 +127,6 @@ class AudioServiceExpo {
    * 卸载所有音频文件
    */
   private async unloadAudioFiles(): Promise<void> {
-    console.log("[AudioService] Unloading audio files...");
 
     try {
       const unloadPromises = Array.from(this.soundObjects.values()).map(
@@ -149,7 +141,6 @@ class AudioServiceExpo {
 
       await Promise.all(unloadPromises);
       this.soundObjects.clear();
-      console.log("[AudioService] ✓ All audio files unloaded");
     } catch (error) {
       console.error("[AudioService] Error unloading audio files:", error);
     }
@@ -163,7 +154,6 @@ class AudioServiceExpo {
     if (!enabled) {
       this.stopAll();
     }
-    console.log("[AudioService] Audio enabled:", enabled);
   }
 
   /**
@@ -178,11 +168,9 @@ class AudioServiceExpo {
    */
   public async play(audioType: AudioType): Promise<void> {
     if (!this.enabled) {
-      console.log("[AudioService] Audio is disabled, skipping play");
       return;
     }
 
-    console.log(`[AudioService] Playing: ${audioType}`);
 
     try {
       if (!this.initialized) {
@@ -209,7 +197,6 @@ class AudioServiceExpo {
         await sound.setPositionAsync(0); // 从头开始播放
         await sound.playAsync();
 
-        console.log(`[AudioService] ✓ Playing: ${audioType}`);
       } else {
         console.warn(`[AudioService] No sound object for: ${audioType}`);
       }
@@ -222,7 +209,6 @@ class AudioServiceExpo {
    * 停止音频
    */
   public async stop(audioType: AudioType): Promise<void> {
-    console.log(`[AudioService] Stopping: ${audioType}`);
 
     try {
       const sound = this.soundObjects.get(audioType);
@@ -232,7 +218,6 @@ class AudioServiceExpo {
         await sound.setPositionAsync(0);
         await sound.setIsLoopingAsync(false);
 
-        console.log(`[AudioService] ✓ Stopped: ${audioType}`);
       }
     } catch (error) {
       console.error(`[AudioService] Error stopping ${audioType}:`, error);
@@ -243,13 +228,11 @@ class AudioServiceExpo {
    * 暂停音频
    */
   public async pause(audioType: AudioType): Promise<void> {
-    console.log(`[AudioService] Pausing: ${audioType}`);
 
     try {
       const sound = this.soundObjects.get(audioType);
       if (sound) {
         await sound.pauseAsync();
-        console.log(`[AudioService] ✓ Paused: ${audioType}`);
       }
     } catch (error) {
       console.error(`[AudioService] Error pausing ${audioType}:`, error);
@@ -260,13 +243,11 @@ class AudioServiceExpo {
    * 恢复音频播放
    */
   public async resume(audioType: AudioType): Promise<void> {
-    console.log(`[AudioService] Resuming: ${audioType}`);
 
     try {
       const sound = this.soundObjects.get(audioType);
       if (sound) {
         await sound.playAsync();
-        console.log(`[AudioService] ✓ Resumed: ${audioType}`);
       }
     } catch (error) {
       console.error(`[AudioService] Error resuming ${audioType}:`, error);
@@ -281,7 +262,6 @@ class AudioServiceExpo {
       const sound = this.soundObjects.get(audioType);
       if (sound) {
         await sound.setVolumeAsync(volume);
-        console.log(`[AudioService] Volume set for ${audioType}: ${volume}`);
       }
     } catch (error) {
       console.error(`[AudioService] Error setting volume for ${audioType}:`, error);
@@ -309,7 +289,6 @@ class AudioServiceExpo {
    * 停止所有音频
    */
   public async stopAll(): Promise<void> {
-    console.log("[AudioService] Stopping all audio");
 
     try {
       const stopPromises = Array.from(this.soundObjects.entries()).map(
@@ -318,7 +297,6 @@ class AudioServiceExpo {
             await sound.stopAsync();
             await sound.setPositionAsync(0);
             await sound.setIsLoopingAsync(false);
-            console.log(`[AudioService] ✓ Stopped: ${type}`);
           } catch (error) {
             console.warn(`[AudioService] Error stopping ${type}:`, error);
           }
@@ -350,7 +328,6 @@ class AudioServiceExpo {
   public async setSpeakerphone(on: boolean): Promise<void> {
     try {
       this.isSpeakerOn = on;
-      console.log(`[AudioService] Setting speakerphone: ${on}`);
       
       await Audio.setAudioModeAsync({
         staysActiveInBackground: true,
@@ -374,7 +351,6 @@ class AudioServiceExpo {
    * 释放资源
    */
   public async dispose(): Promise<void> {
-    console.log("[AudioService] Disposing...");
 
     try {
       await this.stopAll();

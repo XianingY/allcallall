@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import type { VideoQuality } from "../services/VideoService";
+import PushNotificationService from "../services/PushNotificationService";
 
 interface Settings {
   audioNotificationsEnabled: boolean;
@@ -16,6 +17,7 @@ interface Settings {
   videoQuality: VideoQuality;
   videoMaxBitrateKbps: number;
   videoAdaptiveBitrateEnabled: boolean;
+  businessAssistantEnabled: boolean;
 }
 
 interface SettingsContextValue {
@@ -31,6 +33,7 @@ interface SettingsContextValue {
   updateVideoQuality: (quality: VideoQuality) => void;
   updateVideoMaxBitrateKbps: (kbps: number) => void;
   updateVideoAdaptiveBitrateEnabled: (enabled: boolean) => void;
+  updateBusinessAssistantEnabled: (enabled: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsContextValue | undefined>(
@@ -53,7 +56,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 
     videoQuality: "medium",
     videoMaxBitrateKbps: 900,
-    videoAdaptiveBitrateEnabled: false
+    videoAdaptiveBitrateEnabled: false,
+    businessAssistantEnabled: true
   });
   const [loaded, setLoaded] = useState(false);
 
@@ -74,9 +78,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 
             videoQuality: parsed.videoQuality ?? "medium",
             videoMaxBitrateKbps: parsed.videoMaxBitrateKbps ?? 900,
-            videoAdaptiveBitrateEnabled: parsed.videoAdaptiveBitrateEnabled ?? false
+            videoAdaptiveBitrateEnabled: parsed.videoAdaptiveBitrateEnabled ?? false,
+            businessAssistantEnabled: parsed.businessAssistantEnabled ?? true
           });
-          console.log("[SettingsContext] Loaded settings from storage:", parsed);
         }
       } catch (error) {
         console.warn("[SettingsContext] Failed to load settings:", error);
@@ -88,6 +92,13 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     loadSettings();
   }, []);
 
+  useEffect(() => {
+    if (!loaded) {
+      return;
+    }
+    PushNotificationService.setNotificationsEnabled(settings.pushNotificationsEnabled);
+  }, [loaded, settings.pushNotificationsEnabled]);
+
   const updateAudioNotifications = async (enabled: boolean) => {
     const newSettings = {
       ...settings,
@@ -95,7 +106,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Audio notifications updated:", enabled);
   };
 
   const updateVibration = async (enabled: boolean) => {
@@ -105,7 +115,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Vibration updated:", enabled);
   };
 
   const updatePushNotifications = async (enabled: boolean) => {
@@ -115,7 +124,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Push notifications updated:", enabled);
   };
 
   const updateDefaultVideoEnabled = async (enabled: boolean) => {
@@ -125,7 +133,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Default video enabled updated:", enabled);
   };
 
   const updateDefaultAudioEnabled = async (enabled: boolean) => {
@@ -135,7 +142,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Default audio enabled updated:", enabled);
   };
 
   const updateCameraFacing = async (facing: "front" | "back") => {
@@ -145,7 +151,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Camera facing updated:", facing);
   };
 
   const updateVideoQuality = async (quality: VideoQuality) => {
@@ -155,7 +160,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Video quality updated:", quality);
   };
 
   const updateVideoMaxBitrateKbps = async (kbps: number) => {
@@ -165,7 +169,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Video max bitrate updated (kbps):", kbps);
   };
 
   const updateVideoAdaptiveBitrateEnabled = async (enabled: boolean) => {
@@ -175,13 +178,20 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
     setSettings(newSettings);
     await saveSettings(newSettings);
-    console.log("[SettingsContext] Video adaptive bitrate updated:", enabled);
+  };
+
+  const updateBusinessAssistantEnabled = async (enabled: boolean) => {
+    const newSettings = {
+      ...settings,
+      businessAssistantEnabled: enabled
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
   };
 
   const saveSettings = async (newSettings: Settings) => {
     try {
       await AsyncStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
-      console.log("[SettingsContext] Settings saved:", newSettings);
     } catch (error) {
       console.warn("[SettingsContext] Failed to save settings:", error);
     }
@@ -204,7 +214,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         updateCameraFacing,
         updateVideoQuality,
         updateVideoMaxBitrateKbps,
-        updateVideoAdaptiveBitrateEnabled
+        updateVideoAdaptiveBitrateEnabled,
+        updateBusinessAssistantEnabled
       }}
     >
       {children}

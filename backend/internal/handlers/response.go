@@ -9,9 +9,17 @@ import (
 // JSONError 返回标准错误响应
 // JSONError sends a JSON error message with status code.
 func JSONError(c *gin.Context, status int, message string) {
+	JSONErrorWithCode(c, status, "", message)
+}
+
+// JSONErrorWithCode sends a JSON error message with a stable machine-readable code.
+func JSONErrorWithCode(c *gin.Context, status int, code string, message string) {
+	requestID := c.GetString("X-Request-ID")
 	c.JSON(status, gin.H{
-		"error":   message,
-		"success": false,
+		"error":      message,
+		"code":       code,
+		"request_id": requestID,
+		"success":    false,
 	})
 }
 

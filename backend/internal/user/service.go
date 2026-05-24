@@ -14,13 +14,28 @@ import (
 // Service 用户业务逻辑
 // Service handles high-level user operations.
 type Service struct {
-	repo *Repository
+	repo               *Repository
+	pushDevicesEnabled bool
+}
+
+type ServiceOption func(*Service)
+
+func WithPushDeviceSupport() ServiceOption {
+	return func(s *Service) {
+		s.pushDevicesEnabled = true
+	}
 }
 
 // NewService 构造函数
 // NewService constructs a Service.
-func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo *Repository, options ...ServiceOption) *Service {
+	svc := &Service{repo: repo}
+	for _, option := range options {
+		if option != nil {
+			option(svc)
+		}
+	}
+	return svc
 }
 
 // RegisterInput 注册输入
@@ -45,6 +60,7 @@ var ErrEmailAlreadyUsed = errors.New("email already registered")
 // ErrInvalidCredentials 凭证无效
 // ErrInvalidCredentials indicates wrong password or email.
 var ErrInvalidCredentials = errors.New("invalid credentials")
+var ErrUserDeleted = errors.New("user account deleted")
 
 // Register 注册用户
 // Register creates a new user with hashed password.
@@ -67,6 +83,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*models.User,
 		Email:        in.Email,
 		PasswordHash: string(hash),
 		DisplayName:  in.DisplayName,
+		Status:       models.UserStatusActive,
 	}
 
 	if err := s.repo.Create(ctx, user); err != nil {
@@ -85,6 +102,9 @@ func (s *Service) Authenticate(ctx context.Context, in LoginInput) (*models.User
 			return nil, ErrInvalidCredentials
 		}
 		return nil, err
+	}
+	if user.Status == models.UserStatusDeleted {
+		return nil, ErrUserDeleted
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(in.Password)); err != nil {
@@ -167,6 +187,44 @@ func (s *Service) SaveFCMToken(ctx context.Context, userID uint64, fcmToken stri
 	return s.repo.UpdateFCMToken(ctx, userID, strings.TrimSpace(fcmToken))
 }
 
+type SavePushRegistrationInput struct {
+	Token      string
+	Provider   string
+	Platform   string
+	DeviceName string
+	AppVersion string
+}
+
+func (s *Service) SavePushRegistration(ctx context.Context, userID uint64, in SavePushRegistrationInput) error {
+	token := strings.TrimSpace(in.Token)
+	if token == "" {
+		return errors.New("fcm token cannot be empty")
+	}
+	if err := s.repo.UpdateFCMToken(ctx, userID, token); err != nil {
+		return err
+	}
+	if !s.pushDevicesEnabled {
+		return nil
+	}
+	return s.repo.SavePushDevice(ctx, &models.PushDevice{
+		UserID:         userID,
+		Provider:       defaultPushValue(in.Provider, "fcm"),
+		Platform:       defaultPushValue(in.Platform, "android"),
+		DeviceName:     strings.TrimSpace(in.DeviceName),
+		AppVersion:     strings.TrimSpace(in.AppVersion),
+		Token:          token,
+		LastRegistered: time.Now(),
+	})
+}
+
+func defaultPushValue(value string, fallback string) string {
+	trimmed := strings.TrimSpace(strings.ToLower(value))
+	if trimmed == "" {
+		return fallback
+	}
+	return trimmed
+}
+
 // GetFCMToken 获取用户的 FCM Token
 // GetFCMToken retrieves user FCM token.
 func (s *Service) GetFCMToken(ctx context.Context, userID uint64) (string, error) {
@@ -175,4 +233,16 @@ func (s *Service) GetFCMToken(ctx context.Context, userID uint64) (string, error
 		return "", err
 	}
 	return user.FCMToken, nil
+}
+
+// ResetPassword updates password hash after purpose-scoped verification succeeded.
+func (s *Service) ResetPassword(ctx context.Context, userID uint64, newPassword string) error {
+	if err := ValidatePasswordStrength(newPassword); err != nil {
+		return err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return s.repo.ResetPasswordHash(ctx, userID, string(hash))
 }

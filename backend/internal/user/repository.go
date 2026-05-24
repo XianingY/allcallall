@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/allcallall/backend/internal/models"
 )
@@ -96,4 +97,42 @@ func (r *Repository) UpdateFCMToken(ctx context.Context, userID uint64, fcmToken
 	return r.db.WithContext(ctx).Model(&models.User{}).
 		Where("id = ?", userID).
 		Update("fcm_token", fcmToken).Error
+}
+
+// ResetPasswordHash updates password hash without validating previous password.
+func (r *Repository) ResetPasswordHash(ctx context.Context, userID uint64, passwordHash string) error {
+	return r.db.WithContext(ctx).Model(&models.User{}).
+		Where("id = ?", userID).
+		Update("password_hash", passwordHash).Error
+}
+
+// SavePushDevice upserts one push registration with platform metadata.
+func (r *Repository) SavePushDevice(ctx context.Context, device *models.PushDevice) error {
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "user_id"},
+				{Name: "token"},
+			},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"provider",
+				"platform",
+				"device_name",
+				"app_version",
+				"last_registered",
+				"updated_at",
+			}),
+		}).
+		Create(device).Error
+}
+
+// UpdateAccountStatus updates user lifecycle status and deleted timestamp.
+func (r *Repository) UpdateAccountStatus(ctx context.Context, userID uint64, status string, deletedAt *time.Time) error {
+	updates := map[string]any{
+		"status":     status,
+		"deleted_at": deletedAt,
+	}
+	return r.db.WithContext(ctx).Model(&models.User{}).
+		Where("id = ?", userID).
+		Updates(updates).Error
 }

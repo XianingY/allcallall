@@ -24,9 +24,7 @@ const login = useCallback(
     
     // 登录成功后，发送 FCM Token 到后端
     try {
-      console.log("[AuthContext] Sending FCM token to backend...");
       await PushNotificationService.sendCurrentTokenToBackend(response.access_token);
-      console.log("[AuthContext] FCM token sent successfully");
     } catch (error) {
       console.warn("[AuthContext] Failed to send FCM token:", error);
       // 不中断登录流程，继续进行
@@ -39,7 +37,7 @@ const login = useCallback(
 **关键特性**：
 - 登录成功后自动发送 FCM Token 到后端
 - 不阻断登录流程，如果 FCM Token 发送失败仍继续登录
-- 添加详细日志用于调试
+- 失败时只保留 `warn`，不打印流程型成功日志
 
 ### 2. users API 添加
 
@@ -156,20 +154,7 @@ func (h *UserHandler) handleSaveFCMToken(c *gin.Context) {
 创建了 FCM 管理器，提供推送通知功能框架：
 
 ```go
-type Manager struct {
-    logger zerolog.Logger
-    // TODO: 在配置 Firebase Admin SDK 后添加 FCM 客户端
-}
-
-// SendCallNotification 发送来电通知
-func (m *Manager) SendCallNotification(ctx context.Context, fcmToken string, fromEmail string, displayName string, callID string) error {
-    // ... 实现 ...
-}
-
-// SendMissedCallNotification 发送未接来电通知
-func (m *Manager) SendMissedCallNotification(ctx context.Context, fcmToken string, fromEmail string, displayName string) error {
-    // ... 实现 ...
-}
+FCM 管理器现在通过 Firebase Admin SDK 初始化 `messaging.Client`。配置 `FCM_SERVICE_ACCOUNT_PATH` 后会真实发送通知；未配置时会记录 `fcm disabled, skipping ...` 并安全降级。
 ```
 
 ### 6. 信令 Hub 推送通知集成
@@ -235,7 +220,7 @@ signalingHub.WithFCMManager(fcmManager)
 3. Hub 检查是否存在 FCM Manager
 4. 不阻塞地发送推送通知给用户 B（使用 goroutine）
 5. 获取用户 B 的 FCM Token（如果存在）
-6. 通过 FCM Manager 发送推送通知（目前是日志形式，等待 Firebase SDK 配置）
+6. 通过 FCM Manager 发送推送通知；若未配置 `FCM_SERVICE_ACCOUNT_PATH`，则安全跳过
 
 ## 下一步待完成
 
@@ -257,7 +242,6 @@ signalingHub.WithFCMManager(fcmManager)
 - [ ] 在 Firebase Console 创建项目和应用
 - [ ] 下载 `google-services.json` 配置文件
 - [ ] 获取 Firebase 服务账户 JSON 密钥
-- [ ] 在后端实现 Firebase Admin SDK 集成
 - [ ] 更新 FCM Manager 以使用真实的 Firebase 客户端
 
 ### 测试验证
@@ -267,7 +251,7 @@ signalingHub.WithFCMManager(fcmManager)
 - [ ] 验证来电时推送通知被发送（需要 Firebase SDK）
 - [ ] 验证推送通知在应用后台时能正确显示
 
-## 建议的 Firebase Admin SDK 集成代码
+## Firebase 配置要求
 
 当获得 Firebase 配置后，更新 `fcm/manager.go`：
 

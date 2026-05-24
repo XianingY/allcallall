@@ -6,11 +6,15 @@ import React, {
   useMemo,
   useState
 } from "react";
-import * as Keychain from "react-native-keychain";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import * as authApi from "../api/auth";
-import { User } from "../api/users";
+import { acceptInvitation, User } from "../api/users";
+import secureStorage from "../platform/secureStorage";
+import AnalyticsService from "../services/AnalyticsService";
+import BillingService from "../services/BillingService";
 import PushNotificationService from "../services/PushNotificationService";
+import { PENDING_INVITATION_CODE_STORAGE_KEY } from "../constants/invitations";
 
 const KEYCHAIN_SERVICE = "com.allcallall.auth";
 
@@ -25,7 +29,8 @@ interface AuthContextValue extends AuthState {
   register: (
     email: string,
     password: string,
-    displayName: string
+    displayName: string,
+    acceptCurrentLegal: boolean
   ) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -41,22 +46,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     loading: true
   });
 
-  const authPrompt = useMemo<Keychain.AuthenticationPrompt>(
-    () => ({
-      title: "Unlock AllCallAll",
-      cancel: "Cancel"
-    }),
-    []
-  );
+  const authPromptTitle = useMemo(() => "Unlock AllCallAll", []);
 
   const bootstrap = useCallback(async () => {
     try {
       // 从安全存储中读取 token 和 user 数据
       // Read token and user data from secure storage
-      const credentials = await Keychain.getGenericPassword({
-        service: KEYCHAIN_SERVICE,
-        authenticationPrompt: authPrompt
-      });
+      const credentials = await secureStorage.load(KEYCHAIN_SERVICE, authPromptTitle);
 
       if (!credentials) {
         setState((current) => ({ ...current, loading: false }));
@@ -67,7 +63,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       try {
         parsed = JSON.parse(credentials.password) as { token: string; user: User };
       } catch {
-        await Keychain.resetGenericPassword({ service: KEYCHAIN_SERVICE });
+        await secureStorage.clear(KEYCHAIN_SERVICE);
         setState((current) => ({ ...current, loading: false }));
         return;
       }
@@ -77,11 +73,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         user: parsed.user,
         loading: false
       });
+      PushNotificationService.setAuthToken(parsed.token);
+      await BillingService.initialize(`user:${parsed.user.id}`);
     } catch (error) {
       console.warn("Failed to load auth state from secure storage", error);
       setState((current) => ({ ...current, loading: false }));
     }
-  }, [authPrompt]);
+  }, [authPromptTitle]);
 
   useEffect(() => {
     bootstrap();
@@ -89,26 +87,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const persistState = useCallback(async (token: string, user: User) => {
     setState({ token, user, loading: false });
+    PushNotificationService.setAuthToken(token);
+    await BillingService.initialize(`user:${user.id}`);
 
     // 存储到安全存储（支持生物识别）
     // Store to secure storage (with biometric protection)
     const secret = JSON.stringify({ token, user });
-    const baseOptions: Keychain.SetOptions = {
-      service: KEYCHAIN_SERVICE,
-      accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-      securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE
-    };
-
     try {
-      const biometryType = await Keychain.getSupportedBiometryType();
-      if (biometryType) {
-        await Keychain.setGenericPassword("user_session", secret, {
-          ...baseOptions,
-          accessControl: Keychain.ACCESS_CONTROL.BIOMETRY_ANY_OR_DEVICE_PASSCODE,
-          storage: Keychain.STORAGE_TYPE.AES_GCM
-        });
-        return;
-      }
+      const biometricAvailable = await secureStorage.supportsBiometricProtection();
+      await secureStorage.save(KEYCHAIN_SERVICE, "user_session", secret, {
+        requireBiometric: biometricAvailable,
+        promptTitle: authPromptTitle
+      });
+      return;
     } catch (error) {
       console.warn(
         "[AuthContext] Failed to enable biometric keychain storage; falling back",
@@ -116,44 +107,68 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       );
     }
 
-    await Keychain.setGenericPassword("user_session", secret, baseOptions);
+    await secureStorage.save(KEYCHAIN_SERVICE, "user_session", secret);
+  }, [authPromptTitle]);
+
+  const flushPendingInvitation = useCallback(async (accessToken: string) => {
+    try {
+      const code = await AsyncStorage.getItem(PENDING_INVITATION_CODE_STORAGE_KEY);
+      if (!code) {
+        return;
+      }
+      await acceptInvitation(accessToken, code);
+      AnalyticsService.track("invite_accepted");
+      await AsyncStorage.removeItem(PENDING_INVITATION_CODE_STORAGE_KEY);
+    } catch (error) {
+      console.warn("[AuthContext] Failed to accept pending invitation:", error);
+    }
   }, []);
 
   const clearState = useCallback(async () => {
     setState({ token: null, user: null, loading: false });
-    await Keychain.resetGenericPassword({ service: KEYCHAIN_SERVICE });
+    PushNotificationService.setAuthToken(null);
+    await BillingService.logout();
+    await secureStorage.clear(KEYCHAIN_SERVICE);
   }, []);
 
   const login = useCallback(
     async (email: string, password: string) => {
       const response = await authApi.login(email, password);
       await persistState(response.access_token, response.user);
-      
-      // 登录成功后，发送 FCM Token 到后端
-      // Send FCM Token to backend after successful login
+      await flushPendingInvitation(response.access_token);
+
       try {
-        console.log("[AuthContext] Sending FCM token to backend...");
         await PushNotificationService.sendCurrentTokenToBackend(response.access_token);
-        console.log("[AuthContext] FCM token sent successfully");
       } catch (error) {
         console.warn("[AuthContext] Failed to send FCM token:", error);
-        // 不中断登录流程，继续进行
-        // Continue with login process even if FCM token send fails
       }
     },
-    [persistState]
+    [flushPendingInvitation, persistState]
   );
 
   const register = useCallback(
-    async (email: string, password: string, displayName: string) => {
+    async (
+      email: string,
+      password: string,
+      displayName: string,
+      acceptCurrentLegal: boolean
+    ) => {
       const response = await authApi.register({
         email,
         password,
-        display_name: displayName
+        display_name: displayName,
+        accept_current_legal: acceptCurrentLegal
       });
       await persistState(response.access_token, response.user);
+      AnalyticsService.track("signup_completed");
+      await flushPendingInvitation(response.access_token);
+      try {
+        await PushNotificationService.sendCurrentTokenToBackend(response.access_token);
+      } catch (error) {
+        console.warn("[AuthContext] Failed to send FCM token after registration:", error);
+      }
     },
-    [persistState]
+    [flushPendingInvitation, persistState]
   );
 
   const logout = useCallback(async () => {

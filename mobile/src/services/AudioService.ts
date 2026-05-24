@@ -37,7 +37,7 @@ export class AudioService {
         Sound.MAIN_BUNDLE,
         (error) => {
           if (error) {
-            console.warn("Failed to load incoming_call.wav:", error);
+            console.warn("[AudioService] Failed to load incoming_call.wav:", error);
           }
         }
       );
@@ -49,13 +49,12 @@ export class AudioService {
         Sound.MAIN_BUNDLE,
         (error) => {
           if (error) {
-            console.warn("Failed to load ringback.wav:", error);
+            console.warn("[AudioService] Failed to load ringback.wav:", error);
           }
         }
       );
       this.sounds.set("ringback", ringbackSound);
 
-      console.log("[AudioService] Sounds initialized");
     } catch (error) {
       console.error("[AudioService] Failed to initialize sounds:", error);
     }
@@ -69,7 +68,6 @@ export class AudioService {
     if (!enabled) {
       this.stopAll();
     }
-    console.log("[AudioService] Audio enabled:", enabled);
   }
 
   /**
@@ -85,7 +83,6 @@ export class AudioService {
   public async play(audioType: AudioType): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.enabled) {
-        console.log("[AudioService] Audio is disabled, skipping play");
         resolve();
         return;
       }
@@ -101,7 +98,6 @@ export class AudioService {
         sound.setNumberOfLoops(-1); // 无限循环
         sound.play((success) => {
           if (success) {
-            console.log(`[AudioService] Successfully played: ${audioType}`);
           } else {
             console.warn(`[AudioService] Failed to play: ${audioType}`);
           }
@@ -123,7 +119,6 @@ export class AudioService {
       const sound = this.sounds.get(audioType);
       if (sound) {
         sound.stop();
-        console.log(`[AudioService] Stopped: ${audioType}`);
       }
     } catch (error) {
       console.error(`[AudioService] Error stopping ${audioType}:`, error);
@@ -141,7 +136,6 @@ export class AudioService {
         console.error(`[AudioService] Error stopping ${type}:`, error);
       }
     });
-    console.log("[AudioService] Stopped all sounds");
   }
 
   /**
@@ -153,7 +147,6 @@ export class AudioService {
       sound.release();
     });
     this.sounds.clear();
-    console.log("[AudioService] Disposed");
   }
 }
 

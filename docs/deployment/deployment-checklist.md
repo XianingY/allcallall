@@ -135,6 +135,10 @@
   REDIS_PASSWORD=your_strong_password_here
   JWT_SECRET=your_long_random_secret_here
   MAIL_PASSWORD=your_qq_email_auth_code
+  PUBLIC_WEB_BASE_URL=https://app.example.com
+  SUPPORT_EMAIL=support@example.com
+  REVENUECAT_WEBHOOK_AUTH_TOKEN=replace-with-random-secret
+  SUPPORT_API_TOKEN=replace-with-random-secret
   ```
 
 - [ ] **验证所有必需字段已填写**
@@ -143,6 +147,10 @@
   - REDIS_PASSWORD ✓
   - JWT_SECRET ✓
   - MAIL_PASSWORD ✓
+  - PUBLIC_WEB_BASE_URL ✓
+  - SUPPORT_EMAIL ✓
+  - REVENUECAT_WEBHOOK_AUTH_TOKEN ✓
+  - SUPPORT_API_TOKEN ✓
   - DOMAIN_NAME ✓（改为你的域名）
 
 ### 第 4 步：启动服务
@@ -470,17 +478,17 @@
     -H "Authorization: Bearer $TOKEN"
   ```
 
-### FCM 推送验证 (即将推出)
+### FCM 推送验证
 
 - [ ] **Token 注册成功**
   ```bash
   curl -X POST https://api.example.com/api/v1/users/fcm-token \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"token":"fcm_device_token"}'
+    -d '{"fcm_token":"fcm_device_token"}'
   ```
 
-- [ ] **推送通知接收** (待 Firebase SDK 集成)
+- [ ] **推送通知接收**（已配置 `FCM_SERVICE_ACCOUNT_PATH` 时应收到真实推送）
 
 ### TURN/TURNS 验证
 

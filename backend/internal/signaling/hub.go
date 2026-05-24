@@ -3,6 +3,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -12,8 +13,12 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
+	"github.com/allcallall/backend/internal/collaboration"
+	"github.com/allcallall/backend/internal/commerce"
 	"github.com/allcallall/backend/internal/fcm"
 	"github.com/allcallall/backend/internal/media"
+	"github.com/allcallall/backend/internal/metrics"
+	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/presence"
 	"github.com/allcallall/backend/internal/user"
 )
@@ -29,6 +34,9 @@ type Hub struct {
 	mediaEngine *media.Engine
 	users       *user.Service
 	fcmManager  *fcm.Manager
+	commercial  *commerce.Service
+	collab      *collaboration.Service
+	metrics     *metrics.CounterStore
 
 	mu      sync.RWMutex
 	clients map[string]map[*client]struct{}
@@ -51,6 +59,7 @@ const (
 	TypeCallAccept    = "call.accept"
 	TypeCallReject    = "call.reject"
 	TypeCallEnd       = "call.end"
+	TypeCallError     = "call.error"
 	TypeIceCandidate  = "ice.candidate"
 	TypeClientPing    = "client.ping"
 	TypeServerPong    = "server.pong"
@@ -96,6 +105,18 @@ func (h *Hub) WithUserService(users *user.Service) {
 func (h *Hub) WithFCMManager(fcmMgr *fcm.Manager) {
 	h.fcmManager = fcmMgr
 	h.logger.Info().Msg("fcm manager attached to signaling hub")
+}
+
+// WithCommercialService attaches commercialization service to signaling flows.
+func (h *Hub) WithCommercialService(service *commerce.Service, counters *metrics.CounterStore) {
+	h.commercial = service
+	h.metrics = counters
+	h.logger.Info().Msg("commercial service attached to signaling hub")
+}
+
+func (h *Hub) WithCollaborationService(service *collaboration.Service) {
+	h.collab = service
+	h.logger.Info().Msg("collaboration service attached to signaling hub")
 }
 
 // HandleConnection 处理单个连接
@@ -161,6 +182,13 @@ func (h *Hub) handleIncoming(ctx context.Context, fromClient *client, data []byt
 		return fmt.Errorf("missing target 'to'")
 	}
 
+	if msg.Type != TypeClientPing && h.commercial != nil && h.users != nil {
+		if err := h.ensureAllowedPeer(ctx, msg.From, msg.To); err != nil {
+			h.sendProtocolError(msg.From, msg.To, msg.CallID, err)
+			return nil
+		}
+	}
+
 	ackMsg, err := h.applyProtocolRules(&msg)
 	if err != nil {
 		return err
@@ -196,8 +224,13 @@ func (h *Hub) handleIncoming(ctx context.Context, fromClient *client, data []byt
 	// 如果是 call.invite 消息，需要发送推送通知
 	// If this is a call.invite message, send push notification
 	if msg.Type == TypeCallInvite {
-		h.sendCallNotification(ctx, msg.To, msg.From)
+		h.registerCallInvite(ctx, msg.CallID, msg.From, msg.To)
+		h.sendCallNotification(ctx, msg.To, msg.From, msg.CallID)
+		if h.metrics != nil {
+			h.metrics.Inc("call_invite_total")
+		}
 	}
+	h.recordCallLifecycle(ctx, msg)
 
 	if msg.Type == TypeClientPing {
 		return nil
@@ -220,6 +253,13 @@ func (h *Hub) HandleHTTPMessage(ctx context.Context, fromEmail string, data []by
 	msg.From = fromEmail
 	if msg.Type != TypeClientPing && msg.To == "" {
 		return fmt.Errorf("missing target 'to'")
+	}
+
+	if msg.Type != TypeClientPing && h.commercial != nil && h.users != nil {
+		if err := h.ensureAllowedPeer(ctx, msg.From, msg.To); err != nil {
+			h.sendProtocolError(msg.From, msg.To, msg.CallID, err)
+			return nil
+		}
 	}
 
 	ackMsg, err := h.applyProtocolRules(&msg)
@@ -247,8 +287,13 @@ func (h *Hub) HandleHTTPMessage(ctx context.Context, fromEmail string, data []by
 	}
 
 	if msg.Type == TypeCallInvite {
-		h.sendCallNotification(ctx, msg.To, msg.From)
+		h.registerCallInvite(ctx, msg.CallID, msg.From, msg.To)
+		h.sendCallNotification(ctx, msg.To, msg.From, msg.CallID)
+		if h.metrics != nil {
+			h.metrics.Inc("call_invite_total")
+		}
 	}
+	h.recordCallLifecycle(ctx, msg)
 
 	if msg.Type == TypeClientPing {
 		return nil
@@ -314,6 +359,116 @@ func (h *Hub) enqueue(ctx context.Context, target string, payload []byte) {
 	_, err := pipe.Exec(ctx)
 	if err != nil {
 		h.logger.Debug().Err(err).Str("email", target).Msg("failed to enqueue signaling payload")
+	}
+}
+
+func (h *Hub) ensureAllowedPeer(ctx context.Context, fromEmail, toEmail string) error {
+	fromUser, err := h.users.GetByEmail(ctx, fromEmail)
+	if err != nil {
+		return err
+	}
+	toUser, err := h.users.GetByEmail(ctx, toEmail)
+	if err != nil {
+		return err
+	}
+	blocked, err := h.commercial.AreUsersBlocked(ctx, fromUser.ID, toUser.ID)
+	if err != nil {
+		return err
+	}
+	if blocked {
+		if h.metrics != nil {
+			h.metrics.Inc("blocked_interaction_total")
+		}
+		return commerce.ErrUserBlocked
+	}
+	return nil
+}
+
+func (h *Hub) sendProtocolError(fromEmail, toEmail, callID string, err error) {
+	if fromEmail == "" {
+		return
+	}
+
+	reason := "request rejected"
+	switch {
+	case errors.Is(err, commerce.ErrUserBlocked):
+		reason = "user is blocked"
+	}
+
+	msg := SignalMessage{
+		Type:   TypeCallError,
+		CallID: callID,
+		To:     fromEmail,
+		From:   toEmail,
+		Payload: json.RawMessage(fmt.Sprintf(
+			`{"reason":%q}`,
+			reason,
+		)),
+	}
+	encoded, marshalErr := json.Marshal(msg)
+	if marshalErr != nil {
+		h.logger.Warn().Err(marshalErr).Msg("failed to marshal protocol error message")
+		return
+	}
+	h.dispatchLocal(fromEmail, encoded)
+	if h.redis != nil {
+		h.enqueue(context.Background(), fromEmail, encoded)
+	}
+}
+
+func (h *Hub) registerCallInvite(ctx context.Context, callID, fromEmail, toEmail string) {
+	if h.commercial == nil || h.users == nil || callID == "" {
+		return
+	}
+	caller, err := h.users.GetByEmail(ctx, fromEmail)
+	if err != nil {
+		h.logger.Warn().Err(err).Str("from", fromEmail).Msg("lookup caller failed")
+		return
+	}
+	callee, err := h.users.GetByEmail(ctx, toEmail)
+	if err != nil {
+		h.logger.Warn().Err(err).Str("to", toEmail).Msg("lookup callee failed")
+		return
+	}
+	if err := h.commercial.RegisterCallInvite(ctx, callID, caller, callee); err != nil {
+		h.logger.Warn().Err(err).Str("call_id", callID).Msg("register call invite failed")
+	}
+}
+
+func (h *Hub) recordCallLifecycle(ctx context.Context, msg SignalMessage) {
+	if h.commercial == nil || msg.CallID == "" {
+		return
+	}
+	switch msg.Type {
+	case TypeCallAccept:
+		_ = h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusAnswered, "")
+		if h.collab != nil {
+			_ = h.collab.AppendDirectCallEventByEmail(ctx, msg.From, msg.To, msg.CallID, "call.accepted", map[string]any{
+				"status": models.CallStatusAnswered,
+			})
+		}
+		if h.metrics != nil {
+			h.metrics.Inc("call_answer_total")
+		}
+	case TypeCallReject:
+		_ = h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusRejected, "rejected")
+		if h.collab != nil {
+			_ = h.collab.AppendDirectCallEventByEmail(ctx, msg.From, msg.To, msg.CallID, "call.rejected", map[string]any{
+				"status": models.CallStatusRejected,
+				"reason": "rejected",
+			})
+		}
+	case TypeCallEnd:
+		_ = h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusEnded, "ended")
+		if h.collab != nil {
+			_ = h.collab.AppendDirectCallEventByEmail(ctx, msg.From, msg.To, msg.CallID, "call.ended", map[string]any{
+				"status": models.CallStatusEnded,
+				"reason": "ended",
+			})
+		}
+		if h.metrics != nil {
+			h.metrics.Inc("call_ended_total")
+		}
 	}
 }
 
@@ -430,7 +585,7 @@ func (h *Hub) channelName(email string) string {
 
 // sendCallNotification 发送来电推送通知
 // sendCallNotification sends push notification for incoming call
-func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmail string) {
+func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmail string, callID string) {
 	// 如果没有 FCM 管理器或用户服务，跳过
 	// Skip if FCM manager or user service not available
 	if h.fcmManager == nil || h.users == nil {
@@ -477,12 +632,13 @@ func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmai
 			toUser.FCMToken,
 			fromEmail,
 			fromUser.DisplayName,
-			"", // callID will be added later if needed
+			callID,
 		)
 		if err != nil {
 			h.logger.Error().Err(err).
 				Str("to", toEmail).
 				Str("from", fromEmail).
+				Str("call_id", callID).
 				Msg("failed to send call notification")
 			return
 		}
@@ -490,6 +646,7 @@ func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmai
 		h.logger.Info().
 			Str("to", toEmail).
 			Str("from", fromEmail).
+			Str("call_id", callID).
 			Msg("call notification sent successfully")
 	}()
 }

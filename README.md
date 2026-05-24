@@ -11,14 +11,14 @@
 ### ✨ 特性
 
 - 🎤 **实时音视频通话** - 基于 Pion WebRTC 的点对点音频通话
-- 🌍 **实时翻译** - 离线本地 AI 模型，语音识别 + 文本翻译 + 语音合成 (Whisper + Opus-MT + VITS)
+- 🌍 **实时翻译** - 基于后端在线翻译服务的实时字幕翻译
 - 👥 **联系人管理** - 添加、搜索和管理通讯录
 - 🟢 **在线状态** - 实时显示用户在线状态和最后在线时间
 - 🔐 **用户认证** - JWT 令牌认证和会话管理
 - 📱 **跨平台** - Android 原生应用支持，iOS 开发中
 - 🚀 **高性能** - Redis 缓存、连接池优化、异步 WebSocket 信令
 - 🔄 **自动重连** - 网络异常自动重新连接
-- 🔒 **隐私保护** - 完全离线翻译，数据不上传云端
+- 🔒 **隐私保护** - 不落盘原始音频与原文，仅保留最小化指标与错误码
 
 ### 🛠 技术栈
 
@@ -39,7 +39,7 @@
 - **WebRTC**: react-native-webrtc 124.0.0
 - **HTTP**: Axios
 - **状态管理**: React Context API
-- **离线翻译**: Whisper (ASR) + Opus-MT (翻译) + VITS (TTS)
+- **实时翻译**: React Native + WebRTC 本地采集 + 后端 WebSocket 流式翻译
 - **模型量化**: INT8 (70% 大小减少)
 - **原生集成**: Android JNI + C++
 
@@ -95,13 +95,18 @@ docker compose -f infra/docker-compose.yml ps
 ```bash
 cd backend
 
-# 1. 复制环境变量示例文件
-cp .env.example .env
+# 1. 导出运行时环境变量（项目不会自动加载 .env）
+export CONFIG_PATH=./configs/config.yaml
+export MAIL_PASSWORD='xxxx xxxx xxxx xxxx'
+# 可选：启用来电推送
+# export FCM_SERVICE_ACCOUNT_PATH=/absolute/path/to/firebase-service-account.json
+# 商用/合规相关（生产环境建议显式配置）
+# export PUBLIC_WEB_BASE_URL=https://app.example.com
+# export SUPPORT_EMAIL=support@example.com
+# export REVENUECAT_WEBHOOK_AUTH_TOKEN=replace-with-random-secret
+# export SUPPORT_API_TOKEN=replace-with-random-secret
 
-# 2. 编辑 .env，填入 QQ 邮箱授权码
-# MAIL_PASSWORD=xxxx xxxx xxxx xxxx  (登录你自己的实际授权码)
-
-# 3. 验证后端配置文件中的邮件设置
+# 2. 验证后端配置文件中的邮件设置
 cat configs/config.yaml | grep -A5 mail:
 # 应该显示：
 #   host: smtp.qq.com
@@ -113,9 +118,6 @@ cat configs/config.yaml | grep -A5 mail:
 
 ```bash
 cd backend
-
-# 设置配置文件路径
-export CONFIG_PATH=./configs/config.yaml
 
 # 运行后端服务（监听 0.0.0.0:8080）
 go run cmd/server/main.go
@@ -143,10 +145,16 @@ export WEBRTC_ICE_SERVERS_JSON='[
 ```
 3. 重启后端。APK 不需要重新打包，登陆后客户端会自动从 `/api/v1/webrtc/config` 读取最新 ICE/TURN 配置。
 
-### 🌐 生产环境（当前部署：81.68.168.207）
+### 🌐 移动端接口配置
 
-- API: `http://81.68.168.207/api/v1`  
-- WS: `ws://81.68.168.207/api/v1/ws`
+- 默认开发地址: `http://127.0.0.1:8080`
+- 默认信令地址: `ws://127.0.0.1:8080`
+- 通过 `EXPO_PUBLIC_API_HTTP` 与 `EXPO_PUBLIC_API_WS` 覆盖
+- 使用 `EXPO_PUBLIC_FORCE_TLS=1` 可升级为 `https://` / `wss://`
+- 受限网络可设置 `EXPO_PUBLIC_RESTRICTED_NETWORK=1`
+- 强制轮询信令可设置 `EXPO_PUBLIC_SIGNALING_TRANSPORT=poll`
+- RevenueCat 订阅依赖 `EXPO_PUBLIC_REVENUECAT_API_KEY` 与 `EXPO_PUBLIC_REVENUECAT_OFFERING_ID`
+- Android 首发 SKU 已固定为 `premium_monthly` 与 `premium_yearly`，客户端不会读取其他产品 ID
 
 #### 云服务器运维
 
@@ -1045,21 +1053,19 @@ curl -X POST http://localhost:8080/api/v1/email/send-verification-code \
 
 PR flow: open PRs from `feature/*` / `hotfix/*` directly to `main` (Trunk-based).
 
-### 🌍 Offline Translation Feature
+### 🌍 Real-Time Translation
 
-The offline translation feature enables **real-time speech translation** using local AI models, ensuring complete privacy and zero operational costs.
+The current translation path uses **online streaming subtitle translation** during calls. Audio is captured on-device, sent to the backend translation websocket, and final subtitles are forwarded to the remote peer over signaling.
 
 #### Key Technologies
-- **Whisper-small** (INT8): Speech Recognition
-- **Opus-MT-en-zh** (INT8): Text Translation
-- **VITS**: Text-to-Speech Synthesis
-- **Total Size**: ~264MB (INT8 quantized)
-- **Performance**: <500ms latency, >88% accuracy
+- **Mobile**: React Native + `react-native-webrtc`
+- **Backend**: Go + WebSocket streaming translation service
+- **Provider**: Volcengine AST / online provider adapters
+- **Subtitle delivery**: local partial display + remote final subtitle signaling
 
-#### Documentation
-- **[Offline Translation Guide](docs/offline-translation/README.md)** - Complete documentation
-- **[Implementation Roadmap](docs/offline-translation/implementation-roadmap.md)** - 5-week development plan
-- **[Model Download Guide](docs/offline-translation/setup/model-download-guide.md)** - Setup instructions
+#### Notes
+- Offline model translation has been removed from the mobile app and Android native layer.
+- Release builds no longer package Whisper, Opus-MT, Piper, ONNX Runtime, or JNI translation code.
 
 ### 🤝 Contributing
 

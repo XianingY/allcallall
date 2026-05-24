@@ -6,7 +6,7 @@
 
 ### 🔍 `verify-app-env.sh`
 
-**用途**: 验证应用环境配置是否正确
+**用途**: 验证 `EXPO_PUBLIC_*` 应用环境配置是否正确
 
 **执行方式**:
 ```bash
@@ -16,7 +16,7 @@ chmod +x ./verify-app-env.sh
 
 **检查项**:
 - ✅ 环境变量配置
-- ✅ 应用配置文件
+- ✅ 统一配置入口
 - ✅ 依赖项状态
 - ✅ 开发工具可用性
 
@@ -30,7 +30,7 @@ chmod +x ./verify-app-env.sh
 **常见问题**:
 - 脚本权限不足 → 运行 `chmod +x verify-app-env.sh`
 - 未找到配置文件 → 确保在 mobile/ 目录下运行
-- 环境变量不正确 → 检查 `.env` 或 `app.json`
+- 环境变量不正确 → 检查 `.env` 或当前 shell 中的 `EXPO_PUBLIC_*`
 
 ---
 
@@ -140,7 +140,7 @@ echo "验证完成"
 
 - [移动端文档](../docs/mobile/README.md)
 - [音频配置](../docs/mobile/setup/audio-files-setup.md)
-- [环境变量](../docs/mobile/setup/app-env-usage.md)
+- [环境变量](../../docs/mobile/setup/app-env-usage.md)
 
 ---
 

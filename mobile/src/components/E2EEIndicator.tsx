@@ -19,7 +19,7 @@ export const E2EEIndicator: React.FC<E2EEIndicatorProps> = ({ onPress }) => {
       onPress();
     } else if (e2eeFingerprint) {
       Alert.alert(
-        "E2EE Session Fingerprint",
+        "Secure Session Fingerprint",
         formatFingerprint(e2eeFingerprint),
         [{ text: "OK" }]
       );
@@ -35,9 +35,9 @@ export const E2EEIndicator: React.FC<E2EEIndicatorProps> = ({ onPress }) => {
 
   const getStatusText = () => {
     if (!e2eeSessionEstablished) {
-      return "Establishing E2EE...";
+      return "Establishing secure session...";
     }
-    return "E2EE Active";
+    return "Fingerprint ready";
   };
 
   return (

@@ -1,12 +1,16 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
-import { RTCView } from "react-native-webrtc";
 import { activateKeepAwake, deactivateKeepAwake } from "expo-keep-awake";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useSignaling } from "../context/SignalingContext";
+import { RTCView } from "../platform/rtc";
 import { useSubtitleStore } from "../store/useSubtitleStore";
-import TranslationOverlay from "./translation/TranslationOverlay";
+import { FIRST_TRANSLATION_HINT_SEEN_STORAGE_KEY } from "../constants/onboarding";
+import { E2EEIndicator } from "./E2EEIndicator";
 import TranslationControl from "./translation/TranslationControl";
+import TranslationOverlay from "./translation/TranslationOverlay";
+import { navigationRef } from "../navigation/navigationRef";
 
 const CallOverlay: React.FC = () => {
   const {
@@ -29,12 +33,22 @@ const CallOverlay: React.FC = () => {
     networkQuality,
     translationEnabled,
     translationLanguage,
+    translationSourceLanguage,
+    translationMode,
+    translationOnlineStatus,
+    translationInitStatus,
+    translationInitError,
+    translationQuotaRemaining,
+    translationRequiresPremium,
+    translationPaywallReason,
     toggleTranslation,
-    setTranslationLanguage
+    setTranslationLanguage,
+    setTranslationSourceLanguage,
+    retryTranslationInitialization,
+    dismissTranslationPaywall
   } = useSignaling();
-
   const subtitles = useSubtitleStore((state) => state.subtitles);
-  const clearSubtitles = useSubtitleStore((state) => state.clearSubtitles);
+  const [translationHintVisible, setTranslationHintVisible] = useState(false);
 
   useEffect(() => {
     const tag = "call-overlay";
@@ -56,6 +70,27 @@ const CallOverlay: React.FC = () => {
       }
     };
   }, [session, status]);
+
+  useEffect(() => {
+    if (status !== "in_call" || translationEnabled) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const seen = await AsyncStorage.getItem(FIRST_TRANSLATION_HINT_SEEN_STORAGE_KEY);
+        if (!cancelled && !seen) {
+          setTranslationHintVisible(true);
+          await AsyncStorage.setItem(FIRST_TRANSLATION_HINT_SEEN_STORAGE_KEY, "true");
+        }
+      } catch {
+        // Ignore onboarding hint persistence failures.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, translationEnabled]);
 
   if (status === "idle" || !session) {
     return null;
@@ -83,7 +118,7 @@ const CallOverlay: React.FC = () => {
   const getStreamURL = (stream: any): string | null => {
     if (!stream) return null;
     try {
-      const url = stream.toURL();
+      const url = stream.toURL?.();
       return typeof url === "string" && url.length > 0 ? url : null;
     } catch (error) {
       console.warn("[CallOverlay] stream toURL failed:", error);
@@ -172,6 +207,10 @@ const CallOverlay: React.FC = () => {
           </Text>
         </View>
 
+        <View style={styles.securityIndicator}>
+          <E2EEIndicator />
+        </View>
+
         {/* 状态信息 */}
         <View style={styles.statusBar}>
           <Text style={styles.statusText}>
@@ -192,6 +231,53 @@ const CallOverlay: React.FC = () => {
             </View>
           )}
         </View>
+
+        {status === "in_call" ? (
+          <>
+            <TranslationOverlay
+              subtitles={subtitles}
+              isVisible={translationEnabled}
+              language={translationLanguage}
+            />
+            {translationHintVisible ? (
+              <View style={styles.translationHint}>
+                <Text style={styles.translationHintTitle}>首次翻译试用</Text>
+                <Text style={styles.translationHintText}>
+                  基础通话会继续保持可用。实时翻译会优先消耗你的免费额度，用尽后仅翻译需要升级。
+                </Text>
+                <TouchableOpacity onPress={() => setTranslationHintVisible(false)}>
+                  <Text style={styles.translationHintDismiss}>知道了</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+            <View style={styles.translationControls}>
+              <TranslationControl
+                isEnabled={translationEnabled}
+                onToggle={(enabled) => {
+                  void toggleTranslation(enabled);
+                }}
+                targetLanguage={translationLanguage}
+                onTargetLanguageChange={setTranslationLanguage}
+                sourceLanguage={translationSourceLanguage}
+                onSourceLanguageChange={setTranslationSourceLanguage}
+                translationMode={translationMode}
+                onlineStatus={translationOnlineStatus}
+                translationServiceStatus={translationInitStatus}
+                translationServiceError={translationInitError}
+                onRetryInitialize={() => {
+                  void retryTranslationInitialization();
+                }}
+                quotaRemaining={translationQuotaRemaining}
+                premiumRequired={translationRequiresPremium}
+                paywallReason={translationPaywallReason}
+                onUpgradePress={() => {
+                  dismissTranslationPaywall();
+                  navigationRef.current?.navigate("Subscription");
+                }}
+              />
+            </View>
+          </>
+        ) : null}
 
         {/* 控制按钮 */}
         <View style={styles.controlsContainer}>
@@ -273,37 +359,6 @@ const CallOverlay: React.FC = () => {
             </>
           )}
         </View>
-
-        {/* 翻译字幕显示 */}
-        {status === "in_call" && (
-          <>
-            <TranslationOverlay
-              subtitles={subtitles}
-              isVisible={translationEnabled}
-              language={translationLanguage}
-              onClear={clearSubtitles}
-            />
-
-            {/* 翻译提示信息 (未开启时显示) */}
-            {!translationEnabled && (
-              <View style={styles.translationHint}>
-                <Text style={styles.translationHintText}>
-                  💡 点击下方"实时翻译"开关开启翻译字幕
-                </Text>
-              </View>
-            )}
-
-            {/* 翻译控制面板 */}
-            <View style={styles.translationControlContainer}>
-              <TranslationControl
-                isEnabled={translationEnabled}
-                onToggle={toggleTranslation}
-                targetLanguage={translationLanguage}
-                onLanguageChange={setTranslationLanguage}
-              />
-            </View>
-          </>
-        )}
       </View>
     </View>
   );
@@ -423,6 +478,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600"
   },
+  securityIndicator: {
+    position: "absolute",
+    top: 104,
+    left: 20
+  },
   statusBar: {
     position: "absolute",
     top: 20,
@@ -449,6 +509,36 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: "center",
     fontWeight: "600"
+  },
+  translationControls: {
+    position: "absolute",
+    left: 20,
+    right: 20,
+    bottom: 120
+  },
+  translationHint: {
+    position: "absolute",
+    left: 20,
+    right: 20,
+    bottom: 244,
+    backgroundColor: "rgba(15,23,42,0.88)",
+    borderRadius: 14,
+    padding: 14
+  },
+  translationHintTitle: {
+    color: "#f8fafc",
+    fontWeight: "800",
+    fontSize: 15
+  },
+  translationHintText: {
+    color: "#cbd5e1",
+    marginTop: 8,
+    lineHeight: 20
+  },
+  translationHintDismiss: {
+    color: "#93c5fd",
+    fontWeight: "700",
+    marginTop: 10
   },
   controlsContainer: {
     position: "absolute",
@@ -488,29 +578,6 @@ const styles = StyleSheet.create({
   },
   endButton: {
     backgroundColor: "rgba(220,38,38,0.9)"
-  },
-  translationControlContainer: {
-    position: "absolute",
-    bottom: 100,
-    left: 0,
-    right: 0,
-    zIndex: 999
-  },
-  translationHint: {
-    position: "absolute",
-    bottom: 180,
-    left: 20,
-    right: 20,
-    backgroundColor: "rgba(59, 130, 246, 0.9)",
-    borderRadius: 12,
-    padding: 12,
-    zIndex: 998
-  },
-  translationHintText: {
-    color: "#fff",
-    fontSize: 14,
-    textAlign: "center",
-    fontWeight: "600"
   }
 });
 

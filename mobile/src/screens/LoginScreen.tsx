@@ -76,6 +76,14 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
             还没有账号？注册 / Need an account? Sign up
           </Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("ForgotPassword")}
+          style={styles.linkButton}
+        >
+          <Text style={styles.linkText}>
+            忘记密码？重置 / Forgot password?
+          </Text>
+        </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
   );

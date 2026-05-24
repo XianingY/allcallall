@@ -23,7 +23,7 @@ export const E2EEVerifyScreen: React.FC = () => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Text style={styles.backButtonText}>← Back</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>E2EE Verification</Text>
+        <Text style={styles.headerTitle}>Secure Session Verification</Text>
       </View>
 
       <ScrollView style={styles.content}>
@@ -32,7 +32,7 @@ export const E2EEVerifyScreen: React.FC = () => {
           <View style={styles.statusCard}>
             <Text style={styles.statusIcon}>{e2eeSessionEstablished ? "🔒" : "🔓"}</Text>
             <Text style={styles.statusText}>
-              {e2eeSessionEstablished ? "E2EE Active" : "Establishing..."}
+              {e2eeSessionEstablished ? "Fingerprint ready" : "Negotiating session..."}
             </Text>
           </View>
         </View>
@@ -52,8 +52,8 @@ export const E2EEVerifyScreen: React.FC = () => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Session Fingerprint</Text>
           <Text style={styles.description}>
-            Compare this fingerprint with your peer to verify the encrypted session.
-            Both sides should see the same fingerprint.
+            Compare this fingerprint with your peer to confirm both devices negotiated the same session key.
+            Audio and video still rely on WebRTC DTLS-SRTP transport security.
           </Text>
           <View style={styles.fingerprintCard}>
             {e2eeFingerprint ? (
@@ -62,7 +62,7 @@ export const E2EEVerifyScreen: React.FC = () => {
                   {formatFingerprint(e2eeFingerprint)}
                 </Text>
                 <Text style={styles.fingerprintSubtext}>
-                  SHA-256 hash of session key
+                  SHA-256 hash of negotiated session key
                 </Text>
               </>
             ) : (
@@ -74,26 +74,26 @@ export const E2EEVerifyScreen: React.FC = () => {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>How It Works</Text>
+          <Text style={styles.sectionTitle}>What This Verifies</Text>
           <View style={styles.infoCard}>
-            <Text style={styles.bulletPoint}>🔐 ECDH Key Exchange</Text>
+            <Text style={styles.bulletPoint}>🔐 Key Agreement</Text>
             <Text style={styles.bulletText}>
-              Ephemeral keys are exchanged securely via Data Channel
+              Ephemeral keys are exchanged over a dedicated data channel
             </Text>
             
-            <Text style={styles.bulletPoint}>🔑 Session Key Derivation</Text>
+            <Text style={styles.bulletPoint}>🔑 Session Fingerprint</Text>
             <Text style={styles.bulletText}>
-              AES-256-GCM key derived using HKDF with call ID as salt
+              The fingerprint summarizes the negotiated session key material
             </Text>
             
-            <Text style={styles.bulletPoint}>✅ Fingerprint Verification</Text>
+            <Text style={styles.bulletPoint}>✅ Manual Comparison</Text>
             <Text style={styles.bulletText}>
               SHA-256 hash enables manual verification to prevent MITM attacks
             </Text>
             
-            <Text style={styles.bulletPoint}>🚫 Zero Cloud Dependency</Text>
+            <Text style={styles.bulletPoint}>🎙️ Media Path</Text>
             <Text style={styles.bulletText}>
-              All encryption happens on-device, no server involvement
+              Media frames remain protected by standard WebRTC DTLS-SRTP transport
             </Text>
           </View>
         </View>

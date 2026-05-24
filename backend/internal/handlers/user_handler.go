@@ -4,13 +4,17 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 
 	"github.com/allcallall/backend/internal/auth"
+	"github.com/allcallall/backend/internal/commerce"
 	"github.com/allcallall/backend/internal/contact"
+	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/presence"
+	"github.com/allcallall/backend/internal/ratelimit"
 	"github.com/allcallall/backend/internal/user"
 )
 
@@ -21,16 +25,38 @@ type UserHandler struct {
 	users    *user.Service
 	presence *presence.Manager
 	contacts *contact.Service
+	commerce *commerce.Service
+	limits   *ratelimit.Service
+	metrics  *metrics.CounterStore
+}
+
+type UserHandlerOptions struct {
+	Commerce *commerce.Service
+	Limits   *ratelimit.Service
+	Metrics  *metrics.CounterStore
 }
 
 // NewUserHandler 构造函数
 // NewUserHandler creates a UserHandler.
-func NewUserHandler(log zerolog.Logger, users *user.Service, presence *presence.Manager, contacts *contact.Service) *UserHandler {
+func NewUserHandler(
+	log zerolog.Logger,
+	users *user.Service,
+	presence *presence.Manager,
+	contacts *contact.Service,
+	options ...UserHandlerOptions,
+) *UserHandler {
+	var opt UserHandlerOptions
+	if len(options) > 0 {
+		opt = options[0]
+	}
 	return &UserHandler{
 		logger:   log.With().Str("component", "user_handler").Logger(),
 		users:    users,
 		presence: presence,
 		contacts: contacts,
+		commerce: opt.Commerce,
+		limits:   opt.Limits,
+		metrics:  opt.Metrics,
 	}
 }
 
@@ -84,6 +110,22 @@ func (h *UserHandler) handleSearch(c *gin.Context) {
 		JSONSuccess(c, http.StatusOK, gin.H{"results": []userDTO{}})
 		return
 	}
+	if h.limits != nil {
+		allowed, retryAfter, err := h.limits.Allow(c.Request.Context(), "user-search:"+strconv.FormatUint(claims.UserID, 10), 60, time.Hour)
+		if err != nil {
+			h.logger.Error().Err(err).Msg("search rate limit failed")
+			JSONError(c, http.StatusInternalServerError, "failed to search users")
+			return
+		}
+		if !allowed {
+			if h.metrics != nil {
+				h.metrics.Inc("user_search_rate_limit_total")
+			}
+			c.Header("Retry-After", strconv.FormatInt(retryAfter, 10))
+			JSONError(c, http.StatusTooManyRequests, "too many search requests")
+			return
+		}
+	}
 
 	results, err := h.users.SearchByEmail(c.Request.Context(), query, 10)
 	if err != nil {
@@ -97,6 +139,17 @@ func (h *UserHandler) handleSearch(c *gin.Context) {
 		// 不返回自己
 		if u.Email == claims.Email {
 			continue
+		}
+		if h.commerce != nil {
+			blocked, blockErr := h.commerce.AreUsersBlocked(c.Request.Context(), claims.UserID, u.ID)
+			if blockErr != nil {
+				h.logger.Error().Err(blockErr).Msg("search block lookup failed")
+				JSONError(c, http.StatusInternalServerError, "failed to search users")
+				return
+			}
+			if blocked {
+				continue
+			}
 		}
 		response = append(response, userDTO{
 			ID:          u.ID,
@@ -155,6 +208,20 @@ type addContactRequest struct {
 	Email string `json:"email" binding:"required,email"`
 }
 
+type contactProfileDTO struct {
+	Company           string `json:"company,omitempty"`
+	Role              string `json:"role,omitempty"`
+	Timezone          string `json:"timezone,omitempty"`
+	DefaultSourceLang string `json:"default_source_lang,omitempty"`
+	DefaultTargetLang string `json:"default_target_lang,omitempty"`
+	RelationshipStatus    string `json:"relationship_status,omitempty"`
+	PreferredContactStart string `json:"preferred_contact_start,omitempty"`
+	PreferredContactEnd   string `json:"preferred_contact_end,omitempty"`
+	PreferredContactDays  string `json:"preferred_contact_days,omitempty"`
+	LastFollowupState     string `json:"last_followup_state,omitempty"`
+	Note              string `json:"note,omitempty"`
+}
+
 func (h *UserHandler) handleAddContact(c *gin.Context) {
 	claims, err := auth.GetClaimsFromContext(c)
 	if err != nil {
@@ -174,6 +241,8 @@ func (h *UserHandler) handleAddContact(c *gin.Context) {
 			JSONError(c, http.StatusConflict, "contact already exists")
 		case contact.ErrSelfContact:
 			JSONError(c, http.StatusBadRequest, "cannot add yourself")
+		case commerce.ErrUserBlocked:
+			JSONErrorWithCode(c, http.StatusForbidden, "USER_BLOCKED", "user is blocked")
 		default:
 			h.logger.Error().Err(err).Msg("add contact failed")
 			JSONError(c, http.StatusInternalServerError, "failed to add contact")
@@ -191,20 +260,34 @@ func (h *UserHandler) handleListContacts(c *gin.Context) {
 		return
 	}
 
-	contacts, err := h.contacts.List(c.Request.Context(), claims.UserID)
+	contacts, err := h.contacts.ListWithProfiles(c.Request.Context(), claims.UserID)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("list contacts failed")
 		JSONError(c, http.StatusInternalServerError, "failed to list contacts")
 		return
 	}
 
-	response := make([]userDTO, 0, len(contacts))
+	response := make([]gin.H, 0, len(contacts))
 	for _, u := range contacts {
-		response = append(response, userDTO{
-			ID:          u.ID,
-			Email:       u.Email,
-			DisplayName: u.DisplayName,
-		})
+		item := gin.H{
+			"id":           u.ID,
+			"email":        u.Email,
+			"display_name": u.DisplayName,
+		}
+		item["profile"] = contactProfileDTO{
+			Company:           u.Company,
+			Role:              u.Role,
+			Timezone:          u.Timezone,
+			DefaultSourceLang: u.DefaultSourceLang,
+			DefaultTargetLang: u.DefaultTargetLang,
+			RelationshipStatus: u.RelationshipStatus,
+			PreferredContactStart: u.PreferredContactStart,
+			PreferredContactEnd:   u.PreferredContactEnd,
+			PreferredContactDays:  u.PreferredContactDays,
+			LastFollowupState:     u.LastFollowupState,
+			Note:              u.Note,
+		}
+		response = append(response, item)
 	}
 
 	JSONSuccess(c, http.StatusOK, gin.H{"contacts": response})
@@ -287,7 +370,11 @@ func (h *UserHandler) handleChangePassword(c *gin.Context) {
 }
 
 type saveFCMTokenRequest struct {
-	FCMToken string `json:"fcm_token" binding:"required"`
+	FCMToken   string `json:"fcm_token" binding:"required"`
+	Provider   string `json:"provider"`
+	Platform   string `json:"platform"`
+	DeviceName string `json:"device_name"`
+	AppVersion string `json:"app_version"`
 }
 
 func (h *UserHandler) handleSaveFCMToken(c *gin.Context) {
@@ -303,12 +390,18 @@ func (h *UserHandler) handleSaveFCMToken(c *gin.Context) {
 		return
 	}
 
-	if err := h.users.SaveFCMToken(c.Request.Context(), claims.UserID, req.FCMToken); err != nil {
+	if err := h.users.SavePushRegistration(c.Request.Context(), claims.UserID, user.SavePushRegistrationInput{
+		Token:      req.FCMToken,
+		Provider:   req.Provider,
+		Platform:   req.Platform,
+		DeviceName: req.DeviceName,
+		AppVersion: req.AppVersion,
+	}); err != nil {
 		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Msg("save fcm token failed")
 		JSONError(c, http.StatusInternalServerError, "failed to save fcm token")
 		return
 	}
 
-	h.logger.Info().Uint64("user_id", claims.UserID).Str("fcm_token", req.FCMToken[:20]+"...").Msg("fcm token saved")
+	h.logger.Info().Uint64("user_id", claims.UserID).Msg("fcm token saved")
 	JSONSuccess(c, http.StatusOK, gin.H{"message": "fcm token saved successfully"})
 }

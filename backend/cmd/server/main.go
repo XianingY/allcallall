@@ -6,24 +6,35 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
 
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/cache"
+	"github.com/allcallall/backend/internal/collaboration"
+	"github.com/allcallall/backend/internal/commerce"
 	"github.com/allcallall/backend/internal/config"
 	"github.com/allcallall/backend/internal/contact"
 	"github.com/allcallall/backend/internal/database"
 	"github.com/allcallall/backend/internal/fcm"
 	"github.com/allcallall/backend/internal/handlers"
+	"github.com/allcallall/backend/internal/invitation"
 	"github.com/allcallall/backend/internal/logger"
 	"github.com/allcallall/backend/internal/mail"
+	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/presence"
+	"github.com/allcallall/backend/internal/ratelimit"
 	"github.com/allcallall/backend/internal/server"
 	"github.com/allcallall/backend/internal/signaling"
+	"github.com/allcallall/backend/internal/storage"
+	"github.com/allcallall/backend/internal/translation"
+	"github.com/allcallall/backend/internal/translation/providers"
 	"github.com/allcallall/backend/internal/user"
 )
 
@@ -36,6 +47,7 @@ func main() {
 	}
 
 	appLogger := logger.New(cfg.Logging.Level)
+	counterStore := metrics.NewCounterStore()
 
 	mode := os.Getenv("GIN_MODE")
 	if mode == "" {
@@ -43,7 +55,7 @@ func main() {
 	}
 	gin.SetMode(mode)
 
-	engine := server.NewEngine(appLogger)
+	engine := server.NewEngine(appLogger, counterStore)
 
 	// 健康检查接口
 	engine.GET("/ping", func(ctx *gin.Context) {
@@ -61,7 +73,51 @@ func main() {
 	defer sqlDB.Close()
 	appLogger.Info().Msg("mysql connection established")
 
-	if err := db.AutoMigrate(&models.User{}, &models.Contact{}, &models.EmailVerificationCode{}, &models.EmailSendLog{}); err != nil {
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.Contact{},
+		&models.EmailVerificationCode{},
+		&models.EmailSendLog{},
+		&models.CallSession{},
+		&models.UserBlock{},
+		&models.AbuseReport{},
+		&models.LegalAcceptance{},
+		&models.UserEntitlement{},
+		&models.UsageLedger{},
+		&models.TranslationUsageSlice{},
+		&models.BillingWebhookEvent{},
+		&models.DeletionAudit{},
+		&models.Invitation{},
+		&models.ContactProfile{},
+		&models.CallTranscriptSegment{},
+		&models.CallFollowup{},
+		&models.FollowUpTask{},
+		&models.Organization{},
+		&models.OrganizationMember{},
+		&models.Team{},
+		&models.TeamMember{},
+		&models.OrganizationInvite{},
+		&models.OrganizationPolicy{},
+		&models.Conversation{},
+		&models.ConversationNote{},
+		&models.ConversationMember{},
+		&models.Message{},
+		&models.MessageRead{},
+		&models.Attachment{},
+		&models.PushDevice{},
+		&models.CallRoom{},
+		&models.CallRoomMember{},
+		&models.CallRoomEvent{},
+		&models.RecordingSession{},
+		&models.RecordingFile{},
+		&models.RecordingConsent{},
+		&models.RecordingExport{},
+		&models.Pipeline{},
+		&models.PipelineStage{},
+		&models.Deal{},
+		&models.DealContact{},
+		&models.DealActivity{},
+	); err != nil {
 		appLogger.Fatal().Err(err).Msg("auto migrate failed")
 	}
 
@@ -78,10 +134,32 @@ func main() {
 		}
 	}()
 
+	rateLimitSvc := ratelimit.NewService(redisClient)
+	commerceSvc := commerce.NewService(db, counterStore)
 	userRepo := user.NewRepository(db)
-	userSvc := user.NewService(userRepo)
+	userSvc := user.NewService(userRepo, user.WithPushDeviceSupport())
+	collaborationSvc := collaboration.NewService(db, userSvc)
+	collaborationSvc.WithMetrics(counterStore)
+	chatHub := collaboration.NewChatHub(appLogger)
+	collaborationSvc.WithPublisher(chatHub)
+	recordingStorage, err := storage.NewRecordingStorage(storage.Config{
+		Driver:        storage.Driver(strings.TrimSpace(os.Getenv("RECORDING_STORAGE_DRIVER"))),
+		LocalRoot:     strings.TrimSpace(os.Getenv("RECORDING_STORAGE_DIR")),
+		S3Bucket:      strings.TrimSpace(os.Getenv("RECORDING_S3_BUCKET")),
+		S3Region:      strings.TrimSpace(os.Getenv("RECORDING_S3_REGION")),
+		S3Endpoint:    strings.TrimSpace(os.Getenv("RECORDING_S3_ENDPOINT")),
+		S3AccessKeyID: strings.TrimSpace(os.Getenv("RECORDING_S3_ACCESS_KEY_ID")),
+		S3SecretKey:   strings.TrimSpace(os.Getenv("RECORDING_S3_SECRET_ACCESS_KEY")),
+		S3ForcePath:   strings.TrimSpace(os.Getenv("RECORDING_S3_FORCE_PATH_STYLE")) == "1",
+		PublicBaseURL: strings.TrimSpace(os.Getenv("RECORDING_PUBLIC_BASE_URL")),
+	})
+	if err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to initialize recording storage")
+	}
+	collaborationSvc.WithRecordingStorage(recordingStorage)
 	contactRepo := contact.NewRepository(db)
-	contactSvc := contact.NewService(contactRepo, userSvc)
+	contactSvc := contact.NewService(contactRepo, userSvc, commerceSvc)
+	invitationSvc := invitation.NewService(db, userSvc, contactSvc, commerceSvc)
 
 	// 初始化邮件服务
 	// Initialize mail service
@@ -99,6 +177,7 @@ func main() {
 		MaxRetries:       cfg.Mail.MaxRetries,
 		RetryDelaySecond: cfg.Mail.RetryDelaySecond,
 	}, appLogger)
+	verificationCodeSvc := mail.NewVerificationCodeService(db, mailSvc)
 
 	jwtManager, err := auth.NewManager(auth.Config{
 		Secret:          cfg.JWT.Secret,
@@ -110,19 +189,36 @@ func main() {
 		appLogger.Fatal().Err(err).Msg("failed to initialize jwt manager")
 	}
 
-	authHandler := handlers.NewAuthHandler(appLogger, userSvc, jwtManager)
-	emailHandler := handlers.NewEmailHandler(appLogger, mail.NewVerificationCodeService(db, mailSvc))
+	authHandler := handlers.NewAuthHandler(appLogger, userSvc, jwtManager, verificationCodeSvc, handlers.AuthHandlerOptions{
+		Commerce:      commerceSvc,
+		Collaboration: collaborationSvc,
+	})
+	emailHandler := handlers.NewEmailHandler(appLogger, verificationCodeSvc, handlers.EmailHandlerOptions{
+		Metrics: counterStore,
+	})
 	presenceManager := presence.NewManager(redisClient, appLogger, userSvc)
 
-	userHandler := handlers.NewUserHandler(appLogger, userSvc, presenceManager, contactSvc)
+	userHandler := handlers.NewUserHandler(appLogger, userSvc, presenceManager, contactSvc, handlers.UserHandlerOptions{
+		Commerce: commerceSvc,
+		Limits:   rateLimitSvc,
+		Metrics:  counterStore,
+	})
+	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, mailSvc, rateLimitSvc, counterStore)
+	collaborationHandler := handlers.NewCollaborationHandler(appLogger, collaborationSvc, userSvc, chatHub)
+	invitationHandler := handlers.NewInvitationHandler(appLogger, invitationSvc, contactSvc, userSvc)
 	webrtcHandler := handlers.NewWebRTCHandler(appLogger, cfg.WebRTC)
 	signalingHub := signaling.NewHub(redisClient, appLogger, presenceManager)
 
 	// 初始化 FCM 管理器
 	// Initialize FCM manager
-	fcmManager := fcm.NewManager(appLogger)
+	fcmManager, err := fcm.NewManager(rootCtx, appLogger, os.Getenv("FCM_SERVICE_ACCOUNT_PATH"))
+	if err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to initialize fcm manager")
+	}
 	signalingHub.WithUserService(userSvc)
 	signalingHub.WithFCMManager(fcmManager)
+	signalingHub.WithCommercialService(commerceSvc, counterStore)
+	signalingHub.WithCollaborationService(collaborationSvc)
 
 	// 初始化 Pion WebRTC 媒体引擎
 	// Initialize Pion WebRTC media engine
@@ -141,19 +237,51 @@ func main() {
 	// 将媒体引擎关联到信令枢纽
 	// Attach media engine to signaling hub
 	signalingHub.WithMediaEngine(mediaEngine)
+	collaborationSvc.WithMediaEngine(mediaEngine)
 
 	signalingHandler := handlers.NewSignalingHandler(appLogger, signalingHub)
 	signalingPollHandler := handlers.NewSignalingPollHandler(appLogger, signalingHub)
+	var translationWSHandler *handlers.TranslationWSHandler
+	if cfg.Translation.Enabled {
+		var translationProvider translation.Provider
+		switch strings.ToLower(cfg.Translation.Provider) {
+		case "volc_ast", "volc", "volcengine":
+			translationProvider = providers.NewVolcASTProvider(appLogger, cfg.Translation.VolcAST)
+		default:
+			appLogger.Warn().
+				Str("provider", cfg.Translation.Provider).
+				Msg("unknown translation provider, translation websocket disabled")
+		}
+
+		if translationProvider != nil {
+			translationSvc := translation.NewService(appLogger, translationProvider, cfg.Translation.MaxSessionsPerUser, translation.Dependencies{
+				Commerce: commerceSvc,
+				Users:    userSvc,
+			})
+			translationWSHandler = handlers.NewTranslationWSHandler(appLogger, translationSvc, signalingHub)
+			appLogger.Info().
+				Str("provider", translationProvider.Name()).
+				Int("chunk_ms", cfg.Translation.ChunkMS).
+				Msg("translation websocket handler enabled")
+		}
+	}
 
 	server.RegisterRoutes(engine, server.RouteDependencies{
 		AuthHandler:      authHandler,
 		EmailHandler:     emailHandler,
 		UserHandler:      userHandler,
+		Commercial:       commercialHandler,
+		Collaboration:    collaborationHandler,
+		Invitations:      invitationHandler,
 		SignalingHandler: signalingHandler,
 		SignalingPoll:    signalingPollHandler,
 		WebRTCHandler:    webrtcHandler,
+		TranslationWS:    translationWSHandler,
 		AuthMiddleware:   auth.Middleware(jwtManager),
+		Metrics:          counterStore,
 	})
+
+	startRecordingCleanupWorker(rootCtx, appLogger, collaborationSvc)
 
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -181,4 +309,49 @@ func main() {
 	} else {
 		appLogger.Info().Msg("http server gracefully stopped")
 	}
+}
+
+func startRecordingCleanupWorker(ctx context.Context, log zerolog.Logger, collaborationSvc *collaboration.Service) {
+	intervalMinutes := 60
+	if raw := strings.TrimSpace(os.Getenv("RECORDING_CLEANUP_INTERVAL_MIN")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			intervalMinutes = parsed
+		}
+	}
+	interval := time.Duration(intervalMinutes) * time.Minute
+	log.Info().
+		Int("interval_min", intervalMinutes).
+		Msg("recording cleanup worker enabled")
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		run := func() {
+			runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			result, err := collaborationSvc.CleanupExpiredRecordings(runCtx, time.Now(), 200)
+			if err != nil {
+				log.Error().Err(err).Msg("recording cleanup worker failed")
+				return
+			}
+			if result.Deleted > 0 {
+				log.Info().
+					Int("checked", result.Checked).
+					Int("deleted", result.Deleted).
+					Msg("recording cleanup worker completed")
+			}
+		}
+
+		run()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				run()
+			}
+		}
+	}()
 }

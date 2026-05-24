@@ -11,11 +11,11 @@
 - [x] User Service 添加 SaveFCMToken/GetFCMToken 方法
 - [x] User Repository 添加 UpdateFCMToken 方法
 - [x] UserHandler 添加 POST /users/fcm-token 端点
-- [x] FCM Manager 创建（框架已就位）
+- [x] FCM Manager 已接入 Firebase Admin SDK 真实发送
 - [x] Signaling Hub 集成 FCM 推送逻辑
 - [x] 后端编译验证成功
 
-## 待完成 ⏳
+## 仍需用户提供的配置 ⏳
 
 ### Firebase 配置（需要用户操作）
 - [ ] Firebase 项目创建
@@ -23,11 +23,6 @@
 - [ ] 获取 google-services.json
 - [ ] 获取 Firebase 服务账户密钥
 - [ ] 密钥文件配置到后端
-
-### 代码集成
-- [ ] Firebase Admin SDK 依赖安装
-- [ ] fcm/manager.go 更新为真实实现
-- [ ] cmd/server/main.go 更新初始化逻辑
 
 ## 工作流程概览
 
@@ -301,10 +296,10 @@ go run ./cmd/server 2>&1 | grep "user@example.com"
    - 服务账户权限是否正确
    - Device tokens 是否有效
 
-4. 移动端日志
+4. 移动端异常日志
    ```
-   [AuthContext] Sending FCM token to backend...
-   [PushNotificationService] FCM token sent successfully
+   [AuthContext] Failed to send FCM token: ...
+   [PushNotificationService] Error syncing token to backend: ...
    ```
 
 ## 版本信息
