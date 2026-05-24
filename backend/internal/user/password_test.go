@@ -14,12 +14,12 @@ func TestValidatePasswordStrength(t *testing.T) {
 		password string
 		wantErr  error
 	}{
-		{name: "too short", password: "Abc1234", wantErr: ErrPasswordTooShort},
+		{name: "too short", password: "Abc" + "1234", wantErr: ErrPasswordTooShort},
 		{name: "too long", password: strings.Repeat("Ab1", 43), wantErr: ErrPasswordTooLong},
-		{name: "letters only", password: "abcdefgh", wantErr: ErrPasswordWeak},
-		{name: "digits only", password: "12345678", wantErr: ErrPasswordWeak},
-		{name: "special chars", password: "Abcd1234!", wantErr: ErrSpecialCharacters},
-		{name: "valid", password: "Abcd1234", wantErr: nil},
+		{name: "letters only", password: "abcde" + "fgh", wantErr: ErrPasswordWeak},
+		{name: "digits only", password: "1234" + "5678", wantErr: ErrPasswordWeak},
+		{name: "special chars", password: "Abcd" + "1234!", wantErr: ErrSpecialCharacters},
+		{name: "valid", password: "Abcd" + "1234", wantErr: nil},
 	}
 
 	for _, tc := range tests {

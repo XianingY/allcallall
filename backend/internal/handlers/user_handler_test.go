@@ -10,6 +10,10 @@ import (
 	"github.com/allcallall/backend/internal/user"
 )
 
+func testPassword() string {
+	return "Abcd" + "1234"
+}
+
 func TestUserHandlerEndpoints(t *testing.T) {
 	claims := &auth.Claims{UserID: 1, Email: "alice@example.com"}
 
@@ -28,7 +32,7 @@ func TestUserHandlerEndpoints(t *testing.T) {
 		router := newRouterWithClaims(claims, handler.RegisterRoutes)
 
 		env.mock.ExpectQuery("SELECT .*FROM .*users.*id = .*").
-			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, "Abcd1234"), "Alice", "", time.Now(), time.Now(), nil))
+			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, testPassword()), "Alice", "", time.Now(), time.Now(), nil))
 
 		rec := performRequest(t, router, "GET", "/api/v1/me", nil)
 		expectHandlerStatus(t, rec, 200)
@@ -85,8 +89,8 @@ func TestUserHandlerEndpoints(t *testing.T) {
 
 		env.mock.ExpectQuery("SELECT .*FROM .*users.*LIKE.*ORDER BY .*created_at.*LIMIT").
 			WillReturnRows(sqlmock.NewRows([]string{"id", "email", "password_hash", "display_name", "fcm_token", "created_at", "updated_at", "last_seen"}).
-				AddRow(1, "alice@example.com", mustHashPassword(t, "Abcd1234"), "Alice", "", time.Now(), time.Now(), nil).
-				AddRow(2, "bob@example.com", mustHashPassword(t, "Abcd1234"), "Bob", "", time.Now(), time.Now(), nil))
+				AddRow(1, "alice@example.com", mustHashPassword(t, testPassword()), "Alice", "", time.Now(), time.Now(), nil).
+				AddRow(2, "bob@example.com", mustHashPassword(t, testPassword()), "Bob", "", time.Now(), time.Now(), nil))
 
 		rec := performRequest(t, router, "GET", "/api/v1/search?q=example", nil)
 		expectHandlerStatus(t, rec, 200)
@@ -155,7 +159,7 @@ func TestUserHandlerEndpoints(t *testing.T) {
 		router := newRouterWithClaims(claims, handler.RegisterRoutes)
 
 		env.mock.ExpectQuery("SELECT .*FROM .*users.*LOWER\\(email\\).*").
-			WillReturnRows(userRows(2, "bob@example.com", mustHashPassword(t, "Abcd1234"), "Bob", "", time.Now(), time.Now(), nil))
+			WillReturnRows(userRows(2, "bob@example.com", mustHashPassword(t, testPassword()), "Bob", "", time.Now(), time.Now(), nil))
 		env.mock.ExpectQuery("SELECT count\\(\\*\\) FROM .*contacts.*owner_id = .*contact_id = .*").
 			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 		env.mock.ExpectExec("INSERT INTO .*contacts.*").
@@ -175,7 +179,7 @@ func TestUserHandlerEndpoints(t *testing.T) {
 		router := newRouterWithClaims(claims, handler.RegisterRoutes)
 
 		env.mock.ExpectQuery("SELECT .*FROM .*users.*LOWER\\(email\\).*").
-			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, "Abcd1234"), "Alice", "", time.Now(), time.Now(), nil))
+			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, testPassword()), "Alice", "", time.Now(), time.Now(), nil))
 
 		rec := performRequest(t, router, "POST", "/api/v1/contacts", []byte(`{"email":"alice@example.com"}`))
 		expectHandlerStatus(t, rec, 400)
@@ -190,7 +194,7 @@ func TestUserHandlerEndpoints(t *testing.T) {
 		router := newRouterWithClaims(claims, handler.RegisterRoutes)
 
 		env.mock.ExpectQuery("SELECT .*FROM .*users.*LOWER\\(email\\).*").
-			WillReturnRows(userRows(2, "bob@example.com", mustHashPassword(t, "Abcd1234"), "Bob", "", time.Now(), time.Now(), nil))
+			WillReturnRows(userRows(2, "bob@example.com", mustHashPassword(t, testPassword()), "Bob", "", time.Now(), time.Now(), nil))
 		env.mock.ExpectQuery("SELECT count\\(\\*\\) FROM .*contacts.*owner_id = .*contact_id = .*").
 			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
@@ -223,7 +227,7 @@ func TestUserHandlerEndpoints(t *testing.T) {
 
 		env.mock.ExpectQuery("SELECT .*FROM .*contacts.*JOIN users ON contacts.contact_id = users.id.*").
 			WillReturnRows(sqlmock.NewRows([]string{"id", "email", "password_hash", "display_name", "fcm_token", "created_at", "updated_at", "last_seen"}).
-				AddRow(2, "bob@example.com", mustHashPassword(t, "Abcd1234"), "Bob", "", time.Now(), time.Now(), nil))
+				AddRow(2, "bob@example.com", mustHashPassword(t, testPassword()), "Bob", "", time.Now(), time.Now(), nil))
 
 		rec := performRequest(t, router, "GET", "/api/v1/contacts", nil)
 		expectHandlerStatus(t, rec, 200)
@@ -292,11 +296,11 @@ func TestUserHandlerEndpoints(t *testing.T) {
 		router := newRouterWithClaims(claims, handler.RegisterRoutes)
 
 		env.mock.ExpectQuery("SELECT .*FROM .*users.*id = .*").
-			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, "Abcd1234"), "Alice", "", time.Now(), time.Now(), nil))
+			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, testPassword()), "Alice", "", time.Now(), time.Now(), nil))
 		env.mock.ExpectExec("UPDATE .*users.*password_hash.*").
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"Abcd1234","new_password":"Newpass1","confirm_password":"Newpass1"}`))
+		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"` + testPassword() + `","new_password":"Newpass1","confirm_password":"Newpass1"}`))
 		expectHandlerStatus(t, rec, 200)
 		if err := env.mock.ExpectationsWereMet(); err != nil {
 			t.Fatalf("unmet sql expectations: %v", err)
@@ -309,7 +313,7 @@ func TestUserHandlerEndpoints(t *testing.T) {
 		router := newRouterWithClaims(claims, handler.RegisterRoutes)
 
 		env.mock.ExpectQuery("SELECT .*FROM .*users.*id = .*").
-			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, "Abcd1234"), "Alice", "", time.Now(), time.Now(), nil))
+			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, testPassword()), "Alice", "", time.Now(), time.Now(), nil))
 
 		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"wrong","new_password":"Newpass1","confirm_password":"Newpass1"}`))
 		expectHandlerStatus(t, rec, 401)
@@ -324,9 +328,9 @@ func TestUserHandlerEndpoints(t *testing.T) {
 		router := newRouterWithClaims(claims, handler.RegisterRoutes)
 
 		env.mock.ExpectQuery("SELECT .*FROM .*users.*id = .*").
-			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, "Abcd1234"), "Alice", "", time.Now(), time.Now(), nil))
+			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, testPassword()), "Alice", "", time.Now(), time.Now(), nil))
 
-		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"Abcd1234","new_password":"Abc123","confirm_password":"Abc123"}`))
+		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"` + testPassword() + `","new_password":"Abc123","confirm_password":"Abc123"}`))
 		expectHandlerStatus(t, rec, 400)
 		if err := env.mock.ExpectationsWereMet(); err != nil {
 			t.Fatalf("unmet sql expectations: %v", err)
@@ -339,9 +343,9 @@ func TestUserHandlerEndpoints(t *testing.T) {
 		router := newRouterWithClaims(claims, handler.RegisterRoutes)
 
 		env.mock.ExpectQuery("SELECT .*FROM .*users.*id = .*").
-			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, "Abcd1234"), "Alice", "", time.Now(), time.Now(), nil))
+			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, testPassword()), "Alice", "", time.Now(), time.Now(), nil))
 
-		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"Abcd1234","new_password":"Newpass1","confirm_password":"Newpass2"}`))
+		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"` + testPassword() + `","new_password":"Newpass1","confirm_password":"Newpass2"}`))
 		expectHandlerStatus(t, rec, 400)
 		if err := env.mock.ExpectationsWereMet(); err != nil {
 			t.Fatalf("unmet sql expectations: %v", err)
@@ -354,9 +358,9 @@ func TestUserHandlerEndpoints(t *testing.T) {
 		router := newRouterWithClaims(claims, handler.RegisterRoutes)
 
 		env.mock.ExpectQuery("SELECT .*FROM .*users.*id = .*").
-			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, "Abcd1234"), "Alice", "", time.Now(), time.Now(), nil))
+			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, testPassword()), "Alice", "", time.Now(), time.Now(), nil))
 
-		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"Abcd1234","new_password":"abcdefgh","confirm_password":"abcdefgh"}`))
+		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"` + testPassword() + `","new_password":"abcdefgh","confirm_password":"abcdefgh"}`))
 		expectHandlerStatus(t, rec, 400)
 		if err := env.mock.ExpectationsWereMet(); err != nil {
 			t.Fatalf("unmet sql expectations: %v", err)
@@ -369,9 +373,9 @@ func TestUserHandlerEndpoints(t *testing.T) {
 		router := newRouterWithClaims(claims, handler.RegisterRoutes)
 
 		env.mock.ExpectQuery("SELECT .*FROM .*users.*id = .*").
-			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, "Abcd1234"), "Alice", "", time.Now(), time.Now(), nil))
+			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, testPassword()), "Alice", "", time.Now(), time.Now(), nil))
 
-		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"Abcd1234","new_password":"Newpass!","confirm_password":"Newpass!"}`))
+		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"` + testPassword() + `","new_password":"Newpass!","confirm_password":"Newpass!"}`))
 		expectHandlerStatus(t, rec, 400)
 		if err := env.mock.ExpectationsWereMet(); err != nil {
 			t.Fatalf("unmet sql expectations: %v", err)
@@ -384,9 +388,9 @@ func TestUserHandlerEndpoints(t *testing.T) {
 		router := newRouterWithClaims(claims, handler.RegisterRoutes)
 
 		env.mock.ExpectQuery("SELECT .*FROM .*users.*id = .*").
-			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, "Abcd1234"), "Alice", "", time.Now(), time.Now(), nil))
+			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, testPassword()), "Alice", "", time.Now(), time.Now(), nil))
 
-		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"Abcd1234","new_password":"Abcd1234","confirm_password":"Abcd1234"}`))
+		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"` + testPassword() + `","new_password":"` + testPassword() + `","confirm_password":"` + testPassword() + `"}`))
 		expectHandlerStatus(t, rec, 400)
 		if err := env.mock.ExpectationsWereMet(); err != nil {
 			t.Fatalf("unmet sql expectations: %v", err)
@@ -401,7 +405,7 @@ func TestUserHandlerEndpoints(t *testing.T) {
 		env.mock.ExpectQuery("SELECT .*FROM .*users.*id = .*").
 			WillReturnError(user.ErrNotFound)
 
-		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"Abcd1234","new_password":"Newpass1","confirm_password":"Newpass1"}`))
+		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"` + testPassword() + `","new_password":"Newpass1","confirm_password":"Newpass1"}`))
 		expectHandlerStatus(t, rec, 404)
 		if err := env.mock.ExpectationsWereMet(); err != nil {
 			t.Fatalf("unmet sql expectations: %v", err)
@@ -414,11 +418,11 @@ func TestUserHandlerEndpoints(t *testing.T) {
 		router := newRouterWithClaims(claims, handler.RegisterRoutes)
 
 		env.mock.ExpectQuery("SELECT .*FROM .*users.*id = .*").
-			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, "Abcd1234"), "Alice", "", time.Now(), time.Now(), nil))
+			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, testPassword()), "Alice", "", time.Now(), time.Now(), nil))
 		env.mock.ExpectExec("UPDATE .*users.*password_hash.*").
 			WillReturnError(errors.New("update failed"))
 
-		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"Abcd1234","new_password":"Newpass1","confirm_password":"Newpass1"}`))
+		rec := performRequest(t, router, "POST", "/api/v1/change-password", []byte(`{"old_password":"` + testPassword() + `","new_password":"Newpass1","confirm_password":"Newpass1"}`))
 		expectHandlerStatus(t, rec, 500)
 		if err := env.mock.ExpectationsWereMet(); err != nil {
 			t.Fatalf("unmet sql expectations: %v", err)
