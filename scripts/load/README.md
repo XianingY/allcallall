@@ -42,6 +42,8 @@ TOKEN=<jwt> \
 ORGANIZATION_ID=<id> \
 CONVERSATION_ID=<id> \
 CONCURRENCY=10 \
+POLL_AGENT_RUN=1 \
+AGENT_POLL_TIMEOUT_SECONDS=30 \
 ./scripts/load/agent-run-smoke.sh
 ```
 
@@ -50,8 +52,22 @@ What it validates:
 - `POST /api/v1/agent/runs`
 - Idempotency-key handling per request
 - Agent queue behavior: new runs should move from `pending` to `running` to `ready`
+- `GET /api/v1/agent/runs/:id` polling until `ready` or `failed`
 - Agent write amplification after worker execution: run, steps, tool calls, memory, outbox, message, follow-up task
 - Current Agent run backlog check: `agent_runs` should not retain stuck `pending` or `running` rows after successful worker drain
+
+Useful Agent smoke variables:
+
+- `POLL_AGENT_RUN=1`: default; poll each created run until terminal status.
+- `POLL_AGENT_RUN=0`: only measure create/enqueue behavior.
+- `AGENT_POLL_TIMEOUT_SECONDS=30`: per-run timeout.
+- `AGENT_POLL_INTERVAL_SECONDS=1`: poll interval.
+
+Expected script output:
+
+```text
+[agent-run-smoke] accepted=10 ready=10 failed=0 timeout=0 failure=0 max_elapsed_seconds=5
+```
 
 What to record before and after:
 

@@ -35,7 +35,7 @@ Portfolio focus:
 
 Scripts live in `scripts/load/`.
 
-- `agent-run-smoke.sh`: concurrent Agent run creation against one conversation.
+- `agent-run-smoke.sh`: concurrent Agent run creation against one conversation, with optional polling until each run reaches `ready` or `failed`.
 - `ws-connections.mjs`: WebSocket connection smoke/load template for `/api/v1/chat/ws`.
 
 Current script boundaries:
@@ -165,6 +165,7 @@ Notes:
 Agent run creation and queue/backlog:
 
 - Run `agent-run-smoke.sh` with distinct idempotency keys.
+- Keep `POLL_AGENT_RUN=1` when measuring end-to-end queue drain latency. Use `POLL_AGENT_RUN=0` only when measuring create/enqueue latency.
 - Capture `agent_run_queued_total`, `agent_run_started_total`, `agent_run_total`, `agent_run_failed_total`, `agent_tool_call_total`, and `agent_memory_write_total` before and after.
 - Query `agent_runs` by status. The steady-state target is no stuck `pending` or `running` rows after the outbox worker drains requested runs.
 - Query `agent_tool_calls` per run to explain write amplification.
