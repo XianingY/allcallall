@@ -290,6 +290,7 @@ type SupportRecordingView struct {
 	Recording RecordingView              `json:"recording"`
 	Room      *RoomListItem              `json:"room,omitempty"`
 	Policy    *models.OrganizationPolicy `json:"policy,omitempty"`
+	Exports   []models.RecordingExport   `json:"exports"`
 }
 
 type CleanupExpiredRecordingResult struct {
@@ -1699,6 +1700,19 @@ func (s *Service) GetRecordingDownloadURL(ctx context.Context, objectRef storage
 	return url, nil
 }
 
+func (s *Service) RecordRecordingExportAudit(ctx context.Context, recordingID, requestedBy, fileID uint64, expiresAt *time.Time) error {
+	reason := fmt.Sprintf("recording_file_download:file_id=%d", fileID)
+	export := models.RecordingExport{
+		RecordingSessionID: recordingID,
+		RequestedBy:        requestedBy,
+		Reason:             truncate(reason, 500),
+		Status:             "completed",
+		ExpiresAt:          expiresAt,
+		DownloadCount:      1,
+	}
+	return s.db.WithContext(ctx).Create(&export).Error
+}
+
 func (s *Service) ResolveLocalRecordingPath(objectRef storage.ObjectRef) (string, bool) {
 	if s.storage == nil {
 		return "", false
@@ -1758,10 +1772,19 @@ func (s *Service) GetSupportRecording(ctx context.Context, recordingID uint64) (
 	if err := s.db.WithContext(ctx).Where("organization_id = ?", session.OrganizationID).Take(&policy).Error; err == nil {
 		policyPtr = &policy
 	}
+	var exports []models.RecordingExport
+	if err := s.db.WithContext(ctx).
+		Where("recording_session_id = ?", session.ID).
+		Order("created_at DESC").
+		Limit(50).
+		Find(&exports).Error; err != nil {
+		return nil, err
+	}
 	return &SupportRecordingView{
 		Recording: *view,
 		Room:      roomItem,
 		Policy:    policyPtr,
+		Exports:   exports,
 	}, nil
 }
 

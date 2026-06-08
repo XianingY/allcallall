@@ -271,6 +271,7 @@ type supportRecordingResponse struct {
 	Recording recordingResponse           `json:"recording"`
 	Room      *roomListItemResponse       `json:"room,omitempty"`
 	Policy    *organizationPolicyResponse `json:"policy,omitempty"`
+	Exports   []models.RecordingExport    `json:"exports"`
 }
 
 type pipelineResponse struct {
@@ -1021,7 +1022,14 @@ func (h *CollaborationHandler) handleDownloadRecordingFile(c *gin.Context) {
 		return
 	}
 	objectRef := collaboration.RecordingFileObjectRef(*file)
-	if signedURL, err := h.service.GetRecordingDownloadURL(c.Request.Context(), objectRef); err == nil && (strings.HasPrefix(signedURL, "http://") || strings.HasPrefix(signedURL, "https://")) {
+	signedURL, signedErr := h.service.GetRecordingDownloadURL(c.Request.Context(), objectRef)
+	if signedErr == nil && (strings.HasPrefix(signedURL, "http://") || strings.HasPrefix(signedURL, "https://")) {
+		expiresAt := time.Now().UTC().Add(15 * time.Minute)
+		if err := h.service.RecordRecordingExportAudit(c.Request.Context(), recordingID, claims.UserID, fileID, &expiresAt); err != nil {
+			h.logger.Error().Err(err).Uint64("recording_id", recordingID).Uint64("file_id", fileID).Msg("recording export audit failed")
+			JSONErrorWithCode(c, http.StatusInternalServerError, "RECORDING_EXPORT_AUDIT_FAILED", "recording export audit failed")
+			return
+		}
 		c.Redirect(http.StatusTemporaryRedirect, signedURL)
 		return
 	}
@@ -1038,6 +1046,11 @@ func (h *CollaborationHandler) handleDownloadRecordingFile(c *gin.Context) {
 	filename := filepath.Base(path)
 	if file.ContentType != "" {
 		c.Header("Content-Type", file.ContentType)
+	}
+	if err := h.service.RecordRecordingExportAudit(c.Request.Context(), recordingID, claims.UserID, fileID, nil); err != nil {
+		h.logger.Error().Err(err).Uint64("recording_id", recordingID).Uint64("file_id", fileID).Msg("recording export audit failed")
+		JSONErrorWithCode(c, http.StatusInternalServerError, "RECORDING_EXPORT_AUDIT_FAILED", "recording export audit failed")
+		return
 	}
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	c.File(path)
@@ -1106,6 +1119,7 @@ func (h *CollaborationHandler) handleSupportRecording(c *gin.Context) {
 		policy := toOrganizationPolicyResponse(*item.Policy)
 		response.Policy = &policy
 	}
+	response.Exports = item.Exports
 	JSONSuccess(c, http.StatusOK, gin.H{"recording": response})
 }
 

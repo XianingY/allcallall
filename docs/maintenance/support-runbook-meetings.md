@@ -48,12 +48,14 @@ Check:
 - `etag`
 - `retention_until`
 - `deleted_at`
+- recent `exports` records, including `requested_by`, `status`, `expires_at`, and `download_count`
 
 Typical failure patterns:
 
 - storage write failed before metadata commit
 - user attempted cross-organization download
 - signed URL generation failed
+- export audit failed before redirect/download
 - retention worker failed to delete expired objects
 
 ## Metrics to watch

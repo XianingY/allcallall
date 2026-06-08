@@ -576,6 +576,72 @@ func TestServiceGetRecordingFileEnforcesOrganizationBoundary(t *testing.T) {
 	}
 }
 
+func TestServiceRecordsRecordingExportAudit(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	ctx := context.Background()
+
+	owner := createTestUser(t, db, "recording-owner@example.com", "Owner")
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Recording Workspace")
+	if err != nil {
+		t.Fatalf("create org failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	session := models.RecordingSession{
+		OrganizationID: org.ID,
+		RoomID:         1,
+		StartedBy:      owner.ID,
+		Status:         models.RecordingStatusStopped,
+		StartedAt:      &now,
+		StoppedAt:      &now,
+	}
+	if err := db.Create(&session).Error; err != nil {
+		t.Fatalf("create recording session failed: %v", err)
+	}
+	file := models.RecordingFile{
+		RecordingSessionID: session.ID,
+		StorageDriver:      string(storage.DriverLocal),
+		ObjectKey:          filepath.Join(t.TempDir(), "recording.ogg"),
+		ContentType:        "audio/ogg",
+	}
+	if err := db.Create(&file).Error; err != nil {
+		t.Fatalf("create recording file failed: %v", err)
+	}
+
+	expiresAt := now.Add(15 * time.Minute)
+	if err := svc.RecordRecordingExportAudit(ctx, session.ID, owner.ID, file.ID, &expiresAt); err != nil {
+		t.Fatalf("record export audit failed: %v", err)
+	}
+
+	var audit models.RecordingExport
+	if err := db.Where("recording_session_id = ?", session.ID).Take(&audit).Error; err != nil {
+		t.Fatalf("load export audit failed: %v", err)
+	}
+	if audit.RequestedBy != owner.ID {
+		t.Fatalf("expected requested_by %d, got %d", owner.ID, audit.RequestedBy)
+	}
+	if audit.Status != "completed" {
+		t.Fatalf("expected completed audit status, got %q", audit.Status)
+	}
+	if audit.DownloadCount != 1 {
+		t.Fatalf("expected download count 1, got %d", audit.DownloadCount)
+	}
+	if audit.ExpiresAt == nil || !audit.ExpiresAt.Equal(expiresAt) {
+		t.Fatalf("expected expires_at %v, got %v", expiresAt, audit.ExpiresAt)
+	}
+
+	support, err := svc.GetSupportRecording(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("get support recording failed: %v", err)
+	}
+	if len(support.Exports) != 1 {
+		t.Fatalf("expected 1 support export record, got %d", len(support.Exports))
+	}
+	if support.Exports[0].RequestedBy != owner.ID {
+		t.Fatalf("expected support export requested_by %d, got %d", owner.ID, support.Exports[0].RequestedBy)
+	}
+}
+
 func ptrString(value string) *string {
 	return &value
 }
