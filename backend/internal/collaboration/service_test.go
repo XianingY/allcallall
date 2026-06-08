@@ -2,6 +2,7 @@ package collaboration
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,14 @@ import (
 	"github.com/allcallall/backend/internal/storage"
 	"github.com/allcallall/backend/internal/user"
 )
+
+type failingDeleteStorage struct {
+	storage.RecordingStorage
+}
+
+func (s failingDeleteStorage) Delete(context.Context, storage.ObjectRef) error {
+	return errors.New("delete failed")
+}
 
 func newServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *user.Service) {
 	t.Helper()
@@ -452,6 +461,118 @@ func TestServiceCleanupExpiredRecordings(t *testing.T) {
 	}
 	if _, err := os.Stat(storedExpired.Key); !os.IsNotExist(err) {
 		t.Fatalf("expected stored file to be removed, got err=%v", err)
+	}
+}
+
+func TestServiceCleanupExpiredRecordingsDoesNotSoftDeleteOnStorageFailure(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	ctx := context.Background()
+
+	owner := createTestUser(t, db, "owner@example.com", "Owner")
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Workspace")
+	if err != nil {
+		t.Fatalf("create organization failed: %v", err)
+	}
+
+	now := time.Now()
+	expiredPath := filepath.Join(t.TempDir(), "expired.ogg")
+	if err := os.WriteFile(expiredPath, []byte("expired-audio"), 0o644); err != nil {
+		t.Fatalf("write expired artifact failed: %v", err)
+	}
+	storedExpired, err := svc.storage.SaveFile(ctx, expiredPath, "org-1/room-1/session-1/expired.ogg", "audio/ogg")
+	if err != nil {
+		t.Fatalf("save expired artifact failed: %v", err)
+	}
+	svc.WithRecordingStorage(failingDeleteStorage{RecordingStorage: svc.storage})
+
+	session := models.RecordingSession{
+		OrganizationID: org.ID,
+		RoomID:         1,
+		StartedBy:      owner.ID,
+		Status:         models.RecordingStatusStopped,
+		StartedAt:      &now,
+		StoppedAt:      &now,
+	}
+	if err := db.Create(&session).Error; err != nil {
+		t.Fatalf("create recording session failed: %v", err)
+	}
+
+	expiredAt := now.Add(-time.Hour)
+	recordingFile := models.RecordingFile{
+		RecordingSessionID: session.ID,
+		StorageDriver:      string(storedExpired.Driver),
+		StorageBucket:      storedExpired.Bucket,
+		ObjectKey:          storedExpired.Key,
+		RetentionUntil:     &expiredAt,
+		ContentType:        "audio/ogg",
+		FileSizeBytes:      int64(len("expired-audio")),
+	}
+	if err := db.Create(&recordingFile).Error; err != nil {
+		t.Fatalf("create recording file failed: %v", err)
+	}
+
+	result, err := svc.CleanupExpiredRecordings(ctx, now, 10)
+	if err == nil {
+		t.Fatal("expected cleanup failure")
+	}
+	if result.Checked != 1 || result.Deleted != 0 {
+		t.Fatalf("unexpected cleanup result: %+v", result)
+	}
+
+	var refreshed models.RecordingFile
+	if err := db.Where("id = ?", recordingFile.ID).Take(&refreshed).Error; err != nil {
+		t.Fatalf("reload recording file failed: %v", err)
+	}
+	if refreshed.DeletedAt != nil {
+		t.Fatal("expected deleted_at to remain empty after storage delete failure")
+	}
+}
+
+func TestServiceGetRecordingFileEnforcesOrganizationBoundary(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	ctx := context.Background()
+
+	owner := createTestUser(t, db, "owner@example.com", "Owner")
+	outsider := createTestUser(t, db, "outsider@example.com", "Outsider")
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Owner Workspace")
+	if err != nil {
+		t.Fatalf("create owner org failed: %v", err)
+	}
+	outsiderOrg, err := svc.CreateOrganization(ctx, outsider.ID, "Outsider Workspace")
+	if err != nil {
+		t.Fatalf("create outsider org failed: %v", err)
+	}
+
+	now := time.Now()
+	session := models.RecordingSession{
+		OrganizationID: org.ID,
+		RoomID:         1,
+		StartedBy:      owner.ID,
+		Status:         models.RecordingStatusStopped,
+		StartedAt:      &now,
+		StoppedAt:      &now,
+	}
+	if err := db.Create(&session).Error; err != nil {
+		t.Fatalf("create recording session failed: %v", err)
+	}
+	file := models.RecordingFile{
+		RecordingSessionID: session.ID,
+		StorageDriver:      string(storage.DriverLocal),
+		ObjectKey:          filepath.Join(t.TempDir(), "recording.ogg"),
+		ContentType:        "audio/ogg",
+	}
+	if err := db.Create(&file).Error; err != nil {
+		t.Fatalf("create recording file failed: %v", err)
+	}
+
+	if _, _, err := svc.GetRecordingFile(ctx, outsiderOrg.ID, outsider.ID, session.ID, file.ID); err == nil {
+		t.Fatal("expected outsider organization lookup to be denied")
+	}
+	if _, _, err := svc.GetRecordingFile(ctx, org.ID, outsider.ID, session.ID, file.ID); err == nil {
+		t.Fatal("expected non-member lookup to be denied")
+	}
+	if _, _, err := svc.GetRecordingFile(ctx, org.ID, owner.ID, session.ID, file.ID); err != nil {
+		t.Fatalf("expected owner lookup to succeed: %v", err)
 	}
 }
 

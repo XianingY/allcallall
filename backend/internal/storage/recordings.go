@@ -77,7 +77,10 @@ func (s *localRecordingStorage) SaveFile(_ context.Context, srcPath, objectKey, 
 	if srcPath == "" || objectKey == "" {
 		return nil, errors.New("source path and object key are required")
 	}
-	targetPath := filepath.Join(s.root, filepath.FromSlash(objectKey))
+	targetPath, err := s.resolvePath(objectKey)
+	if err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 		return nil, err
 	}
@@ -104,7 +107,11 @@ func (s *localRecordingStorage) OpenLocal(objectRef ObjectRef) (string, bool) {
 	if objectRef.Driver != DriverLocal {
 		return "", false
 	}
-	return objectRef.Key, true
+	path, err := s.resolveExistingPath(objectRef.Key)
+	if err != nil {
+		return "", false
+	}
+	return path, true
 }
 
 func (s *localRecordingStorage) Delete(_ context.Context, objectRef ObjectRef) error {
@@ -116,6 +123,48 @@ func (s *localRecordingStorage) Delete(_ context.Context, objectRef ObjectRef) e
 		return err
 	}
 	return nil
+}
+
+func (s *localRecordingStorage) resolvePath(objectKey string) (string, error) {
+	cleanKey := filepath.Clean(filepath.FromSlash(strings.TrimSpace(objectKey)))
+	if cleanKey == "." || cleanKey == ".." || filepath.IsAbs(cleanKey) || strings.HasPrefix(cleanKey, fmt.Sprintf("..%c", filepath.Separator)) {
+		return "", errors.New("recording object key escapes storage root")
+	}
+	root, err := filepath.Abs(s.root)
+	if err != nil {
+		return "", err
+	}
+	target := filepath.Join(root, cleanKey)
+	if !isPathInsideRoot(root, target) {
+		return "", errors.New("recording object key escapes storage root")
+	}
+	return target, nil
+}
+
+func (s *localRecordingStorage) resolveExistingPath(value string) (string, error) {
+	root, err := filepath.Abs(s.root)
+	if err != nil {
+		return "", err
+	}
+	target := strings.TrimSpace(value)
+	if target == "" {
+		return "", errors.New("recording object path is empty")
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(root, target)
+	}
+	target, err = filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+	if !isPathInsideRoot(root, target) {
+		return "", errors.New("recording object path escapes storage root")
+	}
+	return target, nil
+}
+
+func isPathInsideRoot(root, target string) bool {
+	return target == root || strings.HasPrefix(target, fmt.Sprintf("%s%c", root, filepath.Separator))
 }
 
 type s3RecordingStorage struct {

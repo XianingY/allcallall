@@ -32,8 +32,10 @@ Meeting recordings now use a storage abstraction with two drivers:
 
 ## Download behavior
 
-- `local` driver: the backend serves the file directly.
+- `local` driver: the backend serves the file directly after resolving it under `RECORDING_STORAGE_DIR`.
 - `s3` driver: the backend returns a short-lived signed URL redirect.
+- Recording downloads always go through backend organization/member checks before local serving or signed URL generation.
+- Local object keys and local download paths are rejected if they escape the configured storage root.
 
 ## Retention
 
@@ -43,7 +45,7 @@ Retention is derived from organization policy:
 - `recording_export_allowed`
 - `recording_mode`
 
-`retention_until` is written at upload time. Cleanup jobs should soft-delete expired metadata, remove the backing object, and write an audit trail.
+`retention_until` is written at upload time. Cleanup jobs soft-delete expired metadata only after the backing object delete succeeds. If object deletion fails, `deleted_at` remains empty so the worker can retry later. Dedicated audit rows are not implemented yet; use structured logs and retention metrics for the current runbook.
 
 ## Cleanup worker
 
@@ -53,6 +55,7 @@ The backend now starts a built-in recording cleanup worker on boot.
 - It then repeats every `RECORDING_CLEANUP_INTERVAL_MIN`.
 - It marks expired `recording_files` with `deleted_at`.
 - It removes the backing object through the configured storage driver.
+- Storage delete failure stops the current cleanup run and leaves the file metadata active for retry.
 
 Relevant metrics:
 
