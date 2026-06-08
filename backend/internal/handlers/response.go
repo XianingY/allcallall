@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,6 +16,10 @@ func JSONError(c *gin.Context, status int, message string) {
 
 // JSONErrorWithCode sends a JSON error message with a stable machine-readable code.
 func JSONErrorWithCode(c *gin.Context, status int, code string, message string) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		code = defaultErrorCode(status)
+	}
 	requestID := c.GetString("X-Request-ID")
 	c.JSON(status, gin.H{
 		"error":      message,
@@ -21,6 +27,31 @@ func JSONErrorWithCode(c *gin.Context, status int, code string, message string) 
 		"request_id": requestID,
 		"success":    false,
 	})
+}
+
+func defaultErrorCode(status int) string {
+	text := http.StatusText(status)
+	if strings.TrimSpace(text) == "" {
+		return "ERROR"
+	}
+	var builder strings.Builder
+	lastUnderscore := false
+	for _, r := range strings.ToUpper(text) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			builder.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			builder.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	code := strings.Trim(builder.String(), "_")
+	if code == "" {
+		return "ERROR"
+	}
+	return code
 }
 
 // JSONSuccess 返回成功响应

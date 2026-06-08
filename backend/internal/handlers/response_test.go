@@ -14,6 +14,7 @@ func TestJSONError(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
+	c.Set("X-Request-ID", "req-123")
 
 	JSONError(c, http.StatusBadRequest, "bad request")
 
@@ -30,6 +31,33 @@ func TestJSONError(t *testing.T) {
 	}
 	if got["success"] != false {
 		t.Fatalf("unexpected success payload: %+v", got)
+	}
+	if got["code"] != "BAD_REQUEST" {
+		t.Fatalf("unexpected code payload: %+v", got)
+	}
+	if got["request_id"] != "req-123" {
+		t.Fatalf("unexpected request_id payload: %+v", got)
+	}
+}
+
+func TestJSONErrorWithCodePreservesExplicitCode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	JSONErrorWithCode(c, http.StatusForbidden, "ROOM_ACCESS_DENIED", "denied")
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("unexpected status: %d", rec.Code)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if got["code"] != "ROOM_ACCESS_DENIED" {
+		t.Fatalf("unexpected code payload: %+v", got)
 	}
 }
 

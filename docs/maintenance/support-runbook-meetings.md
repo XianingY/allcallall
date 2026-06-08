@@ -2,6 +2,8 @@
 
 Use the internal support API with `X-Support-Token`.
 
+All JSON error responses include `error`, `code`, `request_id`, and `success=false`. Use `request_id` to correlate API responses with structured logs.
+
 ## Endpoints
 
 - `GET /api/v1/internal/support/users/:userId/summary`
