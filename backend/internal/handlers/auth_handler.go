@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -102,6 +103,7 @@ func (h *AuthHandler) RegisterRoutes(rg *gin.RouterGroup) {
 }
 
 func (h *AuthHandler) RegisterProtectedRoutes(rg *gin.RouterGroup) {
+	rg.GET("/sessions", h.handleListSessions)
 	rg.POST("/logout-all", h.handleLogoutAll)
 }
 
@@ -247,6 +249,37 @@ func (h *AuthHandler) handleLogoutAll(c *gin.Context) {
 	}
 	clearRefreshCookie(c)
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true, "revoked_sessions": revoked})
+}
+
+func (h *AuthHandler) handleListSessions(c *gin.Context) {
+	if h.refreshSessions == nil {
+		JSONError(c, http.StatusInternalServerError, "refresh sessions not configured")
+		return
+	}
+	claims, err := auth.GetClaimsFromContext(c)
+	if err != nil {
+		JSONError(c, http.StatusUnauthorized, "missing authenticated user")
+		return
+	}
+
+	limit := 20
+	if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
+		parsed, parseErr := strconv.Atoi(rawLimit)
+		if parseErr != nil || parsed <= 0 {
+			JSONError(c, http.StatusBadRequest, "invalid sessions limit")
+			return
+		}
+		limit = parsed
+	}
+
+	currentCookie, _ := c.Cookie(refreshCookieName)
+	sessions, err := h.refreshSessions.ListForUser(c.Request.Context(), claims.UserID, currentCookie, time.Now(), limit)
+	if err != nil {
+		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Msg("list refresh sessions failed")
+		JSONError(c, http.StatusInternalServerError, "failed to list sessions")
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"sessions": sessions})
 }
 
 func (h *AuthHandler) issueAuthResponse(c *gin.Context, status int, userModel *models.User, currentRefreshToken ...string) {

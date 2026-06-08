@@ -12,6 +12,7 @@ AllCallAll Web uses a split session model:
 - `POST /api/v1/auth/register`: returns `access_token` and sets the HttpOnly refresh cookie.
 - `POST /api/v1/auth/refresh`: reads the refresh cookie, returns a new `access_token`, and rotates the refresh cookie.
 - `POST /api/v1/auth/logout`: revokes the current refresh session and clears the refresh cookie.
+- `GET /api/v1/auth/sessions`: requires a bearer access token and returns a redacted session list for the current user.
 - `POST /api/v1/auth/logout-all`: requires a bearer access token, revokes all active refresh sessions for the current user, and clears the current refresh cookie.
 
 ## Cookie Behavior
@@ -38,7 +39,7 @@ If a previously rotated or revoked refresh token is reused, the backend records 
 
 The internal support user summary includes a redacted `refresh_sessions` block with active/revoked/expired counts, recent session metadata, and invalid refresh reuse counters. It never returns raw refresh tokens or token hashes.
 
-Users can revoke all sessions from Settings via **退出所有设备 / Sign out everywhere**. The action calls `POST /api/v1/auth/logout-all`, clears the current refresh cookie, and removes the current device's local access-token cache.
+Users can inspect redacted session records from Settings via **登录会话 / Active Sessions**. Users can also revoke all sessions via **退出所有设备 / Sign out everywhere**. The revoke action calls `POST /api/v1/auth/logout-all`, clears the current refresh cookie, and removes the current device's local access-token cache.
 
 Expired sessions are cleaned by the backend worker:
 
@@ -47,5 +48,5 @@ Expired sessions are cleaned by the backend worker:
 
 Remaining production hardening items:
 
-- Add a detailed user-facing device/session management UI.
+- Add per-session user revocation once client identity is precise enough to avoid accidental current-device lockout.
 - Add suspicious-session alerting and forced revocation workflows.

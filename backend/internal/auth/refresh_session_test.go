@@ -131,6 +131,83 @@ func TestRefreshSessionRevokeAllForUser(t *testing.T) {
 	}
 }
 
+func TestRefreshSessionListForUserReturnsRedactedViews(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "refresh-list.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := db.AutoMigrate(&models.RefreshSession{}); err != nil {
+		t.Fatalf("migrate refresh sessions failed: %v", err)
+	}
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	svc := NewRefreshSessionService(db)
+	active, err := svc.Create(ctx, 7, RefreshSessionInput{
+		Token:     "active-token",
+		UserAgent: "Mozilla/5.0",
+		IPAddress: "127.0.0.1",
+		ExpiresAt: now.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create active session failed: %v", err)
+	}
+	expired, err := svc.Create(ctx, 7, RefreshSessionInput{
+		Token:     "expired-token",
+		ExpiresAt: now.Add(-time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create expired session failed: %v", err)
+	}
+	revoked, err := svc.Create(ctx, 7, RefreshSessionInput{
+		Token:     "revoked-token",
+		ExpiresAt: now.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create revoked session failed: %v", err)
+	}
+	revokedAt := now.Add(-time.Minute)
+	if err := db.Model(&models.RefreshSession{}).Where("id = ?", revoked.ID).Update("revoked_at", revokedAt).Error; err != nil {
+		t.Fatalf("revoke session failed: %v", err)
+	}
+	if _, err := svc.Create(ctx, 8, RefreshSessionInput{Token: "other-user", ExpiresAt: now.Add(time.Hour)}); err != nil {
+		t.Fatalf("create other user session failed: %v", err)
+	}
+
+	views, err := svc.ListForUser(ctx, 7, "active-token", now, 10)
+	if err != nil {
+		t.Fatalf("list sessions failed: %v", err)
+	}
+	if len(views) != 3 {
+		t.Fatalf("unexpected session count: got %d want 3", len(views))
+	}
+
+	byID := map[uint64]RefreshSessionView{}
+	for _, view := range views {
+		byID[view.ID] = view
+	}
+	if byID[active.ID].Status != "active" || !byID[active.ID].Current {
+		t.Fatalf("expected active current session, got %+v", byID[active.ID])
+	}
+	if byID[active.ID].UserAgent != "Mozilla/5.0" || byID[active.ID].IPAddress != "127.0.0.1" {
+		t.Fatalf("expected redacted metadata to be preserved, got %+v", byID[active.ID])
+	}
+	if byID[expired.ID].Status != "expired" {
+		t.Fatalf("expected expired session, got %+v", byID[expired.ID])
+	}
+	if byID[revoked.ID].Status != "revoked" {
+		t.Fatalf("expected revoked session, got %+v", byID[revoked.ID])
+	}
+
+	limited, err := svc.ListForUser(ctx, 7, "", now, 1)
+	if err != nil {
+		t.Fatalf("list limited sessions failed: %v", err)
+	}
+	if len(limited) != 1 {
+		t.Fatalf("expected limit to apply, got %d", len(limited))
+	}
+}
+
 func TestRefreshSessionRotateRecordsInvalidReuse(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "refresh-reuse.db")), &gorm.Config{})
 	if err != nil {

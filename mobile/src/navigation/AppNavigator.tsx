@@ -9,6 +9,7 @@ import EmailVerificationScreen from "../screens/EmailVerificationScreen";
 import ContactsScreen from "../screens/ContactsScreen";
 import ChangePasswordScreen from "../screens/ChangePasswordScreen";
 import SettingsScreen from "../screens/SettingsScreen";
+import SessionsScreen from "../screens/SessionsScreen";
 import ForgotPasswordScreen from "../screens/ForgotPasswordScreen";
 import CallHistoryScreen from "../screens/CallHistoryScreen";
 import SubscriptionScreen from "../screens/SubscriptionScreen";
@@ -55,6 +56,7 @@ export type RootStackParamList = {
   Recordings: undefined;
   ChangePassword: undefined;
   Settings: undefined;
+  Sessions: undefined;
   Subscription: undefined;
   Legal: undefined;
   BlockedUsers: undefined;
@@ -175,6 +177,11 @@ const AppNavigator: React.FC = () => {
             name="Settings"
             component={SettingsScreen}
             options={{ title: "设置 / Settings" }}
+          />
+          <Stack.Screen
+            name="Sessions"
+            component={SessionsScreen}
+            options={{ title: "登录会话 / Sessions" }}
           />
           <Stack.Screen
             name="Subscription"

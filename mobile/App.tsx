@@ -45,6 +45,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       FollowUps: "follow-ups",
       Recordings: "recordings",
       Settings: "settings",
+      Sessions: "sessions",
       InvitationAccept: "invite/:code",
     },
   },

@@ -137,6 +137,15 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
             </View>
           </TouchableOpacity>
 
+          <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate("Sessions")}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>登录会话 / Active Sessions</Text>
+              <Text style={styles.settingDescription}>
+                查看当前账号最近的 Web/Desktop/移动端登录会话与异常重放信号。
+              </Text>
+            </View>
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate("Legal")}>
             <View style={styles.settingInfo}>
               <Text style={styles.settingTitle}>法律文档 / Legal</Text>

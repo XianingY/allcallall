@@ -30,6 +30,21 @@ type RefreshSessionCleanupResult struct {
 	Deleted int
 }
 
+type RefreshSessionView struct {
+	ID               uint64     `json:"id"`
+	Status           string     `json:"status"`
+	Current          bool       `json:"current"`
+	UserAgent        string     `json:"user_agent"`
+	IPAddress        string     `json:"ip_address"`
+	ExpiresAt        time.Time  `json:"expires_at"`
+	LastUsedAt       *time.Time `json:"last_used_at"`
+	RevokedAt        *time.Time `json:"revoked_at"`
+	InvalidUseCount  int        `json:"invalid_use_count"`
+	LastInvalidUseAt *time.Time `json:"last_invalid_use_at"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+}
+
 func NewRefreshSessionService(db *gorm.DB) *RefreshSessionService {
 	return &RefreshSessionService{db: db}
 }
@@ -131,6 +146,47 @@ func (s *RefreshSessionService) RevokeAllForUser(ctx context.Context, userID uin
 	return int(result.RowsAffected), nil
 }
 
+func (s *RefreshSessionService) ListForUser(ctx context.Context, userID uint64, currentToken string, now time.Time, limit int) ([]RefreshSessionView, error) {
+	if userID == 0 {
+		return nil, ErrInvalidRefreshSession
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	var sessions []models.RefreshSession
+	if err := s.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Order("created_at DESC, id DESC").
+		Limit(limit).
+		Find(&sessions).Error; err != nil {
+		return nil, err
+	}
+
+	currentHash := refreshTokenHash(currentToken)
+	views := make([]RefreshSessionView, 0, len(sessions))
+	for _, session := range sessions {
+		views = append(views, RefreshSessionView{
+			ID:               session.ID,
+			Status:           refreshSessionStatus(session, now),
+			Current:          currentHash != "" && session.TokenHash == currentHash,
+			UserAgent:        session.UserAgent,
+			IPAddress:        session.IPAddress,
+			ExpiresAt:        session.ExpiresAt,
+			LastUsedAt:       session.LastUsedAt,
+			RevokedAt:        session.RevokedAt,
+			InvalidUseCount:  session.InvalidUseCount,
+			LastInvalidUseAt: session.LastInvalidUseAt,
+			CreatedAt:        session.CreatedAt,
+			UpdatedAt:        session.UpdatedAt,
+		})
+	}
+	return views, nil
+}
+
 func (s *RefreshSessionService) RecordInvalidUse(ctx context.Context, token string, now time.Time) error {
 	hash := refreshTokenHash(token)
 	if hash == "" {
@@ -173,6 +229,16 @@ func (s *RefreshSessionService) CleanupExpired(ctx context.Context, now time.Tim
 		return nil, result.Error
 	}
 	return &RefreshSessionCleanupResult{Deleted: int(result.RowsAffected)}, nil
+}
+
+func refreshSessionStatus(session models.RefreshSession, now time.Time) string {
+	if session.RevokedAt != nil {
+		return "revoked"
+	}
+	if !session.ExpiresAt.After(now) {
+		return "expired"
+	}
+	return "active"
 }
 
 func refreshTokenHash(token string) string {

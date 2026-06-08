@@ -16,6 +16,21 @@ export interface RegisterPayload {
   accept_current_legal: boolean;
 }
 
+export interface RefreshSessionRecord {
+  id: number;
+  status: "active" | "expired" | "revoked";
+  current: boolean;
+  user_agent: string;
+  ip_address: string;
+  expires_at: string;
+  last_used_at?: string | null;
+  revoked_at?: string | null;
+  invalid_use_count: number;
+  last_invalid_use_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export const register = async (payload: RegisterPayload) => {
   const api = createApiClient();
   const response = await api.post<AuthResponse>("/auth/register", payload, { withCredentials: true });
@@ -47,4 +62,12 @@ export const logoutSession = async () => {
 export const logoutAllSessions = async (token: string) => {
   const api = createApiClient(token);
   await api.post("/auth/logout-all", undefined, { withCredentials: true });
+};
+
+export const listRefreshSessions = async (token: string) => {
+  const api = createApiClient(token);
+  const response = await api.get<{ sessions: RefreshSessionRecord[] }>("/auth/sessions", {
+    withCredentials: true
+  });
+  return response.data.sessions;
 };
