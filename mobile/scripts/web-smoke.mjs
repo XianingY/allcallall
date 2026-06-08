@@ -10,6 +10,8 @@ const email = process.env.WEB_SMOKE_EMAIL;
 const password = process.env.WEB_SMOKE_PASSWORD;
 const roomId = process.env.WEB_SMOKE_ROOM_ID;
 const conversationId = process.env.WEB_SMOKE_CONVERSATION_ID;
+const shouldJoinMeeting = process.env.WEB_SMOKE_JOIN_MEETING === "1";
+const shouldDownloadRecording = process.env.WEB_SMOKE_DOWNLOAD_RECORDING === "1";
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -75,6 +77,21 @@ const assertContainsAny = (text, label, candidates) => {
   }
 };
 
+const clickFirstVisibleText = async (page, labels, timeout = 8_000) => {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    for (const label of labels) {
+      const locator = page.getByText(label, { exact: false }).first();
+      if (await locator.isVisible().catch(() => false)) {
+        await locator.click();
+        return true;
+      }
+    }
+    await page.waitForTimeout(250);
+  }
+  return false;
+};
+
 const loginIfConfigured = async (page) => {
   if (!email || !password) {
     console.log("[web-smoke] WEB_SMOKE_EMAIL/PASSWORD not set; running anonymous route smoke only.");
@@ -98,8 +115,18 @@ const loginIfConfigured = async (page) => {
 
 const main = async () => {
   const staticServer = await startStaticExportServer();
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      "--use-fake-ui-for-media-stream",
+      "--use-fake-device-for-media-stream",
+    ],
+  });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 960 },
+    acceptDownloads: true,
+  });
+  const page = await context.newPage();
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
@@ -112,10 +139,39 @@ const main = async () => {
     const roomPath = roomId ? `/rooms/${roomId}` : "/rooms/1";
     const roomText = await visit(page, roomPath, "room route");
     assertContainsAny(roomText, "room route", loggedIn ? ["会议", "Join", "加入"] : ["AllCallAll", "Login", "登录"]);
+    if (loggedIn && shouldJoinMeeting) {
+      const clickedJoin = await clickFirstVisibleText(page, ["加入会议", "Join Meeting", "Join"]);
+      if (!clickedJoin) {
+        throw new Error("room route did not expose a join action");
+      }
+      const meetingText = await waitForUsablePage(page, "meeting page");
+      assertContainsAny(meetingText, "meeting page", ["离开会议", "Leave", "Connected", "会议状态"]);
+      const clickedLeave = await clickFirstVisibleText(page, ["离开会议", "Leave"]);
+      if (!clickedLeave) {
+        throw new Error("meeting page did not expose a leave action");
+      }
+      const afterLeaveText = await waitForUsablePage(page, "post-leave page");
+      assertContainsAny(afterLeaveText, "post-leave page", ["协作线程", "Meetings", "会议", "Inbox"]);
+    }
 
     const conversationPath = conversationId ? `/conversations/${conversationId}` : "/conversations/1";
     const conversationText = await visit(page, conversationPath, "conversation route");
     assertContainsAny(conversationText, "conversation route", loggedIn ? ["协作线程", "Inbox", "Conversation"] : ["AllCallAll", "Login", "登录"]);
+
+    if (loggedIn && shouldDownloadRecording) {
+      const recordingsText = await visit(page, "/recordings", "recordings route");
+      assertContainsAny(recordingsText, "recordings route", ["录音存档", "Recordings", "下载"]);
+      const downloadPromise = page.waitForEvent("download", { timeout: 15_000 });
+      const clickedDownload = await clickFirstVisibleText(page, ["下载", "Download"]);
+      if (!clickedDownload) {
+        throw new Error("recordings route did not expose a download action");
+      }
+      const download = await downloadPromise;
+      const suggestedName = download.suggestedFilename();
+      if (!suggestedName) {
+        throw new Error("recording download did not provide a filename");
+      }
+    }
 
     if (pageErrors.length > 0) {
       throw new Error(`browser page errors:\n${pageErrors.join("\n")}`);
