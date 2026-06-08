@@ -13,6 +13,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "web:smoke": "node scripts/web-smoke.mjs",
     "lint": "eslint . --ext .ts,.tsx",
     "postinstall": "patch-package"
   },
@@ -60,6 +61,7 @@
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "patch-package": "^8.0.0",
+    "playwright": "^1.60.0",
     "typescript": "^5.2.2"
   }
 }

@@ -25,27 +25,49 @@ export interface SecureStorageAdapter {
 
 const webPrefix = "secure:";
 
+const webStorage = () => {
+  if (typeof window === "undefined" || !window.sessionStorage) {
+    return null;
+  }
+  return window.sessionStorage;
+};
+
 const webAdapter: SecureStorageAdapter = {
   async load(service) {
-    const raw = await AsyncStorage.getItem(`${webPrefix}${service}`);
+    const key = `${webPrefix}${service}`;
+    const storage = webStorage();
+    const raw = storage?.getItem(key) ?? await AsyncStorage.getItem(key);
     if (!raw) {
       return null;
     }
     try {
-      return JSON.parse(raw) as SecureStorageValue;
+      const parsed = JSON.parse(raw) as SecureStorageValue;
+      if (storage && !storage.getItem(key)) {
+        storage.setItem(key, raw);
+        await AsyncStorage.removeItem(key);
+      }
+      return parsed;
     } catch {
-      await AsyncStorage.removeItem(`${webPrefix}${service}`);
+      storage?.removeItem(key);
+      await AsyncStorage.removeItem(key);
       return null;
     }
   },
   async save(service, username, password) {
-    await AsyncStorage.setItem(
-      `${webPrefix}${service}`,
-      JSON.stringify({ username, password } satisfies SecureStorageValue)
-    );
+    const key = `${webPrefix}${service}`;
+    const value = JSON.stringify({ username, password } satisfies SecureStorageValue);
+    const storage = webStorage();
+    if (storage) {
+      storage.setItem(key, value);
+      await AsyncStorage.removeItem(key);
+      return;
+    }
+    await AsyncStorage.setItem(key, value);
   },
   async clear(service) {
-    await AsyncStorage.removeItem(`${webPrefix}${service}`);
+    const key = `${webPrefix}${service}`;
+    webStorage()?.removeItem(key);
+    await AsyncStorage.removeItem(key);
   },
   async supportsBiometricProtection() {
     return false;

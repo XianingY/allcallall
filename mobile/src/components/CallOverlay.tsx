@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform } from "react-native";
 import { activateKeepAwake, deactivateKeepAwake } from "expo-keep-awake";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -51,6 +51,9 @@ const CallOverlay: React.FC = () => {
   const [translationHintVisible, setTranslationHintVisible] = useState(false);
 
   useEffect(() => {
+    if (Platform.OS === "web") {
+      return;
+    }
     const tag = "call-overlay";
     try {
       if (status !== "idle" && session) {

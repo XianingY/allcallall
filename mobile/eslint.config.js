@@ -16,7 +16,7 @@ module.exports = [
     ],
   },
   {
-    files: ["**/*.js", "**/*.cjs", "**/*.mjs"],
+    files: ["**/*.js", "**/*.cjs"],
     ...js.configs.recommended,
     languageOptions: {
       ecmaVersion: "latest",
@@ -27,6 +27,20 @@ module.exports = [
         module: "readonly",
         process: "readonly",
         require: "readonly"
+      }
+    }
+  },
+  {
+    files: ["**/*.mjs"],
+    ...js.configs.recommended,
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: {
+        console: "readonly",
+        process: "readonly",
+        setTimeout: "readonly",
+        URL: "readonly"
       }
     }
   },
