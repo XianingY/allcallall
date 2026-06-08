@@ -28,7 +28,6 @@ import {
   type MeetingDeviceState,
   type MeetingJoinOptions,
   type RecordingRecord,
-  type RoomMemberRecord,
   type RoomRecord,
 } from "../api/collaboration";
 import { fetchWebRTCConfig } from "../api/webrtc";
@@ -36,6 +35,7 @@ import permissionsAdapter from "../platform/permissionsAdapter";
 import AnalyticsService from "../services/AnalyticsService";
 import AudioService from "../services/AudioServiceExpo";
 import VideoService, { type CameraFacing } from "../services/VideoService";
+import { applyRoomRealtimePatch } from "../services/roomRealtimeReducer";
 import { DEFAULT_ICE_SERVERS } from "./signalingConstants";
 import { preferRestrictedIceServers } from "./signalingHelpers";
 import { RESTRICTED_NETWORK_MODE } from "../config";
@@ -175,47 +175,7 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
 
   const applyRoomEvent = useCallback((event: RoomRealtimeEvent) => {
     setRoom((current) => {
-      if (!current) {
-        return current;
-      }
-      const payload = (event.payload ?? {}) as {
-        room_id?: number;
-        member?: RoomMemberRecord;
-        participant_count?: number;
-        is_active?: boolean;
-        latest_recording_id?: number | null;
-        has_recording?: boolean;
-        status?: string;
-      };
-      if (payload.room_id !== current.room.id) {
-        return current;
-      }
-
-      if (event.event === "room.member.updated" && payload.member?.user_id) {
-        const nextMembers = current.members.some((item) => item.user_id === payload.member?.user_id)
-          ? current.members.map((item) => item.user_id === payload.member?.user_id ? { ...item, ...payload.member } : item)
-          : [...current.members, payload.member];
-        return {
-          ...current,
-          members: nextMembers,
-        };
-      }
-
-      if (event.event === "room.state.updated" || event.event === "room.recording.updated" || event.event === "room.ended") {
-        return {
-          ...current,
-          room: {
-            ...current.room,
-            status: payload.status ?? current.room.status,
-          },
-          participant_count: payload.participant_count ?? current.participant_count,
-          is_active: payload.is_active ?? current.is_active,
-          has_recording: payload.has_recording ?? current.has_recording,
-          latest_recording_id: payload.latest_recording_id ?? current.latest_recording_id,
-        };
-      }
-
-      return current;
+      return applyRoomRealtimePatch(current, event);
     });
   }, []);
 
