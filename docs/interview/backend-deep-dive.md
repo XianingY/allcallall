@@ -75,6 +75,18 @@ Interview angle:
 - Explain why Agent run creation writes `agent.run.requested`, why message write-back writes `agent.run.completed`, and why both use outbox idempotency keys.
 - Explain why the current handler can be a simple observed event while the contract still allows Kafka, Redis Streams, or webhook publishers later.
 
+## Realtime Replay Store
+
+- `RealtimeEventStore` owns durable chat/room event persistence for replay.
+- It writes `chat_events`, assigns a stable sequence from the persisted row ID, and decodes payloads for reconnect catch-up.
+- `Service` still controls membership checks and publishing, while storage mechanics are independently testable.
+- `ListRealtimeEventsSince` keeps the API boundary while delegating replay storage to the store.
+
+Interview angle:
+
+- Explain the separation between authorization/business orchestration and durable realtime event storage.
+- Explain why `event_id`/`sequence` replay is more reliable than relying only on in-memory WebSocket delivery.
+
 ## Service Boundary Refactoring Plan
 
 `backend/internal/collaboration/service.go` is intentionally marked as the next major structural cleanup area. The current safe boundaries are:
@@ -92,6 +104,12 @@ The current code exposes these contracts in `backend/internal/collaboration/boun
 - `SupportServiceBoundary`
 
 The project avoids a big-bang split. The recommended interview explanation is: first add tests and DTO boundaries, then extract one cohesive service at a time.
+
+Completed first extraction:
+
+- Durable realtime replay storage is now isolated in `backend/internal/collaboration/realtime_event_store.go`.
+- `backend/internal/collaboration/service.go` delegates create/list mechanics to the store and keeps orchestration responsibilities.
+- `realtime_event_store_test.go` covers sequence assignment, `since_id` replay, recipient scoping, and bad payload fallback.
 
 ## Next High-Value Engineering Tasks
 

@@ -2222,75 +2222,14 @@ func (s *Service) publishRealtimeEvent(ctx context.Context, organizationID uint6
 }
 
 func (s *Service) createRealtimeEvent(ctx context.Context, organizationID, userID uint64, event string, payload any) (*RealtimeEventRecord, error) {
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-	item := models.ChatEvent{
-		OrganizationID: organizationID,
-		UserID:         userID,
-		Event:          event,
-		PayloadJSON:    string(payloadBytes),
-	}
-	if err := s.db.WithContext(ctx).Create(&item).Error; err != nil {
-		return nil, err
-	}
-	item.Sequence = item.ID
-	if err := s.db.WithContext(ctx).Model(&models.ChatEvent{}).Where("id = ?", item.ID).Update("sequence", item.Sequence).Error; err != nil {
-		return nil, err
-	}
-	return &RealtimeEventRecord{
-		ID:             item.ID,
-		Sequence:       item.Sequence,
-		OrganizationID: item.OrganizationID,
-		UserID:         item.UserID,
-		Event:          item.Event,
-		Payload:        payload,
-		CreatedAt:      item.CreatedAt,
-	}, nil
+	return NewRealtimeEventStore(s.db).Create(ctx, organizationID, userID, event, payload)
 }
 
 func (s *Service) ListRealtimeEventsSince(ctx context.Context, organizationID, userID, sinceID uint64, limit int) ([]RealtimeEventRecord, error) {
 	if _, _, err := s.ResolveOrganization(ctx, userID, organizationID); err != nil {
 		return nil, err
 	}
-	if limit <= 0 || limit > 200 {
-		limit = 100
-	}
-	var rows []models.ChatEvent
-	if err := s.db.WithContext(ctx).
-		Where("organization_id = ? AND user_id = ? AND id > ?", organizationID, userID, sinceID).
-		Order("id ASC").
-		Limit(limit).
-		Find(&rows).Error; err != nil {
-		return nil, err
-	}
-	result := make([]RealtimeEventRecord, 0, len(rows))
-	for _, row := range rows {
-		var payload any
-		if row.PayloadJSON != "" {
-			if err := json.Unmarshal([]byte(row.PayloadJSON), &payload); err != nil {
-				payload = map[string]any{}
-			}
-		}
-		result = append(result, RealtimeEventRecord{
-			ID:             row.ID,
-			Sequence:       realtimeSequence(row),
-			OrganizationID: row.OrganizationID,
-			UserID:         row.UserID,
-			Event:          row.Event,
-			Payload:        payload,
-			CreatedAt:      row.CreatedAt,
-		})
-	}
-	return result, nil
-}
-
-func realtimeSequence(row models.ChatEvent) uint64 {
-	if row.Sequence != 0 {
-		return row.Sequence
-	}
-	return row.ID
+	return NewRealtimeEventStore(s.db).ListSince(ctx, organizationID, userID, sinceID, limit)
 }
 
 func (s *Service) publishConversationPatchUpdate(ctx context.Context, organizationID, conversationID uint64, changes map[string]any) {
