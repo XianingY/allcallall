@@ -85,15 +85,34 @@ func seedAgentConversation(t *testing.T, db *gorm.DB) models.Conversation {
 	return conversation
 }
 
-func TestRunConversationAssistantCreatesExplainableRunAndToolCall(t *testing.T) {
+func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
 	svc, db, counters := newAgentServiceTestEnv(t)
 	conversation := seedAgentConversation(t, db)
 
-	result, err := svc.RunConversationAssistant(context.Background(), conversation.OrganizationID, 7, RunInput{
+	queued, err := svc.RunConversationAssistant(context.Background(), conversation.OrganizationID, 7, RunInput{
 		ConversationID: conversation.ID,
+		Goal:           "summarize current support handoff",
 	})
 	if err != nil {
-		t.Fatalf("run assistant failed: %v", err)
+		t.Fatalf("queue assistant failed: %v", err)
+	}
+	if queued.Run.Status != models.AgentRunStatusPending {
+		t.Fatalf("unexpected queued status: %s", queued.Run.Status)
+	}
+	if queued.Run.Goal != "summarize current support handoff" {
+		t.Fatalf("unexpected goal: %q", queued.Run.Goal)
+	}
+	if len(queued.Steps) != 0 || len(queued.ToolCalls) != 0 {
+		t.Fatalf("queued run should not have execution details yet: steps=%d tool_calls=%d", len(queued.Steps), len(queued.ToolCalls))
+	}
+	var requested models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_id = ?", "agent.run.requested", queued.Run.ID).Take(&requested).Error; err != nil {
+		t.Fatalf("load requested outbox event failed: %v", err)
+	}
+
+	result, err := svc.ExecuteRun(context.Background(), queued.Run.ID)
+	if err != nil {
+		t.Fatalf("execute assistant failed: %v", err)
 	}
 
 	if result.Run.Status != models.AgentRunStatusReady {
@@ -142,12 +161,22 @@ func TestRunConversationAssistantCreatesExplainableRunAndToolCall(t *testing.T) 
 	if err := db.Where("organization_id = ? AND conversation_id = ? AND key = ?", conversation.OrganizationID, conversation.ID, "last_agent_summary").Take(&memory).Error; err != nil {
 		t.Fatalf("load agent memory failed: %v", err)
 	}
-	var outbox models.EventOutbox
-	if err := db.Where("event = ? AND aggregate_id = ?", "agent.run.completed", conversation.ID).Take(&outbox).Error; err != nil {
+	var completedOutbox models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_id = ?", "agent.run.completed", conversation.ID).Take(&completedOutbox).Error; err != nil {
 		t.Fatalf("load outbox event failed: %v", err)
+	}
+	var messageOutbox models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_type = ? AND aggregate_id = ?", "message.created", "message", systemMessage.ID).Take(&messageOutbox).Error; err != nil {
+		t.Fatalf("load message.created outbox event failed: %v", err)
 	}
 
 	snapshot := counters.Snapshot()
+	if snapshot["agent_run_queued_total"] != 1 {
+		t.Fatalf("agent_run_queued_total mismatch: %v", snapshot)
+	}
+	if snapshot["agent_run_started_total"] != 1 {
+		t.Fatalf("agent_run_started_total mismatch: %v", snapshot)
+	}
 	if snapshot["agent_run_total"] != 1 {
 		t.Fatalf("agent_run_total mismatch: %v", snapshot)
 	}
@@ -175,6 +204,9 @@ func TestRunConversationAssistantIsIdempotentByKey(t *testing.T) {
 	if first.Run.ID != second.Run.ID {
 		t.Fatalf("expected same run for idempotency key, got first=%d second=%d", first.Run.ID, second.Run.ID)
 	}
+	if first.Run.Status != models.AgentRunStatusPending || second.Run.Status != models.AgentRunStatusPending {
+		t.Fatalf("expected pending idempotent run, got first=%s second=%s", first.Run.Status, second.Run.Status)
+	}
 
 	var count int64
 	if err := db.Model(&models.AgentRun{}).Where("idempotency_key = ?", "demo-key-1").Count(&count).Error; err != nil {
@@ -182,6 +214,30 @@ func TestRunConversationAssistantIsIdempotentByKey(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected one run for idempotency key, got %d", count)
+	}
+	if err := db.Model(&models.EventOutbox{}).Where("event = ? AND aggregate_id = ?", "agent.run.requested", first.Run.ID).Count(&count).Error; err != nil {
+		t.Fatalf("count requested outbox events failed: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one requested outbox event, got %d", count)
+	}
+
+	executed, err := svc.ExecuteRun(context.Background(), first.Run.ID)
+	if err != nil {
+		t.Fatalf("execute idempotent run failed: %v", err)
+	}
+	replayed, err := svc.ExecuteRun(context.Background(), first.Run.ID)
+	if err != nil {
+		t.Fatalf("replay execute idempotent run failed: %v", err)
+	}
+	if executed.Run.ID != replayed.Run.ID || len(replayed.ToolCalls) != 6 {
+		t.Fatalf("unexpected replayed run: executed=%d replayed=%d tool_calls=%d", executed.Run.ID, replayed.Run.ID, len(replayed.ToolCalls))
+	}
+	if err := db.Model(&models.AgentToolCall{}).Where("run_id = ?", first.Run.ID).Count(&count).Error; err != nil {
+		t.Fatalf("count tool calls failed: %v", err)
+	}
+	if count != 6 {
+		t.Fatalf("expected exactly six tool calls after repeated execute, got %d", count)
 	}
 }
 

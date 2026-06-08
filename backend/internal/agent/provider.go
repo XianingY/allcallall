@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -15,6 +16,8 @@ func NewPlanner(name string) (Planner, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "", models.AgentRunSourceRules:
 		return RulesPlanner{}, nil
+	case models.AgentRunSourceMockLLM:
+		return MockLLMPlanner{}, nil
 	case models.AgentRunSourceOpenAICompatible:
 		return OpenAICompatiblePlanner{}, nil
 	default:
@@ -38,10 +41,10 @@ type PlannerInput struct {
 }
 
 type PlannerOutput struct {
-	Summary     string
-	ActionItems []string
-	NextStep    string
-	RiskFlags   []string
+	Summary     string   `json:"summary"`
+	ActionItems []string `json:"action_items"`
+	NextStep    string   `json:"next_step"`
+	RiskFlags   []string `json:"risk_flags"`
 }
 
 type RulesPlanner struct{}
@@ -60,6 +63,32 @@ func (RulesPlanner) Plan(_ context.Context, input PlannerInput) (PlannerOutput, 
 	}, nil
 }
 
+type MockLLMPlanner struct{}
+
+func (MockLLMPlanner) Name() string {
+	return models.AgentRunSourceMockLLM
+}
+
+func (MockLLMPlanner) Plan(ctx context.Context, input PlannerInput) (PlannerOutput, error) {
+	if err := ctx.Err(); err != nil {
+		return PlannerOutput{}, err
+	}
+	raw, err := buildMockLLMResponse(input)
+	if err != nil {
+		return PlannerOutput{}, err
+	}
+	var output PlannerOutput
+	if err := json.Unmarshal([]byte(raw), &output); err != nil {
+		return PlannerOutput{}, err
+	}
+	output.ActionItems = uniqueStrings(output.ActionItems)
+	output.RiskFlags = uniqueStrings(output.RiskFlags)
+	if strings.TrimSpace(output.Summary) == "" || strings.TrimSpace(output.NextStep) == "" {
+		return PlannerOutput{}, ErrPlannerUnavailable
+	}
+	return output, nil
+}
+
 type OpenAICompatiblePlanner struct{}
 
 func (OpenAICompatiblePlanner) Name() string {
@@ -68,6 +97,21 @@ func (OpenAICompatiblePlanner) Name() string {
 
 func (OpenAICompatiblePlanner) Plan(context.Context, PlannerInput) (PlannerOutput, error) {
 	return PlannerOutput{}, ErrPlannerUnavailable
+}
+
+func buildMockLLMResponse(input PlannerInput) (string, error) {
+	summary, actionItems, nextStep, riskFlags := buildRulesOutput(input)
+	output := PlannerOutput{
+		Summary:     "MockLLM structured plan: " + summary,
+		ActionItems: append(actionItems, "记录 Agent 工具调用结果，并在线程中同步负责人"),
+		NextStep:    nextStep,
+		RiskFlags:   riskFlags,
+	}
+	raw, err := json.Marshal(output)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }
 
 func buildRulesOutput(input PlannerInput) (string, []string, string, []string) {

@@ -141,11 +141,15 @@ func seedDemo(ctx context.Context, db *gorm.DB, log zerolog.Logger) (*seedOutput
 	}
 	agentSvc := agent.NewService(db)
 	agentSvc.WithPlanner(planner)
-	run, err := agentSvc.RunConversationAssistant(ctx, org.ID, owner.ID, agent.RunInput{
+	queuedRun, err := agentSvc.RunConversationAssistant(ctx, org.ID, owner.ID, agent.RunInput{
 		ConversationID: conversation.ID,
 		Goal:           "prepare interview demo summary and next step",
 		IdempotencyKey: "interview-seed-agent-run",
 	})
+	if err != nil {
+		return nil, err
+	}
+	run, err := agentSvc.ExecuteRun(ctx, queuedRun.Run.ID)
 	if err != nil {
 		return nil, err
 	}

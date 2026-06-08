@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/allcallall/backend/internal/models"
@@ -15,6 +16,27 @@ func TestNewPlannerSelectsProvider(t *testing.T) {
 	}
 	if defaultPlanner.Name() != models.AgentRunSourceRules {
 		t.Fatalf("unexpected default planner: %s", defaultPlanner.Name())
+	}
+
+	mockPlanner, err := NewPlanner(models.AgentRunSourceMockLLM)
+	if err != nil {
+		t.Fatalf("mock planner failed: %v", err)
+	}
+	if mockPlanner.Name() != models.AgentRunSourceMockLLM {
+		t.Fatalf("unexpected mock planner: %s", mockPlanner.Name())
+	}
+	mockOutput, err := mockPlanner.Plan(context.Background(), PlannerInput{
+		Conversation: models.Conversation{
+			Title:    "Interview demo thread",
+			Status:   models.ConversationStatusOpen,
+			Priority: models.ConversationPriorityNormal,
+		},
+	})
+	if err != nil {
+		t.Fatalf("mock planner plan failed: %v", err)
+	}
+	if !strings.Contains(mockOutput.Summary, "MockLLM structured plan") || len(mockOutput.ActionItems) == 0 {
+		t.Fatalf("unexpected mock planner output: %+v", mockOutput)
 	}
 
 	openAIPlanner, err := NewPlanner(models.AgentRunSourceOpenAICompatible)

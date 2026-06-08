@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/media"
 	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/models"
@@ -46,10 +47,11 @@ type Service struct {
 	media     *media.Engine
 	storage   storage.RecordingStorage
 	metrics   counterRecorder
+	outbox    *events.Store
 }
 
 func NewService(db *gorm.DB, users *user.Service) *Service {
-	svc := &Service{db: db, users: users}
+	svc := &Service{db: db, users: users, outbox: events.NewStore(db)}
 	svc.metrics = metrics.NewCounterStore()
 	if localStorage, err := storage.NewRecordingStorage(storage.Config{Driver: storage.DriverLocal}); err == nil {
 		svc.storage = localStorage
@@ -75,6 +77,10 @@ func (s *Service) WithMetrics(counters counterRecorder) {
 	if counters != nil {
 		s.metrics = counters
 	}
+}
+
+func (s *Service) WithOutbox(outbox *events.Store) {
+	s.outbox = outbox
 }
 
 type OrganizationSummary struct {
@@ -2068,6 +2074,24 @@ func (s *Service) createMessageTx(ctx context.Context, tx *gorm.DB, organization
 			"updated_at":      now,
 		}).Error; err != nil {
 		return nil, err
+	}
+	if s.outbox != nil {
+		_, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
+			AggregateType:  "message",
+			AggregateID:    message.ID,
+			Event:          "message.created",
+			IdempotencyKey: fmt.Sprintf("message.created:%d", message.ID),
+			Payload: map[string]any{
+				"organization_id": organizationID,
+				"conversation_id": conversationID,
+				"message_id":      message.ID,
+				"sender_id":       userID,
+				"type":            message.Type,
+			},
+		})
+		if err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
+			return nil, err
+		}
 	}
 	if publish {
 		record, err := s.loadMessageRecord(ctx, message.ID)

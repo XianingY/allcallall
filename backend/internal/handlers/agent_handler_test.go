@@ -89,26 +89,27 @@ func TestAgentHandlerCreateAndGetRun(t *testing.T) {
 		"goal":            "summarize current support handoff",
 	})
 	rec = performRequestWithOrganization(t, router, http.MethodPost, "/api/v1/agent/runs", reqBody, conversation.OrganizationID)
-	expectHandlerStatus(t, rec, http.StatusCreated)
+	expectHandlerStatus(t, rec, http.StatusAccepted)
 
 	var createResponse struct {
 		Run struct {
 			ID             uint64   `json:"id"`
 			Status         string   `json:"status"`
 			ConversationID uint64   `json:"conversation_id"`
+			Goal           string   `json:"goal"`
 			ActionItems    []string `json:"action_items"`
 		} `json:"run"`
 		Steps     []agentStepResponse     `json:"steps"`
 		ToolCalls []agentToolCallResponse `json:"tool_calls"`
 	}
 	decodeBody(t, rec.Body.Bytes(), &createResponse)
-	if createResponse.Run.Status != models.AgentRunStatusReady {
+	if createResponse.Run.Status != models.AgentRunStatusPending {
 		t.Fatalf("unexpected status: %s", createResponse.Run.Status)
 	}
-	if createResponse.Run.ConversationID != conversation.ID || len(createResponse.Run.ActionItems) == 0 {
+	if createResponse.Run.ConversationID != conversation.ID || createResponse.Run.Goal != "summarize current support handoff" || len(createResponse.Run.ActionItems) != 0 {
 		t.Fatalf("unexpected run payload: %+v", createResponse.Run)
 	}
-	if len(createResponse.Steps) != 2 || len(createResponse.ToolCalls) != 6 {
+	if len(createResponse.Steps) != 0 || len(createResponse.ToolCalls) != 0 {
 		t.Fatalf("unexpected explainability payload: steps=%d tool_calls=%d", len(createResponse.Steps), len(createResponse.ToolCalls))
 	}
 

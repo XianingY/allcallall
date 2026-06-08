@@ -35,6 +35,7 @@ const (
 	AgentRunStatusFailed  = "failed"
 
 	AgentRunSourceRules            = "rules"
+	AgentRunSourceMockLLM          = "mock_llm"
 	AgentRunSourceOpenAICompatible = "openai_compatible"
 
 	AgentMemoryScopeConversation = "conversation"
@@ -274,6 +275,7 @@ type AgentRun struct {
 	IdempotencyKey  string     `gorm:"size:128;index"`
 	Source          string     `gorm:"size:32;not null;index"`
 	Status          string     `gorm:"size:32;not null;index"`
+	Goal            string     `gorm:"type:text"`
 	Summary         string     `gorm:"type:text"`
 	ActionItemsJSON string     `gorm:"type:longtext"`
 	NextStep        string     `gorm:"type:text"`

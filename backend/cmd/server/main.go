@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -152,20 +153,50 @@ func main() {
 	userSvc := user.NewService(userRepo, user.WithPushDeviceSupport())
 	collaborationSvc := collaboration.NewService(db, userSvc)
 	collaborationSvc.WithMetrics(counterStore)
+	outboxStore := events.NewStore(db)
+	collaborationSvc.WithOutbox(outboxStore)
 	agentSvc := agent.NewService(db, counterStore)
+	agentSvc.WithOutbox(outboxStore)
 	agentPlanner, err := agent.NewPlanner(os.Getenv("AGENT_PROVIDER"))
 	if err != nil {
 		appLogger.Fatal().Err(err).Msg("failed to initialize agent planner")
 	}
 	agentSvc.WithPlanner(agentPlanner)
 	appLogger.Info().Str("provider", agentPlanner.Name()).Msg("agent planner enabled")
-	outboxProcessor := events.NewProcessor(events.NewStore(db), counterStore)
+	outboxProcessor := events.NewProcessor(outboxStore, counterStore)
+	outboxProcessor.Register("agent.run.requested", func(ctx context.Context, event models.EventOutbox) error {
+		var payload struct {
+			AgentRunID uint64 `json:"agent_run_id"`
+		}
+		if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+			return err
+		}
+		if payload.AgentRunID == 0 {
+			return fmt.Errorf("agent run id missing in outbox payload")
+		}
+		if _, err := agentSvc.ExecuteRun(ctx, payload.AgentRunID); err != nil {
+			return err
+		}
+		appLogger.Info().
+			Uint64("outbox_id", event.ID).
+			Uint64("agent_run_id", payload.AgentRunID).
+			Msg("outbox agent run executed")
+		return nil
+	})
 	outboxProcessor.Register("agent.run.completed", func(_ context.Context, event models.EventOutbox) error {
 		appLogger.Info().
 			Uint64("outbox_id", event.ID).
 			Uint64("aggregate_id", event.AggregateID).
 			Str("event", event.Event).
 			Msg("outbox agent event observed")
+		return nil
+	})
+	outboxProcessor.Register("message.created", func(_ context.Context, event models.EventOutbox) error {
+		appLogger.Info().
+			Uint64("outbox_id", event.ID).
+			Uint64("message_id", event.AggregateID).
+			Str("event", event.Event).
+			Msg("outbox message event observed")
 		return nil
 	})
 	chatHub := collaboration.NewChatHub(appLogger)

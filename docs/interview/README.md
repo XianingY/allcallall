@@ -22,12 +22,12 @@ AllCallAll is positioned as an AI-powered realtime collaboration backend project
 ## Suggested Interview Demo Path
 
 1. Show the backend module boundaries: `auth`, `collaboration`, `agent`, `events`, `storage`, and `signaling`. Mention `commerce` only as supporting domain surface, not the main portfolio story.
-2. Walk through `POST /api/v1/agent/runs`: auth claims, organization header, membership guard, run creation, steps, tool call, metrics.
+2. Walk through `POST /api/v1/agent/runs`: auth claims, organization header, membership guard, pending run creation, `agent.run.requested` outbox enqueue, worker execution, steps, tool calls, and metrics.
 3. Show how realtime collaboration data feeds the Agent: conversation messages, internal notes, priority, assignee, and status.
 4. Explain why v1 is rules-based: stable tests, deterministic demos, no API-key dependency, and an easy seam for OpenAI-compatible providers later.
 5. Show idempotency: repeat a run with the same `Idempotency-Key` and explain why tool side effects do not duplicate.
 6. Show realtime replay: connect to `/api/v1/chat/ws?since_id=...` and point out `event_id`, `sequence`, and durable MySQL-backed replay.
-7. Open `/api/v1/metrics` and point to Agent and outbox counters such as `agent_run_total`, `agent_run_failed_total`, `agent_tool_call_total`, `agent_memory_write_total`, `outbox_publish_total`, and `outbox_publish_retry_total`.
+7. Open `/api/v1/metrics` and point to Agent and outbox counters such as `agent_run_queued_total`, `agent_run_started_total`, `agent_run_total`, `agent_run_failed_total`, `agent_tool_call_total`, `agent_memory_write_total`, `outbox_publish_total`, and `outbox_publish_retry_total`.
 
 ## Demo Seed Command
 
@@ -42,11 +42,12 @@ Optional provider selection:
 
 ```bash
 CONFIG_PATH=./configs/config.yaml AGENT_PROVIDER=rules go run ./cmd/interview-seed
+CONFIG_PATH=./configs/config.yaml AGENT_PROVIDER=mock_llm go run ./cmd/interview-seed
 ```
 
 The command prints organization, conversation, room, and Agent run IDs. It creates users, an organization, a conversation, notes/messages, a meeting record, contact profile, and one idempotent Agent run with the stable key `interview-seed-agent-run`.
 
-`AGENT_PROVIDER=rules` is the default and the right interview demo mode. `AGENT_PROVIDER=openai_compatible` selects the provider seam, but the current implementation intentionally returns planner unavailable until a real model provider is configured.
+`AGENT_PROVIDER=rules` is the default and the safest interview demo mode. `AGENT_PROVIDER=mock_llm` demonstrates structured-output parsing without external credentials. `AGENT_PROVIDER=openai_compatible` selects the provider seam, but the current implementation intentionally returns planner unavailable until a real model provider is configured.
 
 ## Resume Bullet Candidates
 

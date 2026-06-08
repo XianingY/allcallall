@@ -1,6 +1,6 @@
 # AI Agent Design Notes
 
-The current Agent is intentionally deterministic and rules-based. This keeps tests stable and makes the project easy to demo without API keys. The backend is structured so an OpenAI-compatible provider can be added later without changing the HTTP API or tool execution model.
+The current Agent is intentionally deterministic and rules-based by default. This keeps tests stable and makes the project easy to demo without API keys. The backend also includes a `mock_llm` provider that exercises prompt/JSON-output parsing without a network call, plus an OpenAI-compatible provider seam for a future real model.
 
 ## Current Scope
 
@@ -37,6 +37,7 @@ Both APIs require:
 Source enum:
 
 - `rules`: deterministic v1 implementation.
+- `mock_llm`: deterministic mock LLM-style provider that builds and parses structured JSON output.
 - `openai_compatible`: reserved provider seam for future model integration.
 
 Run status:
@@ -53,6 +54,8 @@ sequenceDiagram
     participant Client
     participant Handler as AgentHandler
     participant Service as AgentService
+    participant Outbox
+    participant Worker
     participant Planner
     participant Tools
     participant DB
@@ -62,10 +65,15 @@ sequenceDiagram
     Handler->>Service: RunConversationAssistant
     Service->>DB: verify conversation membership
     Service->>DB: find existing run by idempotency key
-    Service->>DB: create agent_run running
+    Service->>DB: create agent_run pending
+    Service->>Outbox: enqueue agent.run.requested
+    Handler-->>Client: 202 pending run
+    Worker->>Outbox: drain agent.run.requested
+    Worker->>Service: ExecuteRun(run_id)
+    Service->>DB: pending -> running
     Service->>DB: load conversation, notes, messages, rooms, memories
     Service->>DB: create collect_context step
-    Service->>Planner: Plan with RulesPlanner
+    Service->>Planner: Plan with configured provider
     Planner-->>Service: PlannerOutput
     Service->>DB: record read-only context tool calls
     Service->>DB: create plan_next_actions step
@@ -76,7 +84,8 @@ sequenceDiagram
     Service->>Tools: upsert_agent_memory
     Tools->>DB: memory + tool_call
     Service->>DB: mark run ready
-    Handler-->>Client: run, steps, tool_calls
+    Client->>Handler: GET /api/v1/agent/runs/:id
+    Handler-->>Client: ready run, steps, tool_calls
 ```
 
 ## Tool Calls
@@ -96,9 +105,9 @@ Tool execution remains backend-owned. The planner proposes structured output; th
 
 ## Idempotency And Side Effects
 
-`POST /api/v1/agent/runs` accepts `Idempotency-Key`. When the same user, organization, conversation, and key are seen again, the service returns the existing run result instead of creating a new run. That prevents duplicate conversation messages, follow-up tasks, memories, and outbox events during client retries.
+`POST /api/v1/agent/runs` accepts `Idempotency-Key`. When the same user, organization, conversation, and key are seen again, the service returns the existing run result instead of creating a new run. That prevents duplicate pending jobs and later duplicate conversation messages, follow-up tasks, memories, and outbox events during client retries.
 
-The outbox write has its own idempotency key, currently `agent.run.completed:<run_id>`. This gives two layers of retry safety: the Agent run is retry-safe at the API boundary, and the durable domain event is retry-safe at the outbox boundary.
+The outbox writes have their own idempotency keys: `agent.run.requested:<run_id>` and `agent.run.completed:<run_id>`. This gives two layers of retry safety: the Agent run is retry-safe at the API boundary, and durable domain events are retry-safe at the outbox boundary. `ExecuteRun` is also status-guarded, so replaying the same requested event after completion returns the persisted run instead of repeating tool side effects.
 
 ## Memory Model
 
@@ -106,7 +115,7 @@ The outbox write has its own idempotency key, currently `agent.run.completed:<ru
 
 ## Outbox Worker
 
-Agent message write-back enqueues `agent.run.completed` into `event_outbox`. The server starts a lightweight worker that drains pending rows and calls registered handlers.
+Agent run creation enqueues `agent.run.requested` into `event_outbox`. The server starts a lightweight worker that drains pending rows, calls `ExecuteRun`, and later observes `agent.run.completed`. Conversation message creation also writes `message.created`, so chat and Agent side effects share the same durable event path.
 
 Worker controls:
 
@@ -120,6 +129,10 @@ Worker metrics:
 - `outbox_publish_total`
 - `outbox_publish_retry_total`
 - `outbox_publish_failed_total`
+- `agent_run_queued_total`
+- `agent_run_started_total`
+- `agent_run_total`
+- `agent_run_failed_total`
 
 ## Provider Seam
 
@@ -135,6 +148,7 @@ type Planner interface {
 Current implementations:
 
 - `RulesPlanner`: default deterministic provider.
+- `MockLLMPlanner`: deterministic mock model provider that returns structured JSON and parses it back into `PlannerOutput`.
 - `OpenAICompatiblePlanner`: reserved seam that currently returns `ErrPlannerUnavailable`.
 
 The intended future implementation is an OpenAI-compatible planner that returns the same `PlannerOutput` shape. Tool calling should still be mediated by backend code, not executed directly by the model.
@@ -143,10 +157,11 @@ Provider selection:
 
 ```bash
 AGENT_PROVIDER=rules
+AGENT_PROVIDER=mock_llm
 AGENT_PROVIDER=openai_compatible
 ```
 
-`rules` is the default. `openai_compatible` is intentionally unavailable until a model provider is configured; handlers return `AGENT_PLANNER_UNAVAILABLE`.
+`rules` is the default. `mock_llm` is useful for interviews because it demonstrates structured-output parsing without requiring credentials. `openai_compatible` is intentionally unavailable until a model provider is configured; handlers return `AGENT_PLANNER_UNAVAILABLE`.
 
 ## Why This Is Useful In Interviews
 

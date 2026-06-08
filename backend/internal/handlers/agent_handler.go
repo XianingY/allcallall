@@ -43,6 +43,7 @@ type agentRunResponse struct {
 	IdempotencyKey string     `json:"idempotency_key,omitempty"`
 	Source         string     `json:"source"`
 	Status         string     `json:"status"`
+	Goal           string     `json:"goal"`
 	Summary        string     `json:"summary"`
 	ActionItems    []string   `json:"action_items"`
 	NextStep       string     `json:"next_step"`
@@ -102,7 +103,7 @@ func (h *AgentHandler) handleCreateRun(c *gin.Context) {
 		h.writeAgentError(c, err)
 		return
 	}
-	JSONSuccess(c, http.StatusCreated, toAgentRunResultResponse(result))
+	JSONSuccess(c, http.StatusAccepted, toAgentRunResultResponse(result))
 }
 
 func (h *AgentHandler) handleGetRun(c *gin.Context) {
@@ -172,6 +173,7 @@ func toAgentRunResponse(run models.AgentRun, actionItems, riskFlags []string) ag
 		IdempotencyKey: run.IdempotencyKey,
 		Source:         run.Source,
 		Status:         run.Status,
+		Goal:           run.Goal,
 		Summary:        run.Summary,
 		ActionItems:    actionItems,
 		NextStep:       run.NextStep,

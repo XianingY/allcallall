@@ -47,17 +47,19 @@ Interview angle:
 ## Agent Backend Design
 
 - Agent execution is persisted as `agent_runs`.
+- `POST /agent/runs` creates or returns a `pending` run and enqueues `agent.run.requested`.
+- The outbox worker calls `ExecuteRun`, transitions `pending -> running`, and writes `ready` or `failed`.
 - Intermediate reasoning stages are stored as `agent_steps`.
 - Side effects are stored as `agent_tool_calls`.
 - Scoped memories are stored as `agent_memories`.
 - Retry safety is provided through `Idempotency-Key`.
 - Tool side effects enqueue durable `event_outbox` records.
 - Tool execution is still controlled by backend service code.
-- `AGENT_PROVIDER` selects the planner: `rules` is deterministic and default, while `openai_compatible` is a deliberate provider seam that currently returns planner unavailable.
+- `AGENT_PROVIDER` selects the planner: `rules` is deterministic and default, `mock_llm` exercises structured-output parsing without API keys, and `openai_compatible` is a deliberate provider seam that currently returns planner unavailable.
 
 Interview angle:
 
-- Explain why Agent tools need permission checks, idempotency, observability, and bounded side effects.
+- Explain why Agent tools need permission checks, idempotency, observability, async execution, and bounded side effects.
 - Explain why the first version is deterministic before adding an LLM provider.
 
 ## Outbox Worker Design
@@ -69,7 +71,7 @@ Interview angle:
 
 Interview angle:
 
-- Explain why the Agent writes the outbox row in the same transaction as the conversation message.
+- Explain why Agent run creation writes `agent.run.requested`, why message write-back writes `agent.run.completed`, and why both use outbox idempotency keys.
 - Explain why the current handler can be a simple observed event while the contract still allows Kafka, Redis Streams, or webhook publishers later.
 
 ## Service Boundary Refactoring Plan

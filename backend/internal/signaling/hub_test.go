@@ -40,6 +40,7 @@ func TestHubRecordCallLifecycleCreatesDirectCallEvent(t *testing.T) {
 		&models.Attachment{},
 		&models.Pipeline{},
 		&models.PipelineStage{},
+		&models.EventOutbox{},
 	); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)
 	}
@@ -102,6 +103,10 @@ func TestHubRecordCallLifecycleCreatesDirectCallEvent(t *testing.T) {
 	}
 	if message.Body == "" {
 		t.Fatal("expected non-empty call event body")
+	}
+	var outbox models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_type = ? AND aggregate_id = ?", "message.created", "message", message.ID).Take(&outbox).Error; err != nil {
+		t.Fatalf("expected call event message outbox event, got error: %v", err)
 	}
 }
 

@@ -72,6 +72,12 @@ func (s *Service) WithPlanner(planner Planner) {
 	}
 }
 
+func (s *Service) WithOutbox(outbox *events.Store) {
+	if outbox != nil {
+		s.outbox = outbox
+	}
+}
+
 func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, userID uint64, in RunInput) (*RunResult, error) {
 	goal := strings.TrimSpace(in.Goal)
 	if goal == "" {
@@ -92,39 +98,46 @@ func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, 
 		}
 	}
 
-	now := time.Now().UTC()
 	run := models.AgentRun{
 		OrganizationID: organizationID,
 		UserID:         userID,
 		ConversationID: in.ConversationID,
 		IdempotencyKey: idempotencyKey,
 		Source:         s.planner.Name(),
-		Status:         models.AgentRunStatusRunning,
-		StartedAt:      &now,
+		Status:         models.AgentRunStatusPending,
+		Goal:           goal,
 	}
-	if err := s.db.WithContext(ctx).Create(&run).Error; err != nil {
-		return nil, err
-	}
-
-	result, err := s.executeRulesRun(ctx, run, goal)
-	if err != nil {
-		failedAt := time.Now().UTC()
-		_ = s.db.WithContext(ctx).Model(&models.AgentRun{}).
-			Where("id = ?", run.ID).
-			Updates(map[string]any{
-				"status":        models.AgentRunStatusFailed,
-				"error_message": err.Error(),
-				"completed_at":  failedAt,
-			}).Error
-		if s.metrics != nil {
-			s.metrics.Inc("agent_run_failed_total")
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&run).Error; err != nil {
+			return err
 		}
+		if s.outbox == nil {
+			return nil
+		}
+		_, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
+			AggregateType:  "agent_run",
+			AggregateID:    run.ID,
+			Event:          "agent.run.requested",
+			IdempotencyKey: fmt.Sprintf("agent.run.requested:%d", run.ID),
+			Payload: map[string]any{
+				"organization_id": run.OrganizationID,
+				"user_id":         run.UserID,
+				"conversation_id": run.ConversationID,
+				"agent_run_id":    run.ID,
+				"source":          run.Source,
+			},
+		})
+		if err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
+			return err
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	if s.metrics != nil {
-		s.metrics.Inc("agent_run_total")
+		s.metrics.Inc("agent_run_queued_total")
 	}
-	return result, nil
+	return s.buildRunResult(ctx, run)
 }
 
 func (s *Service) findRunByIdempotencyKey(ctx context.Context, organizationID, userID, conversationID uint64, key string) (*models.AgentRun, error) {
@@ -153,6 +166,70 @@ func (s *Service) GetRun(ctx context.Context, organizationID, userID, runID uint
 		return nil, err
 	}
 	return s.buildRunResult(ctx, run)
+}
+
+func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (*RunResult, error) {
+	var run models.AgentRun
+	if err := s.db.WithContext(ctx).Where("id = ?", runID).Take(&run).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrAgentRunNotFound
+		}
+		return nil, err
+	}
+	switch run.Status {
+	case models.AgentRunStatusReady, models.AgentRunStatusFailed:
+		return s.buildRunResult(ctx, run)
+	case models.AgentRunStatusRunning:
+		return s.buildRunResult(ctx, run)
+	}
+
+	startedAt := time.Now().UTC()
+	update := s.db.WithContext(ctx).Model(&models.AgentRun{}).
+		Where("id = ? AND status = ?", run.ID, models.AgentRunStatusPending).
+		Updates(map[string]any{
+			"status":        models.AgentRunStatusRunning,
+			"started_at":    startedAt,
+			"error_message": "",
+			"updated_at":    startedAt,
+		})
+	if update.Error != nil {
+		return nil, update.Error
+	}
+	if update.RowsAffected == 0 {
+		if err := s.db.WithContext(ctx).Where("id = ?", run.ID).Take(&run).Error; err != nil {
+			return nil, err
+		}
+		return s.buildRunResult(ctx, run)
+	}
+	run.Status = models.AgentRunStatusRunning
+	run.StartedAt = &startedAt
+	if s.metrics != nil {
+		s.metrics.Inc("agent_run_started_total")
+	}
+
+	goal := strings.TrimSpace(run.Goal)
+	if goal == "" {
+		goal = "summarize_conversation_next_steps"
+	}
+	result, err := s.executeRulesRun(ctx, run, goal)
+	if err != nil {
+		failedAt := time.Now().UTC()
+		_ = s.db.WithContext(ctx).Model(&models.AgentRun{}).
+			Where("id = ?", run.ID).
+			Updates(map[string]any{
+				"status":        models.AgentRunStatusFailed,
+				"error_message": err.Error(),
+				"completed_at":  failedAt,
+			}).Error
+		if s.metrics != nil {
+			s.metrics.Inc("agent_run_failed_total")
+		}
+		return nil, err
+	}
+	if s.metrics != nil {
+		s.metrics.Inc("agent_run_total")
+	}
+	return result, nil
 }
 
 func (s *Service) executeRulesRun(ctx context.Context, run models.AgentRun, goal string) (*RunResult, error) {
@@ -458,6 +535,22 @@ func (s *Service) writeConversationMessage(ctx context.Context, run models.Agent
 					"organization_id": run.OrganizationID,
 					"conversation_id": run.ConversationID,
 					"agent_run_id":    run.ID,
+				},
+			}); err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
+				return err
+			}
+			if _, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
+				AggregateType:  "message",
+				AggregateID:    message.ID,
+				Event:          "message.created",
+				IdempotencyKey: fmt.Sprintf("message.created:%d", message.ID),
+				Payload: map[string]any{
+					"organization_id": run.OrganizationID,
+					"conversation_id": run.ConversationID,
+					"message_id":      message.ID,
+					"sender_id":       run.UserID,
+					"type":            message.Type,
+					"source":          "agent",
 				},
 			}); err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
 				return err

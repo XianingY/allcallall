@@ -58,6 +58,7 @@ func TestCollaborationHandlerRoomOfferReturnsAnswer(t *testing.T) {
 		&models.Deal{},
 		&models.DealContact{},
 		&models.DealActivity{},
+		&models.EventOutbox{},
 	); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)
 	}
@@ -173,6 +174,7 @@ func TestCollaborationHandlerUpdatesConversation(t *testing.T) {
 		&models.Deal{},
 		&models.DealContact{},
 		&models.DealActivity{},
+		&models.EventOutbox{},
 	); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)
 	}
@@ -268,6 +270,7 @@ func TestCollaborationHandlerSupportRoomRequiresToken(t *testing.T) {
 		&models.Deal{},
 		&models.DealContact{},
 		&models.DealActivity{},
+		&models.EventOutbox{},
 	); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)
 	}
@@ -347,6 +350,7 @@ func TestCollaborationHandlerDownloadRecordingWritesExportAudit(t *testing.T) {
 		&models.Deal{},
 		&models.DealContact{},
 		&models.DealActivity{},
+		&models.EventOutbox{},
 	); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)
 	}

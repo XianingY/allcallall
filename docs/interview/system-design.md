@@ -80,6 +80,8 @@ sequenceDiagram
     participant Client
     participant Handler as AgentHandler
     participant Service as AgentService
+    participant Outbox
+    participant Worker
     participant Planner
     participant Tools
     participant DB as MySQL
@@ -88,23 +90,29 @@ sequenceDiagram
     Handler->>Service: RunConversationAssistant
     Service->>DB: verify conversation membership
     Service->>DB: find run by idempotency key
-    Service->>DB: create agent_run running
+    Service->>DB: create agent_run pending
+    Service->>Outbox: enqueue agent.run.requested
+    Handler-->>Client: 202 pending run
+    Worker->>Outbox: drain requested event
+    Worker->>Service: ExecuteRun(run_id)
+    Service->>DB: pending -> running
     Service->>DB: load messages, notes, rooms, memories
     Service->>DB: record context tool calls
-    Service->>Planner: rules plan
+    Service->>Planner: configured planner
     Planner-->>Service: summary, action_items, next_step, risk_flags
     Service->>Tools: write conversation message
     Tools->>DB: message + tool_call + outbox
     Service->>Tools: create follow-up task
     Service->>Tools: upsert agent memory
     Service->>DB: mark run ready
-    Handler-->>Client: run, steps, tool_calls
+    Client->>Handler: GET /api/v1/agent/runs/:id
+    Handler-->>Client: ready run, steps, tool_calls
 ```
 
 ## Reliability Choices
 
 - Service-layer permission checks are repeated even when handlers already authenticate.
-- Agent run idempotency prevents repeated tool side effects during retry.
+- Agent run idempotency prevents repeated pending jobs and tool side effects during retry.
 - Outbox records durable side effects for async event delivery; enqueue uses an idempotency key so retries do not create duplicate domain events.
 - The outbox worker drains pending rows, calls registered handlers, applies retry delay and max-attempt limits, and emits publish/retry/failure metrics.
 - WebSocket replay reduces dependency on perfect long-lived connections.
@@ -112,7 +120,7 @@ sequenceDiagram
 
 ## Interview Tradeoffs
 
-- Current Agent provider is deterministic for tests; an LLM provider is a replaceable seam.
-- Current outbox has a lightweight processor with registered handlers, configurable interval, batch size, retry delay, max attempts, and publish/failure metrics. The registered production handler currently observes `agent.run.completed`; production systems can replace handlers with Kafka/Redis Streams publishers.
+- Current Agent provider is deterministic for tests; `mock_llm` demonstrates structured-output parsing without external credentials, and an LLM provider is a replaceable seam.
+- Current outbox has a lightweight processor with registered handlers, configurable interval, batch size, retry delay, max attempts, and publish/failure metrics. Registered production handlers execute `agent.run.requested`, observe `agent.run.completed`, and observe `message.created`; production systems can replace handlers with Kafka/Redis Streams publishers.
 - Current realtime replay uses MySQL-backed event records; Redis Streams can be introduced if throughput requires it.
 - Current media layer is sufficient for demonstrating WebRTC signaling and room state, not a production-grade Zoom-scale SFU.

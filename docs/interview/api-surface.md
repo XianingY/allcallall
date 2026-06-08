@@ -117,8 +117,9 @@ Response shape:
 
 Talking points:
 
-- Provider seam: `AGENT_PROVIDER=rules` for deterministic demos; `AGENT_PROVIDER=openai_compatible` is wired but intentionally unavailable until a model provider is configured.
+- `POST /agent/runs` returns `202 Accepted` with a `pending` run, then `agent.run.requested` is drained by the outbox worker.
+- Provider seam: `AGENT_PROVIDER=rules` for deterministic demos; `AGENT_PROVIDER=mock_llm` for structured-output parsing demos; `AGENT_PROVIDER=openai_compatible` is wired but intentionally unavailable until a model provider is configured.
 - Tool calling is persisted and permission-guarded.
 - Memory is scoped to organization/user/conversation.
 - Repeating a request with the same `Idempotency-Key` returns the existing run result instead of duplicating tool side effects.
-- Outbox event is written for durable async delivery and drained by the outbox worker.
+- Outbox events `agent.run.requested`, `agent.run.completed`, and `message.created` give a durable async delivery path that can later be swapped for Kafka or Redis Streams.

@@ -26,6 +26,8 @@ Checks service health.
 
 Returns Prometheus-style counters. Interview-focused counters include:
 
+- `agent_run_queued_total`
+- `agent_run_started_total`
 - `agent_run_total`
 - `agent_run_failed_total`
 - `agent_tool_call_total`
@@ -156,7 +158,7 @@ Downloads a recording file after organization and permission checks.
 
 ### `POST /api/v1/agent/runs`
 
-Creates or returns an idempotent Agent run.
+Creates or returns an idempotent Agent run. The endpoint returns `202 Accepted`; execution is asynchronous. A newly created run starts as `pending`, is enqueued as `agent.run.requested`, and is executed by the outbox worker. Clients poll `GET /api/v1/agent/runs/:id` until the run reaches `ready` or `failed`.
 
 Request:
 
@@ -174,16 +176,19 @@ Response:
   "run": {
     "id": 1,
     "source": "rules",
-    "status": "ready",
-    "summary": "Thread summary",
-    "action_items": ["Confirm owner"],
-    "next_step": "Schedule next meeting",
-    "risk_flags": ["high_priority_thread"]
+    "status": "pending",
+    "goal": "summarize current support handoff",
+    "summary": "",
+    "action_items": [],
+    "next_step": "",
+    "risk_flags": []
   },
   "steps": [],
   "tool_calls": []
 }
 ```
+
+When the worker completes, the same run exposes `status=ready`, `steps`, and `tool_calls`.
 
 Current tools:
 
@@ -193,6 +198,12 @@ Current tools:
 - `write_conversation_message`
 - `create_follow_up_task`
 - `upsert_agent_memory`
+
+Durable events:
+
+- `agent.run.requested`
+- `agent.run.completed`
+- `message.created`
 
 ### `GET /api/v1/agent/runs/:id`
 

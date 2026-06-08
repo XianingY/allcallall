@@ -122,10 +122,11 @@ func TestRealtimeEventsAreRecipientScopedAndReplayable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create conversation failed: %v", err)
 	}
-	if _, err := svc.CreateMessage(ctx, org.ID, owner.ID, conversation.ID, MessageInput{
+	message, err := svc.CreateMessage(ctx, org.ID, owner.ID, conversation.ID, MessageInput{
 		Type: models.MessageTypeText,
 		Body: "hello",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("create message failed: %v", err)
 	}
 
@@ -145,6 +146,10 @@ func TestRealtimeEventsAreRecipientScopedAndReplayable(t *testing.T) {
 	}
 	if ownerEvents[0].Sequence == 0 || teammateEvents[0].Sequence == 0 {
 		t.Fatalf("expected explicit replay sequence, got owner=%d teammate=%d", ownerEvents[0].Sequence, teammateEvents[0].Sequence)
+	}
+	var outbox models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_type = ? AND aggregate_id = ?", "message.created", "message", message.ID).Take(&outbox).Error; err != nil {
+		t.Fatalf("expected message.created outbox event: %v", err)
 	}
 	if _, err := svc.ListRealtimeEventsSince(ctx, org.ID, outsider.ID, 0, 20); err == nil {
 		t.Fatal("expected outsider replay lookup to be denied")
