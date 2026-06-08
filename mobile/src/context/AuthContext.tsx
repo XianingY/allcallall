@@ -34,6 +34,7 @@ interface AuthContextValue extends AuthState {
     acceptCurrentLegal: boolean
   ) => Promise<void>;
   logout: () => Promise<void>;
+  logoutAll: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -134,11 +135,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
-  const clearState = useCallback(async () => {
+  const clearLocalState = useCallback(async () => {
     setState({ token: null, user: null, loading: false });
     PushNotificationService.setAuthToken(null);
     await BillingService.logout();
     await secureStorage.clear(KEYCHAIN_SERVICE);
+  }, []);
+
+  const clearState = useCallback(async () => {
+    await clearLocalState();
     if (Platform.OS === "web") {
       try {
         await authApi.logoutSession();
@@ -146,7 +151,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         // Local logout must not be blocked by a network failure.
       }
     }
-  }, []);
+  }, [clearLocalState]);
 
   const login = useCallback(
     async (email: string, password: string) => {
@@ -192,14 +197,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     await clearState();
   }, [clearState]);
 
+  const logoutAll = useCallback(async () => {
+    const currentToken = state.token;
+    if (currentToken) {
+      await authApi.logoutAllSessions(currentToken);
+    }
+    await clearLocalState();
+  }, [clearLocalState, state.token]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       ...state,
       login,
       register,
-      logout
+      logout,
+      logoutAll
     }),
-    [state, login, register, logout]
+    [state, login, register, logout, logoutAll]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,5 +1,7 @@
 import React from "react";
 import {
+  Alert,
+  Platform,
   View,
   Text,
   StyleSheet,
@@ -11,6 +13,7 @@ import {
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import { useAuthContext } from "../context/AuthContext";
 import { useCommercial } from "../context/CommercialContext";
 import { useSettings } from "../context/SettingsContext";
 import type { VideoQuality } from "../services/VideoService";
@@ -34,10 +37,12 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     updateVideoAdaptiveBitrateEnabled,
     updateBusinessAssistantEnabled
   } = useSettings();
+  const { logoutAll } = useAuthContext();
   const { tier, usage } = useCommercial();
   const translationUsage = React.useMemo(() => findTranslationUsage(usage), [usage]);
 
   const [bitrateInput, setBitrateInput] = React.useState(settings.videoMaxBitrateKbps.toString());
+  const [logoutAllPending, setLogoutAllPending] = React.useState(false);
 
   React.useEffect(() => {
     setBitrateInput(settings.videoMaxBitrateKbps.toString());
@@ -80,6 +85,34 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     updateVideoMaxBitrateKbps(val);
   };
 
+  const performLogoutAll = React.useCallback(async () => {
+    if (logoutAllPending) {
+      return;
+    }
+    setLogoutAllPending(true);
+    try {
+      await logoutAll();
+    } catch (error) {
+      console.warn("[SettingsScreen] Failed to sign out everywhere:", error);
+      Alert.alert("退出失败 / Sign-out failed", "当前无法撤销所有设备会话，请稍后再试。");
+      setLogoutAllPending(false);
+    }
+  }, [logoutAll, logoutAllPending]);
+
+  const handleLogoutAll = React.useCallback(() => {
+    const message = "这会撤销当前账号的所有 Web/Desktop/移动端会话，并退出当前设备。";
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      if (window.confirm(message)) {
+        void performLogoutAll();
+      }
+      return;
+    }
+    Alert.alert("退出所有设备 / Sign out everywhere", message, [
+      { text: "取消 / Cancel", style: "cancel" },
+      { text: "确认退出 / Sign out", style: "destructive", onPress: () => void performLogoutAll() }
+    ]);
+  }, [performLogoutAll]);
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scrollView}>
@@ -109,6 +142,17 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
               <Text style={styles.settingTitle}>法律文档 / Legal</Text>
               <Text style={styles.settingDescription}>
                 查看隐私政策、条款、支持邮箱和账号删除路径。
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.linkRow, styles.dangerRow]} onPress={handleLogoutAll} disabled={logoutAllPending}>
+            <View style={styles.settingInfo}>
+              <Text style={[styles.settingTitle, styles.dangerText]}>
+                {logoutAllPending ? "正在退出所有设备..." : "退出所有设备 / Sign out everywhere"}
+              </Text>
+              <Text style={styles.settingDescription}>
+                撤销所有设备的登录会话，并清除当前设备的本地登录状态。
               </Text>
             </View>
           </TouchableOpacity>

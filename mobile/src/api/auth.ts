@@ -43,3 +43,8 @@ export const logoutSession = async () => {
   const api = createApiClient();
   await api.post("/auth/logout", undefined, { withCredentials: true });
 };
+
+export const logoutAllSessions = async (token: string) => {
+  const api = createApiClient(token);
+  await api.post("/auth/logout-all", undefined, { withCredentials: true });
+};

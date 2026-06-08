@@ -38,6 +38,8 @@ If a previously rotated or revoked refresh token is reused, the backend records 
 
 The internal support user summary includes a redacted `refresh_sessions` block with active/revoked/expired counts, recent session metadata, and invalid refresh reuse counters. It never returns raw refresh tokens or token hashes.
 
+Users can revoke all sessions from Settings via **退出所有设备 / Sign out everywhere**. The action calls `POST /api/v1/auth/logout-all`, clears the current refresh cookie, and removes the current device's local access-token cache.
+
 Expired sessions are cleaned by the backend worker:
 
 - `REFRESH_SESSION_CLEANUP_INTERVAL_MIN`: cleanup interval in minutes. Default: `1440`.
@@ -45,5 +47,5 @@ Expired sessions are cleaned by the backend worker:
 
 Remaining production hardening items:
 
-- Add a user-facing device/session management UI.
+- Add a detailed user-facing device/session management UI.
 - Add suspicious-session alerting and forced revocation workflows.
