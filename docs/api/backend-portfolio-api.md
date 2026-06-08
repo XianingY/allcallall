@@ -18,6 +18,8 @@ Idempotency-Key: <stable-client-generated-key>
 
 ## Health And Metrics
 
+For a local end-to-end Agent/outbox evidence run without MySQL or Redis, use `cd backend && go run ./cmd/interview-bench -conversations 25`. It prints the same counters worth discussing in this section plus queue/execute latency summaries.
+
 ### `GET /api/v1/health`
 
 Checks service health.

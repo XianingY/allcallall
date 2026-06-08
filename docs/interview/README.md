@@ -49,6 +49,17 @@ The command prints organization, conversation, room, and Agent run IDs. It creat
 
 `AGENT_PROVIDER=rules` is the default and the safest interview demo mode. `AGENT_PROVIDER=mock_llm` demonstrates prompt construction and structured-output parsing without external credentials. `AGENT_PROVIDER=openai_compatible` selects the provider seam; until a real model provider is configured, service execution falls back to `rules` and records fallback metrics.
 
+## Local Benchmark Command
+
+For a database-free interview demo, run the Agent + outbox pipeline against a temporary SQLite database:
+
+```bash
+cd backend
+go run ./cmd/interview-bench -conversations 25 -batch-size 50
+```
+
+The command seeds conversations, queues Agent runs, drains `agent.run.requested` through the outbox processor, executes tool calls, writes conversation messages/tasks/memory, and prints JSON with ready/failed run counts, processed outbox events, latency summaries, and metric counters. Use `-provider=mock_llm` to show prompt construction and structured-output parsing; use `-provider=openai_compatible` to show the unavailable-provider fallback path.
+
 ## Resume Bullet Candidates
 
 - Built an organization-scoped realtime collaboration backend in Go with Gin, Gorm, Redis, WebSocket replay, room-state patch events, and S3-compatible recording storage.
@@ -59,6 +70,6 @@ The command prints organization, conversation, room, and Agent run IDs. It creat
 ## What To Improve Next For Interviews
 
 - Implement a real OpenAI-compatible planner behind the existing `AGENT_PROVIDER` seam.
-- Add benchmark/load tests for conversation event replay, outbox draining, and Agent run creation.
+- Extend benchmark/load tests to authenticated WebSocket replay and meeting room event throughput.
 - Replace the current observed outbox handler with production publishers when the deployment target is clear.
 - Capture measured baseline numbers in [Performance Report](performance-report.md).

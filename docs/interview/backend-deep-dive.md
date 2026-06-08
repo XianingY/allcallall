@@ -56,6 +56,7 @@ Interview angle:
 - Tool side effects enqueue durable `event_outbox` records.
 - Tool execution is still controlled by backend service code.
 - `AGENT_PROVIDER` selects the planner: `rules` is deterministic and default, `mock_llm` exercises prompt construction plus structured-output parsing without API keys, and `openai_compatible` is a deliberate provider seam that currently falls back to `rules` during service execution.
+- `go run ./cmd/interview-bench` provides a database-free proof path: it seeds temporary SQLite data, queues Agent runs, drains outbox events, executes tools, and emits JSON counts, latencies, and counters.
 
 Interview angle:
 

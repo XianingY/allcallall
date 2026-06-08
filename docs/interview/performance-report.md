@@ -35,11 +35,13 @@ Portfolio focus:
 
 Scripts live in `scripts/load/`.
 
+- `go run ./cmd/interview-bench`: local SQLite benchmark for Agent run creation, outbox drain, tool-call side effects, and metric counters. This is the fastest interview-safe evidence command because it does not require MySQL, Redis, or external model credentials.
 - `agent-run-smoke.sh`: concurrent Agent run creation against one conversation, with optional polling until each run reaches `ready` or `failed`.
 - `ws-connections.mjs`: WebSocket connection smoke/load template for `/api/v1/chat/ws`.
 
 Current script boundaries:
 
+- `interview-bench` is a local functional benchmark, not a production load test. Use it to prove the Agent/outbox pipeline and capture baseline write amplification; use staging/MySQL scripts for concurrency and infrastructure numbers.
 - There is no standalone Agent queue worker script. The server outbox worker consumes `agent.run.requested`, transitions `agent_runs` from `pending` to `running`, and marks the run `ready` or `failed`.
 - There is no standalone outbox drain script. Exercise outbox drain by creating Agent runs, then observe `agent.run.requested`, `agent.run.completed`, `message.created`, `event_outbox` status counts, and `outbox_publish_*` metrics while the server worker runs.
 - There is no standalone replay generator. Validate replay manually by generating chat/Agent events, reconnecting to `/api/v1/chat/ws?organization_id=<id>&since_id=<last_seen_event_id>`, and checking replayed `event_id`/`sequence` ordering.
@@ -105,6 +107,7 @@ System metrics:
 
 | Scenario | Concurrency | Duration | p95 Latency | Error Rate | Notes |
 | --- | ---: | ---: | ---: | ---: | --- |
+| Local Agent/outbox benchmark | 1 process | TBD | TBD | 0 expected | `go run ./cmd/interview-bench -conversations 25` |
 | Agent run creation | TBD | TBD | TBD | TBD | New idempotency key per request; expect `202 pending` |
 | Agent idempotency replay | TBD | TBD | TBD | TBD | Same key should not duplicate tool side effects |
 | Agent run backlog | TBD | TBD | TBD | TBD | Count `pending`/`running`/`failed` rows before and after worker drain |
@@ -113,6 +116,33 @@ System metrics:
 | WebSocket replay | TBD | TBD | TBD | TBD | `since_id` replay, backlog limit 100 |
 | Meeting event replay | TBD | TBD | TBD | TBD | Room events written into conversation event stream |
 | Recording download | TBD | TBD | TBD | TBD | local vs S3 |
+
+## Latest Local Benchmark Snapshot
+
+Measured locally on June 9, 2026 (Asia/Shanghai) with temporary SQLite. Treat this as a functional benchmark and interview demo baseline, not a production load-test result.
+
+Command:
+
+```bash
+make interview-bench
+```
+
+Result summary:
+
+| Metric | Value |
+| --- | ---: |
+| conversations | 25 |
+| queued_runs | 25 |
+| ready_runs | 25 |
+| failed_runs | 0 |
+| processed_events | 75 |
+| pending_outbox_events | 0 |
+| failed_outbox_events | 0 |
+| agent_tool_calls | 150 |
+| total_duration_ms | 2008 |
+| queue_latency_p95_ms | 4 |
+| execute_run_latency_p95_ms | 97 |
+| outbox_publish_total | 75 |
 
 ## Fill-In Run Template
 
@@ -167,6 +197,9 @@ Notes:
 
 Agent run creation and queue/backlog:
 
+- Run `go run ./cmd/interview-bench -conversations 25 -batch-size 50` first. Capture `queued_runs`, `ready_runs`, `processed_events`, `agent_tool_calls`, `pending_outbox_events`, `queue_latency`, `execute_run_latency`, and `counters`.
+- Repeat with `-provider=mock_llm` to demonstrate prompt construction and structured-output parsing without external credentials.
+- Repeat with `-provider=openai_compatible` to demonstrate unavailable-provider fallback into `rules` and `agent_planner_fallback_total`.
 - Run `agent-run-smoke.sh` with distinct idempotency keys.
 - Keep `POLL_AGENT_RUN=1` when measuring end-to-end queue drain latency. Use `POLL_AGENT_RUN=0` only when measuring create/enqueue latency.
 - Capture `agent_run_queued_total`, `agent_run_started_total`, `agent_run_total`, `agent_run_failed_total`, `agent_tool_call_total`, and `agent_memory_write_total` before and after.
