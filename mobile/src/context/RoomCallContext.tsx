@@ -39,17 +39,17 @@ import {
   buildRemoteStreamKey,
   parseParticipantIdFromMediaIds,
 } from "../services/roomMediaMapping";
+import {
+  RoomRemoteStreamRegistry,
+  type RemoteStreamRecord,
+} from "../services/roomRemoteStreamRegistry";
 import { applyRoomRealtimePatch } from "../services/roomRealtimeReducer";
 import { DEFAULT_ICE_SERVERS } from "./signalingConstants";
 import { preferRestrictedIceServers } from "./signalingHelpers";
 import { RESTRICTED_NETWORK_MODE } from "../config";
 import { useAuthContext } from "./AuthContext";
 
-type RemoteStreamRecord = {
-  id: string;
-  stream: MediaStream;
-  participantId?: number;
-};
+type MeetingRemoteStreamRecord = RemoteStreamRecord<MediaStream>;
 
 type RoomRealtimeEvent = {
   event: string;
@@ -60,7 +60,7 @@ type RoomRealtimeEvent = {
 interface RoomCallContextValue {
   room: RoomRecord | null;
   localStream: MediaStream | null;
-  remoteStreams: RemoteStreamRecord[];
+  remoteStreams: MeetingRemoteStreamRecord[];
   recording: RecordingRecord | null;
   deviceState: MeetingDeviceState;
   controlState: MeetingControlState;
@@ -83,7 +83,7 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
   const { token } = useAuthContext();
   const [room, setRoom] = useState<RoomRecord | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStreams, setRemoteStreams] = useState<RemoteStreamRecord[]>([]);
+  const [remoteStreams, setRemoteStreams] = useState<MeetingRemoteStreamRecord[]>([]);
   const [recording, setRecording] = useState<RecordingRecord | null>(null);
   const [controlState, setControlState] = useState<MeetingControlState>({
     joined: false,
@@ -100,8 +100,7 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const roomRef = useRef<RoomRecord | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const remoteStreamMapRef = useRef<Map<string, MediaStream>>(new Map());
-  const remoteStreamParticipantRef = useRef<Map<string, number | undefined>>(new Map());
+  const remoteStreamRegistryRef = useRef(new RoomRemoteStreamRegistry<MediaStream, MediaStreamTrack>());
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
 
@@ -135,8 +134,7 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
   }, [token]);
 
   const clearRemoteStreams = useCallback(() => {
-    remoteStreamMapRef.current.clear();
-    remoteStreamParticipantRef.current.clear();
+    remoteStreamRegistryRef.current.clear();
     setRemoteStreams([]);
   }, []);
 
@@ -241,13 +239,7 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
   }, [ensureMediaPermissions]);
 
   const syncRemoteStreams = useCallback(() => {
-    setRemoteStreams(
-      Array.from(remoteStreamMapRef.current.entries()).map(([id, stream]) => ({
-        id,
-        stream,
-        participantId: remoteStreamParticipantRef.current.get(id),
-      }))
-    );
+    setRemoteStreams(remoteStreamRegistryRef.current.snapshot());
   }, []);
 
   const renegotiate = useCallback(async (roomId: number) => {
@@ -345,32 +337,14 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
         const stream = event.streams[0] ?? new MediaStream([event.track]);
         const key = buildRemoteStreamKey(stream.id, event.track?.kind, event.track?.id);
         const participantId = parseParticipantIdFromMediaIds(stream.id, event.track?.id);
-        remoteStreamParticipantRef.current.set(key, participantId);
-        if (!remoteStreamMapRef.current.has(key)) {
-          remoteStreamMapRef.current.set(key, stream);
-        } else {
-          const current = remoteStreamMapRef.current.get(key)!;
-          if (!current.getTracks().find((track) => track.id === event.track.id)) {
-            current.addTrack(event.track);
-          }
-        }
+        remoteStreamRegistryRef.current.upsert({ key, stream, track: event.track, participantId });
         event.track.onended = () => {
           AnalyticsService.track("meeting_remote_stream_lost", {
             room_id: roomId,
             participant_id: participantId,
             track_kind: event.track.kind,
           });
-          const current = remoteStreamMapRef.current.get(key);
-          if (!current) {
-            return;
-          }
-          current.getTracks()
-            .filter((track) => track.id === event.track.id)
-            .forEach((track) => current.removeTrack(track));
-          if (current.getTracks().length === 0) {
-            remoteStreamMapRef.current.delete(key);
-            remoteStreamParticipantRef.current.delete(key);
-          }
+          remoteStreamRegistryRef.current.removeTrack(key, event.track);
           syncRemoteStreams();
         };
         syncRemoteStreams();

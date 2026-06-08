@@ -14,7 +14,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "web:smoke": "node scripts/web-smoke.mjs",
-    "test:unit": "tsx --test src/utils/linking.test.ts src/services/chatRealtimeCursor.test.ts src/services/conversationRealtimeReducer.test.ts src/services/roomMediaMapping.test.ts src/services/roomRealtimeReducer.test.ts src/context/signalingRtcUtils.test.ts",
+    "test:unit": "tsx --test src/utils/linking.test.ts src/services/chatRealtimeCursor.test.ts src/services/conversationRealtimeReducer.test.ts src/services/roomMediaMapping.test.ts src/services/roomRemoteStreamRegistry.test.ts src/services/roomRealtimeReducer.test.ts src/context/signalingRtcUtils.test.ts",
     "lint": "eslint . --ext .ts,.tsx",
     "postinstall": "patch-package"
   },
