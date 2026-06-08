@@ -15,6 +15,7 @@ This starts a local static server with SPA fallback and checks:
 - `/meetings`
 - `/rooms/:roomId`
 - `/conversations/:conversationId`
+- `/sessions`
 
 Without credentials, the test only verifies that direct routes render a usable page and do not throw browser page errors.
 
@@ -30,7 +31,7 @@ WEB_SMOKE_CONVERSATION_ID=1 \
 node scripts/web-smoke.mjs
 ```
 
-When credentials are provided, the script logs in first and then checks the Web collaboration paths after authentication. `WEB_SMOKE_ROOM_ID` and `WEB_SMOKE_CONVERSATION_ID` should point to records the test user can access.
+When credentials are provided, the script logs in first and then checks the Web collaboration and account-security paths after authentication. `WEB_SMOKE_ROOM_ID` and `WEB_SMOKE_CONVERSATION_ID` should point to records the test user can access.
 
 Set these optional flags for a stricter browser flow:
 
