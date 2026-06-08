@@ -6,16 +6,18 @@
 
 ## 中文
 
-> 一个基于 WebRTC 的实时音视频通信平台，支持点对点语音通话、联系人管理和在线状态同步。
+> 一个基于 WebRTC 的跨端协作通信平台，支持会议、团队 Inbox、联系人、实时翻译、录音资产和会后摘要。
 
 ### ✨ 特性
 
-- 🎤 **实时音视频通话** - 基于 Pion WebRTC 的点对点音频通话
+- 🎤 **实时音视频与会议** - 1:1 通话保留原链路，团队会议走房间化协议
 - 🌍 **实时翻译** - 基于后端在线翻译服务的实时字幕翻译
+- 🧵 **团队协作线程** - Inbox、内部备注、负责人、状态、优先级和会议事件
+- 🎙️ **录音与会后资产** - 本地/S3-compatible 存储、保留期清理、录音下载和摘要入口
 - 👥 **联系人管理** - 添加、搜索和管理通讯录
 - 🟢 **在线状态** - 实时显示用户在线状态和最后在线时间
-- 🔐 **用户认证** - JWT 令牌认证和会话管理
-- 📱 **跨平台** - Android 原生应用支持，iOS 开发中
+- 🔐 **用户认证** - JWT access token + HttpOnly refresh cookie/Web refresh session
+- 📱 **跨平台** - Android 主线，Web 工作台，Electron Desktop 壳；iOS 真机闭环暂缓
 - 🚀 **高性能** - Redis 缓存、连接池优化、异步 WebSocket 信令
 - 🔄 **自动重连** - 网络异常自动重新连接
 - 🔒 **隐私保护** - 不落盘原始音频与原文，仅保留最小化指标与错误码
@@ -42,6 +44,13 @@
 - **实时翻译**: React Native + WebRTC 本地采集 + 后端 WebSocket 流式翻译
 - **模型量化**: INT8 (70% 大小减少)
 - **原生集成**: Android JNI + C++
+
+#### Web / Desktop
+- **Web**: Expo Web 工作台，支持 `/meetings`、`/rooms/:roomId`、`/conversations/:conversationId`
+- **Desktop**: Electron 薄壳复用 Web 客户端
+- **会话**: Web access token 存 `sessionStorage`，refresh token 走 HttpOnly cookie + 服务端 session 轮换
+
+Web/Desktop 开发流程见 [docs/development/web-desktop-workflow.md](docs/development/web-desktop-workflow.md)。
 
 #### 基础设施
 - **容器化**: Docker & Docker Compose
@@ -155,6 +164,24 @@ export WEBRTC_ICE_SERVERS_JSON='[
 - 强制轮询信令可设置 `EXPO_PUBLIC_SIGNALING_TRANSPORT=poll`
 - RevenueCat 订阅依赖 `EXPO_PUBLIC_REVENUECAT_API_KEY` 与 `EXPO_PUBLIC_REVENUECAT_OFFERING_ID`
 - Android 首发 SKU 已固定为 `premium_monthly` 与 `premium_yearly`，客户端不会读取其他产品 ID
+
+### Web / Desktop 开发入口
+
+```bash
+# Web 工作台
+cd mobile
+npm run web
+
+# Web smoke
+npm run web:smoke
+
+# Electron Desktop 壳
+cd ../desktop
+npm install
+ALLCALLALL_WEB_URL=http://localhost:8081 npm run build
+```
+
+Web/Desktop 复用同一套 `/api/v1`。浏览器跨域访问后端时需要设置 `CORS_ALLOWED_ORIGINS`；详见 [Web / Desktop Development Workflow](docs/development/web-desktop-workflow.md) 与 [Web Auth Session](docs/deployment/web-auth-session.md)。
 
 #### 云服务器运维
 
@@ -561,16 +588,19 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 
 ## English
 
-> Real-time audio/video communication platform built with WebRTC and React Native.
+> Cross-platform WebRTC collaboration platform for meetings, team Inbox, contacts, live translation, recording assets, and post-meeting summaries.
 
 ### ✨ Features
 
-- 🎤 **Real-time Audio/Video Calls** - Peer-to-peer audio calls based on Pion WebRTC
+- 🎤 **Calls and Meetings** - stable 1:1 calling plus room-based team meetings
+- 🌍 **Live Translation** - backend streaming translation with real-time subtitles
+- 🧵 **Team Collaboration Threads** - Inbox, internal notes, assignee, status, priority, and meeting events
+- 🎙️ **Recording Assets** - local/S3-compatible storage, retention cleanup, downloads, and summary entry points
 - 👥 **Contact Management** - Add, search, and manage contacts
 - 🟢 **Online Status** - Real-time user presence and last seen information
-- 🔐 **User Authentication** - JWT token authentication and session management via email
+- 🔐 **User Authentication** - JWT access token plus HttpOnly refresh cookie/Web refresh sessions
 - 📧 **Email Verification** - Secure user registration with QQ SMTP email verification
-- 📱 **Cross-Platform** - Native Android support, iOS in development
+- 📱 **Cross-Platform** - Android mainline, Web workspace, Electron Desktop shell; iOS device closure is paused
 - 🚀 **High Performance** - Redis caching, connection pooling, async WebSocket signaling
 - 🔄 **Auto Reconnection** - Automatic reconnection on network failure
 
@@ -593,6 +623,13 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 - **WebRTC**: react-native-webrtc 124.0.0
 - **HTTP**: Axios
 - **State Management**: React Context API
+
+#### Web / Desktop
+- **Web**: Expo Web workspace with `/meetings`, `/rooms/:roomId`, and `/conversations/:conversationId`
+- **Desktop**: Electron thin shell around the Web client
+- **Session**: Web access token in `sessionStorage`; refresh token via HttpOnly cookie and server-side session rotation
+
+See [docs/development/web-desktop-workflow.md](docs/development/web-desktop-workflow.md) for Web/Desktop development.
 
 #### Infrastructure
 - **Containerization**: Docker & Docker Compose
