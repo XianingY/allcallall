@@ -3,9 +3,11 @@ import mitt from "mitt";
 import { WS_HOST } from "../config";
 
 type ChatEventPayload = {
+  event_id?: number;
   event: string;
   organization_id: number;
   payload: unknown;
+  created_at?: string;
 };
 
 type Events = {
@@ -24,6 +26,7 @@ class ChatRealtimeService {
   private token: string | null = null;
   private organizationId: number | null = null;
   private readonly seenEvents = new Map<string, number>();
+  private readonly lastEventIds = new Map<number, number>();
 
   private static readonly HEARTBEAT_INTERVAL_MS = 20_000;
   private static readonly DEDUPE_WINDOW_MS = 5_000;
@@ -49,7 +52,6 @@ class ChatRealtimeService {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
-    this.seenEvents.clear();
     if (this.socket) {
       this.socket.close();
       this.socket = null;
@@ -68,7 +70,8 @@ class ChatRealtimeService {
     if (!this.token || !this.organizationId || this.socket) {
       return;
     }
-    const url = `${WS_HOST}/api/v1/chat/ws?token=${encodeURIComponent(this.token)}&organization_id=${this.organizationId}`;
+    const sinceId = this.lastEventIds.get(this.organizationId) ?? 0;
+    const url = `${WS_HOST}/api/v1/chat/ws?token=${encodeURIComponent(this.token)}&organization_id=${this.organizationId}&since_id=${sinceId}`;
     const socket = new WebSocket(url);
     this.socket = socket;
 
@@ -133,10 +136,24 @@ class ChatRealtimeService {
       }
     }
     const signature = JSON.stringify({
+      event_id: payload.event_id,
       event: payload.event,
       organization_id: payload.organization_id,
       payload: payload.payload
     });
+    if (payload.event_id) {
+      const idSignature = `${payload.organization_id}:${payload.event_id}`;
+      const seenAt = this.seenEvents.get(idSignature);
+      if (seenAt && now - seenAt <= ChatRealtimeService.DEDUPE_WINDOW_MS) {
+        return true;
+      }
+      this.seenEvents.set(idSignature, now);
+      const current = this.lastEventIds.get(payload.organization_id) ?? 0;
+      if (payload.event_id > current) {
+        this.lastEventIds.set(payload.organization_id, payload.event_id);
+      }
+      return false;
+    }
     const previous = this.seenEvents.get(signature);
     if (previous && now - previous <= ChatRealtimeService.DEDUPE_WINDOW_MS) {
       return true;

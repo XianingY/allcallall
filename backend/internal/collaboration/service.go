@@ -31,7 +31,7 @@ var (
 )
 
 type EventPublisher interface {
-	PublishToUsers(ctx context.Context, organizationID uint64, userIDs []uint64, event string, payload any) error
+	PublishToUser(ctx context.Context, event RealtimeEventRecord) error
 }
 
 type counterRecorder interface {
@@ -167,6 +167,15 @@ type MessageRecord struct {
 	models.Message
 	SenderEmail       string `json:"sender_email"`
 	SenderDisplayName string `json:"sender_display_name"`
+}
+
+type RealtimeEventRecord struct {
+	ID             uint64    `json:"event_id"`
+	OrganizationID uint64    `json:"organization_id"`
+	UserID         uint64    `json:"user_id,omitempty"`
+	Event          string    `json:"event"`
+	Payload        any       `json:"payload"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 type CreateRoomInput struct {
@@ -925,10 +934,8 @@ func (s *Service) CreateMessage(ctx context.Context, organizationID, userID, con
 	if err != nil {
 		return nil, err
 	}
-	if s.publisher != nil {
-		memberIDs, _ := s.listConversationMemberIDs(ctx, conversationID)
-		_ = s.publisher.PublishToUsers(ctx, organizationID, memberIDs, "message.created", record)
-	}
+	memberIDs, _ := s.listConversationMemberIDs(ctx, conversationID)
+	s.publishRealtimeEvent(ctx, organizationID, memberIDs, "message.created", record)
 	return record, nil
 }
 
@@ -2038,11 +2045,11 @@ func (s *Service) createMessageTx(ctx context.Context, tx *gorm.DB, organization
 		}).Error; err != nil {
 		return nil, err
 	}
-	if publish && s.publisher != nil {
+	if publish {
 		record, err := s.loadMessageRecord(ctx, message.ID)
 		if err == nil {
 			memberIDs, _ := s.listConversationMemberIDsTx(ctx, tx, conversationID)
-			_ = s.publisher.PublishToUsers(ctx, organizationID, memberIDs, "message.created", record)
+			s.publishRealtimeEvent(ctx, organizationID, memberIDs, "message.created", record)
 		}
 	}
 	return message, nil
@@ -2133,28 +2140,96 @@ func (s *Service) listRoomMemberIDs(ctx context.Context, roomID uint64) ([]uint6
 }
 
 func (s *Service) publishRoomEvent(ctx context.Context, organizationID, roomID uint64, event string, payload any) {
-	if s.publisher == nil {
-		return
-	}
 	memberIDs, err := s.listRoomMemberIDs(ctx, roomID)
 	if err != nil || len(memberIDs) == 0 {
 		s.metrics.Inc("room_event_broadcast_fail_total")
 		return
 	}
-	if err := s.publisher.PublishToUsers(ctx, organizationID, memberIDs, event, payload); err != nil {
-		s.metrics.Inc("room_event_broadcast_fail_total")
-	}
+	s.publishRealtimeEvent(ctx, organizationID, memberIDs, event, payload)
 }
 
 func (s *Service) publishConversationEvent(ctx context.Context, organizationID, conversationID uint64, event string, payload any) {
-	if s.publisher == nil {
-		return
-	}
 	memberIDs, err := s.listConversationMemberIDs(ctx, conversationID)
 	if err != nil || len(memberIDs) == 0 {
 		return
 	}
-	_ = s.publisher.PublishToUsers(ctx, organizationID, memberIDs, event, payload)
+	s.publishRealtimeEvent(ctx, organizationID, memberIDs, event, payload)
+}
+
+func (s *Service) publishRealtimeEvent(ctx context.Context, organizationID uint64, userIDs []uint64, event string, payload any) {
+	userIDs = uniqueUint64s(userIDs)
+	for _, userID := range userIDs {
+		record, err := s.createRealtimeEvent(ctx, organizationID, userID, event, payload)
+		if err != nil {
+			s.metrics.Inc("chat_realtime_delivery_fail_total")
+			continue
+		}
+		if s.publisher == nil {
+			continue
+		}
+		if err := s.publisher.PublishToUser(ctx, *record); err != nil {
+			s.metrics.Inc("chat_realtime_delivery_fail_total")
+		}
+	}
+}
+
+func (s *Service) createRealtimeEvent(ctx context.Context, organizationID, userID uint64, event string, payload any) (*RealtimeEventRecord, error) {
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	item := models.ChatEvent{
+		OrganizationID: organizationID,
+		UserID:         userID,
+		Event:          event,
+		PayloadJSON:    string(payloadBytes),
+	}
+	if err := s.db.WithContext(ctx).Create(&item).Error; err != nil {
+		return nil, err
+	}
+	return &RealtimeEventRecord{
+		ID:             item.ID,
+		OrganizationID: item.OrganizationID,
+		UserID:         item.UserID,
+		Event:          item.Event,
+		Payload:        payload,
+		CreatedAt:      item.CreatedAt,
+	}, nil
+}
+
+func (s *Service) ListRealtimeEventsSince(ctx context.Context, organizationID, userID, sinceID uint64, limit int) ([]RealtimeEventRecord, error) {
+	if _, _, err := s.ResolveOrganization(ctx, userID, organizationID); err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	var rows []models.ChatEvent
+	if err := s.db.WithContext(ctx).
+		Where("organization_id = ? AND user_id = ? AND id > ?", organizationID, userID, sinceID).
+		Order("id ASC").
+		Limit(limit).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	result := make([]RealtimeEventRecord, 0, len(rows))
+	for _, row := range rows {
+		var payload any
+		if row.PayloadJSON != "" {
+			if err := json.Unmarshal([]byte(row.PayloadJSON), &payload); err != nil {
+				payload = map[string]any{}
+			}
+		}
+		result = append(result, RealtimeEventRecord{
+			ID:             row.ID,
+			OrganizationID: row.OrganizationID,
+			UserID:         row.UserID,
+			Event:          row.Event,
+			Payload:        payload,
+			CreatedAt:      row.CreatedAt,
+		})
+	}
+	return result, nil
 }
 
 func (s *Service) publishConversationPatchUpdate(ctx context.Context, organizationID, conversationID uint64, changes map[string]any) {

@@ -36,6 +36,7 @@ func TestHubRecordCallLifecycleCreatesDirectCallEvent(t *testing.T) {
 		&models.ConversationMember{},
 		&models.Message{},
 		&models.MessageRead{},
+		&models.ChatEvent{},
 		&models.Attachment{},
 		&models.Pipeline{},
 		&models.PipelineStage{},

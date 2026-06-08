@@ -39,6 +39,7 @@ func newServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *user.Service) {
 		&models.ConversationMember{},
 		&models.Message{},
 		&models.MessageRead{},
+		&models.ChatEvent{},
 		&models.Attachment{},
 		&models.CallRoom{},
 		&models.CallRoomMember{},
@@ -81,6 +82,68 @@ func createTestUser(t *testing.T, db *gorm.DB, email, displayName string) models
 		t.Fatalf("create user failed: %v", err)
 	}
 	return item
+}
+
+func TestRealtimeEventsAreRecipientScopedAndReplayable(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	ctx := context.Background()
+
+	owner := createTestUser(t, db, "owner@example.com", "Owner")
+	teammate := createTestUser(t, db, "teammate@example.com", "Teammate")
+	outsider := createTestUser(t, db, "outsider@example.com", "Outsider")
+
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Replay Org")
+	if err != nil {
+		t.Fatalf("create org failed: %v", err)
+	}
+	if err := db.Create(&models.OrganizationMember{
+		OrganizationID: org.ID,
+		UserID:         teammate.ID,
+		Role:           models.OrganizationRoleMember,
+		JoinedAt:       time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("add teammate failed: %v", err)
+	}
+
+	conversation, err := svc.CreateConversation(ctx, org.ID, owner.ID, CreateConversationInput{
+		Type:      models.ConversationTypeDirect,
+		MemberIDs: []uint64{teammate.ID},
+	})
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+	if _, err := svc.CreateMessage(ctx, org.ID, owner.ID, conversation.ID, MessageInput{
+		Type: models.MessageTypeText,
+		Body: "hello",
+	}); err != nil {
+		t.Fatalf("create message failed: %v", err)
+	}
+
+	ownerEvents, err := svc.ListRealtimeEventsSince(ctx, org.ID, owner.ID, 0, 20)
+	if err != nil {
+		t.Fatalf("list owner events failed: %v", err)
+	}
+	teammateEvents, err := svc.ListRealtimeEventsSince(ctx, org.ID, teammate.ID, 0, 20)
+	if err != nil {
+		t.Fatalf("list teammate events failed: %v", err)
+	}
+	if len(ownerEvents) != 1 || len(teammateEvents) != 1 {
+		t.Fatalf("expected one event per conversation member, got owner=%d teammate=%d", len(ownerEvents), len(teammateEvents))
+	}
+	if ownerEvents[0].Event != "message.created" || teammateEvents[0].Event != "message.created" {
+		t.Fatalf("expected message.created events, got owner=%s teammate=%s", ownerEvents[0].Event, teammateEvents[0].Event)
+	}
+	if _, err := svc.ListRealtimeEventsSince(ctx, org.ID, outsider.ID, 0, 20); err == nil {
+		t.Fatal("expected outsider replay lookup to be denied")
+	}
+
+	afterOwnerEvent, err := svc.ListRealtimeEventsSince(ctx, org.ID, owner.ID, ownerEvents[0].ID, 20)
+	if err != nil {
+		t.Fatalf("list owner events after cursor failed: %v", err)
+	}
+	if len(afterOwnerEvent) != 0 {
+		t.Fatalf("expected no events after cursor, got %d", len(afterOwnerEvent))
+	}
 }
 
 func addOrgMember(t *testing.T, db *gorm.DB, organizationID, userID uint64, role string) {

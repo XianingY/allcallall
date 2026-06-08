@@ -692,12 +692,24 @@ func (h *CollaborationHandler) handleChatWS(c *gin.Context) {
 		JSONErrorWithCode(c, http.StatusForbidden, "ORGANIZATION_ACCESS_DENIED", "organization access denied")
 		return
 	}
+	sinceID, err := parseUintHeader(c.Query("since_id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid since_id")
+		return
+	}
 	conn, err := h.wsUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		h.logger.Warn().Err(err).Msg("chat websocket upgrade failed")
 		return
 	}
-	h.chatHub.HandleConnection(c.Request.Context(), claims.UserID, org.ID, conn)
+	h.chatHub.HandleConnection(c.Request.Context(), claims.UserID, org.ID, conn, func() []collaboration.RealtimeEventRecord {
+		backlog, err := h.service.ListRealtimeEventsSince(c.Request.Context(), org.ID, claims.UserID, sinceID, 100)
+		if err != nil {
+			h.logger.Warn().Err(err).Uint64("user_id", claims.UserID).Uint64("organization_id", org.ID).Msg("chat websocket replay lookup failed")
+			return nil
+		}
+		return backlog
+	})
 }
 
 func (h *CollaborationHandler) handleCreateRoom(c *gin.Context) {

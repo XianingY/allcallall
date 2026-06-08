@@ -103,6 +103,7 @@ func main() {
 		&models.ConversationMember{},
 		&models.Message{},
 		&models.MessageRead{},
+		&models.ChatEvent{},
 		&models.Attachment{},
 		&models.PushDevice{},
 		&models.CallRoom{},

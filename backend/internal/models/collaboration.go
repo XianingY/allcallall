@@ -213,6 +213,20 @@ func (MessageRead) TableName() string {
 	return "message_reads"
 }
 
+// ChatEvent stores per-recipient realtime events for websocket catch-up after reconnects.
+type ChatEvent struct {
+	ID             uint64    `gorm:"primaryKey;autoIncrement"`
+	OrganizationID uint64    `gorm:"not null;index:idx_chat_event_recipient,priority:1"`
+	UserID         uint64    `gorm:"not null;index:idx_chat_event_recipient,priority:2"`
+	Event          string    `gorm:"size:96;not null;index"`
+	PayloadJSON    string    `gorm:"type:longtext"`
+	CreatedAt      time.Time `gorm:"autoCreateTime;index:idx_chat_event_recipient,priority:3"`
+}
+
+func (ChatEvent) TableName() string {
+	return "chat_events"
+}
+
 type Attachment struct {
 	ID          uint64    `gorm:"primaryKey;autoIncrement"`
 	MessageID   uint64    `gorm:"not null;index"`
