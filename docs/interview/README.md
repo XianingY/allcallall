@@ -28,6 +28,23 @@ AllCallAll is now positioned as an AI-powered realtime collaboration backend pro
 5. Show idempotency: repeat a run with the same `Idempotency-Key` and explain why tool side effects do not duplicate.
 6. Open `/api/v1/metrics` and point to Agent counters such as `agent_run_total`, `agent_run_failed_total`, `agent_tool_call_total`, and `agent_memory_write_total`.
 
+## Demo Seed Command
+
+After starting MySQL and configuring `CONFIG_PATH`, generate a deterministic interview demo dataset:
+
+```bash
+cd backend
+CONFIG_PATH=./configs/config.yaml go run ./cmd/interview-seed
+```
+
+Optional provider selection:
+
+```bash
+AGENT_PROVIDER=rules go run ./cmd/interview-seed
+```
+
+The command prints organization, conversation, room, and Agent run IDs. It creates users, an organization, a conversation, notes/messages, a meeting record, contact profile, and one idempotent Agent run.
+
 ## Resume Bullet Candidates
 
 - Built an organization-scoped realtime collaboration backend in Go with Gin, Gorm, Redis, WebSocket replay, room-state patch events, and S3-compatible recording storage.

@@ -31,6 +31,13 @@ Lightweight load/smoke scripts:
 - `scripts/load/agent-run-smoke.sh`
 - `scripts/load/ws-connections.mjs`
 
+Interview demo seed:
+
+```bash
+cd backend
+CONFIG_PATH=./configs/config.yaml go run ./cmd/interview-seed
+```
+
 ## 中文
 
 > 一个面向后端开发面试的工程型作品集项目：Go 后端 + 实时协作 + WebSocket/WebRTC + MySQL/Redis + 可观测性 + AI Agent 工程化。

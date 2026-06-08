@@ -152,6 +152,12 @@ func main() {
 	collaborationSvc := collaboration.NewService(db, userSvc)
 	collaborationSvc.WithMetrics(counterStore)
 	agentSvc := agent.NewService(db, counterStore)
+	agentPlanner, err := agent.NewPlanner(os.Getenv("AGENT_PROVIDER"))
+	if err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to initialize agent planner")
+	}
+	agentSvc.WithPlanner(agentPlanner)
+	appLogger.Info().Str("provider", agentPlanner.Name()).Msg("agent planner enabled")
 	chatHub := collaboration.NewChatHub(appLogger)
 	collaborationSvc.WithPublisher(chatHub)
 	recordingStorage, err := storage.NewRecordingStorage(storage.Config{

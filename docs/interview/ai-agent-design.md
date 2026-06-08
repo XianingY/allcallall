@@ -109,6 +109,15 @@ Current implementations:
 
 The intended future implementation is an OpenAI-compatible planner that returns the same `PlannerOutput` shape. Tool calling should still be mediated by backend code, not executed directly by the model.
 
+Provider selection:
+
+```bash
+AGENT_PROVIDER=rules
+AGENT_PROVIDER=openai_compatible
+```
+
+`rules` is the default. `openai_compatible` is intentionally unavailable until a model provider is configured; handlers return `AGENT_PLANNER_UNAVAILABLE`.
+
 ## Why This Is Useful In Interviews
 
 This module shows backend fundamentals that map well to modern AI Agent systems:

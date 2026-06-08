@@ -147,6 +147,8 @@ func (h *AgentHandler) writeAgentError(c *gin.Context, err error) {
 		JSONErrorWithCode(c, http.StatusForbidden, "CONVERSATION_ACCESS_DENIED", "conversation access denied")
 	case errors.Is(err, agent.ErrAgentRunNotFound):
 		JSONErrorWithCode(c, http.StatusNotFound, "AGENT_RUN_NOT_FOUND", "agent run not found")
+	case errors.Is(err, agent.ErrPlannerUnavailable):
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_PLANNER_UNAVAILABLE", "agent planner unavailable")
 	default:
 		h.logger.Error().Err(err).Msg("agent request failed")
 		JSONErrorWithCode(c, http.StatusInternalServerError, "AGENT_RUN_FAILED", "agent request failed")

@@ -11,6 +11,17 @@ import (
 
 var ErrPlannerUnavailable = errors.New("agent planner unavailable")
 
+func NewPlanner(name string) (Planner, error) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "", models.AgentRunSourceRules:
+		return RulesPlanner{}, nil
+	case models.AgentRunSourceOpenAICompatible:
+		return OpenAICompatiblePlanner{}, nil
+	default:
+		return nil, fmt.Errorf("unknown agent planner provider: %s", name)
+	}
+}
+
 type Planner interface {
 	Name() string
 	Plan(ctx context.Context, input PlannerInput) (PlannerOutput, error)
