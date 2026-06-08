@@ -101,6 +101,10 @@ func (h *AuthHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/logout", h.handleLogout)
 }
 
+func (h *AuthHandler) RegisterProtectedRoutes(rg *gin.RouterGroup) {
+	rg.POST("/logout-all", h.handleLogoutAll)
+}
+
 func (h *AuthHandler) handleRegister(c *gin.Context) {
 	var req registerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -223,6 +227,26 @@ func (h *AuthHandler) handleLogout(c *gin.Context) {
 	}
 	clearRefreshCookie(c)
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
+}
+
+func (h *AuthHandler) handleLogoutAll(c *gin.Context) {
+	if h.refreshSessions == nil {
+		JSONError(c, http.StatusInternalServerError, "refresh sessions not configured")
+		return
+	}
+	claims, err := auth.GetClaimsFromContext(c)
+	if err != nil {
+		JSONError(c, http.StatusUnauthorized, "missing authenticated user")
+		return
+	}
+	revoked, err := h.refreshSessions.RevokeAllForUser(c.Request.Context(), claims.UserID, time.Now())
+	if err != nil {
+		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Msg("revoke all refresh sessions failed")
+		JSONError(c, http.StatusInternalServerError, "failed to revoke sessions")
+		return
+	}
+	clearRefreshCookie(c)
+	JSONSuccess(c, http.StatusOK, gin.H{"success": true, "revoked_sessions": revoked})
 }
 
 func (h *AuthHandler) issueAuthResponse(c *gin.Context, status int, userModel *models.User, currentRefreshToken ...string) {

@@ -110,6 +110,22 @@ func (s *RefreshSessionService) RevokeByToken(ctx context.Context, token string,
 		}).Error
 }
 
+func (s *RefreshSessionService) RevokeAllForUser(ctx context.Context, userID uint64, now time.Time) (int, error) {
+	if userID == 0 {
+		return 0, ErrInvalidRefreshSession
+	}
+	result := s.db.WithContext(ctx).Model(&models.RefreshSession{}).
+		Where("user_id = ? AND revoked_at IS NULL", userID).
+		Updates(map[string]any{
+			"revoked_at":   now,
+			"last_used_at": now,
+		})
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return int(result.RowsAffected), nil
+}
+
 func (s *RefreshSessionService) CleanupExpired(ctx context.Context, now time.Time, revokedRetention time.Duration, limit int) (*RefreshSessionCleanupResult, error) {
 	if limit <= 0 {
 		limit = 500

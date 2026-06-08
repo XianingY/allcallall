@@ -86,3 +86,68 @@ func TestAuthHandlerRefreshRotatesServerSideSession(t *testing.T) {
 		t.Fatalf("expected rotated refresh session to validate, got %v", err)
 	}
 }
+
+func TestAuthHandlerLogoutAllRevokesUserSessions(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "auth-logout-all.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := db.AutoMigrate(&models.User{}, &models.RefreshSession{}); err != nil {
+		t.Fatalf("migrate auth tables failed: %v", err)
+	}
+
+	jwtManager, err := auth.NewManager(auth.Config{
+		Secret:          "secret",
+		Issuer:          "allcallall",
+		AccessTokenTTL:  time.Hour,
+		RefreshTokenTTL: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("create jwt manager failed: %v", err)
+	}
+	refreshSessions := auth.NewRefreshSessionService(db)
+	ctx := context.Background()
+	for _, token := range []string{"user-1-a", "user-1-b"} {
+		if _, err := refreshSessions.Create(ctx, 1, auth.RefreshSessionInput{
+			Token:     token,
+			ExpiresAt: time.Now().Add(time.Hour),
+		}); err != nil {
+			t.Fatalf("create user refresh session failed: %v", err)
+		}
+	}
+	if _, err := refreshSessions.Create(ctx, 2, auth.RefreshSessionInput{
+		Token:     "user-2",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("create other user refresh session failed: %v", err)
+	}
+
+	handler := NewAuthHandler(
+		zerolog.Nop(),
+		user.NewService(user.NewRepository(db)),
+		jwtManager,
+		nil,
+		AuthHandlerOptions{RefreshSessions: refreshSessions},
+	)
+	router := newRouterWithClaims(&auth.Claims{UserID: 1, Email: "alice@example.com"}, func(group *gin.RouterGroup) {
+		handler.RegisterProtectedRoutes(group.Group("/auth"))
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout-all", nil)
+	req.AddCookie(&http.Cookie{Name: refreshCookieName, Value: "user-1-a"})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	expectHandlerStatus(t, rec, http.StatusOK)
+	if cookie := findCookie(t, rec, refreshCookieName); cookie.MaxAge >= 0 {
+		t.Fatalf("expected refresh cookie clear, got=%+v", cookie)
+	}
+
+	for _, token := range []string{"user-1-a", "user-1-b"} {
+		if _, err := refreshSessions.Validate(ctx, token, time.Now()); !errors.Is(err, auth.ErrInvalidRefreshSession) {
+			t.Fatalf("expected token %s to be revoked, got %v", token, err)
+		}
+	}
+	if _, err := refreshSessions.Validate(ctx, "user-2", time.Now()); err != nil {
+		t.Fatalf("expected other user session to remain valid, got %v", err)
+	}
+}

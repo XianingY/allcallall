@@ -68,6 +68,9 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 	protected := api.Group("/")
 	protected.Use(deps.AuthMiddleware)
 	{
+		protectedAuthGroup := protected.Group("/auth")
+		deps.AuthHandler.RegisterProtectedRoutes(protectedAuthGroup)
+
 		userGroup := protected.Group("/users")
 		deps.UserHandler.RegisterRoutes(userGroup)
 		if deps.Commercial != nil {

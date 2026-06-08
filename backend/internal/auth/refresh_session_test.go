@@ -93,6 +93,44 @@ func TestRefreshSessionRejectsExpiredSession(t *testing.T) {
 	}
 }
 
+func TestRefreshSessionRevokeAllForUser(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "refresh-revoke-all.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := db.AutoMigrate(&models.RefreshSession{}); err != nil {
+		t.Fatalf("migrate refresh sessions failed: %v", err)
+	}
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	svc := NewRefreshSessionService(db)
+	for _, token := range []string{"user-7-a", "user-7-b"} {
+		if _, err := svc.Create(ctx, 7, RefreshSessionInput{Token: token, ExpiresAt: now.Add(time.Hour)}); err != nil {
+			t.Fatalf("create user session failed: %v", err)
+		}
+	}
+	if _, err := svc.Create(ctx, 8, RefreshSessionInput{Token: "user-8", ExpiresAt: now.Add(time.Hour)}); err != nil {
+		t.Fatalf("create other user session failed: %v", err)
+	}
+
+	revoked, err := svc.RevokeAllForUser(ctx, 7, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("revoke all failed: %v", err)
+	}
+	if revoked != 2 {
+		t.Fatalf("unexpected revoked count: got %d want 2", revoked)
+	}
+	for _, token := range []string{"user-7-a", "user-7-b"} {
+		if _, err := svc.Validate(ctx, token, now.Add(time.Minute)); !errors.Is(err, ErrInvalidRefreshSession) {
+			t.Fatalf("expected token %s to be revoked, got %v", token, err)
+		}
+	}
+	if _, err := svc.Validate(ctx, "user-8", now.Add(time.Minute)); err != nil {
+		t.Fatalf("expected other user session to remain valid, got %v", err)
+	}
+}
+
 func TestRefreshSessionCleanupExpired(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "refresh-cleanup.db")), &gorm.Config{})
 	if err != nil {
