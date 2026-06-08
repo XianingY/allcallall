@@ -56,6 +56,9 @@ func main() {
 	gin.SetMode(mode)
 
 	engine := server.NewEngine(appLogger, counterStore)
+	engine.Use(server.CORSMiddleware(server.CORSConfig{
+		AllowedOrigins: server.DefaultCORSOrigins(os.Getenv("CORS_ALLOWED_ORIGINS")),
+	}))
 
 	// 健康检查接口
 	engine.GET("/ping", func(ctx *gin.Context) {
