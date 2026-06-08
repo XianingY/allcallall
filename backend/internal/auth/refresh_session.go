@@ -26,6 +26,10 @@ type RefreshSessionInput struct {
 	ExpiresAt time.Time
 }
 
+type RefreshSessionCleanupResult struct {
+	Deleted int
+}
+
 func NewRefreshSessionService(db *gorm.DB) *RefreshSessionService {
 	return &RefreshSessionService{db: db}
 }
@@ -104,6 +108,37 @@ func (s *RefreshSessionService) RevokeByToken(ctx context.Context, token string,
 			"revoked_at":   now,
 			"last_used_at": now,
 		}).Error
+}
+
+func (s *RefreshSessionService) CleanupExpired(ctx context.Context, now time.Time, revokedRetention time.Duration, limit int) (*RefreshSessionCleanupResult, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	if revokedRetention < 0 {
+		revokedRetention = 0
+	}
+
+	revokedBefore := now.Add(-revokedRetention)
+	var ids []uint64
+	if err := s.db.WithContext(ctx).
+		Model(&models.RefreshSession{}).
+		Where("expires_at <= ? OR (revoked_at IS NOT NULL AND revoked_at <= ?)", now, revokedBefore).
+		Order("id ASC").
+		Limit(limit).
+		Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return &RefreshSessionCleanupResult{}, nil
+	}
+
+	result := s.db.WithContext(ctx).
+		Where("id IN ?", ids).
+		Delete(&models.RefreshSession{})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &RefreshSessionCleanupResult{Deleted: int(result.RowsAffected)}, nil
 }
 
 func refreshTokenHash(token string) string {

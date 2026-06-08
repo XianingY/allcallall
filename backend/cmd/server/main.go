@@ -289,6 +289,7 @@ func main() {
 	})
 
 	startRecordingCleanupWorker(rootCtx, appLogger, collaborationSvc)
+	startRefreshSessionCleanupWorker(rootCtx, appLogger, refreshSessionSvc)
 
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -347,6 +348,58 @@ func startRecordingCleanupWorker(ctx context.Context, log zerolog.Logger, collab
 					Int("checked", result.Checked).
 					Int("deleted", result.Deleted).
 					Msg("recording cleanup worker completed")
+			}
+		}
+
+		run()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				run()
+			}
+		}
+	}()
+}
+
+func startRefreshSessionCleanupWorker(ctx context.Context, log zerolog.Logger, refreshSessions *auth.RefreshSessionService) {
+	intervalMinutes := 1440
+	if raw := strings.TrimSpace(os.Getenv("REFRESH_SESSION_CLEANUP_INTERVAL_MIN")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			intervalMinutes = parsed
+		}
+	}
+	retentionDays := 7
+	if raw := strings.TrimSpace(os.Getenv("REFRESH_SESSION_REVOKED_RETENTION_DAYS")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 0 {
+			retentionDays = parsed
+		}
+	}
+	interval := time.Duration(intervalMinutes) * time.Minute
+	revokedRetention := time.Duration(retentionDays) * 24 * time.Hour
+	log.Info().
+		Int("interval_min", intervalMinutes).
+		Int("revoked_retention_days", retentionDays).
+		Msg("refresh session cleanup worker enabled")
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		run := func() {
+			runCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
+			result, err := refreshSessions.CleanupExpired(runCtx, time.Now(), revokedRetention, 500)
+			if err != nil {
+				log.Error().Err(err).Msg("refresh session cleanup worker failed")
+				return
+			}
+			if result.Deleted > 0 {
+				log.Info().
+					Int("deleted", result.Deleted).
+					Msg("refresh session cleanup worker completed")
 			}
 		}
 

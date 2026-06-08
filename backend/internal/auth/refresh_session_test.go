@@ -92,3 +92,65 @@ func TestRefreshSessionRejectsExpiredSession(t *testing.T) {
 		t.Fatalf("expected expired token to be invalid, got %v", err)
 	}
 }
+
+func TestRefreshSessionCleanupExpired(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "refresh-cleanup.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := db.AutoMigrate(&models.RefreshSession{}); err != nil {
+		t.Fatalf("migrate refresh sessions failed: %v", err)
+	}
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	svc := NewRefreshSessionService(db)
+
+	if _, err := svc.Create(ctx, 7, RefreshSessionInput{Token: "expired", ExpiresAt: now.Add(-time.Hour)}); err != nil {
+		t.Fatalf("create expired session failed: %v", err)
+	}
+	recentRevoked, err := svc.Create(ctx, 7, RefreshSessionInput{Token: "recent-revoked", ExpiresAt: now.Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("create recent revoked session failed: %v", err)
+	}
+	oldRevoked, err := svc.Create(ctx, 7, RefreshSessionInput{Token: "old-revoked", ExpiresAt: now.Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("create old revoked session failed: %v", err)
+	}
+	active, err := svc.Create(ctx, 7, RefreshSessionInput{Token: "active", ExpiresAt: now.Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("create active session failed: %v", err)
+	}
+
+	recentRevokedAt := now.Add(-time.Hour)
+	oldRevokedAt := now.Add(-48 * time.Hour)
+	if err := db.Model(&models.RefreshSession{}).Where("id = ?", recentRevoked.ID).Update("revoked_at", recentRevokedAt).Error; err != nil {
+		t.Fatalf("mark recent revoked failed: %v", err)
+	}
+	if err := db.Model(&models.RefreshSession{}).Where("id = ?", oldRevoked.ID).Update("revoked_at", oldRevokedAt).Error; err != nil {
+		t.Fatalf("mark old revoked failed: %v", err)
+	}
+
+	result, err := svc.CleanupExpired(ctx, now, 24*time.Hour, 10)
+	if err != nil {
+		t.Fatalf("cleanup refresh sessions failed: %v", err)
+	}
+	if result.Deleted != 2 {
+		t.Fatalf("unexpected cleanup count: got %d want 2", result.Deleted)
+	}
+
+	var remaining []models.RefreshSession
+	if err := db.Order("id ASC").Find(&remaining).Error; err != nil {
+		t.Fatalf("list remaining sessions failed: %v", err)
+	}
+	if len(remaining) != 2 {
+		t.Fatalf("unexpected remaining sessions: got %d", len(remaining))
+	}
+	remainingIDs := map[uint64]bool{}
+	for _, session := range remaining {
+		remainingIDs[session.ID] = true
+	}
+	if !remainingIDs[recentRevoked.ID] || !remainingIDs[active.ID] {
+		t.Fatalf("expected recent revoked and active sessions to remain, got ids=%v", remainingIDs)
+	}
+}
