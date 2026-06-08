@@ -25,7 +25,6 @@ import {
   SubtitlePayload,
   SignalMessage
 } from "../api/signaling";
-import { PollingSignalingClient } from "../api/signalingPoll";
 import {
   E2EE_ENABLED,
   RESTRICTED_NETWORK_MODE,
@@ -642,7 +641,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         attachSubtitlesDataChannel(event.channel);
       } else if (event.channel?.label === 'e2ee-key-exchange') {
         if (!E2EE_ENABLED) {
-          try { event.channel?.close?.(); } catch (e) {}
+          try { event.channel?.close?.(); } catch {}
           return;
         }
         e2eeDataChannelRef.current = event.channel;
