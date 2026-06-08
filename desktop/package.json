@@ -6,7 +6,8 @@
   "author": "AllCallAll",
   "main": "main.cjs",
   "scripts": {
-    "check": "node --check main.cjs && node --check preload.cjs",
+    "check": "node --check main.cjs && node --check preload.cjs && node --check route-utils.cjs && node --check scripts/deep-link-check.cjs && npm run deep-link:check",
+    "deep-link:check": "node scripts/deep-link-check.cjs",
     "dev": "electron .",
     "start": "electron .",
     "build": "electron-builder --dir",
@@ -21,6 +22,7 @@
     "files": [
       "main.cjs",
       "preload.cjs",
+      "route-utils.cjs",
       "package.json"
     ],
     "protocols": [

@@ -62,12 +62,15 @@ npm run check
 npm run build
 ```
 
+`npm run check` validates the Electron source files and the deep-link normalization table. Use it before changing any desktop route or protocol behavior.
+
 Desktop behavior:
 
 - opens to `/meetings`
 - normalizes `allcallall://rooms/:roomId` and `allcallall://conversations/:id` into Web routes
 - sends external `http:`, `https:`, and `mailto:` links to the system browser
 - uses Electron's managed download flow for recording downloads
+- stores managed downloads in `~/Downloads/AllCallAll` by default, or `ALLCALLALL_DOWNLOAD_DIR` when set
 
 ## Intentional Limitations
 

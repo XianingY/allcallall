@@ -3,56 +3,21 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const WEB_APP_URL = normalizeBaseURL(process.env.ALLCALLALL_WEB_URL || "http://localhost:8081");
-const WEB_APP_ORIGIN = new URL(WEB_APP_URL).origin;
+const { createRouteHelpers } = require("./route-utils.cjs");
+
+const {
+  isInternalWebURL,
+  normalizeRouteTarget,
+  routeURL,
+} = createRouteHelpers(process.env.ALLCALLALL_WEB_URL || "http://localhost:8081");
 const DOWNLOADS_DIR = process.env.ALLCALLALL_DOWNLOAD_DIR || path.join(os.homedir(), "Downloads", "AllCallAll");
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 
 let mainWindow = null;
 let pendingRouteTarget = null;
 
-function normalizeBaseURL(value) {
-  return String(value || "http://localhost:8081").replace(/\/+$/, "");
-}
-
 function ensureDownloadsDir() {
   fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
-}
-
-function routeURL(route) {
-  const normalizedRoute = route.startsWith("/") ? route : `/${route}`;
-  return `${WEB_APP_URL}${normalizedRoute}`;
-}
-
-function normalizeRouteTarget(target) {
-  if (!target || typeof target !== "string") {
-    return null;
-  }
-  if (target.startsWith("allcallall://rooms/")) {
-    return routeURL(`/rooms/${target.replace("allcallall://rooms/", "").split(/[?#]/)[0]}`);
-  }
-  if (target.startsWith("allcallall://conversations/")) {
-    return routeURL(`/conversations/${target.replace("allcallall://conversations/", "").split(/[?#]/)[0]}`);
-  }
-  if (target === "allcallall://meetings" || target.startsWith("allcallall://meetings?")) {
-    return routeURL("/meetings");
-  }
-  if (target.startsWith("/rooms/") || target.startsWith("/conversations/") || target === "/meetings") {
-    return routeURL(target);
-  }
-  if (isInternalWebURL(target)) {
-    return target;
-  }
-  return null;
-}
-
-function isInternalWebURL(target) {
-  try {
-    const parsed = new URL(target);
-    return parsed.origin === WEB_APP_ORIGIN && target.startsWith(WEB_APP_URL);
-  } catch {
-    return false;
-  }
 }
 
 function openExternalURL(target) {
