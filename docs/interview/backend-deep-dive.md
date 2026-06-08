@@ -55,7 +55,7 @@ Interview angle:
 - Retry safety is provided through `Idempotency-Key`.
 - Tool side effects enqueue durable `event_outbox` records.
 - Tool execution is still controlled by backend service code.
-- `AGENT_PROVIDER` selects the planner: `rules` is deterministic and default, `mock_llm` exercises prompt construction plus structured-output parsing without API keys, and `openai_compatible` is a deliberate provider seam that currently falls back to `rules` during service execution.
+- `AGENT_PROVIDER` selects the planner: `rules` is deterministic and default, `mock_llm` exercises prompt construction plus structured-output parsing without API keys, and `openai_compatible` calls a configured Chat Completions-compatible endpoint or falls back to `rules` when unavailable.
 - `go run ./cmd/interview-bench` provides a database-free proof path: it seeds temporary SQLite data, queues Agent runs, drains outbox events, executes tools, and emits JSON counts, latencies, and counters.
 
 Interview angle:
@@ -113,7 +113,7 @@ Completed first extraction:
 
 ## Next High-Value Engineering Tasks
 
-- Implement a real OpenAI-compatible planner behind the existing provider interface.
+- Add streaming/tool-call traces behind the existing OpenAI-compatible planner if a live model demo is needed.
 - Add load tests for event replay, outbox draining, and Agent run creation.
 - Split oversized services such as collaboration into smaller domain services.
 - Capture measured p95/p99 baselines in `docs/interview/performance-report.md`.

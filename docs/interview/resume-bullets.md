@@ -11,7 +11,7 @@ Use these as raw material. Pick 2-3 bullets and tune them for the target role.
 ## AI Agent Engineering
 
 - Implemented an explainable AI Agent execution model with persisted runs, intermediate steps, tool-call records, scoped memory, idempotency keys, metrics, and backend-controlled tool execution.
-- Added `AGENT_PROVIDER` selection with a deterministic rules-based Agent provider and an OpenAI-compatible provider seam, enabling stable tests while preserving a clean path to LLM-backed planning.
+- Added `AGENT_PROVIDER` selection with deterministic rules, mock structured-output, and configurable OpenAI-compatible planners, preserving stable tests while supporting LLM-backed planning with fallback metrics.
 - Integrated Agent tools for writing collaboration messages, creating follow-up tasks, upserting memory, and persisting outbox events for durable async delivery.
 
 ## Reliability / Distributed Systems

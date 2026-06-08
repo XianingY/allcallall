@@ -10,6 +10,10 @@ import (
 )
 
 func TestNewPlannerSelectsProvider(t *testing.T) {
+	t.Setenv("AGENT_OPENAI_BASE_URL", "")
+	t.Setenv("AGENT_OPENAI_API_KEY", "")
+	t.Setenv("AGENT_OPENAI_MODEL", "")
+
 	defaultPlanner, err := NewPlanner("")
 	if err != nil {
 		t.Fatalf("default planner failed: %v", err)

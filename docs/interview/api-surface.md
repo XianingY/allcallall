@@ -118,7 +118,7 @@ Response shape:
 Talking points:
 
 - `POST /agent/runs` returns `202 Accepted` with a `pending` run, then `agent.run.requested` is drained by the outbox worker.
-- Provider seam: `AGENT_PROVIDER=rules` for deterministic demos; `AGENT_PROVIDER=mock_llm` for prompt + structured-output parsing demos; `AGENT_PROVIDER=openai_compatible` is wired as an unavailable provider that falls back to `rules` during service execution.
+- Provider seam: `AGENT_PROVIDER=rules` for deterministic demos; `AGENT_PROVIDER=mock_llm` for prompt + structured-output parsing demos; `AGENT_PROVIDER=openai_compatible` calls a configured Chat Completions-compatible endpoint and falls back to `rules` when no provider is configured.
 - Tool calling is persisted and permission-guarded.
 - Memory is scoped to organization/user/conversation.
 - Repeating a request with the same `Idempotency-Key` returns the existing run result instead of duplicating tool side effects.

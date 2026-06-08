@@ -152,9 +152,9 @@ Current implementations:
 
 - `RulesPlanner`: default deterministic provider.
 - `MockLLMPlanner`: deterministic mock model provider that builds a prompt, estimates prompt tokens, returns structured JSON, and parses it back into `PlannerOutput`.
-- `OpenAICompatiblePlanner`: reserved seam that currently returns `ErrPlannerUnavailable`.
+- `OpenAICompatiblePlanner`: configurable Chat Completions-compatible provider that sends the same prompt/schema contract and parses JSON into `PlannerOutput`.
 
-The intended future implementation is an OpenAI-compatible planner that returns the same `PlannerOutput` shape. Tool calling should still be mediated by backend code, not executed directly by the model.
+Tool calling is still mediated by backend code, not executed directly by the model. The model proposes a bounded plan; the service owns permission checks, idempotency, message write-back, task creation, and memory updates.
 
 Provider selection:
 
@@ -162,9 +162,14 @@ Provider selection:
 AGENT_PROVIDER=rules
 AGENT_PROVIDER=mock_llm
 AGENT_PROVIDER=openai_compatible
+AGENT_OPENAI_BASE_URL=https://api.example.com/v1
+AGENT_OPENAI_MODEL=example-model
+AGENT_OPENAI_API_KEY=...
+AGENT_OPENAI_TIMEOUT_MS=10000
+AGENT_OPENAI_MAX_TOKENS=600
 ```
 
-`rules` is the default. `mock_llm` is useful for interviews because it demonstrates prompt construction and structured-output parsing without requiring credentials. `openai_compatible` is intentionally unavailable until a model provider is configured; service execution falls back to `rules` and increments `agent_planner_fallback_total`.
+`rules` is the default. `mock_llm` is useful for interviews because it demonstrates prompt construction and structured-output parsing without requiring credentials. `openai_compatible` makes a real HTTP call only when `AGENT_OPENAI_BASE_URL` and `AGENT_OPENAI_MODEL` are configured; otherwise service execution falls back to `rules` and increments `agent_planner_fallback_total`.
 
 ## Why This Is Useful In Interviews
 

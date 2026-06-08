@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/allcallall/backend/internal/models"
 )
@@ -19,7 +21,7 @@ func NewPlanner(name string) (Planner, error) {
 	case models.AgentRunSourceMockLLM:
 		return MockLLMPlanner{}, nil
 	case models.AgentRunSourceOpenAICompatible:
-		return OpenAICompatiblePlanner{}, nil
+		return NewOpenAICompatiblePlannerFromEnv(), nil
 	default:
 		return nil, fmt.Errorf("unknown agent planner provider: %s", name)
 	}
@@ -112,7 +114,14 @@ func (MockLLMPlanner) Plan(ctx context.Context, input PlannerInput) (PlannerOutp
 	return output, nil
 }
 
-type OpenAICompatiblePlanner struct{}
+type OpenAICompatiblePlanner struct {
+	baseURL   string
+	apiKey    string
+	model     string
+	timeout   time.Duration
+	maxTokens int
+	client    *http.Client
+}
 
 func (OpenAICompatiblePlanner) Name() string {
 	return models.AgentRunSourceOpenAICompatible
@@ -120,10 +129,6 @@ func (OpenAICompatiblePlanner) Name() string {
 
 func (OpenAICompatiblePlanner) BuildPrompt(input PlannerInput) (PlannerPrompt, error) {
 	return BuildPlannerPrompt(input)
-}
-
-func (OpenAICompatiblePlanner) Plan(context.Context, PlannerInput) (PlannerOutput, error) {
-	return PlannerOutput{}, ErrPlannerUnavailable
 }
 
 func BuildPlannerPrompt(input PlannerInput) (PlannerPrompt, error) {

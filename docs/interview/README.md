@@ -47,7 +47,7 @@ CONFIG_PATH=./configs/config.yaml AGENT_PROVIDER=mock_llm go run ./cmd/interview
 
 The command prints organization, conversation, room, and Agent run IDs. It creates users, an organization, a conversation, notes/messages, a meeting record, contact profile, and one idempotent Agent run with the stable key `interview-seed-agent-run`.
 
-`AGENT_PROVIDER=rules` is the default and the safest interview demo mode. `AGENT_PROVIDER=mock_llm` demonstrates prompt construction and structured-output parsing without external credentials. `AGENT_PROVIDER=openai_compatible` selects the provider seam; until a real model provider is configured, service execution falls back to `rules` and records fallback metrics.
+`AGENT_PROVIDER=rules` is the default and the safest interview demo mode. `AGENT_PROVIDER=mock_llm` demonstrates prompt construction and structured-output parsing without external credentials. `AGENT_PROVIDER=openai_compatible` calls a configured Chat Completions-compatible endpoint when `AGENT_OPENAI_BASE_URL` and `AGENT_OPENAI_MODEL` are set; otherwise service execution falls back to `rules` and records fallback metrics.
 
 ## Local Benchmark Command
 
@@ -69,7 +69,7 @@ The command seeds conversations, queues Agent runs, drains `agent.run.requested`
 
 ## What To Improve Next For Interviews
 
-- Implement a real OpenAI-compatible planner behind the existing `AGENT_PROVIDER` seam.
+- Add streaming/tool-call support behind the existing OpenAI-compatible planner if an interview demo needs live model traces.
 - Extend benchmark/load tests to authenticated WebSocket replay and meeting room event throughput.
 - Replace the current observed outbox handler with production publishers when the deployment target is clear.
 - Capture measured baseline numbers in [Performance Report](performance-report.md).
