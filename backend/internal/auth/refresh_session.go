@@ -13,7 +13,10 @@ import (
 	"github.com/allcallall/backend/internal/models"
 )
 
-var ErrInvalidRefreshSession = errors.New("invalid refresh session")
+var (
+	ErrInvalidRefreshSession      = errors.New("invalid refresh session")
+	ErrCannotRevokeCurrentSession = errors.New("cannot revoke current refresh session")
+)
 
 type RefreshSessionService struct {
 	db *gorm.DB
@@ -144,6 +147,36 @@ func (s *RefreshSessionService) RevokeAllForUser(ctx context.Context, userID uin
 		return 0, result.Error
 	}
 	return int(result.RowsAffected), nil
+}
+
+func (s *RefreshSessionService) RevokeForUserByID(ctx context.Context, userID uint64, sessionID uint64, currentToken string, now time.Time) error {
+	if userID == 0 || sessionID == 0 {
+		return ErrInvalidRefreshSession
+	}
+
+	var session models.RefreshSession
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND user_id = ?", sessionID, userID).
+		Take(&session).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrInvalidRefreshSession
+		}
+		return err
+	}
+	currentHash := refreshTokenHash(currentToken)
+	if currentHash != "" && session.TokenHash == currentHash {
+		return ErrCannotRevokeCurrentSession
+	}
+	if session.RevokedAt != nil {
+		return nil
+	}
+
+	return s.db.WithContext(ctx).Model(&models.RefreshSession{}).
+		Where("id = ? AND user_id = ? AND revoked_at IS NULL", sessionID, userID).
+		Updates(map[string]any{
+			"revoked_at":   now,
+			"last_used_at": now,
+		}).Error
 }
 
 func (s *RefreshSessionService) ListForUser(ctx context.Context, userID uint64, currentToken string, now time.Time, limit int) ([]RefreshSessionView, error) {

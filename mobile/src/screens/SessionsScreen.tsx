@@ -2,6 +2,7 @@ import React from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -10,7 +11,7 @@ import {
   View
 } from "react-native";
 
-import { listRefreshSessions, RefreshSessionRecord } from "../api/auth";
+import { listRefreshSessions, RefreshSessionRecord, revokeRefreshSession } from "../api/auth";
 import { useAuthContext } from "../context/AuthContext";
 
 const statusLabels: Record<RefreshSessionRecord["status"], string> = {
@@ -34,6 +35,7 @@ const SessionsScreen: React.FC = () => {
   const { token } = useAuthContext();
   const [sessions, setSessions] = React.useState<RefreshSessionRecord[]>([]);
   const [loading, setLoading] = React.useState(false);
+  const [revokingSessionId, setRevokingSessionId] = React.useState<number | null>(null);
 
   const loadSessions = React.useCallback(async () => {
     if (!token) {
@@ -53,6 +55,36 @@ const SessionsScreen: React.FC = () => {
   React.useEffect(() => {
     void loadSessions();
   }, [loadSessions]);
+
+  const revokeSession = React.useCallback(async (session: RefreshSessionRecord) => {
+    if (!token || session.current || session.status !== "active") {
+      return;
+    }
+    setRevokingSessionId(session.id);
+    try {
+      await revokeRefreshSession(token, session.id);
+      await loadSessions();
+    } catch (error) {
+      console.warn("[SessionsScreen] Failed to revoke refresh session:", error);
+      Alert.alert("撤销失败 / Revoke failed", "当前无法撤销这个登录会话，请稍后再试。");
+    } finally {
+      setRevokingSessionId(null);
+    }
+  }, [loadSessions, token]);
+
+  const confirmRevokeSession = React.useCallback((session: RefreshSessionRecord) => {
+    const message = "这会阻止该设备继续刷新登录状态；已签发的短期 access token 可能会在过期前继续有效。";
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      if (window.confirm(message)) {
+        void revokeSession(session);
+      }
+      return;
+    }
+    Alert.alert("撤销会话 / Revoke session", message, [
+      { text: "取消 / Cancel", style: "cancel" },
+      { text: "撤销 / Revoke", style: "destructive", onPress: () => void revokeSession(session) }
+    ]);
+  }, [revokeSession]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -104,6 +136,21 @@ const SessionsScreen: React.FC = () => {
               {session.last_invalid_use_at ? (
                 <Text style={styles.warningText}>
                   最近一次异常重放：{formatDateTime(session.last_invalid_use_at)}
+                </Text>
+              ) : null}
+              {session.status === "active" && !session.current ? (
+                <TouchableOpacity
+                  style={styles.revokeButton}
+                  onPress={() => confirmRevokeSession(session)}
+                  disabled={revokingSessionId === session.id}
+                >
+                  <Text style={styles.revokeButtonText}>
+                    {revokingSessionId === session.id ? "撤销中..." : "撤销续期 / Revoke refresh"}
+                  </Text>
+                </TouchableOpacity>
+              ) : session.current ? (
+                <Text style={styles.currentHint}>
+                  当前设备请使用“退出所有设备”或普通退出入口。
                 </Text>
               ) : null}
             </View>
@@ -257,6 +304,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     marginTop: 4
+  },
+  revokeButton: {
+    alignSelf: "flex-start",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#dc2626",
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginTop: 10,
+    backgroundColor: "#fff1f2"
+  },
+  revokeButtonText: {
+    color: "#b91c1c",
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  currentHint: {
+    color: "#1d4ed8",
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 10
   }
 });
 

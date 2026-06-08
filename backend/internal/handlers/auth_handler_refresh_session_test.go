@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -228,5 +229,77 @@ func TestAuthHandlerListSessionsReturnsRedactedCurrentSession(t *testing.T) {
 	}
 	if currentCount != 1 {
 		t.Fatalf("expected exactly one current session, got %d", currentCount)
+	}
+}
+
+func TestAuthHandlerRevokeSessionRejectsCurrentAndRevokesOther(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "auth-revoke-session.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := db.AutoMigrate(&models.User{}, &models.RefreshSession{}); err != nil {
+		t.Fatalf("migrate auth tables failed: %v", err)
+	}
+
+	jwtManager, err := auth.NewManager(auth.Config{
+		Secret:          "secret",
+		Issuer:          "allcallall",
+		AccessTokenTTL:  time.Hour,
+		RefreshTokenTTL: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("create jwt manager failed: %v", err)
+	}
+	refreshSessions := auth.NewRefreshSessionService(db)
+	ctx := context.Background()
+	current, err := refreshSessions.Create(ctx, 1, auth.RefreshSessionInput{
+		Token:     "current-refresh-token",
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create current refresh session failed: %v", err)
+	}
+	other, err := refreshSessions.Create(ctx, 1, auth.RefreshSessionInput{
+		Token:     "other-refresh-token",
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create other refresh session failed: %v", err)
+	}
+
+	handler := NewAuthHandler(
+		zerolog.Nop(),
+		user.NewService(user.NewRepository(db)),
+		jwtManager,
+		nil,
+		AuthHandlerOptions{RefreshSessions: refreshSessions},
+	)
+	router := newRouterWithClaims(&auth.Claims{UserID: 1, Email: "alice@example.com"}, func(group *gin.RouterGroup) {
+		handler.RegisterProtectedRoutes(group.Group("/auth"))
+	})
+
+	currentReq := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/sessions/"+strconv.FormatUint(current.ID, 10), nil)
+	currentReq.AddCookie(&http.Cookie{Name: refreshCookieName, Value: "current-refresh-token"})
+	currentRec := httptest.NewRecorder()
+	router.ServeHTTP(currentRec, currentReq)
+	expectHandlerStatus(t, currentRec, http.StatusConflict)
+	var conflictBody struct {
+		Code string `json:"code"`
+	}
+	decodeBody(t, currentRec.Body.Bytes(), &conflictBody)
+	if conflictBody.Code != "CURRENT_SESSION_REVOKE_NOT_ALLOWED" {
+		t.Fatalf("unexpected current-session error code: %s", conflictBody.Code)
+	}
+
+	otherReq := httptest.NewRequest(http.MethodDelete, "/api/v1/auth/sessions/"+strconv.FormatUint(other.ID, 10), nil)
+	otherReq.AddCookie(&http.Cookie{Name: refreshCookieName, Value: "current-refresh-token"})
+	otherRec := httptest.NewRecorder()
+	router.ServeHTTP(otherRec, otherReq)
+	expectHandlerStatus(t, otherRec, http.StatusOK)
+	if _, err := refreshSessions.Validate(ctx, "other-refresh-token", time.Now()); !errors.Is(err, auth.ErrInvalidRefreshSession) {
+		t.Fatalf("expected other refresh session revoked, got %v", err)
+	}
+	if _, err := refreshSessions.Validate(ctx, "current-refresh-token", time.Now()); err != nil {
+		t.Fatalf("expected current refresh session to remain valid, got %v", err)
 	}
 }

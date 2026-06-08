@@ -208,6 +208,47 @@ func TestRefreshSessionListForUserReturnsRedactedViews(t *testing.T) {
 	}
 }
 
+func TestRefreshSessionRevokeForUserByID(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "refresh-revoke-one.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := db.AutoMigrate(&models.RefreshSession{}); err != nil {
+		t.Fatalf("migrate refresh sessions failed: %v", err)
+	}
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	svc := NewRefreshSessionService(db)
+	current, err := svc.Create(ctx, 7, RefreshSessionInput{Token: "current-token", ExpiresAt: now.Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("create current session failed: %v", err)
+	}
+	other, err := svc.Create(ctx, 7, RefreshSessionInput{Token: "other-token", ExpiresAt: now.Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("create other session failed: %v", err)
+	}
+	if _, err := svc.Create(ctx, 8, RefreshSessionInput{Token: "other-user", ExpiresAt: now.Add(time.Hour)}); err != nil {
+		t.Fatalf("create other user session failed: %v", err)
+	}
+
+	if err := svc.RevokeForUserByID(ctx, 7, current.ID, "current-token", now.Add(time.Minute)); !errors.Is(err, ErrCannotRevokeCurrentSession) {
+		t.Fatalf("expected current session revoke to be rejected, got %v", err)
+	}
+	if err := svc.RevokeForUserByID(ctx, 7, other.ID, "current-token", now.Add(time.Minute)); err != nil {
+		t.Fatalf("revoke other session failed: %v", err)
+	}
+	if _, err := svc.Validate(ctx, "other-token", now.Add(time.Minute)); !errors.Is(err, ErrInvalidRefreshSession) {
+		t.Fatalf("expected other session revoked, got %v", err)
+	}
+	if _, err := svc.Validate(ctx, "current-token", now.Add(time.Minute)); err != nil {
+		t.Fatalf("expected current session to remain valid, got %v", err)
+	}
+	if err := svc.RevokeForUserByID(ctx, 7, 999, "", now.Add(time.Minute)); !errors.Is(err, ErrInvalidRefreshSession) {
+		t.Fatalf("expected unknown session to be invalid, got %v", err)
+	}
+}
+
 func TestRefreshSessionRotateRecordsInvalidReuse(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "refresh-reuse.db")), &gorm.Config{})
 	if err != nil {

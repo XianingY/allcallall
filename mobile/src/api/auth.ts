@@ -71,3 +71,8 @@ export const listRefreshSessions = async (token: string) => {
   });
   return response.data.sessions;
 };
+
+export const revokeRefreshSession = async (token: string, sessionId: number) => {
+  const api = createApiClient(token);
+  await api.delete(`/auth/sessions/${sessionId}`, { withCredentials: true });
+};
