@@ -22,6 +22,7 @@ import (
 	"github.com/allcallall/backend/internal/config"
 	"github.com/allcallall/backend/internal/contact"
 	"github.com/allcallall/backend/internal/database"
+	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/fcm"
 	"github.com/allcallall/backend/internal/handlers"
 	"github.com/allcallall/backend/internal/invitation"
@@ -158,6 +159,15 @@ func main() {
 	}
 	agentSvc.WithPlanner(agentPlanner)
 	appLogger.Info().Str("provider", agentPlanner.Name()).Msg("agent planner enabled")
+	outboxProcessor := events.NewProcessor(events.NewStore(db), counterStore)
+	outboxProcessor.Register("agent.run.completed", func(_ context.Context, event models.EventOutbox) error {
+		appLogger.Info().
+			Uint64("outbox_id", event.ID).
+			Uint64("aggregate_id", event.AggregateID).
+			Str("event", event.Event).
+			Msg("outbox agent event observed")
+		return nil
+	})
 	chatHub := collaboration.NewChatHub(appLogger)
 	collaborationSvc.WithPublisher(chatHub)
 	recordingStorage, err := storage.NewRecordingStorage(storage.Config{
@@ -305,6 +315,7 @@ func main() {
 
 	startRecordingCleanupWorker(rootCtx, appLogger, collaborationSvc)
 	startRefreshSessionCleanupWorker(rootCtx, appLogger, refreshSessionSvc)
+	startOutboxWorker(rootCtx, appLogger, outboxProcessor)
 
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -429,4 +440,46 @@ func startRefreshSessionCleanupWorker(ctx context.Context, log zerolog.Logger, r
 			}
 		}
 	}()
+}
+
+func startOutboxWorker(ctx context.Context, log zerolog.Logger, processor *events.Processor) {
+	if processor == nil {
+		return
+	}
+	intervalSeconds := 30
+	if raw := strings.TrimSpace(os.Getenv("OUTBOX_WORKER_INTERVAL_SEC")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			intervalSeconds = parsed
+		}
+	}
+	batchSize := 100
+	if raw := strings.TrimSpace(os.Getenv("OUTBOX_WORKER_BATCH_SIZE")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			batchSize = parsed
+		}
+	}
+	maxAttempts := 3
+	if raw := strings.TrimSpace(os.Getenv("OUTBOX_WORKER_MAX_ATTEMPTS")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			maxAttempts = parsed
+		}
+	}
+	retryDelaySeconds := 60
+	if raw := strings.TrimSpace(os.Getenv("OUTBOX_WORKER_RETRY_DELAY_SEC")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			retryDelaySeconds = parsed
+		}
+	}
+
+	processor.WithBatchSize(batchSize)
+	processor.WithRetry(maxAttempts, time.Duration(retryDelaySeconds)*time.Second)
+	interval := time.Duration(intervalSeconds) * time.Second
+	log.Info().
+		Int("interval_sec", intervalSeconds).
+		Int("batch_size", batchSize).
+		Int("max_attempts", maxAttempts).
+		Int("retry_delay_sec", retryDelaySeconds).
+		Msg("outbox worker enabled")
+
+	go processor.Run(ctx, interval)
 }

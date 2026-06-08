@@ -64,7 +64,7 @@ System metrics:
 ## Optimization Ideas
 
 - Batch realtime event writes per recipient group.
-- Add an outbox publisher worker with retry/backoff.
+- Replace the lightweight outbox handler with Redis Streams/Kafka publishing if event volume grows.
 - Add Redis Streams for high-volume room events.
 - Add SQL indexes for hottest replay/query paths.
 - Split collaboration service into chat, room, recording, and support services.

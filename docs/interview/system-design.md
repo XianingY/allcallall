@@ -107,6 +107,6 @@ sequenceDiagram
 ## Interview Tradeoffs
 
 - Current Agent provider is deterministic for tests; an LLM provider is a replaceable seam.
-- Current outbox is persisted but not yet backed by a dedicated publisher worker.
+- Current outbox has a lightweight processor with registered handlers, retry delay, max attempts, and publish/failure metrics; production systems can replace handlers with Kafka/Redis Streams publishers.
 - Current realtime replay uses MySQL-backed event records; Redis Streams can be introduced if throughput requires it.
 - Current media layer is sufficient for demonstrating WebRTC signaling and room state, not a production-grade Zoom-scale SFU.

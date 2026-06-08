@@ -122,3 +122,22 @@ func (s *Store) MarkFailed(ctx context.Context, id uint64, cause error) error {
 			"updated_at": time.Now().UTC(),
 		}).Error
 }
+
+func (s *Store) MarkRetry(ctx context.Context, id uint64, cause error, availableAt time.Time) error {
+	if id == 0 {
+		return errors.New("outbox id is required")
+	}
+	message := ""
+	if cause != nil {
+		message = cause.Error()
+	}
+	return s.db.WithContext(ctx).Model(&models.EventOutbox{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"status":       models.EventOutboxStatusPending,
+			"last_error":   message,
+			"attempts":     gorm.Expr("attempts + 1"),
+			"available_at": availableAt,
+			"updated_at":   time.Now().UTC(),
+		}).Error
+}
