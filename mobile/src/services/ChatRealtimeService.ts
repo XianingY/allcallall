@@ -1,14 +1,7 @@
 import mitt from "mitt";
 
 import { WS_HOST } from "../config";
-
-type ChatEventPayload = {
-  event_id?: number;
-  event: string;
-  organization_id: number;
-  payload: unknown;
-  created_at?: string;
-};
+import { ChatEventPayload, ChatRealtimeCursor } from "./chatRealtimeCursor";
 
 type Events = {
   open: undefined;
@@ -25,8 +18,7 @@ class ChatRealtimeService {
   private shouldReconnect = false;
   private token: string | null = null;
   private organizationId: number | null = null;
-  private readonly seenEvents = new Map<string, number>();
-  private readonly lastEventIds = new Map<number, number>();
+  private readonly cursor = new ChatRealtimeCursor(ChatRealtimeService.DEDUPE_WINDOW_MS);
 
   private static readonly HEARTBEAT_INTERVAL_MS = 20_000;
   private static readonly DEDUPE_WINDOW_MS = 5_000;
@@ -70,7 +62,7 @@ class ChatRealtimeService {
     if (!this.token || !this.organizationId || this.socket) {
       return;
     }
-    const sinceId = this.lastEventIds.get(this.organizationId) ?? 0;
+    const sinceId = this.cursor.getSinceId(this.organizationId);
     const url = `${WS_HOST}/api/v1/chat/ws?token=${encodeURIComponent(this.token)}&organization_id=${this.organizationId}&since_id=${sinceId}`;
     const socket = new WebSocket(url);
     this.socket = socket;
@@ -83,7 +75,7 @@ class ChatRealtimeService {
     socket.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data) as ChatEventPayload;
-        if (this.isDuplicateEvent(payload)) {
+        if (this.cursor.shouldSkip(payload)) {
           return;
         }
         this.emitter.emit("event", payload);
@@ -126,40 +118,6 @@ class ChatRealtimeService {
         this.emitter.emit("error", error as Error);
       }
     }, ChatRealtimeService.HEARTBEAT_INTERVAL_MS);
-  }
-
-  private isDuplicateEvent(payload: ChatEventPayload) {
-    const now = Date.now();
-    for (const [key, timestamp] of this.seenEvents.entries()) {
-      if (now - timestamp > ChatRealtimeService.DEDUPE_WINDOW_MS) {
-        this.seenEvents.delete(key);
-      }
-    }
-    const signature = JSON.stringify({
-      event_id: payload.event_id,
-      event: payload.event,
-      organization_id: payload.organization_id,
-      payload: payload.payload
-    });
-    if (payload.event_id) {
-      const idSignature = `${payload.organization_id}:${payload.event_id}`;
-      const seenAt = this.seenEvents.get(idSignature);
-      if (seenAt && now - seenAt <= ChatRealtimeService.DEDUPE_WINDOW_MS) {
-        return true;
-      }
-      this.seenEvents.set(idSignature, now);
-      const current = this.lastEventIds.get(payload.organization_id) ?? 0;
-      if (payload.event_id > current) {
-        this.lastEventIds.set(payload.organization_id, payload.event_id);
-      }
-      return false;
-    }
-    const previous = this.seenEvents.get(signature);
-    if (previous && now - previous <= ChatRealtimeService.DEDUPE_WINDOW_MS) {
-      return true;
-    }
-    this.seenEvents.set(signature, now);
-    return false;
   }
 }
 
