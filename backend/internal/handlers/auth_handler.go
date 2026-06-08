@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
@@ -14,6 +15,8 @@ import (
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/user"
 )
+
+const refreshCookieName = "allcallall_refresh"
 
 // AuthHandler 认证处理器
 // AuthHandler exposes registration and login endpoints.
@@ -90,6 +93,8 @@ func toUserDTO(u *models.User) userDTO {
 func (h *AuthHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/register", h.handleRegister)
 	rg.POST("/login", h.handleLogin)
+	rg.POST("/refresh", h.handleRefresh)
+	rg.POST("/logout", h.handleLogout)
 }
 
 func (h *AuthHandler) handleRegister(c *gin.Context) {
@@ -147,17 +152,7 @@ func (h *AuthHandler) handleRegister(c *gin.Context) {
 		}
 	}
 
-	token, err := h.jwtManager.GenerateAccessToken(userModel.ID, userModel.Email)
-	if err != nil {
-		h.logger.Error().Err(err).Msg("generate token failed")
-		JSONError(c, http.StatusInternalServerError, "failed to generate token")
-		return
-	}
-
-	JSONSuccess(c, http.StatusCreated, authResponse{
-		User:        toUserDTO(userModel),
-		AccessToken: token,
-	})
+	h.issueAuthResponse(c, http.StatusCreated, userModel)
 }
 
 func (h *AuthHandler) handleLogin(c *gin.Context) {
@@ -185,15 +180,79 @@ func (h *AuthHandler) handleLogin(c *gin.Context) {
 		return
 	}
 
+	h.issueAuthResponse(c, http.StatusOK, userModel)
+}
+
+func (h *AuthHandler) handleRefresh(c *gin.Context) {
+	cookie, err := c.Cookie(refreshCookieName)
+	if err != nil || strings.TrimSpace(cookie) == "" {
+		JSONError(c, http.StatusUnauthorized, "missing refresh cookie")
+		return
+	}
+	claims, err := h.jwtManager.ParseRefreshToken(cookie)
+	if err != nil {
+		clearRefreshCookie(c)
+		JSONError(c, http.StatusUnauthorized, "invalid refresh cookie")
+		return
+	}
+	userModel, err := h.users.GetByID(c.Request.Context(), claims.UserID)
+	if err != nil {
+		clearRefreshCookie(c)
+		JSONError(c, http.StatusUnauthorized, "invalid refresh user")
+		return
+	}
+	if userModel.Status == models.UserStatusDeleted {
+		clearRefreshCookie(c)
+		JSONError(c, http.StatusForbidden, "account deleted")
+		return
+	}
+	h.issueAuthResponse(c, http.StatusOK, userModel)
+}
+
+func (h *AuthHandler) handleLogout(c *gin.Context) {
+	clearRefreshCookie(c)
+	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
+}
+
+func (h *AuthHandler) issueAuthResponse(c *gin.Context, status int, userModel *models.User) {
 	token, err := h.jwtManager.GenerateAccessToken(userModel.ID, userModel.Email)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("generate token failed")
 		JSONError(c, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
-
-	JSONSuccess(c, http.StatusOK, authResponse{
+	refreshToken, err := h.jwtManager.GenerateRefreshToken(userModel.ID, userModel.Email)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("generate refresh token failed")
+		JSONError(c, http.StatusInternalServerError, "failed to generate refresh token")
+		return
+	}
+	setRefreshCookie(c, refreshToken, int(h.jwtManager.RefreshTokenTTL().Seconds()))
+	JSONSuccess(c, status, authResponse{
 		User:        toUserDTO(userModel),
 		AccessToken: token,
 	})
+}
+
+func setRefreshCookie(c *gin.Context, value string, maxAge int) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     refreshCookieName,
+		Value:    value,
+		Path:     "/api/v1/auth",
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		Secure:   isSecureRequest(c),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func clearRefreshCookie(c *gin.Context) {
+	setRefreshCookie(c, "", -1)
+}
+
+func isSecureRequest(c *gin.Context) bool {
+	if c.Request.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
 }

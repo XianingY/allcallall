@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -60,6 +62,13 @@ func TestAuthHandlerRegisterAndLogin(t *testing.T) {
 		decodeBody(t, rec.Body.Bytes(), &got)
 		if got["access_token"] == "" {
 			t.Fatalf("expected access token, got=%v", got)
+		}
+		cookie := findCookie(t, rec, refreshCookieName)
+		if !cookie.HttpOnly {
+			t.Fatal("expected refresh cookie to be HttpOnly")
+		}
+		if cookie.Path != "/api/v1/auth" {
+			t.Fatalf("unexpected refresh cookie path: %s", cookie.Path)
 		}
 		if _, ok := got["user"].(map[string]any); !ok {
 			t.Fatalf("expected user payload, got=%v", got)
@@ -132,8 +141,73 @@ func TestAuthHandlerRegisterAndLogin(t *testing.T) {
 		if got["access_token"] == "" {
 			t.Fatalf("expected access token, got=%v", got)
 		}
+		if cookie := findCookie(t, rec, refreshCookieName); !cookie.HttpOnly || cookie.MaxAge <= 0 {
+			t.Fatalf("expected persistent HttpOnly refresh cookie, got=%+v", cookie)
+		}
 		if err := env.mock.ExpectationsWereMet(); err != nil {
 			t.Fatalf("unmet sql expectations: %v", err)
+		}
+	})
+
+	t.Run("refresh success", func(t *testing.T) {
+		env := newHandlerTestEnv(t)
+		handler := NewAuthHandler(env.logger, env.userSvc, env.jwtMgr, env.verifySvc)
+		router := newRouterWithClaims(nil, handler.RegisterRoutes)
+
+		refreshToken, err := env.jwtMgr.GenerateRefreshToken(1, "alice@example.com")
+		if err != nil {
+			t.Fatalf("generate refresh token failed: %v", err)
+		}
+		env.mock.ExpectQuery("SELECT .*FROM .*users.*id.*").
+			WillReturnRows(userRows(1, "alice@example.com", mustHashPassword(t, "Abcd1234"), "Alice", "", nil, nil, nil))
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/refresh", nil)
+		req.AddCookie(&http.Cookie{Name: refreshCookieName, Value: refreshToken})
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		expectHandlerStatus(t, rec, 200)
+
+		var got map[string]any
+		decodeBody(t, rec.Body.Bytes(), &got)
+		if got["access_token"] == "" {
+			t.Fatalf("expected access token, got=%v", got)
+		}
+		if cookie := findCookie(t, rec, refreshCookieName); !cookie.HttpOnly || cookie.MaxAge <= 0 {
+			t.Fatalf("expected rotated HttpOnly refresh cookie, got=%+v", cookie)
+		}
+		if err := env.mock.ExpectationsWereMet(); err != nil {
+			t.Fatalf("unmet sql expectations: %v", err)
+		}
+	})
+
+	t.Run("refresh rejects access token cookie", func(t *testing.T) {
+		env := newHandlerTestEnv(t)
+		handler := NewAuthHandler(env.logger, env.userSvc, env.jwtMgr, env.verifySvc)
+		router := newRouterWithClaims(nil, handler.RegisterRoutes)
+
+		accessToken, err := env.jwtMgr.GenerateAccessToken(1, "alice@example.com")
+		if err != nil {
+			t.Fatalf("generate access token failed: %v", err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/refresh", nil)
+		req.AddCookie(&http.Cookie{Name: refreshCookieName, Value: accessToken})
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		expectHandlerStatus(t, rec, 401)
+		if cookie := findCookie(t, rec, refreshCookieName); cookie.MaxAge >= 0 {
+			t.Fatalf("expected refresh cookie clear, got=%+v", cookie)
+		}
+	})
+
+	t.Run("logout clears refresh cookie", func(t *testing.T) {
+		env := newHandlerTestEnv(t)
+		handler := NewAuthHandler(env.logger, env.userSvc, env.jwtMgr, env.verifySvc)
+		router := newRouterWithClaims(nil, handler.RegisterRoutes)
+
+		rec := performRequest(t, router, "POST", "/api/v1/logout", nil)
+		expectHandlerStatus(t, rec, 200)
+		if cookie := findCookie(t, rec, refreshCookieName); cookie.MaxAge >= 0 {
+			t.Fatalf("expected refresh cookie clear, got=%+v", cookie)
 		}
 	})
 
@@ -166,4 +240,15 @@ func TestAuthHandlerRegisterAndLogin(t *testing.T) {
 			t.Fatalf("unmet sql expectations: %v", err)
 		}
 	})
+}
+
+func findCookie(t *testing.T, rec *httptest.ResponseRecorder, name string) *http.Cookie {
+	t.Helper()
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == name {
+			return cookie
+		}
+	}
+	t.Fatalf("expected cookie %s in response", name)
+	return nil
 }

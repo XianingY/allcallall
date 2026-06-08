@@ -65,6 +65,9 @@ func TestGenerateAndParseAccessToken(t *testing.T) {
 	if claims.UserID != 42 {
 		t.Fatalf("unexpected user ID: got %d want %d", claims.UserID, 42)
 	}
+	if claims.TokenType != TokenTypeAccess {
+		t.Fatalf("unexpected token type: got %q", claims.TokenType)
+	}
 	if claims.Email != "user@example.com" {
 		t.Fatalf("unexpected email: got %q", claims.Email)
 	}
@@ -76,6 +79,33 @@ func TestGenerateAndParseAccessToken(t *testing.T) {
 	}
 	if claims.ExpiresAt == nil || !claims.ExpiresAt.Time.After(before) {
 		t.Fatalf("expected future expiration, got %+v", claims.ExpiresAt)
+	}
+}
+
+func TestGenerateAndParseRefreshToken(t *testing.T) {
+	mgr, err := NewManager(Config{
+		Secret:          "top-secret",
+		Issuer:          "allcallall",
+		RefreshTokenTTL: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	token, err := mgr.GenerateRefreshToken(42, "user@example.com")
+	if err != nil {
+		t.Fatalf("generate refresh token failed: %v", err)
+	}
+
+	claims, err := mgr.ParseRefreshToken(token)
+	if err != nil {
+		t.Fatalf("parse refresh token failed: %v", err)
+	}
+	if claims.UserID != 42 || claims.TokenType != TokenTypeRefresh {
+		t.Fatalf("unexpected refresh claims: %+v", claims)
+	}
+	if _, err := mgr.ParseToken(token); err == nil {
+		t.Fatal("expected refresh token to be rejected as access token")
 	}
 }
 

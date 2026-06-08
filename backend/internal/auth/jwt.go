@@ -10,8 +10,9 @@ import (
 // Claims JWT 声明
 // Claims extends RegisteredClaims with user information.
 type Claims struct {
-	UserID uint64 `json:"user_id"`
-	Email  string `json:"email"`
+	UserID    uint64 `json:"user_id"`
+	Email     string `json:"email"`
+	TokenType string `json:"token_type,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -23,6 +24,11 @@ type Manager struct {
 	accessTTL  time.Duration
 	refreshTTL time.Duration
 }
+
+const (
+	TokenTypeAccess  = "access"
+	TokenTypeRefresh = "refresh"
+)
 
 // Config JWT 配置
 // Config holds JWT related configuration.
@@ -56,14 +62,24 @@ func NewManager(cfg Config) (*Manager, error) {
 // GenerateAccessToken 生成访问令牌
 // GenerateAccessToken issues a signed JWT for the user.
 func (m *Manager) GenerateAccessToken(userID uint64, email string) (string, error) {
+	return m.generateToken(userID, email, TokenTypeAccess, m.accessTTL)
+}
+
+// GenerateRefreshToken issues a signed JWT intended only for refresh-cookie exchange.
+func (m *Manager) GenerateRefreshToken(userID uint64, email string) (string, error) {
+	return m.generateToken(userID, email, TokenTypeRefresh, m.refreshTTL)
+}
+
+func (m *Manager) generateToken(userID uint64, email string, tokenType string, ttl time.Duration) (string, error) {
 	now := time.Now()
 	claims := Claims{
-		UserID: userID,
-		Email:  email,
+		UserID:    userID,
+		Email:     email,
+		TokenType: tokenType,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    m.issuer,
 			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(m.accessTTL)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 			Subject:   email,
 		},
 	}
@@ -75,6 +91,33 @@ func (m *Manager) GenerateAccessToken(userID uint64, email string) (string, erro
 // ParseToken 解析令牌
 // ParseToken validates JWT and returns claims.
 func (m *Manager) ParseToken(tokenString string) (*Claims, error) {
+	claims, err := m.parseToken(tokenString)
+	if err != nil {
+		return nil, err
+	}
+	if claims.TokenType != "" && claims.TokenType != TokenTypeAccess {
+		return nil, errors.New("invalid access token type")
+	}
+	return claims, nil
+}
+
+// ParseRefreshToken validates refresh-cookie JWTs only.
+func (m *Manager) ParseRefreshToken(tokenString string) (*Claims, error) {
+	claims, err := m.parseToken(tokenString)
+	if err != nil {
+		return nil, err
+	}
+	if claims.TokenType != TokenTypeRefresh {
+		return nil, errors.New("invalid refresh token type")
+	}
+	return claims, nil
+}
+
+func (m *Manager) RefreshTokenTTL() time.Duration {
+	return m.refreshTTL
+}
+
+func (m *Manager) parseToken(tokenString string) (*Claims, error) {
 	opts := []jwt.ParserOption{
 		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Name}),
 	}

@@ -6,6 +6,7 @@ import React, {
   useMemo,
   useState
 } from "react";
+import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import * as authApi from "../api/auth";
@@ -48,43 +49,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const authPromptTitle = useMemo(() => "Unlock AllCallAll", []);
 
-  const bootstrap = useCallback(async () => {
-    try {
-      // 从安全存储中读取 token 和 user 数据
-      // Read token and user data from secure storage
-      const credentials = await secureStorage.load(KEYCHAIN_SERVICE, authPromptTitle);
-
-      if (!credentials) {
-        setState((current) => ({ ...current, loading: false }));
-        return;
-      }
-
-      let parsed: { token: string; user: User };
-      try {
-        parsed = JSON.parse(credentials.password) as { token: string; user: User };
-      } catch {
-        await secureStorage.clear(KEYCHAIN_SERVICE);
-        setState((current) => ({ ...current, loading: false }));
-        return;
-      }
-
-      setState({
-        token: parsed.token,
-        user: parsed.user,
-        loading: false
-      });
-      PushNotificationService.setAuthToken(parsed.token);
-      await BillingService.initialize(`user:${parsed.user.id}`);
-    } catch (error) {
-      console.warn("Failed to load auth state from secure storage", error);
-      setState((current) => ({ ...current, loading: false }));
-    }
-  }, [authPromptTitle]);
-
-  useEffect(() => {
-    bootstrap();
-  }, [bootstrap]);
-
   const persistState = useCallback(async (token: string, user: User) => {
     setState({ token, user, loading: false });
     PushNotificationService.setAuthToken(token);
@@ -110,6 +74,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     await secureStorage.save(KEYCHAIN_SERVICE, "user_session", secret);
   }, [authPromptTitle]);
 
+  const bootstrap = useCallback(async () => {
+    try {
+      // 从安全存储中读取 token 和 user 数据
+      // Read token and user data from secure storage
+      const credentials = await secureStorage.load(KEYCHAIN_SERVICE, authPromptTitle);
+
+      if (!credentials) {
+        if (Platform.OS === "web") {
+          try {
+            const refreshed = await authApi.refreshSession();
+            await persistState(refreshed.access_token, refreshed.user);
+            return;
+          } catch {
+            // No HttpOnly refresh cookie is available; continue unauthenticated.
+          }
+        }
+        setState((current) => ({ ...current, loading: false }));
+        return;
+      }
+
+      let parsed: { token: string; user: User };
+      try {
+        parsed = JSON.parse(credentials.password) as { token: string; user: User };
+      } catch {
+        await secureStorage.clear(KEYCHAIN_SERVICE);
+        setState((current) => ({ ...current, loading: false }));
+        return;
+      }
+
+      setState({
+        token: parsed.token,
+        user: parsed.user,
+        loading: false
+      });
+      PushNotificationService.setAuthToken(parsed.token);
+      await BillingService.initialize(`user:${parsed.user.id}`);
+    } catch (error) {
+      console.warn("Failed to load auth state from secure storage", error);
+      setState((current) => ({ ...current, loading: false }));
+    }
+  }, [authPromptTitle, persistState]);
+
+  useEffect(() => {
+    bootstrap();
+  }, [bootstrap]);
+
   const flushPendingInvitation = useCallback(async (accessToken: string) => {
     try {
       const code = await AsyncStorage.getItem(PENDING_INVITATION_CODE_STORAGE_KEY);
@@ -129,6 +139,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     PushNotificationService.setAuthToken(null);
     await BillingService.logout();
     await secureStorage.clear(KEYCHAIN_SERVICE);
+    if (Platform.OS === "web") {
+      try {
+        await authApi.logoutSession();
+      } catch {
+        // Local logout must not be blocked by a network failure.
+      }
+    }
   }, []);
 
   const login = useCallback(
