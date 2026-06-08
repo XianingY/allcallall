@@ -4,6 +4,7 @@ Use the internal support API with `X-Support-Token`.
 
 ## Endpoints
 
+- `GET /api/v1/internal/support/users/:userId/summary`
 - `GET /api/v1/internal/support/rooms/:roomId`
 - `GET /api/v1/internal/support/recordings/:id`
 
@@ -23,6 +24,19 @@ Typical failure patterns:
 - members joined but media never synced
 - room ended without a final recording event
 - repeated reconnects without a stable `connection_state`
+
+### Session issues
+
+Check the user summary `refresh_sessions` block:
+
+- `active_count`
+- `revoked_count`
+- `expired_count`
+- `invalid_use_count`
+- `last_invalid_use_at`
+- recent redacted session metadata
+
+The support API intentionally omits refresh token values and token hashes. A non-zero `invalid_use_count` means a rotated, revoked, or expired refresh token was reused and should be treated as a risk signal.
 
 ### Recording issues
 

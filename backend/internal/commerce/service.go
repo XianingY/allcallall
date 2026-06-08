@@ -228,12 +228,12 @@ type FollowupResponse struct {
 }
 
 type FollowUpListItem struct {
-	Task          models.FollowUpTask      `json:"task"`
-	Call          *models.CallSession      `json:"call,omitempty"`
-	Followup      *models.CallFollowup     `json:"followup,omitempty"`
-	Peer          *models.User             `json:"peer,omitempty"`
-	Contact       *models.ContactProfile   `json:"contact,omitempty"`
-	IsOverdue     bool                     `json:"is_overdue"`
+	Task      models.FollowUpTask    `json:"task"`
+	Call      *models.CallSession    `json:"call,omitempty"`
+	Followup  *models.CallFollowup   `json:"followup,omitempty"`
+	Peer      *models.User           `json:"peer,omitempty"`
+	Contact   *models.ContactProfile `json:"contact,omitempty"`
+	IsOverdue bool                   `json:"is_overdue"`
 }
 
 func periodKey(now time.Time) string {
@@ -777,13 +777,36 @@ type SupportReportRecord struct {
 }
 
 type SupportUserSummary struct {
-	User          models.User              `json:"user"`
-	Entitlements  []models.UserEntitlement `json:"entitlements"`
-	Usage         []UsageSnapshot          `json:"usage"`
-	RecentCalls   []CallHistoryEntry       `json:"recent_calls"`
-	Blocks        []models.UserBlock       `json:"blocks"`
-	Reports       []models.AbuseReport     `json:"reports"`
-	DeletionAudit *models.DeletionAudit    `json:"deletion_audit,omitempty"`
+	User            models.User                  `json:"user"`
+	Entitlements    []models.UserEntitlement     `json:"entitlements"`
+	Usage           []UsageSnapshot              `json:"usage"`
+	RecentCalls     []CallHistoryEntry           `json:"recent_calls"`
+	Blocks          []models.UserBlock           `json:"blocks"`
+	Reports         []models.AbuseReport         `json:"reports"`
+	RefreshSessions SupportRefreshSessionSummary `json:"refresh_sessions"`
+	DeletionAudit   *models.DeletionAudit        `json:"deletion_audit,omitempty"`
+}
+
+type SupportRefreshSessionRecord struct {
+	ID               uint64     `json:"id"`
+	UserAgent        string     `json:"user_agent"`
+	IPAddress        string     `json:"ip_address"`
+	ExpiresAt        time.Time  `json:"expires_at"`
+	LastUsedAt       *time.Time `json:"last_used_at,omitempty"`
+	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
+	InvalidUseCount  int        `json:"invalid_use_count"`
+	LastInvalidUseAt *time.Time `json:"last_invalid_use_at,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+}
+
+type SupportRefreshSessionSummary struct {
+	ActiveCount      int64                         `json:"active_count"`
+	RevokedCount     int64                         `json:"revoked_count"`
+	ExpiredCount     int64                         `json:"expired_count"`
+	InvalidUseCount  int64                         `json:"invalid_use_count"`
+	LastInvalidUseAt *time.Time                    `json:"last_invalid_use_at,omitempty"`
+	Recent           []SupportRefreshSessionRecord `json:"recent"`
 }
 
 type SupportCallDetails struct {
@@ -877,6 +900,10 @@ func (s *Service) GetSupportUserSummary(ctx context.Context, userID uint64) (*Su
 		Find(&reports).Error; err != nil {
 		return nil, err
 	}
+	refreshSessions, err := s.getSupportRefreshSessionSummary(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
 	var deletionAudit models.DeletionAudit
 	var deletionAuditPtr *models.DeletionAudit
 	if err := s.db.WithContext(ctx).
@@ -889,14 +916,78 @@ func (s *Service) GetSupportUserSummary(ctx context.Context, userID uint64) (*Su
 	}
 
 	return &SupportUserSummary{
-		User:          userModel,
-		Entitlements:  entitlements,
-		Usage:         usage,
-		RecentCalls:   calls,
-		Blocks:        blocks,
-		Reports:       reports,
-		DeletionAudit: deletionAuditPtr,
+		User:            userModel,
+		Entitlements:    entitlements,
+		Usage:           usage,
+		RecentCalls:     calls,
+		Blocks:          blocks,
+		Reports:         reports,
+		RefreshSessions: refreshSessions,
+		DeletionAudit:   deletionAuditPtr,
 	}, nil
+}
+
+func (s *Service) getSupportRefreshSessionSummary(ctx context.Context, userID uint64) (SupportRefreshSessionSummary, error) {
+	now := time.Now().UTC()
+	sessions := func() *gorm.DB {
+		return s.db.WithContext(ctx).Model(&models.RefreshSession{}).Where("user_id = ?", userID)
+	}
+
+	var summary SupportRefreshSessionSummary
+	if err := sessions().Where("revoked_at IS NULL AND expires_at > ?", now).Count(&summary.ActiveCount).Error; err != nil {
+		return summary, err
+	}
+	if err := sessions().Where("revoked_at IS NOT NULL").Count(&summary.RevokedCount).Error; err != nil {
+		return summary, err
+	}
+	if err := sessions().Where("revoked_at IS NULL AND expires_at <= ?", now).Count(&summary.ExpiredCount).Error; err != nil {
+		return summary, err
+	}
+
+	var aggregate struct {
+		InvalidUseCount int64
+	}
+	if err := sessions().
+		Select("COALESCE(SUM(invalid_use_count), 0) AS invalid_use_count").
+		Scan(&aggregate).Error; err != nil {
+		return summary, err
+	}
+	summary.InvalidUseCount = aggregate.InvalidUseCount
+
+	var latestInvalid models.RefreshSession
+	if err := sessions().
+		Where("last_invalid_use_at IS NOT NULL").
+		Order("last_invalid_use_at DESC").
+		Take(&latestInvalid).Error; err == nil {
+		summary.LastInvalidUseAt = latestInvalid.LastInvalidUseAt
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return summary, err
+	}
+
+	var recent []models.RefreshSession
+	if err := sessions().
+		Order("updated_at DESC, id DESC").
+		Limit(10).
+		Find(&recent).Error; err != nil {
+		return summary, err
+	}
+	summary.Recent = make([]SupportRefreshSessionRecord, 0, len(recent))
+	for _, item := range recent {
+		summary.Recent = append(summary.Recent, SupportRefreshSessionRecord{
+			ID:               item.ID,
+			UserAgent:        item.UserAgent,
+			IPAddress:        item.IPAddress,
+			ExpiresAt:        item.ExpiresAt,
+			LastUsedAt:       item.LastUsedAt,
+			RevokedAt:        item.RevokedAt,
+			InvalidUseCount:  item.InvalidUseCount,
+			LastInvalidUseAt: item.LastInvalidUseAt,
+			CreatedAt:        item.CreatedAt,
+			UpdatedAt:        item.UpdatedAt,
+		})
+	}
+
+	return summary, nil
 }
 
 func (s *Service) GetSupportCall(ctx context.Context, callID string) (*SupportCallDetails, error) {
@@ -1357,14 +1448,14 @@ func (s *Service) ensureDefaultFollowupTaskTx(tx *gorm.DB, call models.CallSessi
 		return err
 	}
 	task := models.FollowUpTask{
-		UserID:      userID,
-		PeerUserID:  peerID,
-		CallID:      call.CallID,
-		Type:        taskType,
-		Status:      models.FollowupTaskStatusOpen,
-		Title:       title,
-		Description: description,
-		DueAt:       &dueAt,
+		UserID:       userID,
+		PeerUserID:   peerID,
+		CallID:       call.CallID,
+		Type:         taskType,
+		Status:       models.FollowupTaskStatusOpen,
+		Title:        title,
+		Description:  description,
+		DueAt:        &dueAt,
 		ReminderMode: "default",
 	}
 	if err := tx.Create(&task).Error; err != nil {

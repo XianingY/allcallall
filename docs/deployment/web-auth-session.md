@@ -36,6 +36,8 @@ The backend persists refresh sessions in `refresh_sessions` using a SHA-256 hash
 
 If a previously rotated or revoked refresh token is reused, the backend records `invalid_use_count` and `last_invalid_use_at` on the original session row. Treat these as support and risk signals; the refresh request still fails and clears the cookie.
 
+The internal support user summary includes a redacted `refresh_sessions` block with active/revoked/expired counts, recent session metadata, and invalid refresh reuse counters. It never returns raw refresh tokens or token hashes.
+
 Expired sessions are cleaned by the backend worker:
 
 - `REFRESH_SESSION_CLEANUP_INTERVAL_MIN`: cleanup interval in minutes. Default: `1440`.
