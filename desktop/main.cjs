@@ -3,13 +3,77 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const DEV_SERVER_URL = process.env.ALLCALLALL_WEB_URL || "http://localhost:8081";
+const WEB_APP_URL = normalizeBaseURL(process.env.ALLCALLALL_WEB_URL || "http://localhost:8081");
+const WEB_APP_ORIGIN = new URL(WEB_APP_URL).origin;
 const DOWNLOADS_DIR = process.env.ALLCALLALL_DOWNLOAD_DIR || path.join(os.homedir(), "Downloads", "AllCallAll");
+const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 
 let mainWindow = null;
+let pendingRouteTarget = null;
+
+function normalizeBaseURL(value) {
+  return String(value || "http://localhost:8081").replace(/\/+$/, "");
+}
 
 function ensureDownloadsDir() {
   fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+}
+
+function routeURL(route) {
+  const normalizedRoute = route.startsWith("/") ? route : `/${route}`;
+  return `${WEB_APP_URL}${normalizedRoute}`;
+}
+
+function normalizeRouteTarget(target) {
+  if (!target || typeof target !== "string") {
+    return null;
+  }
+  if (target.startsWith("allcallall://rooms/")) {
+    return routeURL(`/rooms/${target.replace("allcallall://rooms/", "").split(/[?#]/)[0]}`);
+  }
+  if (target.startsWith("allcallall://conversations/")) {
+    return routeURL(`/conversations/${target.replace("allcallall://conversations/", "").split(/[?#]/)[0]}`);
+  }
+  if (target === "allcallall://meetings" || target.startsWith("allcallall://meetings?")) {
+    return routeURL("/meetings");
+  }
+  if (target.startsWith("/rooms/") || target.startsWith("/conversations/") || target === "/meetings") {
+    return routeURL(target);
+  }
+  if (isInternalWebURL(target)) {
+    return target;
+  }
+  return null;
+}
+
+function isInternalWebURL(target) {
+  try {
+    const parsed = new URL(target);
+    return parsed.origin === WEB_APP_ORIGIN && target.startsWith(WEB_APP_URL);
+  } catch {
+    return false;
+  }
+}
+
+function openExternalURL(target) {
+  try {
+    const parsed = new URL(target);
+    if (!ALLOWED_EXTERNAL_PROTOCOLS.has(parsed.protocol)) {
+      return;
+    }
+    void shell.openExternal(target);
+  } catch {
+    // Ignore malformed external targets from untrusted pages.
+  }
+}
+
+function openRouteTarget(target) {
+  const normalized = normalizeRouteTarget(target);
+  if (!normalized || !mainWindow) {
+    return false;
+  }
+  void mainWindow.loadURL(normalized);
+  return true;
 }
 
 function createWindow() {
@@ -26,23 +90,28 @@ function createWindow() {
     },
   });
 
-  mainWindow.loadURL(DEV_SERVER_URL);
+  mainWindow.loadURL(routeURL("/meetings"));
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    if (!openRouteTarget(url)) {
+      openExternalURL(url);
+    }
     return { action: "deny" };
   });
 
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (!url.startsWith(DEV_SERVER_URL)) {
-      event.preventDefault();
-      void shell.openExternal(url);
+    if (isInternalWebURL(url)) {
+      return;
+    }
+    event.preventDefault();
+    if (!openRouteTarget(url)) {
+      openExternalURL(url);
     }
   });
 
   mainWindow.webContents.session.on("will-download", (_event, item) => {
     ensureDownloadsDir();
-    const downloadPath = path.join(DOWNLOADS_DIR, item.getFilename());
+    const downloadPath = path.join(DOWNLOADS_DIR, path.basename(item.getFilename()));
     item.setSavePath(downloadPath);
     item.once("done", (_doneEvent, state) => {
       if (state === "completed") {
@@ -81,7 +150,7 @@ function buildMenu() {
           click: () => {
             focusMainWindow();
             if (mainWindow) {
-              void mainWindow.loadURL(`${DEV_SERVER_URL}/meetings`);
+              void mainWindow.loadURL(routeURL("/meetings"));
             }
           },
         },
@@ -111,25 +180,38 @@ if (!gotSingleInstanceLock) {
 } else {
   app.on("second-instance", (_event, commandLine) => {
     focusMainWindow();
-    const target = commandLine.find((value) => value.startsWith("allcallall://") || value.includes("/rooms/"));
-    if (target && mainWindow) {
-      const normalized = target.startsWith("allcallall://rooms/")
-        ? `${DEV_SERVER_URL}/rooms/${target.replace("allcallall://rooms/", "")}`
-        : target;
-      void mainWindow.loadURL(normalized);
+    const target = commandLine.find((value) => normalizeRouteTarget(value));
+    if (target) {
+      openRouteTarget(target);
     }
   });
 }
 
 app.whenReady().then(() => {
+  app.setAppUserModelId("com.allcallall.desktop");
+  app.setAsDefaultProtocolClient("allcallall");
   buildMenu();
   createWindow();
+  if (pendingRouteTarget) {
+    openRouteTarget(pendingRouteTarget);
+    pendingRouteTarget = null;
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
   });
+});
+
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  if (!app.isReady()) {
+    pendingRouteTarget = url;
+    return;
+  }
+  focusMainWindow();
+  openRouteTarget(url);
 });
 
 app.on("window-all-closed", () => {

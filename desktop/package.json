@@ -2,12 +2,53 @@
   "name": "allcallall-desktop",
   "private": true,
   "version": "0.1.0",
+  "description": "AllCallAll desktop shell for the Web collaboration client",
+  "author": "AllCallAll",
   "main": "main.cjs",
   "scripts": {
+    "check": "node --check main.cjs && node --check preload.cjs",
     "dev": "electron .",
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "com.allcallall.desktop",
+    "productName": "AllCallAll",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json"
+    ],
+    "protocols": [
+      {
+        "name": "AllCallAll",
+        "schemes": [
+          "allcallall"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.business",
+      "identity": null
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office"
+    }
   },
   "devDependencies": {
-    "electron": "^31.0.2"
+    "electron": "^31.0.2",
+    "electron-builder": "^26.15.2"
   }
 }

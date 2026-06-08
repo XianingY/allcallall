@@ -88,6 +88,13 @@ mobile/bugreport-*.zip
 mobile/coverage/
 mobile/.nyc_output/
 
+# ============================
+# Desktop Electron
+# ============================
+desktop/node_modules/
+desktop/dist/
+desktop/release/
+
 # Android signing keys (NEVER commit)
 **/*.keystore
 **/*.jks
