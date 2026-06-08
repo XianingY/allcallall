@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -79,5 +80,68 @@ func TestLocalRecordingStorageRejectsEscapingObjectKeys(t *testing.T) {
 		Key:    filepath.Join(root, "..", "outside.txt"),
 	}); ok {
 		t.Fatal("expected escaped local object path to be rejected")
+	}
+}
+
+func TestS3RecordingStorageRequiresBucket(t *testing.T) {
+	if _, err := NewRecordingStorage(Config{Driver: DriverS3}); err == nil {
+		t.Fatal("expected missing bucket to fail")
+	}
+}
+
+func TestS3RecordingStoragePublicBaseURL(t *testing.T) {
+	store, err := NewRecordingStorage(Config{
+		Driver:        DriverS3,
+		S3Bucket:      "recordings",
+		S3Region:      "us-east-1",
+		S3AccessKeyID: "test",
+		S3SecretKey:   "test",
+		PublicBaseURL: "https://cdn.example.com/recordings",
+	})
+	if err != nil {
+		t.Fatalf("new s3 storage failed: %v", err)
+	}
+
+	url, err := store.SignedDownloadURL(context.Background(), ObjectRef{
+		Driver: DriverS3,
+		Bucket: "recordings",
+		Key:    "org-1//room-2/session-3/sample.ogg",
+	}, 0)
+	if err != nil {
+		t.Fatalf("signed public url failed: %v", err)
+	}
+	if url != "https://cdn.example.com/recordings/org-1/room-2/session-3/sample.ogg" {
+		t.Fatalf("unexpected public url: %s", url)
+	}
+}
+
+func TestS3RecordingStorageRejectsInvalidObjectKeys(t *testing.T) {
+	store, err := NewRecordingStorage(Config{
+		Driver:        DriverS3,
+		S3Bucket:      "recordings",
+		S3Region:      "us-east-1",
+		S3AccessKeyID: "test",
+		S3SecretKey:   "test",
+		PublicBaseURL: "https://cdn.example.com/recordings",
+	})
+	if err != nil {
+		t.Fatalf("new s3 storage failed: %v", err)
+	}
+
+	invalidRefs := []ObjectRef{
+		{Driver: DriverS3, Bucket: "recordings", Key: ""},
+		{Driver: DriverS3, Bucket: "recordings", Key: "../secret.ogg"},
+		{Driver: DriverS3, Bucket: "recordings", Key: "/absolute/secret.ogg"},
+		{Driver: DriverS3, Bucket: "recordings", Key: "org-1/../secret.ogg"},
+		{Driver: DriverLocal, Bucket: "recordings", Key: "org-1/sample.ogg"},
+	}
+	for _, ref := range invalidRefs {
+		if _, err := store.SignedDownloadURL(context.Background(), ref, 0); err == nil {
+			t.Fatalf("expected invalid object ref to fail: %+v", ref)
+		}
+	}
+
+	if _, err := store.SaveFile(context.Background(), filepath.Join(t.TempDir(), "missing.ogg"), "", "audio/ogg"); err == nil || errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected empty key validation before source open, got %v", err)
 	}
 }

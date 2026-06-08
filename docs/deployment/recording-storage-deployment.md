@@ -36,6 +36,7 @@ Meeting recordings now use a storage abstraction with two drivers:
 - `s3` driver: the backend returns a short-lived signed URL redirect.
 - Recording downloads always go through backend organization/member checks before local serving or signed URL generation.
 - Local object keys and local download paths are rejected if they escape the configured storage root.
+- S3 object keys are normalized to slash-separated relative keys and reject empty keys, absolute paths, `.` segments, and `..` segments. This same validation applies when `RECORDING_PUBLIC_BASE_URL` is used for CDN-style download URLs.
 
 ## Retention
 

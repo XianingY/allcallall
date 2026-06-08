@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -215,6 +216,10 @@ func newS3RecordingStorage(cfg Config) (RecordingStorage, error) {
 }
 
 func (s *s3RecordingStorage) SaveFile(ctx context.Context, srcPath, objectKey, contentType string) (*ObjectRef, error) {
+	normalizedKey, err := normalizeS3ObjectKey(objectKey)
+	if err != nil {
+		return nil, err
+	}
 	file, err := os.Open(strings.TrimSpace(srcPath))
 	if err != nil {
 		return nil, err
@@ -224,7 +229,7 @@ func (s *s3RecordingStorage) SaveFile(ctx context.Context, srcPath, objectKey, c
 	uploader := manager.NewUploader(s.client)
 	input := &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucket),
-		Key:         aws.String(strings.TrimSpace(objectKey)),
+		Key:         aws.String(normalizedKey),
 		Body:        file,
 		ContentType: aws.String(strings.TrimSpace(contentType)),
 	}
@@ -236,14 +241,18 @@ func (s *s3RecordingStorage) SaveFile(ctx context.Context, srcPath, objectKey, c
 	return &ObjectRef{
 		Driver: DriverS3,
 		Bucket: s.bucket,
-		Key:    objectKey,
+		Key:    normalizedKey,
 		ETag:   etag,
 	}, nil
 }
 
 func (s *s3RecordingStorage) SignedDownloadURL(ctx context.Context, objectRef ObjectRef, ttl time.Duration) (string, error) {
+	bucket, key, err := s.resolveObjectRef(objectRef)
+	if err != nil {
+		return "", err
+	}
 	if strings.TrimSpace(s.publicBase) != "" {
-		base, err := url.JoinPath(s.publicBase, objectRef.Key)
+		base, err := url.JoinPath(s.publicBase, key)
 		if err == nil {
 			return base, nil
 		}
@@ -252,8 +261,8 @@ func (s *s3RecordingStorage) SignedDownloadURL(ctx context.Context, objectRef Ob
 		ttl = s.defaultTTL
 	}
 	request, err := s.presign.PresignGetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(objectRef.Bucket),
-		Key:    aws.String(objectRef.Key),
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
 	}, func(options *s3.PresignOptions) {
 		options.Expires = ttl
 	})
@@ -268,11 +277,53 @@ func (s *s3RecordingStorage) OpenLocal(_ ObjectRef) (string, bool) {
 }
 
 func (s *s3RecordingStorage) Delete(ctx context.Context, objectRef ObjectRef) error {
-	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
-		Bucket: aws.String(objectRef.Bucket),
-		Key:    aws.String(objectRef.Key),
+	bucket, key, err := s.resolveObjectRef(objectRef)
+	if err != nil {
+		return err
+	}
+	_, err = s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
 	})
 	return err
+}
+
+func (s *s3RecordingStorage) resolveObjectRef(objectRef ObjectRef) (string, string, error) {
+	if objectRef.Driver != "" && objectRef.Driver != DriverS3 {
+		return "", "", errors.New("recording object driver is not s3")
+	}
+	bucket := strings.TrimSpace(objectRef.Bucket)
+	if bucket == "" {
+		bucket = s.bucket
+	}
+	key, err := normalizeS3ObjectKey(objectRef.Key)
+	if err != nil {
+		return "", "", err
+	}
+	return bucket, key, nil
+}
+
+func normalizeS3ObjectKey(value string) (string, error) {
+	key := strings.ReplaceAll(strings.TrimSpace(value), "\\", "/")
+	if key == "" || strings.HasPrefix(key, "/") {
+		return "", errors.New("recording object key is invalid")
+	}
+
+	parts := strings.Split(key, "/")
+	cleanParts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		if part == "." || part == ".." {
+			return "", errors.New("recording object key is invalid")
+		}
+		cleanParts = append(cleanParts, part)
+	}
+	if len(cleanParts) == 0 {
+		return "", errors.New("recording object key is invalid")
+	}
+	return path.Join(cleanParts...), nil
 }
 
 func copyFile(srcPath, dstPath string) error {
