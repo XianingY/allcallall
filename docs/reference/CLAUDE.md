@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 AllCallAll is a real-time audio/video communication platform built with:
-- **Backend**: Go 1.22+, Gin framework, Pion WebRTC v4.0.0, MySQL 8.0, Redis 7.2
+- **Backend**: Go 1.24+, Gin framework, Pion WebRTC v4.0.0, MySQL 8.0, Redis 7.2
 - **Mobile**: React Native 0.74+ with Expo 51.0+, TypeScript, react-native-webrtc
 - **Infrastructure**: Docker Compose for local development
 

@@ -25,7 +25,7 @@
 ### 🛠 技术栈
 
 #### 后端
-- **语言**: Go 1.22+
+- **语言**: Go 1.24+
 - **框架**: Gin（HTTP）、Gorilla WebSocket
 - **数据库**: MySQL 8.0
 - **缓存**: Redis 7.2
@@ -64,7 +64,7 @@ Web/Desktop 开发流程见 [docs/development/web-desktop-workflow.md](docs/deve
 
 - **开发机**: macOS / Linux
 - **Node.js**: 18.0 或更新
-- **Go**: 1.22 或更新
+- **Go**: 1.24 或更新
 - **Docker**: 20.10+（可选，用于数据库）
 - **Android SDK**: API 级别 31+ （真机调试）
 - **ADB**: Android Debug Bridge
@@ -607,7 +607,7 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 ### 🛠 Technology Stack
 
 #### Backend
-- **Language**: Go 1.22+
+- **Language**: Go 1.24+
 - **Framework**: Gin (HTTP), Gorilla WebSocket
 - **Database**: MySQL 8.0
 - **Cache**: Redis 7.2
@@ -643,7 +643,7 @@ See [docs/development/web-desktop-workflow.md](docs/development/web-desktop-work
 
 - **Development Machine**: macOS / Linux
 - **Node.js**: 18.0 or newer
-- **Go**: 1.22 or newer
+- **Go**: 1.24 or newer
 - **Docker**: 20.10+ (optional, for databases)
 - **Android SDK**: API level 31+ (physical device debugging)
 - **ADB**: Android Debug Bridge
