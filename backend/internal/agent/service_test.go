@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/models"
 )
@@ -238,6 +240,67 @@ func TestRunConversationAssistantIsIdempotentByKey(t *testing.T) {
 	}
 	if count != 6 {
 		t.Fatalf("expected exactly six tool calls after repeated execute, got %d", count)
+	}
+}
+
+func TestOutboxProcessorExecutesQueuedAgentRun(t *testing.T) {
+	svc, db, counters := newAgentServiceTestEnv(t)
+	conversation := seedAgentConversation(t, db)
+
+	queued, err := svc.RunConversationAssistant(context.Background(), conversation.OrganizationID, 7, RunInput{
+		ConversationID: conversation.ID,
+		IdempotencyKey: "outbox-worker-demo",
+	})
+	if err != nil {
+		t.Fatalf("queue run failed: %v", err)
+	}
+
+	processor := events.NewProcessor(events.NewStore(db), counters)
+	processor.Register("agent.run.requested", func(ctx context.Context, event models.EventOutbox) error {
+		var payload struct {
+			AgentRunID uint64 `json:"agent_run_id"`
+		}
+		if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+			return err
+		}
+		_, err := svc.ExecuteRun(ctx, payload.AgentRunID)
+		return err
+	})
+	processor.Register("agent.run.completed", func(context.Context, models.EventOutbox) error {
+		return nil
+	})
+	processor.Register("message.created", func(context.Context, models.EventOutbox) error {
+		return nil
+	})
+
+	processed, err := processor.ProcessOnce(context.Background())
+	if err != nil {
+		t.Fatalf("process requested event failed: %v", err)
+	}
+	if processed != 1 {
+		t.Fatalf("unexpected first process count: %d", processed)
+	}
+	result, err := svc.GetRun(context.Background(), conversation.OrganizationID, 7, queued.Run.ID)
+	if err != nil {
+		t.Fatalf("load executed run failed: %v", err)
+	}
+	if result.Run.Status != models.AgentRunStatusReady || len(result.ToolCalls) != 6 {
+		t.Fatalf("expected ready run after outbox worker, got status=%s tool_calls=%d", result.Run.Status, len(result.ToolCalls))
+	}
+
+	processed, err = processor.ProcessOnce(context.Background())
+	if err != nil {
+		t.Fatalf("process completion events failed: %v", err)
+	}
+	if processed != 2 {
+		t.Fatalf("expected completed and message events, got %d", processed)
+	}
+	var pending int64
+	if err := db.Model(&models.EventOutbox{}).Where("status = ?", models.EventOutboxStatusPending).Count(&pending).Error; err != nil {
+		t.Fatalf("count pending outbox failed: %v", err)
+	}
+	if pending != 0 {
+		t.Fatalf("expected outbox drained, pending=%d", pending)
 	}
 }
 
