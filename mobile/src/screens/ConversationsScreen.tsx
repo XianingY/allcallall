@@ -9,6 +9,10 @@ import { RootStackParamList } from "../navigation/AppNavigator";
 import PrimaryButton from "../components/PrimaryButton";
 import TextField from "../components/TextField";
 import ChatRealtimeService from "../services/ChatRealtimeService";
+import {
+  applyConversationListPatch,
+  type ConversationUpdatedPayload,
+} from "../services/conversationRealtimeReducer";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Conversations">;
 type InboxFilter = "my" | "open" | "pending" | "resolved" | "channels";
@@ -62,16 +66,8 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
     };
     const handleEvent = (payload: { event: string; payload?: unknown }) => {
       if (payload.event === "conversation.updated" && payload.payload && typeof payload.payload === "object") {
-        const maybePayload = payload.payload as {
-          conversation_id?: number;
-          changes?: Partial<ConversationRecord>;
-        };
-        if (maybePayload.conversation_id && maybePayload.changes) {
-          setItems((current) => current.map((item) => (
-            item.id === maybePayload.conversation_id ? { ...item, ...maybePayload.changes } : item
-          )));
-          return;
-        }
+        setItems((current) => applyConversationListPatch(current, payload.payload as ConversationUpdatedPayload));
+        return;
       }
       if (["message.created", "conversation.note.created"].includes(payload.event)) {
         void loadData();

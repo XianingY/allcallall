@@ -27,6 +27,10 @@ import PrimaryButton from "../components/PrimaryButton";
 import TextField from "../components/TextField";
 import fileDownloadAdapter from "../platform/fileDownload";
 import ChatRealtimeService from "../services/ChatRealtimeService";
+import {
+  applyConversationDetailPatch,
+  type ConversationUpdatedPayload,
+} from "../services/conversationRealtimeReducer";
 import { buildConversationShareLinks } from "../utils/invitations";
 
 type Props = NativeStackScreenProps<RootStackParamList, "ConversationDetail">;
@@ -103,21 +107,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     };
     const handleEvent = (event: { event: string; organization_id: number; payload: unknown }) => {
       if (event.event === "conversation.updated") {
-        const payload = event.payload as { conversation_id?: number; changes?: Partial<ConversationDetailRecord["conversation"]> } | undefined;
-        if (payload?.conversation_id === conversationId && payload.changes) {
-          const changes = payload.changes;
-          setDetail((previous) => previous ? {
-            ...previous,
-            conversation: { ...previous.conversation, ...changes },
-            workspace: {
-              ...previous.workspace,
-              assignee_user_id: changes.assignee_user_id ?? previous.workspace.assignee_user_id,
-              assignee_label: changes.assignee_display_name || changes.assignee_email || previous.workspace.assignee_label,
-              status: changes.status || previous.workspace.status,
-              priority: changes.priority || previous.workspace.priority,
-            },
-          } : previous);
-        }
+        setDetail((previous) => applyConversationDetailPatch(previous, event.payload as ConversationUpdatedPayload));
         return;
       }
       if (["message.created", "conversation.note.created", "room.recording.updated", "room.state.updated", "room.ended"].includes(event.event)) {
