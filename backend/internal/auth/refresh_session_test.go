@@ -131,6 +131,45 @@ func TestRefreshSessionRevokeAllForUser(t *testing.T) {
 	}
 }
 
+func TestRefreshSessionRotateRecordsInvalidReuse(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "refresh-reuse.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := db.AutoMigrate(&models.RefreshSession{}); err != nil {
+		t.Fatalf("migrate refresh sessions failed: %v", err)
+	}
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	svc := NewRefreshSessionService(db)
+	if _, err := svc.Create(ctx, 7, RefreshSessionInput{Token: "refresh-token-v1", ExpiresAt: now.Add(time.Hour)}); err != nil {
+		t.Fatalf("create refresh session failed: %v", err)
+	}
+	if _, err := svc.Rotate(ctx, "refresh-token-v1", 7, RefreshSessionInput{
+		Token:     "refresh-token-v2",
+		ExpiresAt: now.Add(time.Hour),
+	}, now.Add(time.Minute)); err != nil {
+		t.Fatalf("initial rotate failed: %v", err)
+	}
+
+	_, err = svc.Rotate(ctx, "refresh-token-v1", 7, RefreshSessionInput{
+		Token:     "refresh-token-v3",
+		ExpiresAt: now.Add(time.Hour),
+	}, now.Add(2*time.Minute))
+	if !errors.Is(err, ErrInvalidRefreshSession) {
+		t.Fatalf("expected reused refresh token to be invalid, got %v", err)
+	}
+
+	var session models.RefreshSession
+	if err := db.Where("token_hash = ?", refreshTokenHash("refresh-token-v1")).Take(&session).Error; err != nil {
+		t.Fatalf("load original session failed: %v", err)
+	}
+	if session.InvalidUseCount != 1 || session.LastInvalidUseAt == nil {
+		t.Fatalf("expected invalid reuse to be recorded, got count=%d at=%v", session.InvalidUseCount, session.LastInvalidUseAt)
+	}
+}
+
 func TestRefreshSessionCleanupExpired(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "refresh-cleanup.db")), &gorm.Config{})
 	if err != nil {

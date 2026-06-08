@@ -34,6 +34,8 @@ Web/Desktop browser clients need credentialed CORS when the app origin and API o
 
 The backend persists refresh sessions in `refresh_sessions` using a SHA-256 hash of the refresh token, not the raw token value. Login and registration create a session, refresh rotates the session, logout revokes the current session, and logout-all revokes every active refresh session for the authenticated user.
 
+If a previously rotated or revoked refresh token is reused, the backend records `invalid_use_count` and `last_invalid_use_at` on the original session row. Treat these as support and risk signals; the refresh request still fails and clears the cookie.
+
 Expired sessions are cleaned by the backend worker:
 
 - `REFRESH_SESSION_CLEANUP_INTERVAL_MIN`: cleanup interval in minutes. Default: `1440`.
@@ -42,4 +44,4 @@ Expired sessions are cleaned by the backend worker:
 Remaining production hardening items:
 
 - Add a user-facing device/session management UI.
-- Add suspicious-session detection and forced revocation workflows.
+- Add suspicious-session alerting and forced revocation workflows.

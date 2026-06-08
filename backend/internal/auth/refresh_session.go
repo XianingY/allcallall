@@ -92,6 +92,11 @@ func (s *RefreshSessionService) Rotate(ctx context.Context, currentToken string,
 			Where("id = ? AND revoked_at IS NULL", current.ID).
 			Updates(updates).Error
 	}); err != nil {
+		if errors.Is(err, ErrInvalidRefreshSession) {
+			if recordErr := s.RecordInvalidUse(ctx, currentToken, now); recordErr != nil {
+				return nil, recordErr
+			}
+		}
 		return nil, err
 	}
 	return replacement, nil
@@ -124,6 +129,19 @@ func (s *RefreshSessionService) RevokeAllForUser(ctx context.Context, userID uin
 		return 0, result.Error
 	}
 	return int(result.RowsAffected), nil
+}
+
+func (s *RefreshSessionService) RecordInvalidUse(ctx context.Context, token string, now time.Time) error {
+	hash := refreshTokenHash(token)
+	if hash == "" {
+		return nil
+	}
+	return s.db.WithContext(ctx).Model(&models.RefreshSession{}).
+		Where("token_hash = ?", hash).
+		Updates(map[string]any{
+			"invalid_use_count":   gorm.Expr("invalid_use_count + ?", 1),
+			"last_invalid_use_at": now,
+		}).Error
 }
 
 func (s *RefreshSessionService) CleanupExpired(ctx context.Context, now time.Time, revokedRetention time.Duration, limit int) (*RefreshSessionCleanupResult, error) {

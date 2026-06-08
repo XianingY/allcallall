@@ -19,17 +19,19 @@ type User struct {
 
 // RefreshSession tracks a revocable refresh-cookie session.
 type RefreshSession struct {
-	ID           uint64     `gorm:"primaryKey;autoIncrement"`
-	UserID       uint64     `gorm:"not null;index"`
-	TokenHash    string     `gorm:"size:64;uniqueIndex;not null"`
-	UserAgent    string     `gorm:"size:255"`
-	IPAddress    string     `gorm:"size:64"`
-	ExpiresAt    time.Time  `gorm:"not null;index"`
-	LastUsedAt   *time.Time `gorm:"index"`
-	RevokedAt    *time.Time `gorm:"index"`
-	ReplacedByID *uint64    `gorm:"index"`
-	CreatedAt    time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt    time.Time  `gorm:"autoUpdateTime"`
+	ID               uint64     `gorm:"primaryKey;autoIncrement"`
+	UserID           uint64     `gorm:"not null;index"`
+	TokenHash        string     `gorm:"size:64;uniqueIndex;not null"`
+	UserAgent        string     `gorm:"size:255"`
+	IPAddress        string     `gorm:"size:64"`
+	ExpiresAt        time.Time  `gorm:"not null;index"`
+	LastUsedAt       *time.Time `gorm:"index"`
+	RevokedAt        *time.Time `gorm:"index"`
+	ReplacedByID     *uint64    `gorm:"index"`
+	InvalidUseCount  int        `gorm:"not null;default:0"`
+	LastInvalidUseAt *time.Time `gorm:"index"`
+	CreatedAt        time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt        time.Time  `gorm:"autoUpdateTime"`
 }
 
 // TableName 自定义表名
