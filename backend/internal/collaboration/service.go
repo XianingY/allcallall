@@ -171,6 +171,7 @@ type MessageRecord struct {
 
 type RealtimeEventRecord struct {
 	ID             uint64    `json:"event_id"`
+	Sequence       uint64    `json:"sequence"`
 	OrganizationID uint64    `json:"organization_id"`
 	UserID         uint64    `json:"user_id,omitempty"`
 	Event          string    `json:"event"`
@@ -2210,8 +2211,13 @@ func (s *Service) createRealtimeEvent(ctx context.Context, organizationID, userI
 	if err := s.db.WithContext(ctx).Create(&item).Error; err != nil {
 		return nil, err
 	}
+	item.Sequence = item.ID
+	if err := s.db.WithContext(ctx).Model(&models.ChatEvent{}).Where("id = ?", item.ID).Update("sequence", item.Sequence).Error; err != nil {
+		return nil, err
+	}
 	return &RealtimeEventRecord{
 		ID:             item.ID,
+		Sequence:       item.Sequence,
 		OrganizationID: item.OrganizationID,
 		UserID:         item.UserID,
 		Event:          item.Event,
@@ -2245,6 +2251,7 @@ func (s *Service) ListRealtimeEventsSince(ctx context.Context, organizationID, u
 		}
 		result = append(result, RealtimeEventRecord{
 			ID:             row.ID,
+			Sequence:       realtimeSequence(row),
 			OrganizationID: row.OrganizationID,
 			UserID:         row.UserID,
 			Event:          row.Event,
@@ -2253,6 +2260,13 @@ func (s *Service) ListRealtimeEventsSince(ctx context.Context, organizationID, u
 		})
 	}
 	return result, nil
+}
+
+func realtimeSequence(row models.ChatEvent) uint64 {
+	if row.Sequence != 0 {
+		return row.Sequence
+	}
+	return row.ID
 }
 
 func (s *Service) publishConversationPatchUpdate(ctx context.Context, organizationID, conversationID uint64, changes map[string]any) {

@@ -4,23 +4,47 @@
 
 ---
 
+> Portfolio positioning: **AI-Powered Realtime Collaboration Backend**.
+>
+> This repository is now curated as a backend engineering portfolio project rather than a commercial app pitch. The strongest interview story is: Go backend, realtime collaboration, WebSocket/WebRTC, MySQL/Redis, S3-compatible recording storage, observability, refresh-session security, and an explainable AI Agent pipeline with tool calling, idempotency, memory, and outbox events.
+
+## Interview-Focused Highlights
+
+- **Go backend system design**: Gin HTTP APIs, service-layer domain logic, Gorm/MySQL models, Redis-backed realtime infrastructure, request IDs, metrics, cleanup workers, and CI gates.
+- **Realtime collaboration**: organization-scoped conversations, replayable WebSocket events with explicit `sequence`, room state patches, WebRTC signaling/media relay, recording lifecycle events, and conversation timeline recovery.
+- **AI Agent engineering**: `agent_runs`, `agent_steps`, `agent_tool_calls`, `agent_memories`, rules-based provider, OpenAI-compatible provider seam, idempotency key support, permission checks, tool execution, metrics, and outbox event persistence.
+- **Distributed reliability**: refresh-token rotation/reuse detection, event replay, S3-compatible recording storage, retention cleanup, support diagnostics, and idempotent Agent/outbox flows.
+- **Commercial/mobile modules are secondary**: RevenueCat, Android subscription UX, and compliance pages remain in the repo, but they are no longer the main project narrative.
+
+Recommended interview docs:
+
+- [Interview README](docs/interview/README.md)
+- [System Design](docs/interview/system-design.md)
+- [Backend Deep Dive](docs/interview/backend-deep-dive.md)
+- [AI Agent Design](docs/interview/ai-agent-design.md)
+- [API Surface](docs/interview/api-surface.md)
+- [Performance Report](docs/interview/performance-report.md)
+- [Resume Bullets](docs/interview/resume-bullets.md)
+
+Lightweight load/smoke scripts:
+
+- `scripts/load/agent-run-smoke.sh`
+- `scripts/load/ws-connections.mjs`
+
 ## 中文
 
-> 一个基于 WebRTC 的跨端协作通信平台，支持会议、团队 Inbox、联系人、实时翻译、录音资产和会后摘要。
+> 一个面向后端开发面试的工程型作品集项目：Go 后端 + 实时协作 + WebSocket/WebRTC + MySQL/Redis + 可观测性 + AI Agent 工程化。
 
 ### ✨ 特性
 
-- 🎤 **实时音视频与会议** - 1:1 通话保留原链路，团队会议走房间化协议
-- 🌍 **实时翻译** - 基于后端在线翻译服务的实时字幕翻译
-- 🧵 **团队协作线程** - Inbox、内部备注、负责人、状态、优先级和会议事件
-- 🎙️ **录音与会后资产** - 本地/S3-compatible 存储、保留期清理、录音下载和摘要入口
-- 👥 **联系人管理** - 添加、搜索和管理通讯录
-- 🟢 **在线状态** - 实时显示用户在线状态和最后在线时间
-- 🔐 **用户认证** - JWT access token + HttpOnly refresh cookie/Web refresh session
-- 📱 **跨平台** - Android 主线，Web 工作台，Electron Desktop 壳；iOS 真机闭环暂缓
-- 🚀 **高性能** - Redis 缓存、连接池优化、异步 WebSocket 信令
-- 🔄 **自动重连** - 网络异常自动重新连接
-- 🔒 **隐私保护** - 不落盘原始音频与原文，仅保留最小化指标与错误码
+- **实时音视频与会议** - 1:1 通话保留原链路，团队会议走房间化协议
+- **实时事件系统** - WebSocket 事件、显式 sequence、replay/catch-up、局部 patch
+- **AI Agent 协作助手** - 会议/线程分析、行动项、工具调用、memory、幂等和 outbox
+- **录音与会后资产** - 本地/S3-compatible 存储、保留期清理、录音下载和摘要入口
+- **团队协作线程** - Inbox、内部备注、负责人、状态、优先级和会议事件
+- **认证与风控** - JWT access token + HttpOnly refresh cookie/Web refresh session + reuse detection
+- **可观测性** - request id、结构化错误码、Prometheus 风格指标、支持侧只读排障接口
+- **跨端演示** - Android、Web 工作台、Electron Desktop 壳；iOS 真机闭环暂缓
 
 ### 🛠 技术栈
 

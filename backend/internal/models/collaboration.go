@@ -218,6 +218,7 @@ type ChatEvent struct {
 	ID             uint64    `gorm:"primaryKey;autoIncrement"`
 	OrganizationID uint64    `gorm:"not null;index:idx_chat_event_recipient,priority:1"`
 	UserID         uint64    `gorm:"not null;index:idx_chat_event_recipient,priority:2"`
+	Sequence       uint64    `gorm:"not null;default:0;index"`
 	Event          string    `gorm:"size:96;not null;index"`
 	PayloadJSON    string    `gorm:"type:longtext"`
 	CreatedAt      time.Time `gorm:"autoCreateTime;index:idx_chat_event_recipient,priority:3"`

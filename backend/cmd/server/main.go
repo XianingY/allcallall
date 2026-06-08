@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 
+	"github.com/allcallall/backend/internal/agent"
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/cache"
 	"github.com/allcallall/backend/internal/collaboration"
@@ -122,6 +123,11 @@ func main() {
 		&models.Deal{},
 		&models.DealContact{},
 		&models.DealActivity{},
+		&models.AgentRun{},
+		&models.AgentStep{},
+		&models.AgentToolCall{},
+		&models.AgentMemory{},
+		&models.EventOutbox{},
 	); err != nil {
 		appLogger.Fatal().Err(err).Msg("auto migrate failed")
 	}
@@ -145,6 +151,7 @@ func main() {
 	userSvc := user.NewService(userRepo, user.WithPushDeviceSupport())
 	collaborationSvc := collaboration.NewService(db, userSvc)
 	collaborationSvc.WithMetrics(counterStore)
+	agentSvc := agent.NewService(db, counterStore)
 	chatHub := collaboration.NewChatHub(appLogger)
 	collaborationSvc.WithPublisher(chatHub)
 	recordingStorage, err := storage.NewRecordingStorage(storage.Config{
@@ -212,6 +219,7 @@ func main() {
 	})
 	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, mailSvc, rateLimitSvc, counterStore)
 	collaborationHandler := handlers.NewCollaborationHandler(appLogger, collaborationSvc, userSvc, chatHub)
+	agentHandler := handlers.NewAgentHandler(appLogger, agentSvc)
 	invitationHandler := handlers.NewInvitationHandler(appLogger, invitationSvc, contactSvc, userSvc)
 	webrtcHandler := handlers.NewWebRTCHandler(appLogger, cfg.WebRTC)
 	signalingHub := signaling.NewHub(redisClient, appLogger, presenceManager)
@@ -279,6 +287,7 @@ func main() {
 		UserHandler:      userHandler,
 		Commercial:       commercialHandler,
 		Collaboration:    collaborationHandler,
+		Agent:            agentHandler,
 		Invitations:      invitationHandler,
 		SignalingHandler: signalingHandler,
 		SignalingPoll:    signalingPollHandler,

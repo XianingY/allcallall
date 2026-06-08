@@ -85,6 +85,7 @@ func (h *ChatHub) PublishToUser(_ context.Context, event RealtimeEventRecord) er
 func marshalRealtimeEvent(event RealtimeEventRecord) ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"event_id":        event.ID,
+		"sequence":        event.Sequence,
 		"event":           event.Event,
 		"organization_id": event.OrganizationID,
 		"payload":         event.Payload,

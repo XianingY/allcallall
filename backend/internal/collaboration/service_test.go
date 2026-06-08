@@ -62,6 +62,7 @@ func newServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *user.Service) {
 		&models.Deal{},
 		&models.DealContact{},
 		&models.DealActivity{},
+		&models.EventOutbox{},
 	); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)
 	}
@@ -141,6 +142,9 @@ func TestRealtimeEventsAreRecipientScopedAndReplayable(t *testing.T) {
 	}
 	if ownerEvents[0].Event != "message.created" || teammateEvents[0].Event != "message.created" {
 		t.Fatalf("expected message.created events, got owner=%s teammate=%s", ownerEvents[0].Event, teammateEvents[0].Event)
+	}
+	if ownerEvents[0].Sequence == 0 || teammateEvents[0].Sequence == 0 {
+		t.Fatalf("expected explicit replay sequence, got owner=%d teammate=%d", ownerEvents[0].Sequence, teammateEvents[0].Sequence)
 	}
 	if _, err := svc.ListRealtimeEventsSince(ctx, org.ID, outsider.ID, 0, 20); err == nil {
 		t.Fatal("expected outsider replay lookup to be denied")
