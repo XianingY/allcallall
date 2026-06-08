@@ -193,7 +193,7 @@ func main() {
 	if err != nil {
 		appLogger.Fatal().Err(err).Msg("failed to initialize jwt manager")
 	}
-	refreshSessionSvc := auth.NewRefreshSessionService(db)
+	refreshSessionSvc := auth.NewRefreshSessionService(db, counterStore)
 
 	authHandler := handlers.NewAuthHandler(appLogger, userSvc, jwtManager, verificationCodeSvc, handlers.AuthHandlerOptions{
 		Commerce:        commerceSvc,

@@ -10,6 +10,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/models"
 )
 
@@ -260,7 +261,8 @@ func TestRefreshSessionRotateRecordsInvalidReuse(t *testing.T) {
 
 	ctx := context.Background()
 	now := time.Now().UTC()
-	svc := NewRefreshSessionService(db)
+	counters := metrics.NewCounterStore()
+	svc := NewRefreshSessionService(db, counters)
 	if _, err := svc.Create(ctx, 7, RefreshSessionInput{Token: "refresh-token-v1", ExpiresAt: now.Add(time.Hour)}); err != nil {
 		t.Fatalf("create refresh session failed: %v", err)
 	}
@@ -285,6 +287,9 @@ func TestRefreshSessionRotateRecordsInvalidReuse(t *testing.T) {
 	}
 	if session.InvalidUseCount != 1 || session.LastInvalidUseAt == nil {
 		t.Fatalf("expected invalid reuse to be recorded, got count=%d at=%v", session.InvalidUseCount, session.LastInvalidUseAt)
+	}
+	if got := counters.Snapshot()["refresh_session_invalid_use_total"]; got != 1 {
+		t.Fatalf("expected invalid refresh session metric to increment, got %d", got)
 	}
 }
 

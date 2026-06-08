@@ -85,6 +85,7 @@ Typical failure patterns:
 - `meeting_reconnect_total`
 - `meeting_reconnect_fail_total`
 - `room_media_state_update_total`
+- `refresh_session_invalid_use_total`
 - `recording_start_total`
 - `recording_stop_total`
 - `recording_storage_write_fail_total`

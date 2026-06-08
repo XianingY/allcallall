@@ -36,7 +36,7 @@ Web/Desktop browser clients need credentialed CORS when the app origin and API o
 
 The backend persists refresh sessions in `refresh_sessions` using a SHA-256 hash of the refresh token, not the raw token value. Login and registration create a session, refresh rotates the session, logout revokes the current session, and logout-all revokes every active refresh session for the authenticated user.
 
-If a previously rotated or revoked refresh token is reused, the backend records `invalid_use_count` and `last_invalid_use_at` on the original session row. Treat these as support and risk signals; the refresh request still fails and clears the cookie.
+If a previously rotated or revoked refresh token is reused, the backend records `invalid_use_count` and `last_invalid_use_at` on the original session row, and increments `refresh_session_invalid_use_total` in `/api/v1/metrics`. Treat these as support and risk signals; the refresh request still fails and clears the cookie.
 
 The internal support user summary includes a redacted `refresh_sessions` block with active/revoked/expired counts, recent session metadata, invalid refresh reuse counters, `risk_level`, and `risk_reasons`. It never returns raw refresh tokens or token hashes. Support can force revoke one session with `DELETE /api/v1/internal/support/users/:userId/sessions/:sessionId` or all user sessions with `POST /api/v1/internal/support/users/:userId/sessions/revoke-all`.
 

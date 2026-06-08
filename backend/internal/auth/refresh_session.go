@@ -19,7 +19,12 @@ var (
 )
 
 type RefreshSessionService struct {
-	db *gorm.DB
+	db      *gorm.DB
+	metrics refreshSessionMetrics
+}
+
+type refreshSessionMetrics interface {
+	Inc(name string)
 }
 
 type RefreshSessionInput struct {
@@ -48,8 +53,12 @@ type RefreshSessionView struct {
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
-func NewRefreshSessionService(db *gorm.DB) *RefreshSessionService {
-	return &RefreshSessionService{db: db}
+func NewRefreshSessionService(db *gorm.DB, counters ...refreshSessionMetrics) *RefreshSessionService {
+	var metrics refreshSessionMetrics
+	if len(counters) > 0 {
+		metrics = counters[0]
+	}
+	return &RefreshSessionService{db: db, metrics: metrics}
 }
 
 func (s *RefreshSessionService) Create(ctx context.Context, userID uint64, in RefreshSessionInput) (*models.RefreshSession, error) {
@@ -225,12 +234,19 @@ func (s *RefreshSessionService) RecordInvalidUse(ctx context.Context, token stri
 	if hash == "" {
 		return nil
 	}
-	return s.db.WithContext(ctx).Model(&models.RefreshSession{}).
+	result := s.db.WithContext(ctx).Model(&models.RefreshSession{}).
 		Where("token_hash = ?", hash).
 		Updates(map[string]any{
 			"invalid_use_count":   gorm.Expr("invalid_use_count + ?", 1),
 			"last_invalid_use_at": now,
-		}).Error
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected > 0 && s.metrics != nil {
+		s.metrics.Inc("refresh_session_invalid_use_total")
+	}
+	return nil
 }
 
 func (s *RefreshSessionService) CleanupExpired(ctx context.Context, now time.Time, revokedRetention time.Duration, limit int) (*RefreshSessionCleanupResult, error) {
