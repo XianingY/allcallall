@@ -1,6 +1,10 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
 import {
   collectRemoteTracks,
   createEmptyRemoteTrackState,
+  deriveNetworkQualityUpdate,
   discardStaleRemoteCandidates,
   flushPendingRemoteCandidatesForCurrentEpoch,
   normalizeIceEpoch,
@@ -86,3 +90,46 @@ export const runSignalingRtcUtilsPseudoTest = async (): Promise<boolean> => {
 
   return true;
 };
+
+test("signaling RTC helper pseudo-suite stays green", async () => {
+  assert.equal(await runSignalingRtcUtilsPseudoTest(), true);
+});
+
+test("deriveNetworkQualityUpdate maps RTT thresholds and connection fallback", () => {
+  assert.equal(deriveNetworkQualityUpdate({ currentRtt: 0.05 }), "excellent");
+  assert.equal(deriveNetworkQualityUpdate({ currentRtt: 0.2 }), "good");
+  assert.equal(deriveNetworkQualityUpdate({ currentRtt: 0.4 }), "poor");
+  assert.equal(deriveNetworkQualityUpdate({ currentRtt: 0.8 }), "bad");
+  assert.equal(
+    deriveNetworkQualityUpdate({
+      currentRtt: null,
+      connectionState: "connected",
+      iceConnectionState: "new",
+    }),
+    "good"
+  );
+  assert.equal(
+    deriveNetworkQualityUpdate({
+      currentRtt: null,
+      connectionState: "disconnected",
+      iceConnectionState: "connected",
+    }),
+    "good"
+  );
+  assert.equal(
+    deriveNetworkQualityUpdate({
+      currentRtt: null,
+      connectionState: "connecting",
+      iceConnectionState: "new",
+    }),
+    "unknown"
+  );
+  assert.equal(
+    deriveNetworkQualityUpdate({
+      currentRtt: null,
+      connectionState: "new",
+      iceConnectionState: "new",
+    }),
+    null
+  );
+});

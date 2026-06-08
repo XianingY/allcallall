@@ -22,6 +22,14 @@ export interface RemoteTrackEventLike<TTrack extends RemoteTrackLike = RemoteTra
   }> | null;
 }
 
+export type DerivedNetworkQuality = "excellent" | "good" | "poor" | "bad" | "unknown";
+
+export interface NetworkQualitySnapshot {
+  currentRtt: number | null;
+  connectionState?: string | null;
+  iceConnectionState?: string | null;
+}
+
 export const createEmptyRemoteTrackState = <
   TTrack extends RemoteTrackLike = RemoteTrackLike,
 >(): RemoteTrackState<TTrack> => ({
@@ -107,6 +115,38 @@ export const discardStaleRemoteCandidates = (
   currentEpoch: number
 ): IceCandidatePayload[] =>
   pendingCandidates.filter((candidate) => normalizeIceEpoch(candidate) >= currentEpoch);
+
+export const deriveNetworkQualityUpdate = ({
+  currentRtt,
+  connectionState,
+  iceConnectionState,
+}: NetworkQualitySnapshot): DerivedNetworkQuality | null => {
+  if (currentRtt !== null) {
+    if (currentRtt < 0.1) return "excellent";
+    if (currentRtt < 0.3) return "good";
+    if (currentRtt < 0.5) return "poor";
+    return "bad";
+  }
+
+  if (
+    connectionState === "connected" ||
+    iceConnectionState === "connected" ||
+    iceConnectionState === "completed"
+  ) {
+    return "good";
+  }
+  if (
+    connectionState === "disconnected" ||
+    connectionState === "failed" ||
+    iceConnectionState === "failed"
+  ) {
+    return "bad";
+  }
+  if (connectionState === "connecting" || iceConnectionState === "checking") {
+    return "unknown";
+  }
+  return null;
+};
 
 export const collectRemoteTracks = <TTrack extends RemoteTrackLike = RemoteTrackLike>(
   event: RemoteTrackEventLike<TTrack>

@@ -65,6 +65,7 @@ import { createSignalingTransport } from "./signalingTransports";
 import {
   collectRemoteTracks,
   createEmptyRemoteTrackState,
+  deriveNetworkQualityUpdate,
   discardStaleRemoteCandidates,
   flushPendingRemoteCandidatesForCurrentEpoch,
   normalizeIceEpoch,
@@ -543,18 +544,12 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       });
 
-      if (currentRtt !== null) {
-        if (currentRtt < 0.1) setNetworkQuality("excellent");
-        else if (currentRtt < 0.3) setNetworkQuality("good");
-        else if (currentRtt < 0.5) setNetworkQuality("poor");
-        else setNetworkQuality("bad");
-      } else if (connectionState === "connected" || iceConnectionState === "connected" || iceConnectionState === "completed") {
-        setNetworkQuality("good");
-      } else if (connectionState === "disconnected" || connectionState === "failed" || iceConnectionState === "failed") {
-        setNetworkQuality("bad");
-      } else if (connectionState === "connecting" || iceConnectionState === "checking") {
-        setNetworkQuality("unknown");
-      }
+      const nextNetworkQuality = deriveNetworkQualityUpdate({
+        currentRtt,
+        connectionState,
+        iceConnectionState,
+      });
+      if (nextNetworkQuality) setNetworkQuality(nextNetworkQuality);
 
       return availableBps;
     });
