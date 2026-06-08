@@ -35,6 +35,10 @@ import permissionsAdapter from "../platform/permissionsAdapter";
 import AnalyticsService from "../services/AnalyticsService";
 import AudioService from "../services/AudioServiceExpo";
 import VideoService, { type CameraFacing } from "../services/VideoService";
+import {
+  buildRemoteStreamKey,
+  parseParticipantIdFromMediaIds,
+} from "../services/roomMediaMapping";
 import { applyRoomRealtimePatch } from "../services/roomRealtimeReducer";
 import { DEFAULT_ICE_SERVERS } from "./signalingConstants";
 import { preferRestrictedIceServers } from "./signalingHelpers";
@@ -246,19 +250,6 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
     );
   }, []);
 
-  const parseParticipantId = useCallback((streamId?: string, trackId?: string) => {
-    const candidate = [streamId, trackId].find((value) => typeof value === "string" && value.includes("participant-"));
-    if (!candidate) {
-      return undefined;
-    }
-    const match = candidate.match(/participant-(\d+)/);
-    if (!match) {
-      return undefined;
-    }
-    const parsed = Number(match[1]);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }, []);
-
   const renegotiate = useCallback(async (roomId: number) => {
     if (!token || !peerRef.current) {
       return;
@@ -352,8 +343,8 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
 
       (pc as any).ontrack = (event: any) => {
         const stream = event.streams[0] ?? new MediaStream([event.track]);
-        const key = stream.id || `${event.track.kind}-${event.track.id}`;
-        const participantId = parseParticipantId(stream.id, event.track?.id);
+        const key = buildRemoteStreamKey(stream.id, event.track?.kind, event.track?.id);
+        const participantId = parseParticipantIdFromMediaIds(stream.id, event.track?.id);
         remoteStreamParticipantRef.current.set(key, participantId);
         if (!remoteStreamMapRef.current.has(key)) {
           remoteStreamMapRef.current.set(key, stream);
@@ -458,7 +449,6 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
     clearRemoteStreams,
     closePeer,
     loadIceServers,
-    parseParticipantId,
     preparePreview,
     refreshRoom,
     scheduleReconnect,
