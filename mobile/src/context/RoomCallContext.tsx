@@ -33,6 +33,7 @@ import {
 } from "../api/collaboration";
 import { fetchWebRTCConfig } from "../api/webrtc";
 import permissionsAdapter from "../platform/permissionsAdapter";
+import AnalyticsService from "../services/AnalyticsService";
 import AudioService from "../services/AudioServiceExpo";
 import VideoService, { type CameraFacing } from "../services/VideoService";
 import { DEFAULT_ICE_SERVERS } from "./signalingConstants";
@@ -314,13 +315,15 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
     setRoom(result.room);
   }, [token]);
 
-  const scheduleReconnect = useCallback((roomId: number) => {
+  const scheduleReconnect = useCallback((roomId: number, reason = "ice_disconnected") => {
     if (reconnectTimeoutRef.current || !peerRef.current) {
       return;
     }
     reconnectTimeoutRef.current = setTimeout(() => {
       reconnectTimeoutRef.current = null;
-      reconnectAttemptRef.current += 1;
+      const attempt = reconnectAttemptRef.current + 1;
+      reconnectAttemptRef.current = attempt;
+      AnalyticsService.track("meeting_reconnect_started", { room_id: roomId, attempt, reason });
       void (async () => {
         try {
           setControlState((current) => ({
@@ -330,10 +333,18 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
           }));
           await refreshRoom(roomId);
           await renegotiate(roomId);
+          setControlState((current) => ({
+            ...current,
+            joined: true,
+            joining: false,
+            connectionState: "connected",
+          }));
+          await syncRoomMediaState({ connectionState: "connected" });
+          AnalyticsService.track("meeting_reconnect_succeeded", { room_id: roomId, attempt });
         } catch (error) {
           console.error("[RoomCallContext] Failed to renegotiate room connection:", error);
-          if (reconnectAttemptRef.current < 2) {
-            scheduleReconnect(roomId);
+          if (attempt < 2) {
+            scheduleReconnect(roomId, "renegotiation_failed");
             return;
           }
           setControlState((current) => ({
@@ -341,10 +352,12 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
             joining: false,
             connectionState: "failed",
           }));
+          void syncRoomMediaState({ connectionState: "failed" });
+          AnalyticsService.track("meeting_reconnect_failed", { room_id: roomId, attempt, reason: "renegotiation_failed" });
         }
       })();
     }, 1200);
-  }, [refreshRoom, renegotiate]);
+  }, [refreshRoom, renegotiate, syncRoomMediaState]);
 
   const joinMeeting = useCallback(async (roomId: number, options: MeetingJoinOptions) => {
     if (!token) {
@@ -391,6 +404,11 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
           }
         }
         event.track.onended = () => {
+          AnalyticsService.track("meeting_remote_stream_lost", {
+            room_id: roomId,
+            participant_id: participantId,
+            track_kind: event.track.kind,
+          });
           const current = remoteStreamMapRef.current.get(key);
           if (!current) {
             return;
@@ -449,7 +467,7 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
             connectionState: "reconnecting",
           }));
           void syncRoomMediaState({ connectionState: "reconnecting" });
-          scheduleReconnect(roomId);
+          scheduleReconnect(roomId, nextIceState);
         }
       };
 
@@ -470,6 +488,7 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
         connectionState: "connected",
       });
     } catch (error) {
+      AnalyticsService.track("meeting_join_failed", { room_id: roomId });
       closePeer();
       clearRemoteStreams();
       setControlState({ joined: false, joining: false, connectionState: "failed" });
