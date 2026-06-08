@@ -7,6 +7,7 @@ This report is a living document. Fill in numbers after running load tests again
 - Validate WebSocket replay behavior under concurrent clients.
 - Validate meeting event throughput and database write pressure.
 - Validate Agent run idempotency and tool-call write amplification.
+- Validate outbox worker drain rate, retry behavior, and failure visibility.
 - Validate recording download authorization and storage latency.
 
 ## Test Environment
@@ -24,6 +25,7 @@ Scripts live in `scripts/load/`.
 
 - `agent-run-smoke.sh`: concurrent Agent run creation against one conversation.
 - `ws-connections.mjs`: WebSocket connection smoke/load template.
+- Outbox worker can be exercised by repeated Agent runs that enqueue `agent.run.completed` events.
 
 ## Metrics To Capture
 
@@ -33,6 +35,9 @@ Backend `/api/v1/metrics`:
 - `agent_run_failed_total`
 - `agent_tool_call_total`
 - `agent_memory_write_total`
+- `outbox_publish_total`
+- `outbox_publish_retry_total`
+- `outbox_publish_failed_total`
 - `chat_realtime_delivery_fail_total`
 - `meeting_join_total`
 - `recording_download_total`
@@ -51,6 +56,7 @@ System metrics:
 | Scenario | Concurrency | Duration | p95 Latency | Error Rate | Notes |
 | --- | ---: | ---: | ---: | ---: | --- |
 | Agent run creation | TBD | TBD | TBD | TBD | Idempotency on/off |
+| Outbox drain | TBD | TBD | TBD | TBD | batch size/retry settings |
 | WebSocket connections | TBD | TBD | TBD | TBD | Anonymous or authenticated |
 | Meeting event replay | TBD | TBD | TBD | TBD | `since_id` replay |
 | Recording download | TBD | TBD | TBD | TBD | local vs S3 |
@@ -59,12 +65,13 @@ System metrics:
 
 - MySQL is currently the durable realtime replay store; high event throughput may require Redis Streams or Kafka later.
 - Agent run writes multiple rows per request: run, steps, tool calls, memory, outbox, message, follow-up task.
+- Outbox throughput is controlled by `OUTBOX_WORKER_INTERVAL_SEC`, `OUTBOX_WORKER_BATCH_SIZE`, retry delay, and handler latency.
 - WebRTC media relay and recording are separate bottleneck domains from HTTP API latency.
 
 ## Optimization Ideas
 
 - Batch realtime event writes per recipient group.
-- Replace the lightweight outbox handler with Redis Streams/Kafka publishing if event volume grows.
+- Replace the lightweight outbox handler with Redis Streams/Kafka publishing if event volume grows or cross-service consumers are introduced.
 - Add Redis Streams for high-volume room events.
 - Add SQL indexes for hottest replay/query paths.
 - Split collaboration service into chat, room, recording, and support services.

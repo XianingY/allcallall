@@ -12,6 +12,7 @@ Use this page as a preparation checklist before backend interviews.
 
 - Chat and collaboration events use WebSocket plus replayable event records.
 - Chat events carry explicit `sequence` values while preserving backward-compatible `event_id`.
+- `/api/v1/chat/ws` is for collaboration event replay; `/api/v1/ws` and `/api/v1/signaling/*` are WebRTC signaling paths.
 - Room state is represented as patchable state, not only page refreshes.
 - Meeting events and recording lifecycle events are written into the conversation timeline to keep collaboration context recoverable after reconnect.
 
@@ -52,11 +53,24 @@ Interview angle:
 - Retry safety is provided through `Idempotency-Key`.
 - Tool side effects enqueue durable `event_outbox` records.
 - Tool execution is still controlled by backend service code.
+- `AGENT_PROVIDER` selects the planner: `rules` is deterministic and default, while `openai_compatible` is a deliberate provider seam that currently returns planner unavailable.
 
 Interview angle:
 
 - Explain why Agent tools need permission checks, idempotency, observability, and bounded side effects.
 - Explain why the first version is deterministic before adding an LLM provider.
+
+## Outbox Worker Design
+
+- `event_outbox` stores durable domain events with aggregate type, aggregate ID, event name, payload JSON, idempotency key, status, attempts, and error metadata.
+- The server starts `startOutboxWorker`, which drains pending rows on an interval and processes them through registered handlers.
+- Runtime knobs are `OUTBOX_WORKER_INTERVAL_SEC`, `OUTBOX_WORKER_BATCH_SIZE`, `OUTBOX_WORKER_MAX_ATTEMPTS`, and `OUTBOX_WORKER_RETRY_DELAY_SEC`.
+- Metrics distinguish publish, retry, and permanent failure paths.
+
+Interview angle:
+
+- Explain why the Agent writes the outbox row in the same transaction as the conversation message.
+- Explain why the current handler can be a simple observed event while the contract still allows Kafka, Redis Streams, or webhook publishers later.
 
 ## Service Boundary Refactoring Plan
 
@@ -78,8 +92,7 @@ The project avoids a big-bang split. The recommended interview explanation is: f
 
 ## Next High-Value Engineering Tasks
 
-- Add a provider interface for Agent planning and keep the current rules planner as the default implementation.
-- Add a seed/demo command for interview walkthroughs.
-- Add load tests for event replay and Agent run creation.
+- Implement a real OpenAI-compatible planner behind the existing provider interface.
+- Add load tests for event replay, outbox draining, and Agent run creation.
 - Split oversized services such as collaboration into smaller domain services.
-- Add architecture diagrams and a short demo script in `docs/interview`.
+- Capture measured p95/p99 baselines in `docs/interview/performance-report.md`.

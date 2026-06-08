@@ -11,15 +11,15 @@ Use these as raw material. Pick 2-3 bullets and tune them for the target role.
 ## AI Agent Engineering
 
 - Implemented an explainable AI Agent execution model with persisted runs, intermediate steps, tool-call records, scoped memory, idempotency keys, metrics, and backend-controlled tool execution.
-- Added a deterministic rules-based Agent provider and an OpenAI-compatible provider seam, enabling stable tests while preserving a clean path to LLM-backed planning.
+- Added `AGENT_PROVIDER` selection with a deterministic rules-based Agent provider and an OpenAI-compatible provider seam, enabling stable tests while preserving a clean path to LLM-backed planning.
 - Integrated Agent tools for writing collaboration messages, creating follow-up tasks, upserting memory, and persisting outbox events for durable async delivery.
 
 ## Reliability / Distributed Systems
 
 - Added durable realtime event replay and explicit event sequence fields to reduce missed updates after WebSocket reconnects.
-- Introduced an event outbox model with idempotent enqueue semantics for reliable async event publishing after database commits.
+- Introduced an event outbox model and worker with idempotent enqueue semantics, retry limits, configurable batch/interval controls, and publish/retry/failure metrics.
 - Built recording lifecycle infrastructure with local/S3-compatible storage drivers, retention metadata, cleanup worker, download authorization, and support diagnostics.
 
 ## Interview Short Pitch
 
-AllCallAll is a Go backend portfolio project that combines realtime collaboration, WebRTC meeting infrastructure, durable event replay, recording storage, secure session management, and an explainable AI Agent pipeline. The project demonstrates backend system design rather than just product UI.
+AllCallAll is a Go backend engineering portfolio project that combines realtime collaboration, WebRTC meeting infrastructure, durable event replay, recording storage, secure session management, and an explainable AI Agent pipeline. The project demonstrates backend system design rather than product launch or UI polish.

@@ -1,12 +1,12 @@
 # AllCallAll Interview Positioning
 
-AllCallAll is now positioned as an AI-powered realtime collaboration backend project for backend engineering interviews. The commercial surface still exists, but the interview story should focus on distributed backend design, realtime systems, production reliability, and an explainable AI Agent workflow.
+AllCallAll is positioned as an AI-powered realtime collaboration backend project for backend engineering interviews. Treat product, legal, and billing surfaces as supporting domain data. The interview story should stay focused on distributed backend design, realtime systems, reliability, and an explainable AI Agent workflow.
 
 ## Why This Project Fits Backend Roles
 
 - Realtime systems: WebSocket event replay, room state patching, WebRTC signaling, and recording lifecycle events.
-- Data modeling: organizations, conversations, rooms, recordings, usage ledgers, refresh sessions, and Agent execution records.
-- Reliability: request IDs, metrics, cleanup workers, S3-compatible recording storage, and idempotent webhook/session handling.
+- Data modeling: organizations, conversations, rooms, recordings, refresh sessions, event logs, outbox events, and Agent execution records.
+- Reliability: request IDs, metrics, cleanup workers, S3-compatible recording storage, idempotent webhook/session handling, and an outbox worker.
 - Security: organization-scoped access control, refresh session rotation, support-token protected internal APIs, and no raw media persistence by default.
 - AI Agent readiness: deterministic rules-based Agent v1 with run state, steps, tool calls, memory, idempotency, outbox, and conversation write-back.
 
@@ -21,12 +21,13 @@ AllCallAll is now positioned as an AI-powered realtime collaboration backend pro
 
 ## Suggested Interview Demo Path
 
-1. Show the backend module boundaries: `auth`, `collaboration`, `agent`, `commerce`, `storage`, `signaling`.
+1. Show the backend module boundaries: `auth`, `collaboration`, `agent`, `events`, `storage`, and `signaling`. Mention `commerce` only as supporting domain surface, not the main portfolio story.
 2. Walk through `POST /api/v1/agent/runs`: auth claims, organization header, membership guard, run creation, steps, tool call, metrics.
 3. Show how realtime collaboration data feeds the Agent: conversation messages, internal notes, priority, assignee, and status.
 4. Explain why v1 is rules-based: stable tests, deterministic demos, no API-key dependency, and an easy seam for OpenAI-compatible providers later.
 5. Show idempotency: repeat a run with the same `Idempotency-Key` and explain why tool side effects do not duplicate.
-6. Open `/api/v1/metrics` and point to Agent counters such as `agent_run_total`, `agent_run_failed_total`, `agent_tool_call_total`, and `agent_memory_write_total`.
+6. Show realtime replay: connect to `/api/v1/chat/ws?since_id=...` and point out `event_id`, `sequence`, and durable MySQL-backed replay.
+7. Open `/api/v1/metrics` and point to Agent and outbox counters such as `agent_run_total`, `agent_run_failed_total`, `agent_tool_call_total`, `agent_memory_write_total`, `outbox_publish_total`, and `outbox_publish_retry_total`.
 
 ## Demo Seed Command
 
@@ -40,10 +41,12 @@ CONFIG_PATH=./configs/config.yaml go run ./cmd/interview-seed
 Optional provider selection:
 
 ```bash
-AGENT_PROVIDER=rules go run ./cmd/interview-seed
+CONFIG_PATH=./configs/config.yaml AGENT_PROVIDER=rules go run ./cmd/interview-seed
 ```
 
-The command prints organization, conversation, room, and Agent run IDs. It creates users, an organization, a conversation, notes/messages, a meeting record, contact profile, and one idempotent Agent run.
+The command prints organization, conversation, room, and Agent run IDs. It creates users, an organization, a conversation, notes/messages, a meeting record, contact profile, and one idempotent Agent run with the stable key `interview-seed-agent-run`.
+
+`AGENT_PROVIDER=rules` is the default and the right interview demo mode. `AGENT_PROVIDER=openai_compatible` selects the provider seam, but the current implementation intentionally returns planner unavailable until a real model provider is configured.
 
 ## Resume Bullet Candidates
 
@@ -54,7 +57,7 @@ The command prints organization, conversation, room, and Agent run IDs. It creat
 
 ## What To Improve Next For Interviews
 
-- Add an LLM provider interface behind the current rules-based Agent service.
-- Add a small benchmark/load test for conversation event replay and Agent run creation.
-- Add architecture diagrams for room state sync and Agent execution.
-- Create a scripted demo seed command that creates an organization, conversation, notes, messages, and one Agent run.
+- Implement a real OpenAI-compatible planner behind the existing `AGENT_PROVIDER` seam.
+- Add benchmark/load tests for conversation event replay, outbox draining, and Agent run creation.
+- Replace the current observed outbox handler with production publishers when the deployment target is clear.
+- Capture measured baseline numbers in [Performance Report](performance-report.md).

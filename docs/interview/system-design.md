@@ -1,6 +1,6 @@
 # System Design: AI-Powered Realtime Collaboration Backend
 
-This page frames AllCallAll like a system-design interview. The project is not presented as a finished commercial app here; it is a backend engineering case study.
+This page frames AllCallAll like a system-design interview. The project is not presented as a finished product here; it is a backend engineering case study.
 
 ## Problem Statement
 
@@ -30,8 +30,10 @@ flowchart LR
 
     Agent --> Planner["Rules Planner / OpenAI-compatible seam"]
     Agent --> Tools["Backend Tool Executor"]
-    Tools --> Outbox["Event Outbox"]
+    Tools --> Outbox["Event Outbox Store"]
     Outbox --> MySQL
+    Worker["Outbox Worker"] --> Outbox
+    Worker --> Handlers["Registered Event Handlers"]
 ```
 
 ## Core Data Domains
@@ -55,7 +57,8 @@ sequenceDiagram
     participant Client as Client
 
     API->>DB: write message / room update
-    API->>DB: create chat_event with sequence
+    API->>DB: create per-user chat_event
+    API->>DB: set sequence
     API->>Hub: publish event
     Hub-->>Client: event_id + sequence + payload
     Client->>API: reconnect with since_id
@@ -65,9 +68,10 @@ sequenceDiagram
 
 Design notes:
 
-- `event_id` remains backward compatible.
-- `sequence` makes the event stream explicit for client ack/replay logic.
+- `event_id` remains backward compatible and is still used by `since_id` replay.
+- `sequence` makes the event stream explicit for client ack/replay logic. In the current implementation it mirrors the persisted event row ID, which keeps ordering durable without introducing a separate stream service.
 - Durable `chat_events` are the source of truth when WebSocket delivery is missed.
+- `/api/v1/chat/ws` is the collaboration replay channel. `/api/v1/ws` and `/api/v1/signaling/*` are separate WebRTC signaling paths and should not be conflated with chat replay.
 
 ## Agent Execution Flow
 
@@ -86,6 +90,7 @@ sequenceDiagram
     Service->>DB: find run by idempotency key
     Service->>DB: create agent_run running
     Service->>DB: load messages, notes, rooms, memories
+    Service->>DB: record context tool calls
     Service->>Planner: rules plan
     Planner-->>Service: summary, action_items, next_step, risk_flags
     Service->>Tools: write conversation message
@@ -100,13 +105,14 @@ sequenceDiagram
 
 - Service-layer permission checks are repeated even when handlers already authenticate.
 - Agent run idempotency prevents repeated tool side effects during retry.
-- Outbox records durable side effects for async event delivery.
+- Outbox records durable side effects for async event delivery; enqueue uses an idempotency key so retries do not create duplicate domain events.
+- The outbox worker drains pending rows, calls registered handlers, applies retry delay and max-attempt limits, and emits publish/retry/failure metrics.
 - WebSocket replay reduces dependency on perfect long-lived connections.
 - Recording storage has local and S3-compatible drivers.
 
 ## Interview Tradeoffs
 
 - Current Agent provider is deterministic for tests; an LLM provider is a replaceable seam.
-- Current outbox has a lightweight processor with registered handlers, retry delay, max attempts, and publish/failure metrics; production systems can replace handlers with Kafka/Redis Streams publishers.
+- Current outbox has a lightweight processor with registered handlers, configurable interval, batch size, retry delay, max attempts, and publish/failure metrics. The registered production handler currently observes `agent.run.completed`; production systems can replace handlers with Kafka/Redis Streams publishers.
 - Current realtime replay uses MySQL-backed event records; Redis Streams can be introduced if throughput requires it.
 - Current media layer is sufficient for demonstrating WebRTC signaling and room state, not a production-grade Zoom-scale SFU.

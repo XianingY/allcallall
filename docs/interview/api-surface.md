@@ -36,6 +36,8 @@ Talking points:
 
 ## Realtime
 
+Collaboration event stream:
+
 - `GET /api/v1/chat/ws`
 
 Realtime payload fields:
@@ -51,7 +53,18 @@ Replay behavior:
 
 - The client reconnects with `since_id`.
 - The backend reads durable `chat_events` where `id > since_id`.
-- `sequence` makes ack/replay semantics explicit while preserving existing `event_id`.
+- `sequence` makes ack/replay semantics explicit while preserving existing `event_id`. Today it mirrors the persisted event ID, which keeps replay ordering durable and easy to reason about.
+
+WebRTC signaling:
+
+- `GET /api/v1/ws`
+- `POST /api/v1/signaling/send`
+- `GET /api/v1/signaling/poll`
+
+Talking points:
+
+- Chat replay and WebRTC signaling are separate realtime concerns.
+- Polling signaling is a proxy-friendly fallback when WebSocket signaling is not reliable.
 
 ## Meetings And Rooms
 
@@ -98,13 +111,14 @@ Required headers:
 
 Response shape:
 
-- `run`: status, source, summary, action items, next step, risk flags
+- `run`: status, source, idempotency key, summary, action items, next step, risk flags
 - `steps`: explainable intermediate stages
-- `tool_calls`: backend-controlled side effects
+- `tool_calls`: backend-controlled read-only context calls and mutating side effects
 
 Talking points:
 
-- Provider seam: rules now, OpenAI-compatible later.
+- Provider seam: `AGENT_PROVIDER=rules` for deterministic demos; `AGENT_PROVIDER=openai_compatible` is wired but intentionally unavailable until a model provider is configured.
 - Tool calling is persisted and permission-guarded.
 - Memory is scoped to organization/user/conversation.
-- Outbox event is written for durable async delivery.
+- Repeating a request with the same `Idempotency-Key` returns the existing run result instead of duplicating tool side effects.
+- Outbox event is written for durable async delivery and drained by the outbox worker.

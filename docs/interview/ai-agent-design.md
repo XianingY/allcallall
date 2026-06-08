@@ -67,6 +67,7 @@ sequenceDiagram
     Service->>DB: create collect_context step
     Service->>Planner: Plan with RulesPlanner
     Planner-->>Service: PlannerOutput
+    Service->>DB: record read-only context tool calls
     Service->>DB: create plan_next_actions step
     Service->>Tools: write_conversation_message
     Tools->>DB: message + tool_call + outbox
@@ -89,7 +90,36 @@ Current tools:
 - `create_follow_up_task`: creates a lightweight follow-up task from the planned next step.
 - `upsert_agent_memory`: stores the latest scoped Agent summary for future context.
 
+Read-only context tools are still persisted as `agent_tool_calls` so the run is auditable, but they do not mutate business state. Mutating tools write their own `agent_tool_calls` rows with input/output JSON and status.
+
 Tool execution remains backend-owned. The planner proposes structured output; the service decides whether and how to mutate data.
+
+## Idempotency And Side Effects
+
+`POST /api/v1/agent/runs` accepts `Idempotency-Key`. When the same user, organization, conversation, and key are seen again, the service returns the existing run result instead of creating a new run. That prevents duplicate conversation messages, follow-up tasks, memories, and outbox events during client retries.
+
+The outbox write has its own idempotency key, currently `agent.run.completed:<run_id>`. This gives two layers of retry safety: the Agent run is retry-safe at the API boundary, and the durable domain event is retry-safe at the outbox boundary.
+
+## Memory Model
+
+`agent_memories` is scoped by organization, user, conversation, and key. The current key is `last_agent_summary`, and the value stores summary, action items, next step, and risk flags. The memory is inspectable in tests and is loaded into future planner input, but it is not a cross-user global memory and it does not store secrets or raw media.
+
+## Outbox Worker
+
+Agent message write-back enqueues `agent.run.completed` into `event_outbox`. The server starts a lightweight worker that drains pending rows and calls registered handlers.
+
+Worker controls:
+
+- `OUTBOX_WORKER_INTERVAL_SEC`
+- `OUTBOX_WORKER_BATCH_SIZE`
+- `OUTBOX_WORKER_MAX_ATTEMPTS`
+- `OUTBOX_WORKER_RETRY_DELAY_SEC`
+
+Worker metrics:
+
+- `outbox_publish_total`
+- `outbox_publish_retry_total`
+- `outbox_publish_failed_total`
 
 ## Provider Seam
 
