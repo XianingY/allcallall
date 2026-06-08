@@ -92,3 +92,55 @@ func TestSupportRefreshSessionSummary(t *testing.T) {
 		}
 	}
 }
+
+func TestRevokeSupportRefreshSessions(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "commerce-support-revoke.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := db.AutoMigrate(&models.RefreshSession{}); err != nil {
+		t.Fatalf("migrate refresh sessions failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	sessions := []models.RefreshSession{
+		{UserID: 7, TokenHash: "user-7-a", ExpiresAt: now.Add(time.Hour)},
+		{UserID: 7, TokenHash: "user-7-b", ExpiresAt: now.Add(time.Hour)},
+		{UserID: 8, TokenHash: "user-8-a", ExpiresAt: now.Add(time.Hour)},
+	}
+	if err := db.Create(&sessions).Error; err != nil {
+		t.Fatalf("create refresh sessions failed: %v", err)
+	}
+
+	result, err := NewService(db).RevokeSupportRefreshSessions(context.Background(), 7, &sessions[0].ID)
+	if err != nil {
+		t.Fatalf("revoke one support session failed: %v", err)
+	}
+	if result.RevokedSessions != 1 || result.SessionID == nil || *result.SessionID != sessions[0].ID {
+		t.Fatalf("unexpected single-session revocation: %+v", result)
+	}
+
+	var first models.RefreshSession
+	if err := db.Take(&first, sessions[0].ID).Error; err != nil {
+		t.Fatalf("load first session failed: %v", err)
+	}
+	if first.RevokedAt == nil {
+		t.Fatal("expected first session revoked")
+	}
+
+	result, err = NewService(db).RevokeSupportRefreshSessions(context.Background(), 7, nil)
+	if err != nil {
+		t.Fatalf("revoke all support sessions failed: %v", err)
+	}
+	if result.RevokedSessions != 1 || result.SessionID != nil {
+		t.Fatalf("unexpected revoke-all result: %+v", result)
+	}
+
+	var other models.RefreshSession
+	if err := db.Take(&other, sessions[2].ID).Error; err != nil {
+		t.Fatalf("load other user session failed: %v", err)
+	}
+	if other.RevokedAt != nil {
+		t.Fatal("support revocation leaked to another user")
+	}
+}

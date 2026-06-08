@@ -7,6 +7,8 @@ All JSON error responses include `error`, `code`, `request_id`, and `success=fal
 ## Endpoints
 
 - `GET /api/v1/internal/support/users/:userId/summary`
+- `DELETE /api/v1/internal/support/users/:userId/sessions/:sessionId`
+- `POST /api/v1/internal/support/users/:userId/sessions/revoke-all`
 - `GET /api/v1/internal/support/rooms/:roomId`
 - `GET /api/v1/internal/support/recordings/:id`
 
@@ -39,6 +41,13 @@ Check the user summary `refresh_sessions` block:
 - recent redacted session metadata
 
 The support API intentionally omits refresh token values and token hashes. A non-zero `invalid_use_count` means a rotated, revoked, or expired refresh token was reused and should be treated as a risk signal.
+
+Support actions:
+
+- Use `DELETE /api/v1/internal/support/users/:userId/sessions/:sessionId` to revoke one active refresh session.
+- Use `POST /api/v1/internal/support/users/:userId/sessions/revoke-all` when the account appears compromised or the user requests forced revocation.
+- These actions revoke refresh capability only. Already issued short-lived access tokens can remain valid until they expire.
+- Both endpoints are idempotent and return `revoked_sessions`; a value of `0` usually means the target session was already revoked or expired.
 
 ### Recording issues
 

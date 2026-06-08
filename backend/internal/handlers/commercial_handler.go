@@ -34,13 +34,13 @@ type CommercialHandler struct {
 }
 
 type entitlementResponse struct {
-	ID         uint64     `json:"id"`
-	Entitlement string    `json:"entitlement"`
-	Tier       string     `json:"tier"`
-	ProductID  string     `json:"product_id,omitempty"`
-	Status     string     `json:"status"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
-	Source     string     `json:"source"`
+	ID          uint64     `json:"id"`
+	Entitlement string     `json:"entitlement"`
+	Tier        string     `json:"tier"`
+	ProductID   string     `json:"product_id,omitempty"`
+	Status      string     `json:"status"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	Source      string     `json:"source"`
 }
 
 type followUpTaskResponse struct {
@@ -99,12 +99,12 @@ type callHistoryResponse struct {
 }
 
 type followUpListItemResponse struct {
-	Task      followUpTaskResponse `json:"task"`
-	Call      *callHistoryResponse `json:"call,omitempty"`
+	Task      followUpTaskResponse  `json:"task"`
+	Call      *callHistoryResponse  `json:"call,omitempty"`
 	Followup  *callFollowupResponse `json:"followup,omitempty"`
-	Peer      *gin.H               `json:"peer,omitempty"`
-	Contact   *gin.H               `json:"contact,omitempty"`
-	IsOverdue bool                 `json:"is_overdue"`
+	Peer      *gin.H                `json:"peer,omitempty"`
+	Contact   *gin.H                `json:"contact,omitempty"`
+	IsOverdue bool                  `json:"is_overdue"`
 }
 
 func NewCommercialHandler(
@@ -162,6 +162,8 @@ func (h *CommercialHandler) RegisterInternalRoutes(api *gin.RouterGroup) {
 	internal := api.Group("/internal/support")
 	internal.GET("/reports", h.handleSupportReports)
 	internal.GET("/users/:userId/summary", h.handleSupportUserSummary)
+	internal.POST("/users/:userId/sessions/revoke-all", h.handleSupportRevokeUserSessions)
+	internal.DELETE("/users/:userId/sessions/:sessionId", h.handleSupportRevokeUserSession)
 	internal.GET("/calls/:callId", h.handleSupportCall)
 }
 
@@ -595,20 +597,20 @@ type blockRequest struct {
 }
 
 type followUpTaskRequest struct {
-	PeerUserID    uint64  `json:"peer_user_id"`
-	CallID        string  `json:"call_id"`
-	Type          string  `json:"type"`
-	Title         string  `json:"title"`
-	Description   string  `json:"description"`
-	DueAt         *string `json:"due_at"`
-	ReminderMode  string  `json:"reminder_mode"`
+	PeerUserID   uint64  `json:"peer_user_id"`
+	CallID       string  `json:"call_id"`
+	Type         string  `json:"type"`
+	Title        string  `json:"title"`
+	Description  string  `json:"description"`
+	DueAt        *string `json:"due_at"`
+	ReminderMode string  `json:"reminder_mode"`
 }
 
 type updateFollowUpTaskRequest struct {
-	Status        string  `json:"status"`
-	Description   string  `json:"description"`
-	DueAt         *string `json:"due_at"`
-	ReminderMode  string  `json:"reminder_mode"`
+	Status       string  `json:"status"`
+	Description  string  `json:"description"`
+	DueAt        *string `json:"due_at"`
+	ReminderMode string  `json:"reminder_mode"`
 }
 
 func (h *CommercialHandler) handleCreateBlock(c *gin.Context) {
@@ -1010,6 +1012,49 @@ func (h *CommercialHandler) handleSupportUserSummary(c *gin.Context) {
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"summary": summary})
+}
+
+func (h *CommercialHandler) handleSupportRevokeUserSessions(c *gin.Context) {
+	if !h.requireSupportToken(c) {
+		return
+	}
+	userID, err := strconv.ParseUint(c.Param("userId"), 10, 64)
+	if err != nil || userID == 0 {
+		JSONError(c, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	result, err := h.commerce.RevokeSupportRefreshSessions(c.Request.Context(), userID, nil)
+	if err != nil {
+		h.logger.Error().Err(err).Uint64("user_id", userID).Msg("support revoke user sessions failed")
+		JSONError(c, http.StatusInternalServerError, "failed to revoke user sessions")
+		return
+	}
+	h.logger.Warn().Uint64("user_id", userID).Int64("revoked_sessions", result.RevokedSessions).Msg("support revoked user refresh sessions")
+	JSONSuccess(c, http.StatusOK, gin.H{"revocation": result})
+}
+
+func (h *CommercialHandler) handleSupportRevokeUserSession(c *gin.Context) {
+	if !h.requireSupportToken(c) {
+		return
+	}
+	userID, err := strconv.ParseUint(c.Param("userId"), 10, 64)
+	if err != nil || userID == 0 {
+		JSONError(c, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	sessionID, err := strconv.ParseUint(c.Param("sessionId"), 10, 64)
+	if err != nil || sessionID == 0 {
+		JSONError(c, http.StatusBadRequest, "invalid session id")
+		return
+	}
+	result, err := h.commerce.RevokeSupportRefreshSessions(c.Request.Context(), userID, &sessionID)
+	if err != nil {
+		h.logger.Error().Err(err).Uint64("user_id", userID).Uint64("session_id", sessionID).Msg("support revoke user session failed")
+		JSONError(c, http.StatusInternalServerError, "failed to revoke user session")
+		return
+	}
+	h.logger.Warn().Uint64("user_id", userID).Uint64("session_id", sessionID).Int64("revoked_sessions", result.RevokedSessions).Msg("support revoked user refresh session")
+	JSONSuccess(c, http.StatusOK, gin.H{"revocation": result})
 }
 
 func (h *CommercialHandler) handleSupportCall(c *gin.Context) {

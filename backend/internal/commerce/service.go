@@ -809,6 +809,12 @@ type SupportRefreshSessionSummary struct {
 	Recent           []SupportRefreshSessionRecord `json:"recent"`
 }
 
+type SupportRefreshSessionRevocation struct {
+	UserID          uint64  `json:"user_id"`
+	SessionID       *uint64 `json:"session_id,omitempty"`
+	RevokedSessions int64   `json:"revoked_sessions"`
+}
+
 type SupportCallDetails struct {
 	Call               models.CallSession             `json:"call"`
 	TranslationSlices  []models.TranslationUsageSlice `json:"translation_slices"`
@@ -988,6 +994,33 @@ func (s *Service) getSupportRefreshSessionSummary(ctx context.Context, userID ui
 	}
 
 	return summary, nil
+}
+
+func (s *Service) RevokeSupportRefreshSessions(ctx context.Context, userID uint64, sessionID *uint64) (*SupportRefreshSessionRevocation, error) {
+	if userID == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	query := s.db.WithContext(ctx).Model(&models.RefreshSession{}).
+		Where("user_id = ? AND revoked_at IS NULL", userID)
+	if sessionID != nil {
+		if *sessionID == 0 {
+			return nil, gorm.ErrRecordNotFound
+		}
+		query = query.Where("id = ?", *sessionID)
+	}
+	now := time.Now().UTC()
+	result := query.Updates(map[string]any{
+		"revoked_at":   now,
+		"last_used_at": now,
+	})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &SupportRefreshSessionRevocation{
+		UserID:          userID,
+		SessionID:       sessionID,
+		RevokedSessions: result.RowsAffected,
+	}, nil
 }
 
 func (s *Service) GetSupportCall(ctx context.Context, callID string) (*SupportCallDetails, error) {
