@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
@@ -24,14 +25,16 @@ type AuthHandler struct {
 	logger                zerolog.Logger
 	users                 *user.Service
 	jwtManager            *auth.Manager
+	refreshSessions       *auth.RefreshSessionService
 	verificationCodeStore *mail.VerificationCodeService
 	commerce              *commerce.Service
 	collaboration         *collaboration.Service
 }
 
 type AuthHandlerOptions struct {
-	Commerce      *commerce.Service
-	Collaboration *collaboration.Service
+	Commerce        *commerce.Service
+	Collaboration   *collaboration.Service
+	RefreshSessions *auth.RefreshSessionService
 }
 
 // NewAuthHandler 构造函数
@@ -51,6 +54,7 @@ func NewAuthHandler(
 		logger:                log.With().Str("component", "auth_handler").Logger(),
 		users:                 users,
 		jwtManager:            jwt,
+		refreshSessions:       opts.RefreshSessions,
 		verificationCodeStore: verificationCodes,
 		commerce:              opts.Commerce,
 		collaboration:         opts.Collaboration,
@@ -206,15 +210,22 @@ func (h *AuthHandler) handleRefresh(c *gin.Context) {
 		JSONError(c, http.StatusForbidden, "account deleted")
 		return
 	}
-	h.issueAuthResponse(c, http.StatusOK, userModel)
+	h.issueAuthResponse(c, http.StatusOK, userModel, cookie)
 }
 
 func (h *AuthHandler) handleLogout(c *gin.Context) {
+	if h.refreshSessions != nil {
+		if cookie, err := c.Cookie(refreshCookieName); err == nil && strings.TrimSpace(cookie) != "" {
+			if err := h.refreshSessions.RevokeByToken(c.Request.Context(), cookie, time.Now()); err != nil {
+				h.logger.Warn().Err(err).Msg("revoke refresh session on logout failed")
+			}
+		}
+	}
 	clearRefreshCookie(c)
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
 }
 
-func (h *AuthHandler) issueAuthResponse(c *gin.Context, status int, userModel *models.User) {
+func (h *AuthHandler) issueAuthResponse(c *gin.Context, status int, userModel *models.User, currentRefreshToken ...string) {
 	token, err := h.jwtManager.GenerateAccessToken(userModel.ID, userModel.Email)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("generate token failed")
@@ -227,11 +238,36 @@ func (h *AuthHandler) issueAuthResponse(c *gin.Context, status int, userModel *m
 		JSONError(c, http.StatusInternalServerError, "failed to generate refresh token")
 		return
 	}
+	if h.refreshSessions != nil {
+		now := time.Now()
+		input := refreshSessionInputFromRequest(c, refreshToken, now.Add(h.jwtManager.RefreshTokenTTL()))
+		if len(currentRefreshToken) > 0 && strings.TrimSpace(currentRefreshToken[0]) != "" {
+			if _, err := h.refreshSessions.Rotate(c.Request.Context(), currentRefreshToken[0], userModel.ID, input, now); err != nil {
+				clearRefreshCookie(c)
+				h.logger.Warn().Err(err).Uint64("user_id", userModel.ID).Msg("refresh session rotation failed")
+				JSONError(c, http.StatusUnauthorized, "invalid refresh session")
+				return
+			}
+		} else if _, err := h.refreshSessions.Create(c.Request.Context(), userModel.ID, input); err != nil {
+			h.logger.Error().Err(err).Uint64("user_id", userModel.ID).Msg("create refresh session failed")
+			JSONError(c, http.StatusInternalServerError, "failed to create refresh session")
+			return
+		}
+	}
 	setRefreshCookie(c, refreshToken, int(h.jwtManager.RefreshTokenTTL().Seconds()))
 	JSONSuccess(c, status, authResponse{
 		User:        toUserDTO(userModel),
 		AccessToken: token,
 	})
+}
+
+func refreshSessionInputFromRequest(c *gin.Context, token string, expiresAt time.Time) auth.RefreshSessionInput {
+	return auth.RefreshSessionInput{
+		Token:     token,
+		UserAgent: c.GetHeader("User-Agent"),
+		IPAddress: c.ClientIP(),
+		ExpiresAt: expiresAt,
+	}
 }
 
 func setRefreshCookie(c *gin.Context, value string, maxAge int) {

@@ -11,7 +11,7 @@ AllCallAll Web uses a split session model:
 - `POST /api/v1/auth/login`: returns `access_token` and sets the HttpOnly refresh cookie.
 - `POST /api/v1/auth/register`: returns `access_token` and sets the HttpOnly refresh cookie.
 - `POST /api/v1/auth/refresh`: reads the refresh cookie, returns a new `access_token`, and rotates the refresh cookie.
-- `POST /api/v1/auth/logout`: clears the refresh cookie.
+- `POST /api/v1/auth/logout`: revokes the current refresh session and clears the refresh cookie.
 
 ## Cookie Behavior
 
@@ -31,4 +31,11 @@ Web/Desktop browser clients need credentialed CORS when the app origin and API o
 
 ## Current Boundary
 
-This is the first production hardening step for Web sessions. It avoids long-lived auth material in browser persistent storage, but it does not yet maintain a server-side refresh-token rotation table. Add server-side refresh session records before treating refresh-token revocation, device management, and suspicious-session invalidation as complete.
+The backend persists refresh sessions in `refresh_sessions` using a SHA-256 hash of the refresh token, not the raw token value. Login and registration create a session, refresh rotates the session, and logout revokes the current session.
+
+Remaining production hardening items:
+
+- Add a user-facing device/session management UI.
+- Add explicit "sign out all devices" support.
+- Add suspicious-session detection and forced revocation workflows.
+- Add operational cleanup for expired refresh-session rows.

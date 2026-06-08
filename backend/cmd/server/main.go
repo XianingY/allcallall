@@ -78,6 +78,7 @@ func main() {
 
 	if err := db.AutoMigrate(
 		&models.User{},
+		&models.RefreshSession{},
 		&models.Contact{},
 		&models.EmailVerificationCode{},
 		&models.EmailSendLog{},
@@ -192,10 +193,12 @@ func main() {
 	if err != nil {
 		appLogger.Fatal().Err(err).Msg("failed to initialize jwt manager")
 	}
+	refreshSessionSvc := auth.NewRefreshSessionService(db)
 
 	authHandler := handlers.NewAuthHandler(appLogger, userSvc, jwtManager, verificationCodeSvc, handlers.AuthHandlerOptions{
-		Commerce:      commerceSvc,
-		Collaboration: collaborationSvc,
+		Commerce:        commerceSvc,
+		Collaboration:   collaborationSvc,
+		RefreshSessions: refreshSessionSvc,
 	})
 	emailHandler := handlers.NewEmailHandler(appLogger, verificationCodeSvc, handlers.EmailHandlerOptions{
 		Metrics: counterStore,
