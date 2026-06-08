@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/media"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/storage"
 	"github.com/allcallall/backend/internal/user"
 )
 
@@ -309,5 +311,129 @@ func TestCollaborationHandlerSupportRoomRequiresToken(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 with support token, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCollaborationHandlerDownloadRecordingWritesExportAudit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "handlers-recording-download.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.Organization{},
+		&models.OrganizationMember{},
+		&models.OrganizationPolicy{},
+		&models.Team{},
+		&models.TeamMember{},
+		&models.Conversation{},
+		&models.ConversationNote{},
+		&models.ConversationMember{},
+		&models.Message{},
+		&models.MessageRead{},
+		&models.ChatEvent{},
+		&models.Attachment{},
+		&models.CallRoom{},
+		&models.CallRoomMember{},
+		&models.CallRoomEvent{},
+		&models.RecordingSession{},
+		&models.RecordingFile{},
+		&models.RecordingConsent{},
+		&models.RecordingExport{},
+		&models.Pipeline{},
+		&models.PipelineStage{},
+		&models.Deal{},
+		&models.DealContact{},
+		&models.DealActivity{},
+	); err != nil {
+		t.Fatalf("auto migrate failed: %v", err)
+	}
+
+	userSvc := user.NewService(user.NewRepository(db))
+	service := collaboration.NewService(db, userSvc)
+	recordingRoot := filepath.Join(t.TempDir(), "recordings")
+	recordingStorage, err := storage.NewRecordingStorage(storage.Config{
+		Driver:    storage.DriverLocal,
+		LocalRoot: recordingRoot,
+	})
+	if err != nil {
+		t.Fatalf("create recording storage failed: %v", err)
+	}
+	service.WithRecordingStorage(recordingStorage)
+	handler := NewCollaborationHandler(zerolog.Nop(), service, userSvc, collaboration.NewChatHub(zerolog.Nop()))
+
+	owner := models.User{Email: "owner@example.com", PasswordHash: "hash", DisplayName: "Owner", Status: "active"}
+	if err := db.Create(&owner).Error; err != nil {
+		t.Fatalf("create owner failed: %v", err)
+	}
+	org, err := service.CreateOrganization(context.Background(), owner.ID, "Workspace")
+	if err != nil {
+		t.Fatalf("create org failed: %v", err)
+	}
+
+	objectKey := filepath.Join("org-1", "meeting.ogg")
+	recordingPath := filepath.Join(recordingRoot, objectKey)
+	if err := os.MkdirAll(filepath.Dir(recordingPath), 0o755); err != nil {
+		t.Fatalf("create recording fixture dir failed: %v", err)
+	}
+	if err := os.WriteFile(recordingPath, []byte("recording-data"), 0o644); err != nil {
+		t.Fatalf("write recording fixture failed: %v", err)
+	}
+	session := models.RecordingSession{
+		OrganizationID: org.ID,
+		RoomID:         42,
+		StartedBy:      owner.ID,
+		Status:         models.RecordingStatusStopped,
+	}
+	if err := db.Create(&session).Error; err != nil {
+		t.Fatalf("create recording session failed: %v", err)
+	}
+	file := models.RecordingFile{
+		RecordingSessionID: session.ID,
+		StorageDriver:      "local",
+		ObjectKey:          objectKey,
+		ContentType:        "audio/ogg",
+		FileSizeBytes:      int64(len("recording-data")),
+	}
+	if err := db.Create(&file).Error; err != nil {
+		t.Fatalf("create recording file failed: %v", err)
+	}
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		auth.SetClaimsToContext(c, &auth.Claims{UserID: owner.ID, Email: owner.Email})
+		c.Next()
+	})
+	handler.RegisterProtectedRoutes(router.Group("/api/v1"))
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/recordings/%d/files/%d", session.ID, file.ID), nil)
+	req.Header.Set("X-Organization-ID", fmt.Sprintf("%d", org.ID))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 download, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "recording-data" {
+		t.Fatalf("unexpected download body: %q", rec.Body.String())
+	}
+	if rec.Header().Get("Content-Disposition") == "" {
+		t.Fatal("expected content-disposition header")
+	}
+
+	var audit models.RecordingExport
+	if err := db.Where("recording_session_id = ?", session.ID).Take(&audit).Error; err != nil {
+		t.Fatalf("load recording export audit failed: %v", err)
+	}
+	if audit.RequestedBy != owner.ID {
+		t.Fatalf("expected audit requested_by %d, got %d", owner.ID, audit.RequestedBy)
+	}
+	if audit.DownloadCount != 1 {
+		t.Fatalf("expected audit download count 1, got %d", audit.DownloadCount)
+	}
+	if audit.Status != "completed" {
+		t.Fatalf("expected completed audit status, got %q", audit.Status)
 	}
 }
