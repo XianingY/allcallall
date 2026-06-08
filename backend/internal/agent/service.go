@@ -21,6 +21,7 @@ var (
 
 type counterRecorder interface {
 	Inc(name string)
+	Add(name string, delta int64)
 }
 
 type Service struct {
@@ -238,9 +239,24 @@ func (s *Service) executeRulesRun(ctx context.Context, run models.AgentRun, goal
 		return nil, err
 	}
 
+	plannerInput := PlannerInput{
+		Goal:         goal,
+		Conversation: conversationCtx.Conversation,
+		Notes:        conversationCtx.Notes,
+		Messages:     conversationCtx.Messages,
+		Rooms:        conversationCtx.Rooms,
+		Members:      conversationCtx.Members,
+		Memories:     conversationCtx.Memories,
+	}
+	plannerPrompt, err := buildPromptForPlanner(s.planner, plannerInput)
+	if err != nil {
+		return nil, err
+	}
 	collectStep, err := s.createStep(ctx, run.ID, "collect_context", map[string]any{
 		"goal":            goal,
 		"conversation_id": run.ConversationID,
+		"planner_source":  s.planner.Name(),
+		"planner_prompt":  plannerPrompt,
 	}, map[string]any{
 		"notes":    len(conversationCtx.Notes),
 		"messages": len(conversationCtx.Messages),
@@ -249,15 +265,13 @@ func (s *Service) executeRulesRun(ctx context.Context, run models.AgentRun, goal
 		return nil, err
 	}
 
-	output, err := s.planner.Plan(ctx, PlannerInput{
-		Goal:         goal,
-		Conversation: conversationCtx.Conversation,
-		Notes:        conversationCtx.Notes,
-		Messages:     conversationCtx.Messages,
-		Rooms:        conversationCtx.Rooms,
-		Members:      conversationCtx.Members,
-		Memories:     conversationCtx.Memories,
-	})
+	planStarted := time.Now()
+	output, plannerSource, fallbackSource, err := s.planWithFallback(ctx, plannerInput)
+	latencyMs := time.Since(planStarted).Milliseconds()
+	if s.metrics != nil {
+		s.metrics.Add("agent_planner_latency_ms_total", latencyMs)
+		s.metrics.Add("agent_planner_token_estimate_total", int64(plannerPrompt.EstimatedTokens))
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +289,10 @@ func (s *Service) executeRulesRun(ctx context.Context, run models.AgentRun, goal
 	nextStep := output.NextStep
 	riskFlags := output.RiskFlags
 	if _, err := s.createStep(ctx, run.ID, "plan_next_actions", map[string]any{
-		"step_id": collectStep.ID,
+		"step_id":         collectStep.ID,
+		"planner_source":  plannerSource,
+		"fallback_source": fallbackSource,
+		"latency_ms":      latencyMs,
 	}, map[string]any{
 		"action_items": actionItems,
 		"next_step":    nextStep,
@@ -324,6 +341,35 @@ func (s *Service) executeRulesRun(ctx context.Context, run models.AgentRun, goal
 	run.RiskFlagsJSON = mustJSONString(riskFlags)
 	run.CompletedAt = &completedAt
 	return s.buildRunResult(ctx, run)
+}
+
+func buildPromptForPlanner(planner Planner, input PlannerInput) (PlannerPrompt, error) {
+	if prompting, ok := planner.(PromptingPlanner); ok {
+		return prompting.BuildPrompt(input)
+	}
+	return BuildPlannerPrompt(input)
+}
+
+func (s *Service) planWithFallback(ctx context.Context, input PlannerInput) (PlannerOutput, string, string, error) {
+	source := s.planner.Name()
+	output, err := s.planner.Plan(ctx, input)
+	if err == nil {
+		return output, source, "", nil
+	}
+	if errors.Is(err, ErrPlannerUnavailable) && source != models.AgentRunSourceRules {
+		if s.metrics != nil {
+			s.metrics.Inc("agent_planner_fallback_total")
+		}
+		output, fallbackErr := RulesPlanner{}.Plan(ctx, input)
+		if fallbackErr == nil {
+			return output, source, models.AgentRunSourceRules, nil
+		}
+		return PlannerOutput{}, source, models.AgentRunSourceRules, fallbackErr
+	}
+	if s.metrics != nil {
+		s.metrics.Inc("agent_planner_error_total")
+	}
+	return PlannerOutput{}, source, "", err
 }
 
 func (s *Service) ensureConversationMember(ctx context.Context, organizationID, userID, conversationID uint64) error {

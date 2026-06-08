@@ -38,6 +38,21 @@ func TestNewPlannerSelectsProvider(t *testing.T) {
 	if !strings.Contains(mockOutput.Summary, "MockLLM structured plan") || len(mockOutput.ActionItems) == 0 {
 		t.Fatalf("unexpected mock planner output: %+v", mockOutput)
 	}
+	mockPrompt, err := mockPlanner.(PromptingPlanner).BuildPrompt(PlannerInput{
+		Goal: "summarize",
+		Conversation: models.Conversation{
+			Title:    "Interview demo thread",
+			Status:   models.ConversationStatusOpen,
+			Priority: models.ConversationPriorityNormal,
+		},
+		Messages: []models.Message{{Type: models.MessageTypeText, Body: "Need owner and next call."}},
+	})
+	if err != nil {
+		t.Fatalf("mock prompt failed: %v", err)
+	}
+	if mockPrompt.EstimatedTokens <= 0 || !strings.Contains(mockPrompt.User, "Interview demo thread") || mockPrompt.OutputSchema["summary"] == "" {
+		t.Fatalf("unexpected mock prompt: %+v", mockPrompt)
+	}
 
 	openAIPlanner, err := NewPlanner(models.AgentRunSourceOpenAICompatible)
 	if err != nil {

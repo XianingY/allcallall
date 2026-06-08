@@ -126,6 +126,9 @@ func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
 	if len(result.Steps) != 2 {
 		t.Fatalf("unexpected steps count: got=%d want=2", len(result.Steps))
 	}
+	if !strings.Contains(result.Steps[0].InputJSON, "planner_prompt") || !strings.Contains(result.Steps[0].InputJSON, "estimated_tokens") {
+		t.Fatalf("collect_context step missing planner prompt metadata: %s", result.Steps[0].InputJSON)
+	}
 	if len(result.ToolCalls) != 6 {
 		t.Fatalf("unexpected tool calls: %+v", result.ToolCalls)
 	}
@@ -181,6 +184,12 @@ func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
 	}
 	if snapshot["agent_run_total"] != 1 {
 		t.Fatalf("agent_run_total mismatch: %v", snapshot)
+	}
+	if snapshot["agent_planner_token_estimate_total"] <= 0 {
+		t.Fatalf("agent_planner_token_estimate_total mismatch: %v", snapshot)
+	}
+	if _, ok := snapshot["agent_planner_latency_ms_total"]; !ok {
+		t.Fatalf("agent_planner_latency_ms_total missing: %v", snapshot)
 	}
 	if snapshot["agent_tool_call_total"] != 6 {
 		t.Fatalf("agent_tool_call_total mismatch: %v", snapshot)
@@ -301,6 +310,37 @@ func TestOutboxProcessorExecutesQueuedAgentRun(t *testing.T) {
 	}
 	if pending != 0 {
 		t.Fatalf("expected outbox drained, pending=%d", pending)
+	}
+}
+
+func TestExecuteRunFallsBackWhenPlannerUnavailable(t *testing.T) {
+	svc, db, counters := newAgentServiceTestEnv(t)
+	conversation := seedAgentConversation(t, db)
+	planner, err := NewPlanner(models.AgentRunSourceOpenAICompatible)
+	if err != nil {
+		t.Fatalf("new planner failed: %v", err)
+	}
+	svc.WithPlanner(planner)
+
+	queued, err := svc.RunConversationAssistant(context.Background(), conversation.OrganizationID, 7, RunInput{
+		ConversationID: conversation.ID,
+	})
+	if err != nil {
+		t.Fatalf("queue run failed: %v", err)
+	}
+	result, err := svc.ExecuteRun(context.Background(), queued.Run.ID)
+	if err != nil {
+		t.Fatalf("expected rules fallback, got error: %v", err)
+	}
+	if result.Run.Status != models.AgentRunStatusReady {
+		t.Fatalf("unexpected fallback run status: %s", result.Run.Status)
+	}
+	if !strings.Contains(result.Steps[1].InputJSON, `"fallback_source":"rules"`) {
+		t.Fatalf("plan step missing fallback source: %s", result.Steps[1].InputJSON)
+	}
+	snapshot := counters.Snapshot()
+	if snapshot["agent_planner_fallback_total"] != 1 {
+		t.Fatalf("agent_planner_fallback_total mismatch: %v", snapshot)
 	}
 }
 

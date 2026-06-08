@@ -30,6 +30,10 @@ type Planner interface {
 	Plan(ctx context.Context, input PlannerInput) (PlannerOutput, error)
 }
 
+type PromptingPlanner interface {
+	BuildPrompt(input PlannerInput) (PlannerPrompt, error)
+}
+
 type PlannerInput struct {
 	Goal         string
 	Conversation models.Conversation
@@ -47,10 +51,21 @@ type PlannerOutput struct {
 	RiskFlags   []string `json:"risk_flags"`
 }
 
+type PlannerPrompt struct {
+	System          string            `json:"system"`
+	User            string            `json:"user"`
+	OutputSchema    map[string]string `json:"output_schema"`
+	EstimatedTokens int               `json:"estimated_tokens"`
+}
+
 type RulesPlanner struct{}
 
 func (RulesPlanner) Name() string {
 	return models.AgentRunSourceRules
+}
+
+func (RulesPlanner) BuildPrompt(input PlannerInput) (PlannerPrompt, error) {
+	return BuildPlannerPrompt(input)
 }
 
 func (RulesPlanner) Plan(_ context.Context, input PlannerInput) (PlannerOutput, error) {
@@ -69,11 +84,19 @@ func (MockLLMPlanner) Name() string {
 	return models.AgentRunSourceMockLLM
 }
 
+func (MockLLMPlanner) BuildPrompt(input PlannerInput) (PlannerPrompt, error) {
+	return BuildPlannerPrompt(input)
+}
+
 func (MockLLMPlanner) Plan(ctx context.Context, input PlannerInput) (PlannerOutput, error) {
 	if err := ctx.Err(); err != nil {
 		return PlannerOutput{}, err
 	}
-	raw, err := buildMockLLMResponse(input)
+	prompt, err := MockLLMPlanner{}.BuildPrompt(input)
+	if err != nil {
+		return PlannerOutput{}, err
+	}
+	raw, err := buildMockLLMResponse(input, prompt)
 	if err != nil {
 		return PlannerOutput{}, err
 	}
@@ -95,14 +118,101 @@ func (OpenAICompatiblePlanner) Name() string {
 	return models.AgentRunSourceOpenAICompatible
 }
 
+func (OpenAICompatiblePlanner) BuildPrompt(input PlannerInput) (PlannerPrompt, error) {
+	return BuildPlannerPrompt(input)
+}
+
 func (OpenAICompatiblePlanner) Plan(context.Context, PlannerInput) (PlannerOutput, error) {
 	return PlannerOutput{}, ErrPlannerUnavailable
 }
 
-func buildMockLLMResponse(input PlannerInput) (string, error) {
+func BuildPlannerPrompt(input PlannerInput) (PlannerPrompt, error) {
+	contextJSON, err := buildPromptContextJSON(input)
+	if err != nil {
+		return PlannerPrompt{}, err
+	}
+	system := "You are AllCallAll's backend-owned collaboration Agent. Return only valid JSON that matches the output schema. Do not execute tools directly; propose bounded next actions for the backend service."
+	user := fmt.Sprintf("Goal: %s\n\nContext:\n%s", strings.TrimSpace(input.Goal), contextJSON)
+	schema := map[string]string{
+		"summary":      "string: concise bilingual-friendly thread summary",
+		"action_items": "array<string>: concrete follow-up tasks",
+		"next_step":    "string: next recommended backend-controlled action",
+		"risk_flags":   "array<string>: stable machine-readable risks",
+	}
+	return PlannerPrompt{
+		System:          system,
+		User:            user,
+		OutputSchema:    schema,
+		EstimatedTokens: estimatePromptTokens(system, user, mustJSONString(schema)),
+	}, nil
+}
+
+func buildPromptContextJSON(input PlannerInput) (string, error) {
+	notes := make([]string, 0, len(input.Notes))
+	for _, note := range input.Notes {
+		notes = append(notes, compactSnippet(note.Body, 160))
+	}
+	messages := make([]map[string]any, 0, len(input.Messages))
+	for _, message := range input.Messages {
+		messages = append(messages, map[string]any{
+			"type": message.Type,
+			"body": compactSnippet(message.Body, 160),
+		})
+	}
+	rooms := make([]map[string]any, 0, len(input.Rooms))
+	for _, room := range input.Rooms {
+		rooms = append(rooms, map[string]any{
+			"id":     room.ID,
+			"title":  compactSnippet(room.Title, 80),
+			"status": room.Status,
+		})
+	}
+	memories := make([]string, 0, len(input.Memories))
+	for _, memory := range input.Memories {
+		memories = append(memories, compactSnippet(memory.ValueJSON, 180))
+	}
+	payload := map[string]any{
+		"conversation": map[string]any{
+			"id":                 input.Conversation.ID,
+			"title":              input.Conversation.Title,
+			"status":             input.Conversation.Status,
+			"priority":           input.Conversation.Priority,
+			"assignee_user_id":   input.Conversation.AssigneeUserID,
+			"contact_id":         input.Conversation.ContactID,
+			"organization_id":    input.Conversation.OrganizationID,
+			"conversation_type":  input.Conversation.Type,
+			"last_internal_note": input.Conversation.LastInternalNoteAt,
+		},
+		"notes":        notes,
+		"messages":     messages,
+		"recent_rooms": rooms,
+		"member_count": len(input.Members),
+		"memories":     memories,
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
+}
+
+func estimatePromptTokens(parts ...string) int {
+	joined := strings.Join(parts, "\n")
+	runeEstimate := (len([]rune(joined)) + 3) / 4
+	wordEstimate := len(strings.Fields(joined))
+	if runeEstimate > wordEstimate {
+		return runeEstimate
+	}
+	if wordEstimate > 0 {
+		return wordEstimate
+	}
+	return 1
+}
+
+func buildMockLLMResponse(input PlannerInput, prompt PlannerPrompt) (string, error) {
 	summary, actionItems, nextStep, riskFlags := buildRulesOutput(input)
 	output := PlannerOutput{
-		Summary:     "MockLLM structured plan: " + summary,
+		Summary:     fmt.Sprintf("MockLLM structured plan (%d estimated prompt tokens): %s", prompt.EstimatedTokens, summary),
 		ActionItems: append(actionItems, "记录 Agent 工具调用结果，并在线程中同步负责人"),
 		NextStep:    nextStep,
 		RiskFlags:   riskFlags,

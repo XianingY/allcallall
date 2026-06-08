@@ -30,6 +30,9 @@ Returns Prometheus-style counters. Interview-focused counters include:
 - `agent_run_started_total`
 - `agent_run_total`
 - `agent_run_failed_total`
+- `agent_planner_latency_ms_total`
+- `agent_planner_token_estimate_total`
+- `agent_planner_fallback_total`
 - `agent_tool_call_total`
 - `agent_memory_write_total`
 - `outbox_publish_total`

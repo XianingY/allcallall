@@ -47,7 +47,7 @@ CONFIG_PATH=./configs/config.yaml AGENT_PROVIDER=mock_llm go run ./cmd/interview
 
 The command prints organization, conversation, room, and Agent run IDs. It creates users, an organization, a conversation, notes/messages, a meeting record, contact profile, and one idempotent Agent run with the stable key `interview-seed-agent-run`.
 
-`AGENT_PROVIDER=rules` is the default and the safest interview demo mode. `AGENT_PROVIDER=mock_llm` demonstrates structured-output parsing without external credentials. `AGENT_PROVIDER=openai_compatible` selects the provider seam, but the current implementation intentionally returns planner unavailable until a real model provider is configured.
+`AGENT_PROVIDER=rules` is the default and the safest interview demo mode. `AGENT_PROVIDER=mock_llm` demonstrates prompt construction and structured-output parsing without external credentials. `AGENT_PROVIDER=openai_compatible` selects the provider seam; until a real model provider is configured, service execution falls back to `rules` and records fallback metrics.
 
 ## Resume Bullet Candidates
 

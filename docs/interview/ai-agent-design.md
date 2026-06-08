@@ -133,6 +133,9 @@ Worker metrics:
 - `agent_run_started_total`
 - `agent_run_total`
 - `agent_run_failed_total`
+- `agent_planner_latency_ms_total`
+- `agent_planner_token_estimate_total`
+- `agent_planner_fallback_total`
 
 ## Provider Seam
 
@@ -148,7 +151,7 @@ type Planner interface {
 Current implementations:
 
 - `RulesPlanner`: default deterministic provider.
-- `MockLLMPlanner`: deterministic mock model provider that returns structured JSON and parses it back into `PlannerOutput`.
+- `MockLLMPlanner`: deterministic mock model provider that builds a prompt, estimates prompt tokens, returns structured JSON, and parses it back into `PlannerOutput`.
 - `OpenAICompatiblePlanner`: reserved seam that currently returns `ErrPlannerUnavailable`.
 
 The intended future implementation is an OpenAI-compatible planner that returns the same `PlannerOutput` shape. Tool calling should still be mediated by backend code, not executed directly by the model.
@@ -161,7 +164,7 @@ AGENT_PROVIDER=mock_llm
 AGENT_PROVIDER=openai_compatible
 ```
 
-`rules` is the default. `mock_llm` is useful for interviews because it demonstrates structured-output parsing without requiring credentials. `openai_compatible` is intentionally unavailable until a model provider is configured; handlers return `AGENT_PLANNER_UNAVAILABLE`.
+`rules` is the default. `mock_llm` is useful for interviews because it demonstrates prompt construction and structured-output parsing without requiring credentials. `openai_compatible` is intentionally unavailable until a model provider is configured; service execution falls back to `rules` and increments `agent_planner_fallback_total`.
 
 ## Why This Is Useful In Interviews
 
@@ -174,7 +177,7 @@ This module shows backend fundamentals that map well to modern AI Agent systems:
 - Scoped memory that can be inspected and tested.
 - Outbox event persistence for async delivery.
 - Deterministic tests for Agent behavior.
-- Metrics for run success, failures, memory writes, and tool calls.
+- Metrics for run success, failures, memory writes, tool calls, planner latency, prompt token estimates, and provider fallback.
 
 ## Safety Boundaries
 

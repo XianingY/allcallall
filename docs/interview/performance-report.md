@@ -52,6 +52,9 @@ Backend `/api/v1/metrics`:
 - `agent_run_started_total`
 - `agent_run_total`
 - `agent_run_failed_total`
+- `agent_planner_latency_ms_total`
+- `agent_planner_token_estimate_total`
+- `agent_planner_fallback_total`
 - `agent_tool_call_total`
 - `agent_memory_write_total`
 - `outbox_publish_total`
@@ -167,6 +170,7 @@ Agent run creation and queue/backlog:
 - Run `agent-run-smoke.sh` with distinct idempotency keys.
 - Keep `POLL_AGENT_RUN=1` when measuring end-to-end queue drain latency. Use `POLL_AGENT_RUN=0` only when measuring create/enqueue latency.
 - Capture `agent_run_queued_total`, `agent_run_started_total`, `agent_run_total`, `agent_run_failed_total`, `agent_tool_call_total`, and `agent_memory_write_total` before and after.
+- Capture `agent_planner_latency_ms_total`, `agent_planner_token_estimate_total`, and `agent_planner_fallback_total` when comparing `rules`, `mock_llm`, and unavailable `openai_compatible` fallback behavior.
 - Query `agent_runs` by status. The steady-state target is no stuck `pending` or `running` rows after the outbox worker drains requested runs.
 - Query `agent_tool_calls` per run to explain write amplification.
 - Repeat one request with the same `Idempotency-Key`; expected result is the same run result without duplicate message, follow-up task, memory, or outbox side effects.

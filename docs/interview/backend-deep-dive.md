@@ -55,12 +55,12 @@ Interview angle:
 - Retry safety is provided through `Idempotency-Key`.
 - Tool side effects enqueue durable `event_outbox` records.
 - Tool execution is still controlled by backend service code.
-- `AGENT_PROVIDER` selects the planner: `rules` is deterministic and default, `mock_llm` exercises structured-output parsing without API keys, and `openai_compatible` is a deliberate provider seam that currently returns planner unavailable.
+- `AGENT_PROVIDER` selects the planner: `rules` is deterministic and default, `mock_llm` exercises prompt construction plus structured-output parsing without API keys, and `openai_compatible` is a deliberate provider seam that currently falls back to `rules` during service execution.
 
 Interview angle:
 
 - Explain why Agent tools need permission checks, idempotency, observability, async execution, and bounded side effects.
-- Explain why the first version is deterministic before adding an LLM provider.
+- Explain why the first version is deterministic before adding an LLM provider, and how prompt token estimates, latency metrics, and fallback counters make the provider seam observable.
 
 ## Outbox Worker Design
 
