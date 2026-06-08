@@ -38,9 +38,18 @@ Check the user summary `refresh_sessions` block:
 - `expired_count`
 - `invalid_use_count`
 - `last_invalid_use_at`
+- `risk_level`
+- `risk_reasons`
 - recent redacted session metadata
 
 The support API intentionally omits refresh token values and token hashes. A non-zero `invalid_use_count` means a rotated, revoked, or expired refresh token was reused and should be treated as a risk signal.
+
+Risk levels:
+
+- `none`: no obvious refresh-session risk signal.
+- `low`: many active sessions, but no token reuse signal.
+- `medium`: refresh token reuse was detected.
+- `high`: repeated or recent refresh token reuse was detected.
 
 Support actions:
 

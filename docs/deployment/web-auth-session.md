@@ -38,7 +38,7 @@ The backend persists refresh sessions in `refresh_sessions` using a SHA-256 hash
 
 If a previously rotated or revoked refresh token is reused, the backend records `invalid_use_count` and `last_invalid_use_at` on the original session row. Treat these as support and risk signals; the refresh request still fails and clears the cookie.
 
-The internal support user summary includes a redacted `refresh_sessions` block with active/revoked/expired counts, recent session metadata, and invalid refresh reuse counters. It never returns raw refresh tokens or token hashes. Support can force revoke one session with `DELETE /api/v1/internal/support/users/:userId/sessions/:sessionId` or all user sessions with `POST /api/v1/internal/support/users/:userId/sessions/revoke-all`.
+The internal support user summary includes a redacted `refresh_sessions` block with active/revoked/expired counts, recent session metadata, invalid refresh reuse counters, `risk_level`, and `risk_reasons`. It never returns raw refresh tokens or token hashes. Support can force revoke one session with `DELETE /api/v1/internal/support/users/:userId/sessions/:sessionId` or all user sessions with `POST /api/v1/internal/support/users/:userId/sessions/revoke-all`.
 
 Users can inspect redacted session records from Settings via **登录会话 / Active Sessions**. Active non-current sessions can be revoked individually, which prevents that device from refreshing its login state. The API refuses to revoke the current cookie-backed session and returns `CURRENT_SESSION_REVOKE_NOT_ALLOWED`; users should use regular logout or **退出所有设备 / Sign out everywhere** for the current device. The logout-all action calls `POST /api/v1/auth/logout-all`, clears the current refresh cookie, and removes the current device's local access-token cache.
 
@@ -49,4 +49,4 @@ Expired sessions are cleaned by the backend worker:
 
 Remaining production hardening items:
 
-- Add suspicious-session alerting.
+- Add external suspicious-session alert delivery.

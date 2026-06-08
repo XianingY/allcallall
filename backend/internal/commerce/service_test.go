@@ -80,6 +80,12 @@ func TestSupportRefreshSessionSummary(t *testing.T) {
 	if summary.LastInvalidUseAt == nil || !summary.LastInvalidUseAt.Equal(revokedAt) {
 		t.Fatalf("expected latest invalid use %v, got %v", revokedAt, summary.LastInvalidUseAt)
 	}
+	if summary.RiskLevel != "high" {
+		t.Fatalf("expected high refresh session risk, got %s", summary.RiskLevel)
+	}
+	if !containsString(summary.RiskReasons, "repeated_refresh_token_reuse") || !containsString(summary.RiskReasons, "recent_refresh_token_reuse") {
+		t.Fatalf("expected refresh session risk reasons, got %v", summary.RiskReasons)
+	}
 	if len(summary.Recent) != 3 {
 		t.Fatalf("expected 3 recent sessions for user 7, got %d", len(summary.Recent))
 	}
@@ -90,6 +96,40 @@ func TestSupportRefreshSessionSummary(t *testing.T) {
 		if item.InvalidUseCount == 99 {
 			t.Fatal("summary leaked another user's refresh session")
 		}
+	}
+}
+
+func TestSupportRefreshSessionRiskManyActiveSessions(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "commerce-support-risk.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := db.AutoMigrate(&models.RefreshSession{}); err != nil {
+		t.Fatalf("migrate refresh sessions failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	sessions := make([]models.RefreshSession, 0, 5)
+	for i := range 5 {
+		sessions = append(sessions, models.RefreshSession{
+			UserID:    7,
+			TokenHash: "active-user-7-" + string(rune('a'+i)),
+			ExpiresAt: now.Add(time.Hour),
+		})
+	}
+	if err := db.Create(&sessions).Error; err != nil {
+		t.Fatalf("create refresh sessions failed: %v", err)
+	}
+
+	summary, err := NewService(db).getSupportRefreshSessionSummary(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("get support refresh session summary failed: %v", err)
+	}
+	if summary.RiskLevel != "low" {
+		t.Fatalf("expected low refresh session risk, got %s", summary.RiskLevel)
+	}
+	if !containsString(summary.RiskReasons, "many_active_sessions") {
+		t.Fatalf("expected many active sessions risk reason, got %v", summary.RiskReasons)
 	}
 }
 
@@ -143,4 +183,13 @@ func TestRevokeSupportRefreshSessions(t *testing.T) {
 	if other.RevokedAt != nil {
 		t.Fatal("support revocation leaked to another user")
 	}
+}
+
+func containsString(items []string, expected string) bool {
+	for _, item := range items {
+		if item == expected {
+			return true
+		}
+	}
+	return false
 }

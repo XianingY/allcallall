@@ -806,6 +806,8 @@ type SupportRefreshSessionSummary struct {
 	ExpiredCount     int64                         `json:"expired_count"`
 	InvalidUseCount  int64                         `json:"invalid_use_count"`
 	LastInvalidUseAt *time.Time                    `json:"last_invalid_use_at,omitempty"`
+	RiskLevel        string                        `json:"risk_level"`
+	RiskReasons      []string                      `json:"risk_reasons"`
 	Recent           []SupportRefreshSessionRecord `json:"recent"`
 }
 
@@ -992,8 +994,31 @@ func (s *Service) getSupportRefreshSessionSummary(ctx context.Context, userID ui
 			UpdatedAt:        item.UpdatedAt,
 		})
 	}
+	summary.RiskLevel, summary.RiskReasons = supportRefreshSessionRisk(summary, now)
 
 	return summary, nil
+}
+
+func supportRefreshSessionRisk(summary SupportRefreshSessionSummary, now time.Time) (string, []string) {
+	level := "none"
+	reasons := []string{}
+	if summary.ActiveCount >= 5 {
+		level = "low"
+		reasons = append(reasons, "many_active_sessions")
+	}
+	if summary.InvalidUseCount > 0 {
+		level = "medium"
+		reasons = append(reasons, "refresh_token_reuse_detected")
+	}
+	if summary.InvalidUseCount >= 3 {
+		level = "high"
+		reasons = append(reasons, "repeated_refresh_token_reuse")
+	}
+	if summary.LastInvalidUseAt != nil && summary.LastInvalidUseAt.After(now.Add(-24*time.Hour)) {
+		level = "high"
+		reasons = append(reasons, "recent_refresh_token_reuse")
+	}
+	return level, reasons
 }
 
 func (s *Service) RevokeSupportRefreshSessions(ctx context.Context, userID uint64, sessionID *uint64) (*SupportRefreshSessionRevocation, error) {
