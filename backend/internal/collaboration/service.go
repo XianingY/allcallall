@@ -709,103 +709,32 @@ func (s *Service) UpdateConversation(ctx context.Context, organizationID, userID
 		return nil, err
 	}
 
-	updates := map[string]any{}
-	systemEvents := make([]MessageInput, 0, 3)
-	changedFields := make([]string, 0, 4)
-
-	if input.Status != nil {
-		status, err := normalizeConversationStatus(*input.Status)
-		if err != nil {
+	plan, err := buildConversationUpdatePlan(conv, input)
+	if err != nil {
+		return nil, err
+	}
+	if plan.AssigneeUserIDToValidate != nil {
+		var count int64
+		if err := s.db.WithContext(ctx).Model(&models.ConversationMember{}).
+			Where("conversation_id = ? AND user_id = ?", conversationID, *plan.AssigneeUserIDToValidate).
+			Count(&count).Error; err != nil {
 			return nil, err
 		}
-		if conv.Status != status {
-			updates["status"] = status
-			changedFields = append(changedFields, "status")
-			systemEvents = append(systemEvents, MessageInput{
-				Type: models.MessageTypeSystem,
-				Body: fmt.Sprintf("会话状态已更新为 %s。", status),
-				Metadata: map[string]any{
-					"event_type": "conversation.status_changed",
-					"status":     status,
-				},
-			})
+		if count == 0 {
+			return nil, errors.New("assignee must be a conversation member")
 		}
 	}
 
-	if input.Priority != nil {
-		priority, err := normalizeConversationPriority(*input.Priority)
-		if err != nil {
-			return nil, err
-		}
-		if conv.Priority != priority {
-			updates["priority"] = priority
-			changedFields = append(changedFields, "priority")
-			systemEvents = append(systemEvents, MessageInput{
-				Type: models.MessageTypeSystem,
-				Body: fmt.Sprintf("会话优先级已调整为 %s。", priority),
-				Metadata: map[string]any{
-					"event_type": "conversation.priority_changed",
-					"priority":   priority,
-				},
-			})
-		}
-	}
-
-	if input.AssigneeUserID != nil {
-		assignValue := *input.AssigneeUserID
-		var assignPtr *uint64
-		if assignValue != 0 {
-			assignPtr = &assignValue
-			var count int64
-			if err := s.db.WithContext(ctx).Model(&models.ConversationMember{}).
-				Where("conversation_id = ? AND user_id = ?", conversationID, assignValue).
-				Count(&count).Error; err != nil {
-				return nil, err
-			}
-			if count == 0 {
-				return nil, errors.New("assignee must be a conversation member")
-			}
-		}
-		currentAssignee := uint64(0)
-		if conv.AssigneeUserID != nil {
-			currentAssignee = *conv.AssigneeUserID
-		}
-		if currentAssignee != assignValue {
-			updates["assignee_user_id"] = assignPtr
-			changedFields = append(changedFields, "assignee_user_id")
-			body := "负责人已清空。"
-			metadata := map[string]any{"event_type": "conversation.assignee_changed"}
-			if assignPtr != nil {
-				body = fmt.Sprintf("会话负责人已更新为用户 #%d。", assignValue)
-				metadata["assignee_user_id"] = assignValue
-			}
-			systemEvents = append(systemEvents, MessageInput{
-				Type:     models.MessageTypeSystem,
-				Body:     body,
-				Metadata: metadata,
-			})
-		}
-	}
-
-	if input.ContactID != nil {
-		if *input.ContactID == 0 {
-			updates["contact_id"] = nil
-		} else {
-			updates["contact_id"] = *input.ContactID
-		}
-		changedFields = append(changedFields, "contact_id")
-	}
-
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if len(updates) > 0 {
-			updates["updated_at"] = time.Now()
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if len(plan.Updates) > 0 {
+			plan.Updates["updated_at"] = time.Now()
 			if err := tx.Model(&models.Conversation{}).
 				Where("id = ? AND organization_id = ?", conversationID, organizationID).
-				Updates(updates).Error; err != nil {
+				Updates(plan.Updates).Error; err != nil {
 				return err
 			}
 		}
-		for _, event := range systemEvents {
+		for _, event := range plan.SystemEvents {
 			if _, err := s.createMessageTx(ctx, tx, organizationID, userID, conversationID, event, false); err != nil {
 				return err
 			}
@@ -824,21 +753,7 @@ func (s *Service) UpdateConversation(ctx context.Context, organizationID, userID
 	if err != nil {
 		return nil, err
 	}
-	changes := map[string]any{}
-	for _, field := range uniqueStrings(changedFields) {
-		switch field {
-		case "status":
-			changes["status"] = summary.Status
-		case "priority":
-			changes["priority"] = summary.Priority
-		case "assignee_user_id":
-			changes["assignee_user_id"] = summary.AssigneeUserID
-			changes["assignee_email"] = summary.AssigneeEmail
-			changes["assignee_display_name"] = summary.AssigneeDisplayName
-		case "contact_id":
-			changes["contact_id"] = summary.ContactID
-		}
-	}
+	changes := buildConversationPatchChanges(summary, plan.ChangedFields)
 	s.publishConversationPatchUpdate(ctx, organizationID, conversationID, changes)
 	return &summary, nil
 }
