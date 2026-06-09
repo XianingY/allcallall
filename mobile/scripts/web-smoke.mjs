@@ -5,7 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 let baseURL = (process.env.WEB_SMOKE_BASE_URL || "http://127.0.0.1:8081").replace(/\/+$/, "");
-const exportDir = process.env.WEB_SMOKE_EXPORT_DIR;
+const configuredExportDir = process.env.WEB_SMOKE_EXPORT_DIR;
+const exportDir = configuredExportDir || "dist";
 const email = process.env.WEB_SMOKE_EMAIL;
 const password = process.env.WEB_SMOKE_PASSWORD;
 const roomId = process.env.WEB_SMOKE_ROOM_ID;
@@ -25,12 +26,15 @@ const contentTypes = new Map([
 ]);
 
 const startStaticExportServer = async () => {
-  if (!exportDir || process.env.WEB_SMOKE_BASE_URL) {
+  if (process.env.WEB_SMOKE_BASE_URL) {
     return null;
   }
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", exportDir);
   const rootWithSeparator = `${root}${path.sep}`;
   if (!fs.existsSync(path.join(root, "index.html"))) {
+    if (!configuredExportDir) {
+      return null;
+    }
     throw new Error(`WEB_SMOKE_EXPORT_DIR does not contain index.html: ${root}`);
   }
   const server = http.createServer((request, response) => {
