@@ -15,8 +15,12 @@ AllCallAll is positioned as an AI-powered realtime collaboration backend project
 - [System Design](system-design.md): system-design interview view of the whole backend.
 - [Backend Deep Dive](backend-deep-dive.md): Go, transactions, realtime, auth, storage, and reliability talking points.
 - [AI Agent Design](ai-agent-design.md): Agent state machine, provider seam, tool calling, memory, guardrails.
+- [Demo Script](demo-script.md): 5-minute interview demo flow and live backend variant.
+- [Agent Trace Example](agent-trace-example.md): run/step/tool timeline and tool registry explanation.
 - [API Surface](api-surface.md): APIs worth demoing in interviews.
 - [Performance Report](performance-report.md): load-test template and metrics checklist.
+- [Load Test Results](load-test-results.md): latest local suite results and live MySQL/Redis checklist.
+- [Troubleshooting](troubleshooting.md): Agent, outbox, WebSocket replay, recording, and CI debugging.
 - [Resume Bullets](resume-bullets.md): polished bullets for resumes and interviews.
 
 ## Suggested Interview Demo Path
@@ -29,6 +33,22 @@ AllCallAll is positioned as an AI-powered realtime collaboration backend project
 6. Show observability: send `X-Request-ID`, trigger an Agent run, and explain how the same ID is saved on `agent_runs` and `event_outbox`.
 7. Show realtime replay: connect to `/api/v1/chat/ws?since_id=...` and point out `event_id`, `sequence`, and durable MySQL-backed replay.
 8. Open `/api/v1/metrics` and point to Agent and outbox counters such as `agent_run_queued_total`, `agent_run_started_total`, `agent_run_total`, `agent_run_failed_total`, `agent_tool_call_total`, `agent_memory_write_total`, `outbox_publish_total`, and `outbox_publish_retry_total`.
+
+## One-Command Demo
+
+For a deterministic demo that does not require MySQL, Redis, JWTs, or external model credentials:
+
+```bash
+make interview-demo
+```
+
+For a live backend seed path that starts MySQL/Redis and writes demo data:
+
+```bash
+make interview-demo-live
+```
+
+See [Demo Script](demo-script.md) for the full walkthrough.
 
 ## Demo Seed Command
 
@@ -60,6 +80,18 @@ go run ./cmd/interview-bench -conversations 25 -batch-size 50
 ```
 
 The command seeds conversations, queues Agent runs, drains `agent.run.requested` through the outbox processor, executes tool calls, writes conversation messages/tasks/memory, and prints JSON with ready/failed run counts, processed outbox events, latency summaries, and metric counters. Use `-provider=mock_llm` to show prompt construction and structured-output parsing; use `-provider=openai_compatible` to show the unavailable-provider fallback path.
+
+Run deterministic Agent evals directly:
+
+```bash
+make agent-eval
+```
+
+Generate a local load-suite report:
+
+```bash
+make interview-load-suite
+```
 
 ## Resume Bullet Candidates
 

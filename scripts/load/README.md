@@ -12,6 +12,14 @@ Use these scripts to collect evidence for:
 - Chat WebSocket connection stability and replay checks for `/api/v1/chat/ws`.
 - Durable realtime replay store behavior through local `chat_events` write/replay checks.
 
+For the default deterministic portfolio suite, run:
+
+```bash
+make interview-load-suite
+```
+
+It writes JSON artifacts plus `summary.md` to `/tmp/allcallall-interview-suite-*`.
+
 Current boundaries:
 
 - Agent execution is asynchronous. `POST /api/v1/agent/runs` returns `202` with a `pending` run; the backend outbox worker consumes `agent.run.requested` and executes the run.

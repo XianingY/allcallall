@@ -86,12 +86,12 @@ sequenceDiagram
     Tools->>DB: memory + tool_call
     Service->>DB: mark run ready
     Client->>Handler: GET /api/v1/agent/runs/:id
-    Handler-->>Client: ready run, steps, tool_calls
+    Handler-->>Client: ready run, steps, tool_calls, trace
 ```
 
 ## Tool Calls
 
-Current tools:
+Current tools are documented in `backend/internal/agent/tool_registry.go`. Each descriptor includes name, kind, permission, input schema, output schema, and idempotency key template for mutating tools.
 
 - `query_recent_meetings`: records recent room/meeting context for the conversation.
 - `query_conversation_members`: records member/peer context for bounded planning.
@@ -111,6 +111,18 @@ Implementation boundary:
 - `executeSideEffectTools` owns ordered mutating tool execution and tool metrics for `write_conversation_message`, `create_follow_up_task`, and `upsert_agent_memory`.
 - Each mutating tool keeps its own transaction and output JSON, which makes tool failures inspectable without letting the planner directly mutate application state.
 
+## Trace Timeline
+
+Agent API responses include a derived `trace` array built from persisted run, step, and tool-call rows. It is intentionally not a new table. The trace is a presentation layer that lets interviews and support flows inspect:
+
+- `agent.run.created`
+- `agent.run.started`
+- execution steps such as `collect_context` and `plan_next_actions`
+- tool calls with registry metadata such as `kind` and `permission`
+- terminal events such as `agent.run.ready` or `agent.run.failed`
+
+See [Agent Trace Example](agent-trace-example.md) for a concrete response.
+
 ## Idempotency And Side Effects
 
 `POST /api/v1/agent/runs` accepts `Idempotency-Key`. When the same user, organization, conversation, and key are seen again, the service returns the existing run result instead of creating a new run. That prevents duplicate pending jobs and later duplicate conversation messages, follow-up tasks, memories, and outbox events during client retries.
@@ -120,6 +132,24 @@ The outbox writes have their own idempotency keys: `agent.run.requested:<run_id>
 ## Memory Model
 
 `agent_memories` is scoped by organization, user, conversation, and key. The current key is `last_agent_summary`, and the value stores summary, action items, next step, and risk flags. The memory is inspectable in tests and is loaded into future planner input, but it is not a cross-user global memory and it does not store secrets or raw media.
+
+## Eval Harness
+
+The deterministic eval harness lives in `backend/internal/agent/eval.go` and `backend/cmd/agent-eval`.
+
+```bash
+make agent-eval
+```
+
+It loads fixture cases from `backend/internal/agent/testdata/eval_cases.json`, runs the selected provider, and validates:
+
+- non-empty summary and next step
+- minimum action item count
+- required summary and next-step substrings
+- required and forbidden risk flags
+- prompt token estimates for prompting providers
+
+This keeps Agent behavior regression-testable without external LLM credentials. Use `AGENT_PROVIDER=mock_llm make agent-eval` to exercise prompt construction and structured JSON parsing without network calls.
 
 ## Outbox Worker
 
