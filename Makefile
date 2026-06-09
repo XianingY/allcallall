@@ -1,7 +1,7 @@
 # AllCallAll Project Makefile
 # Common commands for development
 
-.PHONY: help setup build-android build-ios clean test interview-bench realtime-replay-bench chat-ws-replay-bench
+.PHONY: help setup build-android build-ios clean test interview-bench agent-eval realtime-replay-bench chat-ws-replay-bench
 
 # Default target
 help:
@@ -17,6 +17,7 @@ help:
 	@echo ""
 	@echo "Backend:"
 	@echo "  make run-backend      - Start backend server"
+	@echo "  make agent-eval       - Run deterministic Agent eval harness"
 	@echo "  make interview-bench  - Run local Agent/outbox benchmark"
 	@echo "  make realtime-replay-bench - Run local realtime replay benchmark"
 	@echo "  make chat-ws-replay-bench - Run authenticated chat WebSocket replay benchmark"
@@ -89,6 +90,11 @@ test:
 test-backend:
 	@echo "Running backend tests..."
 	cd backend && go test ./...
+
+agent-eval:
+	@echo "Running deterministic Agent eval harness..."
+	@mkdir -p /tmp/allcallall-go-cache
+	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/agent-eval -provider $${AGENT_PROVIDER:-rules}
 
 interview-bench:
 	@echo "Running local Agent/outbox benchmark..."
