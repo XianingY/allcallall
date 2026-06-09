@@ -105,7 +105,7 @@ sequenceDiagram
     Worker->>Outbox: drain requested event
     Worker->>Service: re-inject request_id from outbox row
     Worker->>Service: ExecuteRun(run_id)
-    Service->>DB: pending -> running
+    Service->>DB: acquire run with attempts + lease_until
     Service->>DB: load messages, notes, rooms, memories
     Service->>DB: record context tool calls
     Service->>Planner: build prompt + call configured planner
@@ -157,6 +157,7 @@ make chat-ws-replay-bench
 - HTTP middleware normalizes `X-Request-ID`; generated IDs are returned in response headers and JSON error bodies.
 - Agent run idempotency prevents repeated pending jobs and tool side effects during retry.
 - Agent runs and outbox events persist the originating `request_id`, so asynchronous worker logs can be correlated with the original API request.
+- Agent execution uses `attempts` and `lease_until`, so transient planner failures can retry and stale `running` runs can be recovered after worker crashes.
 - Outbox records durable side effects for async event delivery; enqueue uses an idempotency key so retries do not create duplicate domain events.
 - The outbox worker drains pending rows, calls registered handlers, applies retry delay and max-attempt limits, and emits publish/retry/failure metrics.
 - WebSocket replay reduces dependency on perfect long-lived connections.

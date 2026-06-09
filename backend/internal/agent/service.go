@@ -20,6 +20,11 @@ var (
 	ErrAgentRunNotFound         = errors.New("agent run not found")
 )
 
+const (
+	agentRunMaxAttempts   = 3
+	agentRunLeaseDuration = 5 * time.Minute
+)
+
 type counterRecorder interface {
 	Inc(name string)
 	Add(name string, delta int64)
@@ -179,20 +184,29 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (*RunResult, err
 		}
 		return nil, err
 	}
-	switch run.Status {
-	case models.AgentRunStatusReady, models.AgentRunStatusFailed:
-		return s.buildRunResult(ctx, run)
-	case models.AgentRunStatusRunning:
+	if run.Status == models.AgentRunStatusReady {
 		return s.buildRunResult(ctx, run)
 	}
 
 	startedAt := time.Now().UTC()
+	leaseUntil := startedAt.Add(agentRunLeaseDuration)
 	update := s.db.WithContext(ctx).Model(&models.AgentRun{}).
-		Where("id = ? AND status = ?", run.ID, models.AgentRunStatusPending).
+		Where(
+			"id = ? AND (status = ? OR (status = ? AND attempts < ?) OR (status = ? AND (lease_until IS NULL OR lease_until <= ?)))",
+			run.ID,
+			models.AgentRunStatusPending,
+			models.AgentRunStatusFailed,
+			agentRunMaxAttempts,
+			models.AgentRunStatusRunning,
+			startedAt,
+		).
 		Updates(map[string]any{
 			"status":        models.AgentRunStatusRunning,
+			"attempts":      gorm.Expr("attempts + 1"),
 			"started_at":    startedAt,
+			"lease_until":   leaseUntil,
 			"error_message": "",
+			"completed_at":  nil,
 			"updated_at":    startedAt,
 		})
 	if update.Error != nil {
@@ -204,8 +218,9 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (*RunResult, err
 		}
 		return s.buildRunResult(ctx, run)
 	}
-	run.Status = models.AgentRunStatusRunning
-	run.StartedAt = &startedAt
+	if err := s.db.WithContext(ctx).Where("id = ?", run.ID).Take(&run).Error; err != nil {
+		return nil, err
+	}
 	if s.metrics != nil {
 		s.metrics.Inc("agent_run_started_total")
 	}
@@ -223,6 +238,7 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (*RunResult, err
 				"status":        models.AgentRunStatusFailed,
 				"error_message": err.Error(),
 				"completed_at":  failedAt,
+				"lease_until":   nil,
 			}).Error
 		if s.metrics != nil {
 			s.metrics.Inc("agent_run_failed_total")
@@ -331,6 +347,7 @@ func (s *Service) executeRulesRun(ctx context.Context, run models.AgentRun, goal
 		"next_step":         nextStep,
 		"risk_flags_json":   mustJSONString(riskFlags),
 		"completed_at":      completedAt,
+		"lease_until":       nil,
 	}
 	if err := s.db.WithContext(ctx).Model(&models.AgentRun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
 		return nil, err

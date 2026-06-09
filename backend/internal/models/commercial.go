@@ -282,6 +282,8 @@ type AgentRun struct {
 	NextStep        string     `gorm:"type:text"`
 	RiskFlagsJSON   string     `gorm:"type:longtext"`
 	ErrorMessage    string     `gorm:"type:text"`
+	Attempts        int        `gorm:"not null;default:0"`
+	LeaseUntil      *time.Time `gorm:"index"`
 	StartedAt       *time.Time `gorm:"index"`
 	CompletedAt     *time.Time `gorm:"index"`
 	CreatedAt       time.Time  `gorm:"autoCreateTime"`

@@ -50,6 +50,8 @@ type agentRunResponse struct {
 	NextStep       string     `json:"next_step"`
 	RiskFlags      []string   `json:"risk_flags"`
 	ErrorMessage   string     `json:"error_message,omitempty"`
+	Attempts       int        `json:"attempts"`
+	LeaseUntil     *time.Time `json:"lease_until,omitempty"`
 	StartedAt      *time.Time `json:"started_at,omitempty"`
 	CompletedAt    *time.Time `json:"completed_at,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
@@ -181,6 +183,8 @@ func toAgentRunResponse(run models.AgentRun, actionItems, riskFlags []string) ag
 		NextStep:       run.NextStep,
 		RiskFlags:      riskFlags,
 		ErrorMessage:   run.ErrorMessage,
+		Attempts:       run.Attempts,
+		LeaseUntil:     run.LeaseUntil,
 		StartedAt:      run.StartedAt,
 		CompletedAt:    run.CompletedAt,
 		CreatedAt:      run.CreatedAt,

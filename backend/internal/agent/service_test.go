@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -338,6 +339,84 @@ func TestOutboxProcessorExecutesQueuedAgentRun(t *testing.T) {
 	}
 	if replayEvents != 1 {
 		t.Fatalf("expected agent system message to enter realtime replay, got %d events", replayEvents)
+	}
+}
+
+type failOncePlanner struct {
+	calls int
+}
+
+func (p *failOncePlanner) Name() string {
+	return models.AgentRunSourceRules
+}
+
+func (p *failOncePlanner) Plan(ctx context.Context, input PlannerInput) (PlannerOutput, error) {
+	p.calls++
+	if p.calls == 1 {
+		return PlannerOutput{}, errors.New("temporary planner failure")
+	}
+	return RulesPlanner{}.Plan(ctx, input)
+}
+
+func TestExecuteRunRetriesFailedRun(t *testing.T) {
+	svc, db, _ := newAgentServiceTestEnv(t)
+	conversation := seedAgentConversation(t, db)
+	planner := &failOncePlanner{}
+	svc.WithPlanner(planner)
+
+	queued, err := svc.RunConversationAssistant(context.Background(), conversation.OrganizationID, 7, RunInput{
+		ConversationID: conversation.ID,
+		IdempotencyKey: "retry-failed-run",
+	})
+	if err != nil {
+		t.Fatalf("queue run failed: %v", err)
+	}
+	if _, err := svc.ExecuteRun(context.Background(), queued.Run.ID); err == nil {
+		t.Fatal("expected first execution to fail")
+	}
+	var failed models.AgentRun
+	if err := db.Take(&failed, queued.Run.ID).Error; err != nil {
+		t.Fatalf("load failed run failed: %v", err)
+	}
+	if failed.Status != models.AgentRunStatusFailed || failed.Attempts != 1 || failed.LeaseUntil != nil {
+		t.Fatalf("unexpected failed run state: %+v", failed)
+	}
+
+	result, err := svc.ExecuteRun(context.Background(), queued.Run.ID)
+	if err != nil {
+		t.Fatalf("retry execution failed: %v", err)
+	}
+	if result.Run.Status != models.AgentRunStatusReady || result.Run.Attempts != 2 {
+		t.Fatalf("expected retry to complete run, got status=%s attempts=%d", result.Run.Status, result.Run.Attempts)
+	}
+}
+
+func TestExecuteRunRecoversStaleRunningRun(t *testing.T) {
+	svc, db, _ := newAgentServiceTestEnv(t)
+	conversation := seedAgentConversation(t, db)
+
+	queued, err := svc.RunConversationAssistant(context.Background(), conversation.OrganizationID, 7, RunInput{
+		ConversationID: conversation.ID,
+		IdempotencyKey: "recover-stale-running",
+	})
+	if err != nil {
+		t.Fatalf("queue run failed: %v", err)
+	}
+	staleLease := time.Now().UTC().Add(-time.Minute)
+	if err := db.Model(&models.AgentRun{}).Where("id = ?", queued.Run.ID).Updates(map[string]any{
+		"status":      models.AgentRunStatusRunning,
+		"attempts":    1,
+		"lease_until": staleLease,
+	}).Error; err != nil {
+		t.Fatalf("mark run stale failed: %v", err)
+	}
+
+	result, err := svc.ExecuteRun(context.Background(), queued.Run.ID)
+	if err != nil {
+		t.Fatalf("recover stale run failed: %v", err)
+	}
+	if result.Run.Status != models.AgentRunStatusReady || result.Run.Attempts != 2 {
+		t.Fatalf("expected stale run recovery, got status=%s attempts=%d", result.Run.Status, result.Run.Attempts)
 	}
 }
 

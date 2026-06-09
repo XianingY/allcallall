@@ -201,14 +201,15 @@ Response:
     "summary": "",
     "action_items": [],
     "next_step": "",
-    "risk_flags": []
+    "risk_flags": [],
+    "attempts": 0
   },
   "steps": [],
   "tool_calls": []
 }
 ```
 
-When the worker completes, the same run exposes `status=ready`, `steps`, and `tool_calls`. `request_id` matches the HTTP request context persisted on `agent_runs` and `event_outbox`.
+When the worker completes, the same run exposes `status=ready`, `steps`, and `tool_calls`. `request_id` matches the HTTP request context persisted on `agent_runs` and `event_outbox`. `attempts` and `lease_until` are useful when demonstrating retry and stale-worker recovery.
 
 Current tools:
 

@@ -54,7 +54,8 @@ Interview angle:
 
 - Agent execution is persisted as `agent_runs`.
 - `POST /agent/runs` creates or returns a `pending` run and enqueues `agent.run.requested`.
-- The outbox worker calls `ExecuteRun`, transitions `pending -> running`, and writes `ready` or `failed`.
+- The outbox worker calls `ExecuteRun`, atomically acquires a run with `attempts` and `lease_until`, transitions it to `running`, and writes `ready` or `failed`.
+- Failed runs can be retried while under the run attempt budget, and stale `running` runs can be recovered after the lease expires.
 - Intermediate reasoning stages are stored as `agent_steps`.
 - Side effects are stored as `agent_tool_calls`.
 - Scoped memories are stored as `agent_memories`.
@@ -67,6 +68,7 @@ Interview angle:
 Interview angle:
 
 - Explain why Agent tools need permission checks, idempotency, observability, async execution, and bounded side effects.
+- Explain why async Agent execution needs leases and attempts, not only a `pending/running/ready` enum.
 - Explain why the first version is deterministic before adding an LLM provider, and how prompt token estimates, latency metrics, and fallback counters make the provider seam observable.
 
 ## Outbox Worker Design
