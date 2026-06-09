@@ -119,13 +119,13 @@ System metrics:
 
 | Scenario | Concurrency | Duration | p95 Latency | Error Rate | Notes |
 | --- | ---: | ---: | ---: | ---: | --- |
-| Local Agent/outbox benchmark | 1 process | TBD | TBD | 0 expected | `go run ./cmd/interview-bench -conversations 25` |
+| Local Agent/outbox benchmark | 1 process | 948 ms | 20 ms execute-run | 0% | commit `955e593`, temporary SQLite |
 | Agent run creation | TBD | TBD | TBD | TBD | New idempotency key per request; expect `202 pending` |
 | Agent idempotency replay | TBD | TBD | TBD | TBD | Same key should not duplicate tool side effects |
 | Agent run backlog | TBD | TBD | TBD | TBD | Count `pending`/`running`/`failed` rows before and after worker drain |
 | Outbox drain | TBD | TBD | TBD | TBD | `agent.run.requested`, `agent.run.completed`, `message.created` batch size/retry settings |
-| Local realtime replay benchmark | 1 process | TBD | TBD | 0 expected | `go run ./cmd/realtime-replay-bench -events 2000` |
-| Authenticated chat WebSocket replay | TBD | TBD | TBD | 0 expected | `go run ./cmd/chat-ws-replay-bench -events 2000 -clients 5` |
+| Local realtime replay benchmark | 1 process | 3815 ms | 3 ms write | 0% | commit `955e593`, temporary SQLite |
+| Authenticated chat WebSocket replay | 5 clients | 2740 ms | 9 ms connect-to-last | 0% | commit `955e593`, in-process Gin/WebSocket |
 | WebSocket connections | TBD | TBD | TBD | TBD | Authenticated `/api/v1/chat/ws` |
 | WebSocket replay | TBD | TBD | TBD | TBD | `since_id` replay, backlog limit 100 |
 | Meeting event replay | TBD | TBD | TBD | TBD | Room events written into conversation event stream |
@@ -133,7 +133,7 @@ System metrics:
 
 ## Latest Local Benchmark Snapshot
 
-Measured locally on June 9, 2026 (Asia/Shanghai) with temporary SQLite. Treat this as a functional benchmark and interview demo baseline, not a production load-test result.
+Measured locally on June 9, 2026 (Asia/Shanghai) at commit `955e593` with temporary SQLite. Treat this as a functional benchmark and interview demo baseline, not a production load-test result.
 
 Command:
 
@@ -153,14 +153,14 @@ Result summary:
 | pending_outbox_events | 0 |
 | failed_outbox_events | 0 |
 | agent_tool_calls | 150 |
-| total_duration_ms | 2008 |
-| queue_latency_p95_ms | 4 |
-| execute_run_latency_p95_ms | 97 |
+| total_duration_ms | 948 |
+| queue_latency_p95_ms | 2 |
+| execute_run_latency_p95_ms | 20 |
 | outbox_publish_total | 75 |
 
 ## Latest Local Realtime Replay Snapshot
 
-Measured locally on June 9, 2026 (Asia/Shanghai) with temporary SQLite. Treat this as durable replay-store evidence, not an authenticated WebSocket transport result.
+Measured locally on June 9, 2026 (Asia/Shanghai) at commit `955e593` with temporary SQLite. Treat this as durable replay-store evidence, not an authenticated WebSocket transport result.
 
 Command:
 
@@ -183,13 +183,13 @@ Result summary:
 | monotonic_ids | true |
 | monotonic_sequences | true |
 | sequence_mismatch | 0 |
-| total_duration_ms | 2259 |
-| write_latency_p95_ms | 2 |
+| total_duration_ms | 3815 |
+| write_latency_p95_ms | 3 |
 | replay_latency_p95_ms | 0 |
 
 ## Latest Authenticated WebSocket Replay Snapshot
 
-Measured locally on June 9, 2026 (Asia/Shanghai) with temporary SQLite, local JWT generation, in-process Gin router, and real `/api/v1/chat/ws` WebSocket upgrade.
+Measured locally on June 9, 2026 (Asia/Shanghai) at commit `955e593` with temporary SQLite, local JWT generation, in-process Gin router, and real `/api/v1/chat/ws` WebSocket upgrade.
 
 Command:
 
@@ -217,9 +217,9 @@ Result summary:
 | monotonic_sequences | true |
 | duplicate_events | 0 |
 | sequence_mismatch | 0 |
-| connect_to_first_p95_ms | 4 |
-| connect_to_last_p95_ms | 4 |
-| total_duration_ms | 2501 |
+| connect_to_first_p95_ms | 8 |
+| connect_to_last_p95_ms | 9 |
+| total_duration_ms | 2740 |
 
 ## Fill-In Run Template
 
