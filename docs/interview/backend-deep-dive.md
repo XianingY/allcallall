@@ -147,9 +147,10 @@ Completed second extraction:
 Completed third extraction:
 
 - Room lifecycle, meeting join/leave, WebRTC offer/ICE handling, media-state updates, and room state loading now live in `backend/internal/collaboration/room_service.go`.
-- Recording start/stop, recording file lookup, download URL generation, export audit, retention metadata, and storage artifact persistence now live in `backend/internal/collaboration/recording_service.go`.
+- Recording start/stop, recording file lookup, download URL generation, export audit, retention cleanup, retention metadata, and storage artifact persistence now live in `backend/internal/collaboration/recording_service.go`.
+- Support-side read-only room and recording diagnostics now live in `backend/internal/collaboration/support_service.go`.
 - Conversation status/priority/assignee/contact update planning now lives in `backend/internal/collaboration/conversation_update.go`, with table tests covering pure decision logic before DB transactions and realtime patch publication.
-- The main collaboration service file is now under 2,000 lines, while keeping existing API contracts and tests green.
+- The main collaboration service file is now about 1,800 lines, while keeping existing API contracts and tests green.
 
 Completed Agent extraction:
 

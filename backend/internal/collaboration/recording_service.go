@@ -223,6 +223,52 @@ func (s *Service) RecordRecordingExportAudit(ctx context.Context, recordingID, r
 	return s.db.WithContext(ctx).Create(&export).Error
 }
 
+func (s *Service) CleanupExpiredRecordings(ctx context.Context, now time.Time, limit int) (*CleanupExpiredRecordingResult, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	result := &CleanupExpiredRecordingResult{}
+	if s.storage == nil {
+		return result, nil
+	}
+
+	var files []models.RecordingFile
+	if err := s.db.WithContext(ctx).
+		Where("deleted_at IS NULL AND retention_until IS NOT NULL AND retention_until <= ?", now).
+		Order("retention_until ASC").
+		Limit(limit).
+		Find(&files).Error; err != nil {
+		return nil, err
+	}
+	result.Checked = len(files)
+	if len(files) == 0 {
+		return result, nil
+	}
+
+	for _, file := range files {
+		objectRef := RecordingFileObjectRef(file)
+		if err := s.storage.Delete(ctx, objectRef); err != nil {
+			s.metrics.Inc("recording_retention_delete_fail_total")
+			return result, err
+		}
+		if err := s.db.WithContext(ctx).
+			Model(&models.RecordingFile{}).
+			Where("id = ?", file.ID).
+			Updates(map[string]any{
+				"deleted_at": now,
+			}).Error; err != nil {
+			s.metrics.Inc("recording_retention_delete_fail_total")
+			return result, err
+		}
+		result.Deleted++
+	}
+
+	if result.Deleted > 0 {
+		s.metrics.Add("recording_retention_deleted_total", int64(result.Deleted))
+	}
+	return result, nil
+}
+
 func (s *Service) ResolveLocalRecordingPath(objectRef storage.ObjectRef) (string, bool) {
 	if s.storage == nil {
 		return "", false
