@@ -123,9 +123,14 @@ Completed first extraction:
 - `backend/internal/collaboration/service.go` delegates create/list mechanics to the store and keeps orchestration responsibilities.
 - `realtime_event_store_test.go` covers sequence assignment, `since_id` replay, recipient scoping, and bad payload fallback.
 
+Completed second extraction:
+
+- Chat message list/create and outbox message delivery entrypoints now live in `backend/internal/collaboration/chat_service.go`.
+- Realtime fan-out, message dedup delivery, and room/conversation event publishing now live in `backend/internal/collaboration/realtime_delivery.go`.
+- This keeps the public `Service` API intact while reducing the main file and creating clear seams for future chat/room service extraction.
+
 ## Next High-Value Engineering Tasks
 
 - Add streaming/tool-call traces behind the existing OpenAI-compatible planner if a live model demo is needed.
-- Add load tests for event replay, outbox draining, and Agent run creation.
 - Split oversized services such as collaboration into smaller domain services.
 - Capture measured p95/p99 baselines in `docs/interview/performance-report.md`.
