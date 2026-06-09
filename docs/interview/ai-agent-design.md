@@ -19,6 +19,7 @@ Supported API:
 - `POST /api/v1/agent/runs`
 - `GET /api/v1/agent/runs/:id`
 - `GET /api/v1/agent/runs/:id/events`
+- `GET /api/v1/agent/runs/:id/events/stream`
 
 Both APIs require:
 
@@ -129,7 +130,9 @@ See [Agent Trace Example](agent-trace-example.md) for a concrete response.
 
 ## Streaming-Style Run Events
 
-`GET /api/v1/agent/runs/:id/events` exposes the same persisted execution as a polling-friendly event stream shape. It is designed for demos and future SSE/WebSocket delivery without adding a second persistence model.
+`GET /api/v1/agent/runs/:id/events` exposes the same persisted execution as a polling-friendly event timeline.
+
+`GET /api/v1/agent/runs/:id/events/stream` exposes the same event model over Server-Sent Events. The stream emits already-persisted events immediately, polls for newly persisted rows, and closes after `run_ready` or `run_failed`. It is intentionally backed by `agent_runs`, `agent_steps`, and `agent_tool_calls` instead of an in-memory trace buffer, so reconnects can fall back to the polling endpoint without losing explainability data.
 
 Current event names:
 

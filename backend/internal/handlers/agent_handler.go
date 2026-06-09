@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -27,6 +28,7 @@ func NewAgentHandler(log zerolog.Logger, service *agent.Service) *AgentHandler {
 
 func (h *AgentHandler) RegisterProtectedRoutes(protected *gin.RouterGroup) {
 	protected.POST("/agent/runs", h.handleCreateRun)
+	protected.GET("/agent/runs/:id/events/stream", h.handleStreamRunEvents)
 	protected.GET("/agent/runs/:id/events", h.handleGetRunEvents)
 	protected.GET("/agent/runs/:id", h.handleGetRun)
 }
@@ -177,6 +179,76 @@ func (h *AgentHandler) handleGetRunEvents(c *gin.Context) {
 	})
 }
 
+func (h *AgentHandler) handleStreamRunEvents(c *gin.Context) {
+	if h.service == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_SERVICE_UNAVAILABLE", "agent service unavailable")
+		return
+	}
+	claims, organizationID, ok := h.requireAgentContext(c)
+	if !ok {
+		return
+	}
+	runID, err := parseUintParam(c.Param("id"))
+	if err != nil || runID == 0 {
+		JSONError(c, http.StatusBadRequest, "invalid agent run id")
+		return
+	}
+	if _, ok := c.Writer.(http.Flusher); !ok {
+		JSONErrorWithCode(c, http.StatusInternalServerError, "AGENT_EVENT_STREAM_UNAVAILABLE", "agent event stream unavailable")
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Status(http.StatusOK)
+
+	seenSequence := 0
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.NewTimer(parseAgentEventStreamTimeout(c.Query("timeout_ms")))
+	defer timeout.Stop()
+
+	for {
+		events, err := h.service.GetRunEvents(c.Request.Context(), organizationID, claims.UserID, runID)
+		if err != nil {
+			h.writeAgentStreamError(c, err)
+			return
+		}
+		terminal := false
+		emitted := false
+		for _, event := range events {
+			if event.Sequence <= seenSequence {
+				if isTerminalAgentRunEvent(event.Event) {
+					terminal = true
+				}
+				continue
+			}
+			c.SSEvent(event.Event, toAgentRunEventResponse(event))
+			seenSequence = event.Sequence
+			emitted = true
+			if isTerminalAgentRunEvent(event.Event) {
+				terminal = true
+			}
+		}
+		if emitted {
+			c.Writer.Flush()
+		}
+		if terminal {
+			return
+		}
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case <-timeout.C:
+			c.SSEvent("stream_timeout", gin.H{"run_id": runID})
+			c.Writer.Flush()
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
 func (h *AgentHandler) requireAgentContext(c *gin.Context) (*auth.Claims, uint64, bool) {
 	claims, err := auth.GetClaimsFromContext(c)
 	if err != nil {
@@ -203,6 +275,30 @@ func (h *AgentHandler) writeAgentError(c *gin.Context, err error) {
 		h.logger.Error().Err(err).Msg("agent request failed")
 		JSONErrorWithCode(c, http.StatusInternalServerError, "AGENT_RUN_FAILED", "agent request failed")
 	}
+}
+
+func (h *AgentHandler) writeAgentStreamError(c *gin.Context, err error) {
+	code := "AGENT_RUN_FAILED"
+	status := http.StatusInternalServerError
+	switch {
+	case errors.Is(err, agent.ErrConversationAccessDenied):
+		code = "CONVERSATION_ACCESS_DENIED"
+		status = http.StatusForbidden
+	case errors.Is(err, agent.ErrAgentRunNotFound):
+		code = "AGENT_RUN_NOT_FOUND"
+		status = http.StatusNotFound
+	case errors.Is(err, agent.ErrPlannerUnavailable):
+		code = "AGENT_PLANNER_UNAVAILABLE"
+		status = http.StatusServiceUnavailable
+	default:
+		h.logger.Error().Err(err).Msg("agent stream failed")
+	}
+	c.SSEvent("error", gin.H{
+		"code":   code,
+		"status": status,
+		"error":  err.Error(),
+	})
+	c.Writer.Flush()
 }
 
 func toAgentRunResultResponse(result *agent.RunResult) gin.H {
@@ -294,16 +390,40 @@ func toAgentTraceEventResponses(events []agent.TraceEvent) []agentTraceEventResp
 func toAgentRunEventResponses(events []agent.RunEvent) []agentRunEventResponse {
 	out := make([]agentRunEventResponse, 0, len(events))
 	for _, event := range events {
-		out = append(out, agentRunEventResponse{
-			Sequence: event.Sequence,
-			Event:    event.Event,
-			Status:   event.Status,
-			RefType:  event.RefType,
-			RefID:    event.RefID,
-			Name:     event.Name,
-			At:       event.At,
-			Metadata: event.Metadata,
-		})
+		out = append(out, toAgentRunEventResponse(event))
 	}
 	return out
+}
+
+func toAgentRunEventResponse(event agent.RunEvent) agentRunEventResponse {
+	return agentRunEventResponse{
+		Sequence: event.Sequence,
+		Event:    event.Event,
+		Status:   event.Status,
+		RefType:  event.RefType,
+		RefID:    event.RefID,
+		Name:     event.Name,
+		At:       event.At,
+		Metadata: event.Metadata,
+	}
+}
+
+func isTerminalAgentRunEvent(event string) bool {
+	return event == agent.RunEventRunReady || event == agent.RunEventRunFailed
+}
+
+func parseAgentEventStreamTimeout(raw string) time.Duration {
+	const defaultTimeout = 30 * time.Second
+	if raw == "" {
+		return defaultTimeout
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return defaultTimeout
+	}
+	timeout := time.Duration(value) * time.Millisecond
+	if timeout > 5*time.Minute {
+		return 5 * time.Minute
+	}
+	return timeout
 }

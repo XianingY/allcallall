@@ -108,7 +108,7 @@ Use the automated live suite when collecting staging-like local numbers:
 make interview-live-suite
 ```
 
-The suite writes a report to `/tmp/allcallall-interview-live-suite-*` and captures seed IDs, login response, Agent trace, Agent smoke, WebSocket smoke, and metrics snapshots.
+The suite writes a report to `/tmp/allcallall-interview-live-suite-*` and captures seed IDs, login response, Agent trace, Agent polling events, Agent SSE events, Agent smoke, WebSocket smoke, and metrics snapshots.
 
 ### Latest Live MySQL / Redis Suite
 
@@ -116,7 +116,7 @@ The suite writes a report to `/tmp/allcallall-interview-live-suite-*` and captur
 - Command: `CONCURRENCY=2 WS_CLIENTS=1 WS_DURATION_MS=1000 make interview-live-suite`
 - Provider: `mock_llm`
 - Environment: local Docker MySQL 8.0 + Redis 7.2, live Gin backend, live JWT auth, live `/api/v1/chat/ws`
-- Report directory: `/tmp/allcallall-interview-live-suite-20260609-114138`
+- Report directory: `/tmp/allcallall-interview-live-suite-20260609-124501`
 
 | Check | Result |
 | --- | ---: |
@@ -125,15 +125,16 @@ The suite writes a report to `/tmp/allcallall-interview-live-suite-*` and captur
 | Auth login | pass |
 | Seeded Agent run trace fetch | pass |
 | Seeded Agent run events fetch | pass |
+| Seeded Agent SSE stream fetch | pass |
 | Seeded Agent tool calls | 7 |
-| Indexed context chunks | 14 |
+| Indexed context chunks | 20 |
 | Agent smoke accepted | 2 |
 | Agent smoke ready | 2 |
 | Agent smoke failed | 0 |
 | Agent smoke max elapsed seconds | 1 |
 | WebSocket clients opened | 1 |
 | WebSocket errors | 0 |
-| WebSocket messages observed | 14 |
+| WebSocket messages observed | 20 |
 | Metrics snapshots captured | before + after |
 
 Interpretation:

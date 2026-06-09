@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -179,6 +180,45 @@ func TestAgentHandlerGetRunEvents(t *testing.T) {
 	} {
 		if !seen[required] {
 			t.Fatalf("missing required event %s in %+v", required, seen)
+		}
+	}
+}
+
+func TestAgentHandlerStreamsRunEvents(t *testing.T) {
+	handler, _, conversation := newAgentHandlerTestEnv(t)
+	router := newRouterWithClaims(&auth.Claims{UserID: 7, Email: "owner@example.com"}, handler.RegisterProtectedRoutes)
+
+	reqBody, _ := json.Marshal(map[string]any{
+		"conversation_id": conversation.ID,
+		"goal":            "summarize current support handoff",
+	})
+	rec := performRequestWithOrganizationAndRequestID(t, router, http.MethodPost, "/api/v1/agent/runs", reqBody, conversation.OrganizationID, "req-agent-stream-1")
+	expectHandlerStatus(t, rec, http.StatusAccepted)
+	var createResponse struct {
+		Run struct {
+			ID uint64 `json:"id"`
+		} `json:"run"`
+	}
+	decodeBody(t, rec.Body.Bytes(), &createResponse)
+	if _, err := handler.service.ExecuteRun(trace.WithRequestID(t.Context(), "req-agent-stream-1"), createResponse.Run.ID); err != nil {
+		t.Fatalf("execute run failed: %v", err)
+	}
+
+	rec = performRequestWithOrganization(t, router, http.MethodGet, fmt.Sprintf("/api/v1/agent/runs/%d/events/stream?timeout_ms=1000", createResponse.Run.ID), nil, conversation.OrganizationID)
+	expectHandlerStatus(t, rec, http.StatusOK)
+	if !strings.Contains(rec.Header().Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("unexpected stream content type: %s", rec.Header().Get("Content-Type"))
+	}
+	body := rec.Body.String()
+	for _, required := range []string{
+		"event:run_started",
+		"event:step_started",
+		"event:tool_called",
+		"event:tool_done",
+		"event:run_ready",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("missing SSE marker %q in body:\n%s", required, body)
 		}
 	}
 }

@@ -102,7 +102,7 @@ make interview-load-suite
 
 ## What To Improve Next For Interviews
 
-- Add streaming/tool-call support behind the existing OpenAI-compatible planner if an interview demo needs live model traces.
+- Add live LLM token streaming behind the existing OpenAI-compatible planner if a demo needs model-output streaming in addition to backend tool-event streaming.
 - Extend benchmark/load tests to authenticated WebSocket replay and meeting room event throughput.
 - Replace the current observed outbox handler with production publishers when the deployment target is clear.
 - Capture measured baseline numbers in [Performance Report](performance-report.md).

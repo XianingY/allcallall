@@ -241,6 +241,18 @@ curl -fsS \
   "$BASE_URL/api/v1/agent/runs/$seed_agent_run_id/events" \
   | tee "$REPORT_DIR/seed-agent-events.json" >/dev/null
 
+log "fetching seeded agent SSE event stream"
+curl -fsS -N --max-time 10 \
+  -H "Authorization: Bearer $token" \
+  -H "X-Organization-ID: $organization_id" \
+  "$BASE_URL/api/v1/agent/runs/$seed_agent_run_id/events/stream?timeout_ms=5000" \
+  | tee "$REPORT_DIR/seed-agent-events.sse" >/dev/null
+if ! grep -q "event:run_ready" "$REPORT_DIR/seed-agent-events.sse"; then
+  log "agent SSE stream did not include run_ready"
+  cat "$REPORT_DIR/seed-agent-events.sse" >&2
+  exit 1
+fi
+
 BASE_URL="$BASE_URL" \
 TOKEN="$token" \
 ORGANIZATION_ID="$organization_id" \
@@ -283,6 +295,7 @@ cat > "$REPORT_DIR/summary.md" <<EOF
 - \`login.json\`: authenticated login response for the seeded owner.
 - \`seed-agent-run.json\`: persisted Agent run with steps, tool calls, and trace.
 - \`seed-agent-events.json\`: Agent run event timeline for run/step/tool streaming demos.
+- \`seed-agent-events.sse\`: Server-Sent Events stream for the same Agent run.
 - \`agent-run-smoke.txt\`: concurrent live Agent run creation and polling summary.
 - \`ws-connections.json\`: live chat WebSocket connection smoke.
 - \`metrics-before.prom\` and \`metrics-after.prom\`: Prometheus-style metric snapshots.
@@ -294,6 +307,7 @@ cat > "$REPORT_DIR/summary.md" <<EOF
 - Redis-backed backend startup succeeds.
 - Auth login returns a real JWT for the seeded user.
 - Agent APIs execute through the live HTTP server and outbox worker.
+- Agent event streaming emits run/step/tool lifecycle events over SSE.
 - Chat WebSocket accepts authenticated organization-scoped clients.
 - Metrics can be captured before and after load smoke.
 EOF

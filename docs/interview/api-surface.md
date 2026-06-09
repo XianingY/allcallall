@@ -103,6 +103,7 @@ Talking points:
 - `POST /api/v1/agent/runs`
 - `GET /api/v1/agent/runs/:id`
 - `GET /api/v1/agent/runs/:id/events`
+- `GET /api/v1/agent/runs/:id/events/stream`
 
 Required headers:
 
@@ -115,6 +116,8 @@ Response shape:
 - `run`: status, source, idempotency key, summary, action items, next step, risk flags
 - `steps`: explainable intermediate stages
 - `tool_calls`: backend-controlled read-only context calls and mutating side effects
+- `events`: polling-friendly run lifecycle timeline
+- `events/stream`: SSE stream of run lifecycle events for demos and live Agent UIs
 
 Talking points:
 
@@ -122,5 +125,6 @@ Talking points:
 - Provider seam: `AGENT_PROVIDER=rules` for deterministic demos; `AGENT_PROVIDER=mock_llm` for prompt + structured-output parsing demos; `AGENT_PROVIDER=openai_compatible` calls a configured Chat Completions-compatible endpoint and falls back to `rules` when no provider is configured.
 - Tool calling is persisted and permission-guarded.
 - Memory is scoped to organization/user/conversation, and RAG-lite retrieval uses `agent_context_chunks` with bounded Top-K snippets.
+- `GET /agent/runs/:id/events/stream` emits SSE events such as `run_started`, `tool_called`, `tool_done`, and `run_ready`; it is backed by persisted rows, so clients can reconnect without relying on an in-memory trace buffer.
 - Repeating a request with the same `Idempotency-Key` returns the existing run result instead of duplicating tool side effects.
 - Outbox events `agent.run.requested`, `agent.run.completed`, and `message.created` give a durable async delivery path that can later be swapped for Kafka or Redis Streams.
