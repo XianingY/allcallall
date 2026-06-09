@@ -15,6 +15,8 @@ AllCallAll is positioned as an AI-powered realtime collaboration backend project
 - [System Design](system-design.md): system-design interview view of the whole backend.
 - [Backend Deep Dive](backend-deep-dive.md): Go, transactions, realtime, auth, storage, and reliability talking points.
 - [AI Agent Design](ai-agent-design.md): Agent state machine, provider seam, tool calling, memory, guardrails.
+- [Microservice Evolution](microservice-evolution.md): modular monolith to microservice-ready worker migration path.
+- [Worker Runtime](worker-runtime.md): API-embedded workers, standalone worker commands, event ownership, and failure semantics.
 - [Demo Script](demo-script.md): 5-minute interview demo flow and live backend variant.
 - [Agent Trace Example](agent-trace-example.md): run/step/tool timeline and tool registry explanation.
 - [API Surface](api-surface.md): APIs worth demoing in interviews.
@@ -85,6 +87,12 @@ Run deterministic Agent evals directly:
 
 ```bash
 make agent-eval
+```
+
+Run the modular monolith plus standalone worker demo:
+
+```bash
+make interview-microservice-demo
 ```
 
 Generate a local load-suite report:

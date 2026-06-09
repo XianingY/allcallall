@@ -36,6 +36,14 @@ make interview-live-suite
 
 It starts MySQL/Redis, seeds interview data, starts the backend if needed, logs in the seeded owner, runs Agent HTTP smoke, runs chat WebSocket smoke, captures `/api/v1/metrics`, and writes a Markdown report under `/tmp/allcallall-interview-live-suite-*`.
 
+To demonstrate the modular-monolith-to-worker evolution path, run:
+
+```bash
+make interview-microservice-demo
+```
+
+This starts the API with `EMBEDDED_WORKERS=0`, then starts `agent-worker`, `outbox-worker`, and `cleanup-worker` as separate processes. It creates Agent runs through the API and waits for the standalone Agent worker to complete them.
+
 For a lighter seed-only live path:
 
 ```bash

@@ -1,7 +1,7 @@
 # AllCallAll Project Makefile
 # Common commands for development
 
-.PHONY: help setup build-android build-ios clean test interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench agent-eval realtime-replay-bench chat-ws-replay-bench
+.PHONY: help setup build-android build-ios clean test run-api run-agent-worker run-outbox-worker run-cleanup-worker interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench interview-microservice-demo agent-eval realtime-replay-bench chat-ws-replay-bench
 
 # Default target
 help:
@@ -17,10 +17,15 @@ help:
 	@echo ""
 	@echo "Backend:"
 	@echo "  make run-backend      - Start backend server"
+	@echo "  make run-api          - Start API server (EMBEDDED_WORKERS configurable)"
+	@echo "  make run-agent-worker - Start standalone Agent worker"
+	@echo "  make run-outbox-worker - Start standalone Outbox worker"
+	@echo "  make run-cleanup-worker - Start standalone Cleanup worker"
 	@echo "  make interview-demo   - Run local interview demo evidence suite"
 	@echo "  make interview-demo-live - Start MySQL/Redis and seed live interview demo data"
 	@echo "  make interview-live-suite - Run MySQL/Redis live interview smoke suite"
 	@echo "  make interview-load-suite - Generate local interview load suite artifacts"
+	@echo "  make interview-microservice-demo - Run API + standalone worker demo"
 	@echo "  make agent-eval       - Run deterministic Agent eval harness"
 	@echo "  make interview-bench  - Run local Agent/outbox benchmark"
 	@echo "  make realtime-replay-bench - Run local realtime replay benchmark"
@@ -66,6 +71,22 @@ run-backend:
 	@echo "Starting backend server..."
 	cd backend && go run cmd/server/main.go
 
+run-api:
+	@echo "Starting API server..."
+	cd backend && EMBEDDED_WORKERS=$${EMBEDDED_WORKERS:-1} go run ./cmd/server
+
+run-agent-worker:
+	@echo "Starting standalone Agent worker..."
+	cd backend && go run ./cmd/agent-worker
+
+run-outbox-worker:
+	@echo "Starting standalone Outbox worker..."
+	cd backend && go run ./cmd/outbox-worker
+
+run-cleanup-worker:
+	@echo "Starting standalone Cleanup worker..."
+	cd backend && go run ./cmd/cleanup-worker
+
 # ===========================
 # Clean Commands
 # ===========================
@@ -110,6 +131,10 @@ interview-live-suite:
 interview-load-suite:
 	@echo "Running local interview load suite..."
 	bash scripts/load/run-interview-suite.sh
+
+interview-microservice-demo:
+	@echo "Running modular monolith + standalone worker demo..."
+	bash scripts/interview-microservice-demo.sh
 
 agent-eval:
 	@echo "Running deterministic Agent eval harness..."

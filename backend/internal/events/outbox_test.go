@@ -144,3 +144,40 @@ func TestOutboxStoreClaimPendingUsesWorkerLease(t *testing.T) {
 		t.Fatalf("expected expired lease to be claimable, got %+v", third)
 	}
 }
+
+func TestOutboxStoreClaimPendingForEventsScopesWorkerQueue(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "outbox-event-filter.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := db.AutoMigrate(&models.EventOutbox{}); err != nil {
+		t.Fatalf("auto migrate failed: %v", err)
+	}
+	store := NewStore(db)
+	for _, event := range []string{"agent.run.requested", "message.created", "agent.run.completed"} {
+		if _, err := store.Enqueue(context.Background(), EnqueueInput{
+			AggregateType:  "demo",
+			AggregateID:    1,
+			Event:          event,
+			IdempotencyKey: event + ":1",
+			Payload:        map[string]any{"event": event},
+		}); err != nil {
+			t.Fatalf("enqueue %s failed: %v", event, err)
+		}
+	}
+
+	agentRows, err := store.ClaimPendingForEvents(context.Background(), 10, "agent-worker-test", time.Minute, []string{"agent.run.requested"})
+	if err != nil {
+		t.Fatalf("claim agent events failed: %v", err)
+	}
+	if len(agentRows) != 1 || agentRows[0].Event != "agent.run.requested" {
+		t.Fatalf("unexpected agent worker rows: %+v", agentRows)
+	}
+	outboxRows, err := store.ClaimPendingForEvents(context.Background(), 10, "outbox-worker-test", time.Minute, []string{"message.created", "agent.run.completed"})
+	if err != nil {
+		t.Fatalf("claim outbox events failed: %v", err)
+	}
+	if len(outboxRows) != 2 || outboxRows[0].Event != "message.created" || outboxRows[1].Event != "agent.run.completed" {
+		t.Fatalf("unexpected outbox worker rows: %+v", outboxRows)
+	}
+}

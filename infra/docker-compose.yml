@@ -61,6 +61,121 @@ services:
       timeout: 10s
       retries: 3
 
+  api:
+    profiles: ["microservices", "api"]
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    depends_on:
+      - mysql
+      - redis
+    environment:
+      DB_DSN: allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      HTTP_PORT: "8080"
+      CONFIG_PATH: /app/configs/config.yaml
+      EMBEDDED_WORKERS: "0"
+      AGENT_PROVIDER: ${AGENT_PROVIDER:-rules}
+      WEBRTC_ICE_SERVERS_JSON: '${WEBRTC_ICE_SERVERS_JSON:-[{"urls":["stun:stun.l.google.com:19302"]}]}'
+      FCM_SERVICE_ACCOUNT_PATH: ${FCM_SERVICE_ACCOUNT_PATH:-}
+      WS_PING_INTERVAL: ${WS_PING_INTERVAL:-30s}
+      WS_PONG_WAIT: ${WS_PONG_WAIT:-60s}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../backend/configs:/app/configs:ro
+    restart: unless-stopped
+    command: ["/app/server"]
+    networks:
+      - allcallall_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  agent-worker:
+    profiles: ["microservices", "agent-worker"]
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    depends_on:
+      - mysql
+      - redis
+    environment:
+      DB_DSN: allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      CONFIG_PATH: /app/configs/config.yaml
+      AGENT_PROVIDER: ${AGENT_PROVIDER:-rules}
+      WORKER_ID: agent-worker
+      OUTBOX_WORKER_INTERVAL_SEC: ${OUTBOX_WORKER_INTERVAL_SEC:-1}
+      OUTBOX_WORKER_BATCH_SIZE: ${OUTBOX_WORKER_BATCH_SIZE:-50}
+    volumes:
+      - ../backend/configs:/app/configs:ro
+    restart: unless-stopped
+    command: ["/app/agent-worker"]
+    networks:
+      - allcallall_network
+
+  outbox-worker:
+    profiles: ["microservices", "outbox-worker"]
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    depends_on:
+      - mysql
+      - redis
+    environment:
+      DB_DSN: allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      CONFIG_PATH: /app/configs/config.yaml
+      WORKER_ID: outbox-worker
+      OUTBOX_WORKER_INTERVAL_SEC: ${OUTBOX_WORKER_INTERVAL_SEC:-1}
+      OUTBOX_WORKER_BATCH_SIZE: ${OUTBOX_WORKER_BATCH_SIZE:-50}
+    volumes:
+      - ../backend/configs:/app/configs:ro
+    restart: unless-stopped
+    command: ["/app/outbox-worker"]
+    networks:
+      - allcallall_network
+
+  cleanup-worker:
+    profiles: ["microservices", "cleanup-worker"]
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    depends_on:
+      - mysql
+      - redis
+    environment:
+      DB_DSN: allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      CONFIG_PATH: /app/configs/config.yaml
+      WORKER_ID: cleanup-worker
+      REFRESH_SESSION_CLEANUP_INTERVAL_MIN: ${REFRESH_SESSION_CLEANUP_INTERVAL_MIN:-1440}
+      RECORDING_CLEANUP_INTERVAL_MIN: ${RECORDING_CLEANUP_INTERVAL_MIN:-60}
+      RECORDING_STORAGE_DRIVER: ${RECORDING_STORAGE_DRIVER:-local}
+      RECORDING_STORAGE_DIR: ${RECORDING_STORAGE_DIR:-/tmp/allcallall-recordings}
+    volumes:
+      - ../backend/configs:/app/configs:ro
+      - recording_data:/tmp/allcallall-recordings
+    restart: unless-stopped
+    command: ["/app/cleanup-worker"]
+    networks:
+      - allcallall_network
+
   nginx:
     image: nginx:latest
     ports:
@@ -79,6 +194,7 @@ services:
 volumes:
   mysql_data:
   redis_data:
+  recording_data:
 
 networks:
   allcallall_network:

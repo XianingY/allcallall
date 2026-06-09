@@ -92,7 +92,8 @@ Interview angle:
 
 - `event_outbox` stores durable domain events with aggregate type, aggregate ID, event name, payload JSON, idempotency key, status, attempts, and error metadata.
 - `event_outbox.request_id` preserves the originating request context for async diagnostics.
-- The server starts `startOutboxWorker`, which claims pending rows with `locked_by` and `locked_until`, then processes them through registered handlers.
+- The shared worker runtime starts outbox processors that claim pending rows with `locked_by` and `locked_until`, then process them through registered handlers.
+- `cmd/server` can run embedded workers for local development, while `cmd/agent-worker` and `cmd/outbox-worker` can run as independent processes with event filters.
 - `message.created` outbox handling reloads the message, resolves conversation members, writes per-user replay events, and publishes to the WebSocket hub.
 - Runtime knobs are `OUTBOX_WORKER_INTERVAL_SEC`, `OUTBOX_WORKER_BATCH_SIZE`, `OUTBOX_WORKER_MAX_ATTEMPTS`, and `OUTBOX_WORKER_RETRY_DELAY_SEC`.
 - Metrics distinguish publish, retry, and permanent failure paths.
@@ -103,6 +104,7 @@ Interview angle:
 - Explain why the current handler can be a simple observed event while the contract still allows Kafka, Redis Streams, or webhook publishers later.
 - Explain how persisting `request_id` turns the outbox from a black box into a supportable async pipeline.
 - Explain how claim/lease avoids duplicate processing across multiple backend replicas while still allowing expired work to be recovered.
+- Explain how event filters allow Agent and collaboration workers to scale independently without claiming each other's outbox rows.
 
 ## Realtime Replay Store
 
@@ -174,6 +176,13 @@ Completed handler extraction:
 - Room and WebRTC signaling endpoints now live in `backend/internal/handlers/collaboration_room_handler.go`.
 - Recording endpoints now live in `backend/internal/handlers/collaboration_recording_handler.go`.
 - Internal support diagnostics now live in `backend/internal/handlers/collaboration_support_handler.go`.
+
+Completed worker runtime extraction:
+
+- Shared migrations now live in `backend/internal/runtime/migrations.go`.
+- Shared worker registration and cleanup loops now live in `backend/internal/runtime/workers.go`.
+- `backend/cmd/agent-worker`, `backend/cmd/outbox-worker`, and `backend/cmd/cleanup-worker` can run as standalone processes.
+- `EMBEDDED_WORKERS=0` lets the API run without internal workers so the multi-process worker split can be demonstrated locally.
 
 Completed Agent extraction:
 

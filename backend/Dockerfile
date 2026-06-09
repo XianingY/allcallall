@@ -1,4 +1,4 @@
-FROM golang:1.22-alpine AS build
+FROM golang:1.24-alpine AS build
 
 ENV GOPROXY=https://goproxy.cn,https://proxy.golang.org,direct
 ENV GO111MODULE=on
@@ -22,7 +22,10 @@ RUN echo "下载依赖..." && \
 COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -ldflags='-w -s' -o /out/server ./cmd/server
+    go build -ldflags='-w -s' -o /out/server ./cmd/server && \
+    go build -ldflags='-w -s' -o /out/agent-worker ./cmd/agent-worker && \
+    go build -ldflags='-w -s' -o /out/outbox-worker ./cmd/outbox-worker && \
+    go build -ldflags='-w -s' -o /out/cleanup-worker ./cmd/cleanup-worker
 
 FROM alpine:3.18
 
@@ -32,6 +35,9 @@ RUN sed -i 's/https:\/\/dl-cdn.alpinelinux.org/https:\/\/mirrors.aliyun.com/g' \
 
 WORKDIR /app
 COPY --from=build /out/server ./server
+COPY --from=build /out/agent-worker ./agent-worker
+COPY --from=build /out/outbox-worker ./outbox-worker
+COPY --from=build /out/cleanup-worker ./cleanup-worker
 COPY configs ./configs
 
 ENV CONFIG_PATH=/app/configs/config.yaml

@@ -1,0 +1,63 @@
+package runtime
+
+import (
+	"gorm.io/gorm"
+
+	"github.com/allcallall/backend/internal/models"
+)
+
+func AutoMigrate(db *gorm.DB) error {
+	return db.AutoMigrate(
+		&models.User{},
+		&models.RefreshSession{},
+		&models.Contact{},
+		&models.EmailVerificationCode{},
+		&models.EmailSendLog{},
+		&models.CallSession{},
+		&models.UserBlock{},
+		&models.AbuseReport{},
+		&models.LegalAcceptance{},
+		&models.UserEntitlement{},
+		&models.UsageLedger{},
+		&models.TranslationUsageSlice{},
+		&models.BillingWebhookEvent{},
+		&models.DeletionAudit{},
+		&models.Invitation{},
+		&models.ContactProfile{},
+		&models.CallTranscriptSegment{},
+		&models.CallFollowup{},
+		&models.FollowUpTask{},
+		&models.Organization{},
+		&models.OrganizationMember{},
+		&models.Team{},
+		&models.TeamMember{},
+		&models.OrganizationInvite{},
+		&models.OrganizationPolicy{},
+		&models.Conversation{},
+		&models.ConversationNote{},
+		&models.ConversationMember{},
+		&models.Message{},
+		&models.MessageRead{},
+		&models.ChatEvent{},
+		&models.Attachment{},
+		&models.PushDevice{},
+		&models.CallRoom{},
+		&models.CallRoomMember{},
+		&models.CallRoomEvent{},
+		&models.RecordingSession{},
+		&models.RecordingFile{},
+		&models.RecordingConsent{},
+		&models.RecordingExport{},
+		&models.Pipeline{},
+		&models.PipelineStage{},
+		&models.Deal{},
+		&models.DealContact{},
+		&models.DealActivity{},
+		&models.AgentRun{},
+		&models.AgentStep{},
+		&models.AgentToolCall{},
+		&models.AgentMemory{},
+		&models.AgentContextChunk{},
+		&models.EventOutbox{},
+	)
+}

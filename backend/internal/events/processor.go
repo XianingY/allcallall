@@ -24,6 +24,7 @@ type metricRecorder interface {
 type Processor struct {
 	store       *Store
 	handlers    map[string]Handler
+	events      []string
 	metrics     metricRecorder
 	batchSize   int
 	maxAttempts int
@@ -83,11 +84,17 @@ func (p *Processor) WithWorker(workerID string, lease time.Duration) {
 	}
 }
 
+func (p *Processor) WithEventFilter(events ...string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.events = normalizedEvents(events)
+}
+
 func (p *Processor) ProcessOnce(ctx context.Context) (int, error) {
 	if p == nil || p.store == nil {
 		return 0, errors.New("outbox processor store is nil")
 	}
-	rows, err := p.store.ClaimPending(ctx, p.batchSize, p.workerID, p.lease)
+	rows, err := p.store.ClaimPendingForEvents(ctx, p.batchSize, p.workerID, p.lease, p.eventFilter())
 	if err != nil {
 		return 0, err
 	}
@@ -156,4 +163,25 @@ func (p *Processor) lookup(event string) Handler {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.handlers[event]
+}
+
+func (p *Processor) eventFilter() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	out := make([]string, len(p.events))
+	copy(out, p.events)
+	return out
+}
+
+func normalizedEvents(events []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(events))
+	for _, event := range events {
+		if event == "" || seen[event] {
+			continue
+		}
+		seen[event] = true
+		out = append(out, event)
+	}
+	return out
 }
