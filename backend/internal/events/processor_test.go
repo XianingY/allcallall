@@ -68,6 +68,7 @@ func TestProcessorPublishesRegisteredEvent(t *testing.T) {
 func TestProcessorPropagatesTraceContextToHandler(t *testing.T) {
 	store, _ := newProcessorTestStore(t)
 	processor := NewProcessor(store)
+	recorder := trace.NewMemorySpanRecorder()
 
 	var gotRequestID string
 	var gotOutboxID uint64
@@ -87,11 +88,18 @@ func TestProcessorPropagatesTraceContextToHandler(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enqueue failed: %v", err)
 	}
-	if _, err := processor.ProcessOnce(context.Background()); err != nil {
+	if _, err := processor.ProcessOnce(trace.WithSpanRecorder(context.Background(), recorder)); err != nil {
 		t.Fatalf("process once failed: %v", err)
 	}
 	if gotRequestID != "req-processor-1" || gotOutboxID != event.ID {
 		t.Fatalf("unexpected trace context: request_id=%q outbox_id=%d want request_id=req-processor-1 outbox_id=%d", gotRequestID, gotOutboxID, event.ID)
+	}
+	spans := recorder.Records()
+	if len(spans) != 1 {
+		t.Fatalf("expected one outbox span, got %+v", spans)
+	}
+	if spans[0].Name != "outbox.process_event" || spans[0].RequestID != "req-processor-1" || spans[0].OutboxID != event.ID {
+		t.Fatalf("unexpected outbox span: %+v", spans[0])
 	}
 }
 

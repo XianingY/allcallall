@@ -105,7 +105,8 @@ func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
 	svc, db, counters := newAgentServiceTestEnv(t)
 	conversation := seedAgentConversation(t, db)
 
-	ctx := trace.WithRequestID(context.Background(), "req-agent-queue-1")
+	recorder := trace.NewMemorySpanRecorder()
+	ctx := trace.WithSpanRecorder(trace.WithRequestID(context.Background(), "req-agent-queue-1"), recorder)
 	queued, err := svc.RunConversationAssistant(ctx, conversation.OrganizationID, 7, RunInput{
 		ConversationID: conversation.ID,
 		Goal:           "summarize current support handoff",
@@ -229,6 +230,15 @@ func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
 	}
 	if snapshot["agent_memory_write_total"] != 1 {
 		t.Fatalf("agent_memory_write_total mismatch: %v", snapshot)
+	}
+	spanNames := map[string]bool{}
+	for _, span := range recorder.Records() {
+		spanNames[span.Name] = true
+	}
+	for _, name := range []string{"agent.execute_run", "agent.planner.plan", "agent.tools.execute_side_effects"} {
+		if !spanNames[name] {
+			t.Fatalf("missing span %q in %+v", name, recorder.Records())
+		}
 	}
 }
 

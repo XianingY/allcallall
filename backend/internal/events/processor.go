@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"time"
 
@@ -123,7 +124,14 @@ func (p *Processor) processEvent(ctx context.Context, row models.EventOutbox) er
 	err := ErrOutboxHandlerNotFound
 	if handler != nil {
 		handlerCtx := trace.WithOutboxID(trace.WithRequestID(ctx, row.RequestID), row.ID)
+		handlerCtx, span := trace.StartSpan(handlerCtx, "outbox.process_event", map[string]string{
+			"event":          row.Event,
+			"aggregate_type": row.AggregateType,
+			"aggregate_id":   strconv.FormatUint(row.AggregateID, 10),
+			"outbox_id":      strconv.FormatUint(row.ID, 10),
+		})
 		err = handler(handlerCtx, row)
+		span.End(err)
 	}
 	if err == nil {
 		if p.metrics != nil {

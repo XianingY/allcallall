@@ -50,6 +50,21 @@ Interview angle:
 - Discuss why organization boundary checks must be repeated in service-layer methods, not only UI routes.
 - Discuss why async work needs trace context persisted in durable rows, otherwise HTTP logs and worker logs cannot be correlated after the request ends.
 
+## OpenTelemetry-Lite Observability
+
+- `backend/internal/trace` now provides a lightweight span recorder without adding a full OpenTelemetry SDK dependency.
+- `StartSpan` stores `trace_id`, `span_id`, `parent_span_id`, `request_id`, `outbox_id`, attributes, duration, and error status.
+- If a `SpanRecorder` is not attached to the context, spans are no-ops, so production behavior does not change.
+- The outbox processor records `outbox.process_event`.
+- Agent execution records `agent.execute_run`, `agent.planner.plan`, and `agent.tools.execute_side_effects`.
+- Tests can inject `MemorySpanRecorder` to assert async trace shape without parsing logs.
+
+Interview angle:
+
+- Explain the difference between correlation IDs and spans: `request_id` tells which request started the work; spans show where time and errors occur across handler, outbox, planner, and tools.
+- Explain why this project uses a small internal recorder first: it gives deterministic tests and a clean seam for adopting a full OpenTelemetry exporter later.
+- Explain how `event_outbox.request_id` and `trace.WithOutboxID` bridge HTTP request context into worker execution.
+
 ## Agent Backend Design
 
 - Agent execution is persisted as `agent_runs`.

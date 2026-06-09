@@ -188,6 +188,11 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (*RunResult, err
 	if run.Status == models.AgentRunStatusReady {
 		return s.buildRunResult(ctx, run)
 	}
+	ctx, span := trace.StartSpan(ctx, "agent.execute_run", map[string]string{
+		"agent_run_id":    fmt.Sprintf("%d", run.ID),
+		"conversation_id": fmt.Sprintf("%d", run.ConversationID),
+		"source":          run.Source,
+	})
 
 	startedAt := time.Now().UTC()
 	leaseUntil := startedAt.Add(agentRunLeaseDuration)
@@ -211,15 +216,20 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (*RunResult, err
 			"updated_at":    startedAt,
 		})
 	if update.Error != nil {
+		span.End(update.Error)
 		return nil, update.Error
 	}
 	if update.RowsAffected == 0 {
 		if err := s.db.WithContext(ctx).Where("id = ?", run.ID).Take(&run).Error; err != nil {
+			span.End(err)
 			return nil, err
 		}
-		return s.buildRunResult(ctx, run)
+		result, err := s.buildRunResult(ctx, run)
+		span.End(err)
+		return result, err
 	}
 	if err := s.db.WithContext(ctx).Where("id = ?", run.ID).Take(&run).Error; err != nil {
+		span.End(err)
 		return nil, err
 	}
 	if s.metrics != nil {
@@ -244,11 +254,13 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (*RunResult, err
 		if s.metrics != nil {
 			s.metrics.Inc("agent_run_failed_total")
 		}
+		span.End(err)
 		return nil, err
 	}
 	if s.metrics != nil {
 		s.metrics.Inc("agent_run_total")
 	}
+	span.End(nil)
 	return result, nil
 }
 
@@ -357,8 +369,13 @@ func buildPromptForPlanner(planner Planner, input PlannerInput) (PlannerPrompt, 
 
 func (s *Service) planWithFallback(ctx context.Context, input PlannerInput) (PlannerOutput, string, string, error) {
 	source := s.planner.Name()
+	ctx, span := trace.StartSpan(ctx, "agent.planner.plan", map[string]string{
+		"provider":        source,
+		"conversation_id": fmt.Sprintf("%d", input.Conversation.ID),
+	})
 	output, err := s.planner.Plan(ctx, input)
 	if err == nil {
+		span.End(nil)
 		return output, source, "", nil
 	}
 	if errors.Is(err, ErrPlannerUnavailable) && source != models.AgentRunSourceRules {
@@ -367,13 +384,16 @@ func (s *Service) planWithFallback(ctx context.Context, input PlannerInput) (Pla
 		}
 		output, fallbackErr := RulesPlanner{}.Plan(ctx, input)
 		if fallbackErr == nil {
+			span.End(nil)
 			return output, source, models.AgentRunSourceRules, nil
 		}
+		span.End(fallbackErr)
 		return PlannerOutput{}, source, models.AgentRunSourceRules, fallbackErr
 	}
 	if s.metrics != nil {
 		s.metrics.Inc("agent_planner_error_total")
 	}
+	span.End(err)
 	return PlannerOutput{}, source, "", err
 }
 
