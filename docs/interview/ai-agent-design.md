@@ -77,11 +77,12 @@ sequenceDiagram
     Planner-->>Service: PlannerOutput
     Service->>DB: record read-only context tool calls
     Service->>DB: create plan_next_actions step
-    Service->>Tools: write_conversation_message
+    Service->>Tools: execute side-effect tool executor
+    Tools->>Tools: write_conversation_message
     Tools->>DB: message + tool_call + outbox
-    Service->>Tools: create_follow_up_task
+    Tools->>Tools: create_follow_up_task
     Tools->>DB: follow_up_task + tool_call
-    Service->>Tools: upsert_agent_memory
+    Tools->>Tools: upsert_agent_memory
     Tools->>DB: memory + tool_call
     Service->>DB: mark run ready
     Client->>Handler: GET /api/v1/agent/runs/:id
@@ -102,6 +103,13 @@ Current tools:
 Read-only context tools are still persisted as `agent_tool_calls` so the run is auditable, but they do not mutate business state. Mutating tools write their own `agent_tool_calls` rows with input/output JSON and status.
 
 Tool execution remains backend-owned. The planner proposes structured output; the service decides whether and how to mutate data.
+
+Implementation boundary:
+
+- `executeRulesRun` owns run state, context collection, prompt construction, provider fallback, planner metrics, and final run persistence.
+- `recordContextToolCalls` owns read-only context tool records.
+- `executeSideEffectTools` owns ordered mutating tool execution and tool metrics for `write_conversation_message`, `create_follow_up_task`, and `upsert_agent_memory`.
+- Each mutating tool keeps its own transaction and output JSON, which makes tool failures inspectable without letting the planner directly mutate application state.
 
 ## Idempotency And Side Effects
 

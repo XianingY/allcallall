@@ -119,7 +119,7 @@ System metrics:
 
 | Scenario | Concurrency | Duration | p95 Latency | Error Rate | Notes |
 | --- | ---: | ---: | ---: | ---: | --- |
-| Local Agent/outbox benchmark | 1 process | 948 ms | 20 ms execute-run | 0% | commit `955e593`, temporary SQLite |
+| Local Agent/outbox benchmark | 1 process | 336 ms | 8 ms execute-run | 0% | commit `6809bab`, temporary SQLite |
 | Agent run creation | TBD | TBD | TBD | TBD | New idempotency key per request; expect `202 pending` |
 | Agent idempotency replay | TBD | TBD | TBD | TBD | Same key should not duplicate tool side effects |
 | Agent run backlog | TBD | TBD | TBD | TBD | Count `pending`/`running`/`failed` rows before and after worker drain |
@@ -131,14 +131,14 @@ System metrics:
 | Meeting event replay | TBD | TBD | TBD | TBD | Room events written into conversation event stream |
 | Recording download | TBD | TBD | TBD | TBD | local vs S3 |
 
-## Latest Local Benchmark Snapshot
+## Latest Local Agent Benchmark Snapshot
 
-Measured locally on June 9, 2026 (Asia/Shanghai) at commit `955e593` with temporary SQLite. Treat this as a functional benchmark and interview demo baseline, not a production load-test result.
+Measured locally on June 9, 2026 (Asia/Shanghai) at commit `6809bab` with temporary SQLite. Treat this as a functional benchmark and interview demo baseline, not a production load-test result.
 
 Command:
 
 ```bash
-make interview-bench
+go run ./cmd/interview-bench -conversations 25 -batch-size 50
 ```
 
 Result summary:
@@ -153,10 +153,15 @@ Result summary:
 | pending_outbox_events | 0 |
 | failed_outbox_events | 0 |
 | agent_tool_calls | 150 |
-| total_duration_ms | 948 |
-| queue_latency_p95_ms | 2 |
-| execute_run_latency_p95_ms | 20 |
+| total_duration_ms | 336 |
+| queue_latency_p95_ms | 1 |
+| execute_run_latency_p95_ms | 8 |
 | outbox_publish_total | 75 |
+
+Notes:
+
+- Each completed run still records six auditable tool calls: three read-only context tools and three mutating side-effect tools.
+- Mutating tool orchestration is now isolated in `backend/internal/agent/tool_executor.go`, so this benchmark covers the extracted executor boundary as well as the async run queue and outbox path.
 
 ## Latest Local Realtime Replay Snapshot
 

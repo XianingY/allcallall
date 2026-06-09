@@ -220,6 +220,8 @@ Current tools:
 - `create_follow_up_task`
 - `upsert_agent_memory`
 
+Read-only context tools and mutating side-effect tools are intentionally separated in the backend. The side-effect executor runs message write-back, follow-up task creation, and memory upsert in a fixed order while recording each tool call and metric.
+
 Durable events:
 
 - `agent.run.requested`

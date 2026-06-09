@@ -129,6 +129,19 @@ Completed second extraction:
 - Realtime fan-out, message dedup delivery, and room/conversation event publishing now live in `backend/internal/collaboration/realtime_delivery.go`.
 - This keeps the public `Service` API intact while reducing the main file and creating clear seams for future chat/room service extraction.
 
+Completed third extraction:
+
+- Room lifecycle, meeting join/leave, WebRTC offer/ICE handling, media-state updates, and room state loading now live in `backend/internal/collaboration/room_service.go`.
+- Recording start/stop, recording file lookup, download URL generation, export audit, retention metadata, and storage artifact persistence now live in `backend/internal/collaboration/recording_service.go`.
+- Conversation status/priority/assignee/contact update planning now lives in `backend/internal/collaboration/conversation_update.go`, with table tests covering pure decision logic before DB transactions and realtime patch publication.
+- The main collaboration service file is now under 2,000 lines, while keeping existing API contracts and tests green.
+
+Completed Agent extraction:
+
+- Agent mutating tools are coordinated by `backend/internal/agent/tool_executor.go`.
+- `executeRulesRun` now focuses on run state, context collection, planner execution, and final run persistence; the side-effect executor owns ordered tool execution and tool metrics for message write-back, follow-up task creation, and memory upsert.
+- This is a useful interview seam because future guardrails, tool authorization, timeout budgets, or live model tool traces can be added in one place.
+
 ## Next High-Value Engineering Tasks
 
 - Add streaming/tool-call traces behind the existing OpenAI-compatible planner if a live model demo is needed.
