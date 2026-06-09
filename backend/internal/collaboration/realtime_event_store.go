@@ -19,8 +19,19 @@ func NewRealtimeEventStore(db *gorm.DB) *RealtimeEventStore {
 }
 
 func (s *RealtimeEventStore) Create(ctx context.Context, organizationID, userID uint64, event string, payload any) (*RealtimeEventRecord, error) {
+	return s.CreateWithDedup(ctx, organizationID, userID, event, payload, "")
+}
+
+func (s *RealtimeEventStore) CreateWithDedup(ctx context.Context, organizationID, userID uint64, event string, payload any, dedupKey string) (*RealtimeEventRecord, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("realtime event store database is nil")
+	}
+	if dedupKey != "" {
+		if existing, err := s.findByDedupKey(ctx, dedupKey); err == nil {
+			return existing, nil
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
 	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -32,7 +43,15 @@ func (s *RealtimeEventStore) Create(ctx context.Context, organizationID, userID 
 		Event:          event,
 		PayloadJSON:    string(payloadBytes),
 	}
+	if dedupKey != "" {
+		item.DedupKey = &dedupKey
+	}
 	if err := s.db.WithContext(ctx).Create(&item).Error; err != nil {
+		if dedupKey != "" {
+			if existing, findErr := s.findByDedupKey(ctx, dedupKey); findErr == nil {
+				return existing, nil
+			}
+		}
 		return nil, err
 	}
 	item.Sequence = realtimeEventSequence(item)
@@ -50,6 +69,22 @@ func (s *RealtimeEventStore) Create(ctx context.Context, organizationID, userID 
 		Event:          item.Event,
 		Payload:        payload,
 		CreatedAt:      item.CreatedAt,
+	}, nil
+}
+
+func (s *RealtimeEventStore) findByDedupKey(ctx context.Context, dedupKey string) (*RealtimeEventRecord, error) {
+	var row models.ChatEvent
+	if err := s.db.WithContext(ctx).Where("dedup_key = ?", dedupKey).Take(&row).Error; err != nil {
+		return nil, err
+	}
+	return &RealtimeEventRecord{
+		ID:             row.ID,
+		Sequence:       realtimeEventSequence(row),
+		OrganizationID: row.OrganizationID,
+		UserID:         row.UserID,
+		Event:          row.Event,
+		Payload:        decodeRealtimePayload(row.PayloadJSON),
+		CreatedAt:      row.CreatedAt,
 	}, nil
 }
 

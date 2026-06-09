@@ -195,12 +195,28 @@ func main() {
 		return nil
 	})
 	outboxProcessor.Register("message.created", func(ctx context.Context, event models.EventOutbox) error {
+		messageID := event.AggregateID
+		if messageID == 0 {
+			var payload struct {
+				MessageID uint64 `json:"message_id"`
+			}
+			if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+				return err
+			}
+			messageID = payload.MessageID
+		}
+		if messageID == 0 {
+			return fmt.Errorf("message id missing in outbox payload")
+		}
+		if err := collaborationSvc.PublishMessageCreatedFromOutbox(ctx, messageID); err != nil {
+			return err
+		}
 		appLogger.Info().
 			Str("request_id", trace.RequestID(ctx)).
 			Uint64("outbox_id", event.ID).
-			Uint64("message_id", event.AggregateID).
+			Uint64("message_id", messageID).
 			Str("event", event.Event).
-			Msg("outbox message event observed")
+			Msg("outbox message realtime delivered")
 		return nil
 	})
 	chatHub := collaboration.NewChatHub(appLogger)

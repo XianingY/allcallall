@@ -81,3 +81,27 @@ func TestRealtimeEventStoreListSinceDefaultsAndBadPayload(t *testing.T) {
 		t.Fatalf("expected bad payload to decode as empty map, got %#v", events[0].Payload)
 	}
 }
+
+func TestRealtimeEventStoreCreateWithDedupReturnsExistingEvent(t *testing.T) {
+	db := newRealtimeEventStoreTestDB(t)
+	store := NewRealtimeEventStore(db)
+
+	first, err := store.CreateWithDedup(context.Background(), 1, 7, "message.created", map[string]any{"message_id": 11}, "message.created:11:7")
+	if err != nil {
+		t.Fatalf("create first event failed: %v", err)
+	}
+	second, err := store.CreateWithDedup(context.Background(), 1, 7, "message.created", map[string]any{"message_id": 11, "duplicate": true}, "message.created:11:7")
+	if err != nil {
+		t.Fatalf("create duplicate event failed: %v", err)
+	}
+	if second.ID != first.ID || second.Sequence != first.Sequence {
+		t.Fatalf("expected duplicate to return existing event, first=%+v second=%+v", first, second)
+	}
+	var count int64
+	if err := db.Model(&models.ChatEvent{}).Count(&count).Error; err != nil {
+		t.Fatalf("count chat events failed: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one persisted event, got %d", count)
+	}
+}

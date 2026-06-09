@@ -151,6 +151,16 @@ func TestRealtimeEventsAreRecipientScopedAndReplayable(t *testing.T) {
 	if err := db.Where("event = ? AND aggregate_type = ? AND aggregate_id = ?", "message.created", "message", message.ID).Take(&outbox).Error; err != nil {
 		t.Fatalf("expected message.created outbox event: %v", err)
 	}
+	if err := svc.PublishMessageCreatedFromOutbox(ctx, message.ID); err != nil {
+		t.Fatalf("outbox message replay publish failed: %v", err)
+	}
+	var chatEventCount int64
+	if err := db.Model(&models.ChatEvent{}).Where("event = ?", "message.created").Count(&chatEventCount).Error; err != nil {
+		t.Fatalf("count chat events failed: %v", err)
+	}
+	if chatEventCount != 2 {
+		t.Fatalf("expected outbox replay to be deduplicated, got %d message.created chat events", chatEventCount)
+	}
 	if _, err := svc.ListRealtimeEventsSince(ctx, org.ID, outsider.ID, 0, 20); err == nil {
 		t.Fatal("expected outsider replay lookup to be denied")
 	}

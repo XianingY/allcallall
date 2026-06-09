@@ -942,9 +942,25 @@ func (s *Service) CreateMessage(ctx context.Context, organizationID, userID, con
 	if err != nil {
 		return nil, err
 	}
-	memberIDs, _ := s.listConversationMemberIDs(ctx, conversationID)
-	s.publishRealtimeEvent(ctx, organizationID, memberIDs, "message.created", record)
+	if err := s.PublishMessageCreatedFromOutbox(ctx, message.ID); err != nil {
+		return nil, err
+	}
 	return record, nil
+}
+
+func (s *Service) PublishMessageCreatedFromOutbox(ctx context.Context, messageID uint64) error {
+	if messageID == 0 {
+		return errors.New("message id is required")
+	}
+	record, err := s.loadMessageRecord(ctx, messageID)
+	if err != nil {
+		return err
+	}
+	memberIDs, err := s.listConversationMemberIDs(ctx, record.ConversationID)
+	if err != nil {
+		return err
+	}
+	return s.publishMessageCreatedRealtime(ctx, record, memberIDs)
 }
 
 func (s *Service) AppendDirectCallEventByEmail(ctx context.Context, fromEmail, toEmail, callID, eventType string, metadata map[string]any) error {
@@ -2097,7 +2113,7 @@ func (s *Service) createMessageTx(ctx context.Context, tx *gorm.DB, organization
 		record, err := s.loadMessageRecord(ctx, message.ID)
 		if err == nil {
 			memberIDs, _ := s.listConversationMemberIDsTx(ctx, tx, conversationID)
-			s.publishRealtimeEvent(ctx, organizationID, memberIDs, "message.created", record)
+			_ = s.publishMessageCreatedRealtime(ctx, record, memberIDs)
 		}
 	}
 	return message, nil
@@ -2204,6 +2220,15 @@ func (s *Service) publishConversationEvent(ctx context.Context, organizationID, 
 	s.publishRealtimeEvent(ctx, organizationID, memberIDs, event, payload)
 }
 
+func (s *Service) publishMessageCreatedRealtime(ctx context.Context, record *MessageRecord, memberIDs []uint64) error {
+	if record == nil {
+		return errors.New("message record is required")
+	}
+	return s.publishRealtimeEventWithDedup(ctx, record.OrganizationID, memberIDs, "message.created", record, func(userID uint64) string {
+		return fmt.Sprintf("message.created:%d:%d", record.ID, userID)
+	})
+}
+
 func (s *Service) publishRealtimeEvent(ctx context.Context, organizationID uint64, userIDs []uint64, event string, payload any) {
 	userIDs = uniqueUint64s(userIDs)
 	for _, userID := range userIDs {
@@ -2221,8 +2246,34 @@ func (s *Service) publishRealtimeEvent(ctx context.Context, organizationID uint6
 	}
 }
 
+func (s *Service) publishRealtimeEventWithDedup(ctx context.Context, organizationID uint64, userIDs []uint64, event string, payload any, dedupKeyForUser func(uint64) string) error {
+	userIDs = uniqueUint64s(userIDs)
+	for _, userID := range userIDs {
+		dedupKey := ""
+		if dedupKeyForUser != nil {
+			dedupKey = dedupKeyForUser(userID)
+		}
+		record, err := s.createRealtimeEventWithDedup(ctx, organizationID, userID, event, payload, dedupKey)
+		if err != nil {
+			s.metrics.Inc("chat_realtime_delivery_fail_total")
+			return err
+		}
+		if s.publisher == nil {
+			continue
+		}
+		if err := s.publisher.PublishToUser(ctx, *record); err != nil {
+			s.metrics.Inc("chat_realtime_delivery_fail_total")
+		}
+	}
+	return nil
+}
+
 func (s *Service) createRealtimeEvent(ctx context.Context, organizationID, userID uint64, event string, payload any) (*RealtimeEventRecord, error) {
 	return NewRealtimeEventStore(s.db).Create(ctx, organizationID, userID, event, payload)
+}
+
+func (s *Service) createRealtimeEventWithDedup(ctx context.Context, organizationID, userID uint64, event string, payload any, dedupKey string) (*RealtimeEventRecord, error) {
+	return NewRealtimeEventStore(s.db).CreateWithDedup(ctx, organizationID, userID, event, payload, dedupKey)
 }
 
 func (s *Service) ListRealtimeEventsSince(ctx context.Context, organizationID, userID, sinceID uint64, limit int) ([]RealtimeEventRecord, error) {

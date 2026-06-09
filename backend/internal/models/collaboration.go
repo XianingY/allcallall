@@ -220,6 +220,7 @@ type ChatEvent struct {
 	UserID         uint64    `gorm:"not null;index:idx_chat_event_recipient,priority:2"`
 	Sequence       uint64    `gorm:"not null;default:0;index"`
 	Event          string    `gorm:"size:96;not null;index"`
+	DedupKey       *string   `gorm:"size:160;uniqueIndex"`
 	PayloadJSON    string    `gorm:"type:longtext"`
 	CreatedAt      time.Time `gorm:"autoCreateTime;index:idx_chat_event_recipient,priority:3"`
 }

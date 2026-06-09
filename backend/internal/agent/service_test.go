@@ -11,6 +11,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/models"
@@ -25,6 +26,7 @@ func newAgentServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *metrics.CounterS
 		t.Fatalf("open sqlite failed: %v", err)
 	}
 	if err := db.AutoMigrate(
+		&models.User{},
 		&models.Conversation{},
 		&models.ConversationMember{},
 		&models.ConversationNote{},
@@ -37,6 +39,7 @@ func newAgentServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *metrics.CounterS
 		&models.CallRoom{},
 		&models.ContactProfile{},
 		&models.EventOutbox{},
+		&models.ChatEvent{},
 	); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)
 	}
@@ -49,6 +52,15 @@ func seedAgentConversation(t *testing.T, db *gorm.DB) models.Conversation {
 	t.Helper()
 
 	assigneeID := uint64(7)
+	if err := db.FirstOrCreate(&models.User{}, models.User{
+		ID:           assigneeID,
+		Email:        "agent-owner@example.com",
+		PasswordHash: "hash",
+		DisplayName:  "Agent Owner",
+		Status:       "active",
+	}).Error; err != nil {
+		t.Fatalf("create agent user failed: %v", err)
+	}
 	conversation := models.Conversation{
 		OrganizationID: 1,
 		Type:           models.ConversationTypeChannel,
@@ -263,6 +275,7 @@ func TestRunConversationAssistantIsIdempotentByKey(t *testing.T) {
 func TestOutboxProcessorExecutesQueuedAgentRun(t *testing.T) {
 	svc, db, counters := newAgentServiceTestEnv(t)
 	conversation := seedAgentConversation(t, db)
+	collaborationSvc := collaboration.NewService(db, nil)
 
 	queued, err := svc.RunConversationAssistant(context.Background(), conversation.OrganizationID, 7, RunInput{
 		ConversationID: conversation.ID,
@@ -286,8 +299,8 @@ func TestOutboxProcessorExecutesQueuedAgentRun(t *testing.T) {
 	processor.Register("agent.run.completed", func(context.Context, models.EventOutbox) error {
 		return nil
 	})
-	processor.Register("message.created", func(context.Context, models.EventOutbox) error {
-		return nil
+	processor.Register("message.created", func(ctx context.Context, event models.EventOutbox) error {
+		return collaborationSvc.PublishMessageCreatedFromOutbox(ctx, event.AggregateID)
 	})
 
 	processed, err := processor.ProcessOnce(context.Background())
@@ -318,6 +331,13 @@ func TestOutboxProcessorExecutesQueuedAgentRun(t *testing.T) {
 	}
 	if pending != 0 {
 		t.Fatalf("expected outbox drained, pending=%d", pending)
+	}
+	var replayEvents int64
+	if err := db.Model(&models.ChatEvent{}).Where("event = ?", "message.created").Count(&replayEvents).Error; err != nil {
+		t.Fatalf("count replay events failed: %v", err)
+	}
+	if replayEvents != 1 {
+		t.Fatalf("expected agent system message to enter realtime replay, got %d events", replayEvents)
 	}
 }
 

@@ -56,8 +56,10 @@ sequenceDiagram
     participant DB as MySQL
     participant Hub as WebSocket Hub
     participant Client as Client
+    participant Worker as Outbox Worker
 
     API->>DB: write message / room update
+    API->>DB: enqueue message.created outbox row
     API->>DB: RealtimeEventStore creates per-user chat_event
     API->>DB: set durable sequence
     API->>Hub: publish event
@@ -65,6 +67,8 @@ sequenceDiagram
     Client->>API: reconnect with since_id
     API->>DB: list chat_events where id > since_id
     API-->>Client: replay missed events
+    Worker->>DB: retry message.created from outbox when needed
+    Worker->>DB: dedupe by message_id + recipient
 ```
 
 Design notes:
@@ -73,6 +77,7 @@ Design notes:
 - `sequence` makes the event stream explicit for client ack/replay logic. In the current implementation it mirrors the persisted event row ID, which keeps ordering durable without introducing a separate stream service.
 - Durable `chat_events` are the source of truth when WebSocket delivery is missed.
 - `RealtimeEventStore` isolates create/list mechanics from collaboration orchestration, making replay behavior independently testable.
+- `message.created` uses per-recipient dedup keys so sync delivery and outbox compensation share one replay record per user.
 - `/api/v1/chat/ws` is the collaboration replay channel. `/api/v1/ws` and `/api/v1/signaling/*` are separate WebRTC signaling paths and should not be conflated with chat replay.
 - `ChatHub` uses a replay-capable send buffer sized above the current backlog limit, so reconnect replay does not silently drop the 100-event catch-up batch before clients can drain it.
 

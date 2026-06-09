@@ -15,11 +15,14 @@ Use this page as a preparation checklist before backend interviews.
 - `/api/v1/chat/ws` is for collaboration event replay; `/api/v1/ws` and `/api/v1/signaling/*` are WebRTC signaling paths.
 - Room state is represented as patchable state, not only page refreshes.
 - Meeting events and recording lifecycle events are written into the conversation timeline to keep collaboration context recoverable after reconnect.
+- `message.created` is both written as an outbox event and delivered into per-recipient `chat_events`, so Agent-generated system messages enter the same replay path as user messages.
+- Per-recipient chat event deduplication uses `message.created:<message_id>:<user_id>`, allowing the outbox handler to safely compensate or retry without duplicating replay events.
 
 Interview angle:
 
 - Discuss how event replay avoids missed messages after mobile backgrounding or weak network reconnects.
 - Discuss the tradeoff between a simple WebSocket hub and durable event logs.
+- Discuss why realtime fan-out should be idempotent when it is driven by an outbox worker.
 
 ## Storage And Cleanup
 
@@ -71,6 +74,7 @@ Interview angle:
 - `event_outbox` stores durable domain events with aggregate type, aggregate ID, event name, payload JSON, idempotency key, status, attempts, and error metadata.
 - `event_outbox.request_id` preserves the originating request context for async diagnostics.
 - The server starts `startOutboxWorker`, which drains pending rows on an interval and processes them through registered handlers.
+- `message.created` outbox handling reloads the message, resolves conversation members, writes per-user replay events, and publishes to the WebSocket hub.
 - Runtime knobs are `OUTBOX_WORKER_INTERVAL_SEC`, `OUTBOX_WORKER_BATCH_SIZE`, `OUTBOX_WORKER_MAX_ATTEMPTS`, and `OUTBOX_WORKER_RETRY_DELAY_SEC`.
 - Metrics distinguish publish, retry, and permanent failure paths.
 
