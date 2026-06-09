@@ -297,11 +297,7 @@ func (s *Service) executeRulesRun(ctx context.Context, run models.AgentRun, goal
 	if err != nil {
 		return nil, err
 	}
-	if s.metrics != nil {
-		for i := 0; i < contextToolCalls; i++ {
-			s.metrics.Inc("agent_tool_call_total")
-		}
-	}
+	s.recordAgentToolCalls(contextToolCalls)
 	summary := output.Summary
 	actionItems := output.ActionItems
 	nextStep := output.NextStep
@@ -319,24 +315,13 @@ func (s *Service) executeRulesRun(ctx context.Context, run models.AgentRun, goal
 		return nil, err
 	}
 
-	if _, err := s.writeConversationMessage(ctx, run, summary, actionItems, nextStep, riskFlags); err != nil {
+	if _, err := s.executeSideEffectTools(ctx, run, sideEffectToolInput{
+		Summary:     summary,
+		ActionItems: actionItems,
+		NextStep:    nextStep,
+		RiskFlags:   riskFlags,
+	}); err != nil {
 		return nil, err
-	}
-	if s.metrics != nil {
-		s.metrics.Inc("agent_tool_call_total")
-	}
-	if _, err := s.createFollowUpTask(ctx, run, nextStep); err != nil {
-		return nil, err
-	}
-	if s.metrics != nil {
-		s.metrics.Inc("agent_tool_call_total")
-	}
-	if _, err := s.upsertConversationMemory(ctx, run, summary, actionItems, nextStep, riskFlags); err != nil {
-		return nil, err
-	}
-	if s.metrics != nil {
-		s.metrics.Inc("agent_tool_call_total")
-		s.metrics.Inc("agent_memory_write_total")
 	}
 
 	completedAt := time.Now().UTC()
