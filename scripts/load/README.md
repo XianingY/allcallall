@@ -10,12 +10,15 @@ Use these scripts to collect evidence for:
 - Agent run backlog/queue checks through persisted `agent_runs` statuses.
 - Outbox drain behavior after Agent runs enqueue `agent.run.requested`, then produce `agent.run.completed` and `message.created`.
 - Chat WebSocket connection stability and replay checks for `/api/v1/chat/ws`.
+- Durable realtime replay store behavior through local `chat_events` write/replay checks.
 
 Current boundaries:
 
 - Agent execution is asynchronous. `POST /api/v1/agent/runs` returns `202` with a `pending` run; the backend outbox worker consumes `agent.run.requested` and executes the run.
 - Outbox drain is handled by the backend worker. This directory does not include a direct outbox processor runner.
 - `ws-connections.mjs` opens sockets and counts messages/errors. It does not generate replay events by itself.
+- `realtime-replay-bench.sh` generates local durable replay evidence without requiring a running backend, JWT, MySQL, Redis, or WebSocket clients.
+- `chat-ws-replay-bench.sh` starts an in-process authenticated Gin/WebSocket server with temporary SQLite and validates the real `/api/v1/chat/ws` replay path.
 
 ## Prerequisites
 
@@ -148,9 +151,55 @@ ws://localhost:8080/api/v1/chat/ws?token=<jwt>&organization_id=<id>
 
 Note: this script uses the global `WebSocket` runtime. Use Node 22+ or adapt it to a `ws` dependency if your local Node runtime does not expose global WebSocket.
 
+## Realtime Replay Benchmark
+
+For a stable local proof of replay storage semantics:
+
+```bash
+EVENTS=2000 \
+RECIPIENTS=10 \
+REPLAY_WINDOW=120 \
+REPLAY_LIMIT=100 \
+./scripts/load/realtime-replay-bench.sh
+```
+
+What it validates:
+
+- Durable `chat_events` writes through `RealtimeEventStore`
+- Recipient scoping under mixed-recipient event streams
+- `since_id` replay semantics
+- Replay limit behavior
+- Monotonic `event_id` and `sequence`
+- Local p50/p95 write and replay latency summaries
+
+This benchmark is intentionally database-free and uses temporary SQLite. It complements, but does not replace, the authenticated WebSocket check below.
+
+## Authenticated WebSocket Replay Benchmark
+
+For a transport-level replay proof without a long-running backend or real account:
+
+```bash
+EVENTS=2000 \
+RECIPIENTS=10 \
+REPLAY_WINDOW=120 \
+REPLAY_LIMIT=100 \
+CLIENTS=5 \
+./scripts/load/chat-ws-replay-bench.sh
+```
+
+What it validates:
+
+- Local JWT generation and `auth.Middleware` query-token authentication
+- Real `/api/v1/chat/ws?token=...&organization_id=...&since_id=...` upgrade
+- Organization membership resolution from temporary SQLite
+- Replay through `CollaborationHandler -> ChatHub -> ListRealtimeEventsSince`
+- Per-client replay completeness under concurrent clients
+- `event_id` and `sequence` monotonicity
+- No cross-recipient payload leakage
+
 ## WebSocket Replay Check
 
-Replay is a separate manual check because the connection script does not create chat events.
+Authenticated WebSocket replay is still a server-level check because it needs a real JWT and organization membership. Use `realtime-replay-bench.sh` first for deterministic store-level evidence, then validate the WebSocket transport with a running backend.
 
 Suggested flow:
 

@@ -36,15 +36,20 @@ Portfolio focus:
 Scripts live in `scripts/load/`.
 
 - `go run ./cmd/interview-bench`: local SQLite benchmark for Agent run creation, outbox drain, tool-call side effects, and metric counters. This is the fastest interview-safe evidence command because it does not require MySQL, Redis, or external model credentials.
+- `go run ./cmd/realtime-replay-bench`: local SQLite benchmark for durable realtime event writes, recipient-scoped `since_id` replay, replay limits, and sequence monotonicity.
+- `scripts/load/realtime-replay-bench.sh`: shell wrapper around `cmd/realtime-replay-bench` for load-script consistency.
+- `go run ./cmd/chat-ws-replay-bench`: in-process authenticated Gin/WebSocket replay benchmark for `/api/v1/chat/ws`.
+- `scripts/load/chat-ws-replay-bench.sh`: shell wrapper around `cmd/chat-ws-replay-bench`.
 - `agent-run-smoke.sh`: concurrent Agent run creation against one conversation, with optional polling until each run reaches `ready` or `failed`.
 - `ws-connections.mjs`: WebSocket connection smoke/load template for `/api/v1/chat/ws`.
 
 Current script boundaries:
 
 - `interview-bench` is a local functional benchmark, not a production load test. Use it to prove the Agent/outbox pipeline and capture baseline write amplification; use staging/MySQL scripts for concurrency and infrastructure numbers.
+- `realtime-replay-bench` is a local functional benchmark for the durable replay store. It proves `chat_events` scope/sequence/replay behavior without a running backend or JWT.
+- `chat-ws-replay-bench` is an in-process authenticated transport benchmark. It starts a local Gin/WebSocket server, generates a local JWT, resolves organization membership from SQLite, and validates the real `/api/v1/chat/ws` replay path without external services.
 - There is no standalone Agent queue worker script. The server outbox worker consumes `agent.run.requested`, transitions `agent_runs` from `pending` to `running`, and marks the run `ready` or `failed`.
 - There is no standalone outbox drain script. Exercise outbox drain by creating Agent runs, then observe `agent.run.requested`, `agent.run.completed`, `message.created`, `event_outbox` status counts, and `outbox_publish_*` metrics while the server worker runs.
-- There is no standalone replay generator. Validate replay manually by generating chat/Agent events, reconnecting to `/api/v1/chat/ws?organization_id=<id>&since_id=<last_seen_event_id>`, and checking replayed `event_id`/`sequence` ordering.
 
 ## Metrics To Capture
 
@@ -112,6 +117,8 @@ System metrics:
 | Agent idempotency replay | TBD | TBD | TBD | TBD | Same key should not duplicate tool side effects |
 | Agent run backlog | TBD | TBD | TBD | TBD | Count `pending`/`running`/`failed` rows before and after worker drain |
 | Outbox drain | TBD | TBD | TBD | TBD | `agent.run.requested`, `agent.run.completed`, `message.created` batch size/retry settings |
+| Local realtime replay benchmark | 1 process | TBD | TBD | 0 expected | `go run ./cmd/realtime-replay-bench -events 2000` |
+| Authenticated chat WebSocket replay | TBD | TBD | TBD | 0 expected | `go run ./cmd/chat-ws-replay-bench -events 2000 -clients 5` |
 | WebSocket connections | TBD | TBD | TBD | TBD | Authenticated `/api/v1/chat/ws` |
 | WebSocket replay | TBD | TBD | TBD | TBD | `since_id` replay, backlog limit 100 |
 | Meeting event replay | TBD | TBD | TBD | TBD | Room events written into conversation event stream |
@@ -143,6 +150,69 @@ Result summary:
 | queue_latency_p95_ms | 4 |
 | execute_run_latency_p95_ms | 97 |
 | outbox_publish_total | 75 |
+
+## Latest Local Realtime Replay Snapshot
+
+Measured locally on June 9, 2026 (Asia/Shanghai) with temporary SQLite. Treat this as durable replay-store evidence, not an authenticated WebSocket transport result.
+
+Command:
+
+```bash
+make realtime-replay-bench
+```
+
+Result summary:
+
+| Metric | Value |
+| --- | ---: |
+| events | 2000 |
+| recipients | 10 |
+| total_events_written | 2000 |
+| target_events | 200 |
+| replay_since_id | 791 |
+| replayed_events | 100 |
+| expected_replayed | 100 |
+| scoped_correctly | true |
+| monotonic_ids | true |
+| monotonic_sequences | true |
+| sequence_mismatch | 0 |
+| total_duration_ms | 2259 |
+| write_latency_p95_ms | 2 |
+| replay_latency_p95_ms | 0 |
+
+## Latest Authenticated WebSocket Replay Snapshot
+
+Measured locally on June 9, 2026 (Asia/Shanghai) with temporary SQLite, local JWT generation, in-process Gin router, and real `/api/v1/chat/ws` WebSocket upgrade.
+
+Command:
+
+```bash
+make chat-ws-replay-bench
+```
+
+Result summary:
+
+| Metric | Value |
+| --- | ---: |
+| events | 2000 |
+| recipients | 10 |
+| clients | 5 |
+| target_events | 200 |
+| replay_since_id | 791 |
+| expected_per_client | 100 |
+| upgrade_success | 5 |
+| upgrade_errors | 0 |
+| client_errors | 0 |
+| total_replayed | 500 |
+| complete_clients | 5 |
+| scoped_correctly | true |
+| monotonic_ids | true |
+| monotonic_sequences | true |
+| duplicate_events | 0 |
+| sequence_mismatch | 0 |
+| connect_to_first_p95_ms | 4 |
+| connect_to_last_p95_ms | 4 |
+| total_duration_ms | 2501 |
 
 ## Fill-In Run Template
 

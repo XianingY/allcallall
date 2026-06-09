@@ -1,7 +1,7 @@
 # AllCallAll Project Makefile
 # Common commands for development
 
-.PHONY: help setup build-android build-ios clean test interview-bench
+.PHONY: help setup build-android build-ios clean test interview-bench realtime-replay-bench chat-ws-replay-bench
 
 # Default target
 help:
@@ -18,6 +18,8 @@ help:
 	@echo "Backend:"
 	@echo "  make run-backend      - Start backend server"
 	@echo "  make interview-bench  - Run local Agent/outbox benchmark"
+	@echo "  make realtime-replay-bench - Run local realtime replay benchmark"
+	@echo "  make chat-ws-replay-bench - Run authenticated chat WebSocket replay benchmark"
 	@echo ""
 	@echo "Clean:"
 	@echo "  make clean            - Clean all build artifacts"
@@ -92,6 +94,16 @@ interview-bench:
 	@echo "Running local Agent/outbox benchmark..."
 	@mkdir -p /tmp/allcallall-go-cache
 	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/interview-bench -conversations 25 -batch-size 50
+
+realtime-replay-bench:
+	@echo "Running local realtime replay benchmark..."
+	@mkdir -p /tmp/allcallall-go-cache
+	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/realtime-replay-bench -events 2000 -recipients 10 -replay-window 120 -replay-limit 100
+
+chat-ws-replay-bench:
+	@echo "Running authenticated chat WebSocket replay benchmark..."
+	@mkdir -p /tmp/allcallall-go-cache
+	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/chat-ws-replay-bench -events 2000 -recipients 10 -replay-window 120 -replay-limit 100 -clients 5
 
 # ===========================
 # Development Commands

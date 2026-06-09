@@ -15,6 +15,8 @@ type ChatHub struct {
 	clients map[uint64]map[*chatClient]struct{}
 }
 
+const chatSendBufferSize = 256
+
 type chatClient struct {
 	userID uint64
 	orgID  uint64
@@ -34,7 +36,7 @@ func (h *ChatHub) HandleConnection(ctx context.Context, userID, orgID uint64, co
 		userID: userID,
 		orgID:  orgID,
 		conn:   conn,
-		send:   make(chan []byte, 32),
+		send:   make(chan []byte, chatSendBufferSize),
 	}
 	h.addClient(client)
 	defer h.removeClient(client)

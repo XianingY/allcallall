@@ -73,6 +73,7 @@ Design notes:
 - Durable `chat_events` are the source of truth when WebSocket delivery is missed.
 - `RealtimeEventStore` isolates create/list mechanics from collaboration orchestration, making replay behavior independently testable.
 - `/api/v1/chat/ws` is the collaboration replay channel. `/api/v1/ws` and `/api/v1/signaling/*` are separate WebRTC signaling paths and should not be conflated with chat replay.
+- `ChatHub` uses a replay-capable send buffer sized above the current backlog limit, so reconnect replay does not silently drop the 100-event catch-up batch before clients can drain it.
 
 ## Agent Execution Flow
 
@@ -132,6 +133,15 @@ go run ./cmd/interview-bench -conversations 25 -batch-size 50
 ```
 
 It seeds temporary SQLite conversations, queues Agent runs, drains `agent.run.requested`, executes backend-controlled tools, writes messages/tasks/memory, and prints JSON counts and latency summaries. This is not a production load test, but it is a strong interview demo because it exercises real code rather than a mocked happy path.
+
+Realtime replay evidence commands:
+
+```bash
+make realtime-replay-bench
+make chat-ws-replay-bench
+```
+
+`realtime-replay-bench` proves durable store-level scope, sequence, `since_id`, and replay-limit behavior. `chat-ws-replay-bench` starts an in-process authenticated Gin/WebSocket server and verifies the real `/api/v1/chat/ws` replay path with local JWT, organization membership, concurrent clients, and connect-to-first/last-event latency.
 
 ## Reliability Choices
 
