@@ -47,6 +47,7 @@ type RunResult struct {
 	Run         models.AgentRun        `json:"run"`
 	Steps       []models.AgentStep     `json:"steps"`
 	ToolCalls   []models.AgentToolCall `json:"tool_calls"`
+	Trace       []TraceEvent           `json:"trace"`
 	ActionItems []string               `json:"action_items"`
 	RiskFlags   []string               `json:"risk_flags"`
 }
@@ -464,7 +465,7 @@ func (s *Service) recordContextToolCalls(ctx context.Context, run models.AgentRu
 	}
 	if err := s.recordToolCall(ctx, models.AgentToolCall{
 		RunID:     run.ID,
-		ToolName:  "query_recent_meetings",
+		ToolName:  ToolQueryRecentMeetings,
 		Status:    models.AgentRunStatusReady,
 		InputJSON: mustJSONString(map[string]any{"conversation_id": run.ConversationID, "limit": 3}),
 		OutputJSON: mustJSONString(map[string]any{
@@ -484,7 +485,7 @@ func (s *Service) recordContextToolCalls(ctx context.Context, run models.AgentRu
 	}
 	if err := s.recordToolCall(ctx, models.AgentToolCall{
 		RunID:     run.ID,
-		ToolName:  "query_conversation_members",
+		ToolName:  ToolQueryConversationMembers,
 		Status:    models.AgentRunStatusReady,
 		InputJSON: mustJSONString(map[string]any{"conversation_id": run.ConversationID}),
 		OutputJSON: mustJSONString(map[string]any{
@@ -517,7 +518,7 @@ func (s *Service) recordContextToolCalls(ctx context.Context, run models.AgentRu
 	}
 	if err := s.recordToolCall(ctx, models.AgentToolCall{
 		RunID:      run.ID,
-		ToolName:   "query_contact_profile",
+		ToolName:   ToolQueryContactProfile,
 		Status:     models.AgentRunStatusReady,
 		InputJSON:  mustJSONString(map[string]any{"conversation_id": run.ConversationID, "contact_id": conversationCtx.Conversation.ContactID}),
 		OutputJSON: mustJSONString(contactOutput),
@@ -559,7 +560,7 @@ func (s *Service) writeConversationMessage(ctx context.Context, run models.Agent
 	now := time.Now().UTC()
 	toolCall := models.AgentToolCall{
 		RunID:     run.ID,
-		ToolName:  "write_conversation_message",
+		ToolName:  ToolWriteConversationMessage,
 		Status:    models.AgentRunStatusRunning,
 		InputJSON: mustJSONString(input),
 	}
@@ -650,7 +651,7 @@ func (s *Service) createFollowUpTask(ctx context.Context, run models.AgentRun, n
 	}
 	toolCall := models.AgentToolCall{
 		RunID:     run.ID,
-		ToolName:  "create_follow_up_task",
+		ToolName:  ToolCreateFollowUpTask,
 		Status:    models.AgentRunStatusRunning,
 		InputJSON: mustJSONString(input),
 	}
@@ -678,7 +679,7 @@ func (s *Service) upsertConversationMemory(ctx context.Context, run models.Agent
 	}
 	toolCall := models.AgentToolCall{
 		RunID:    run.ID,
-		ToolName: "upsert_agent_memory",
+		ToolName: ToolUpsertConversationMemory,
 		Status:   models.AgentRunStatusRunning,
 		InputJSON: mustJSONString(map[string]any{
 			"conversation_id": run.ConversationID,
@@ -726,6 +727,7 @@ func (s *Service) buildRunResult(ctx context.Context, run models.AgentRun) (*Run
 		Run:         run,
 		Steps:       steps,
 		ToolCalls:   toolCalls,
+		Trace:       buildTraceTimeline(run, steps, toolCalls),
 		ActionItems: decodeStringSlice(run.ActionItemsJSON),
 		RiskFlags:   decodeStringSlice(run.RiskFlagsJSON),
 	}, nil

@@ -42,7 +42,7 @@ func TestExecuteSideEffectToolsRecordsToolCallsAndMetrics(t *testing.T) {
 	if len(toolCalls) != 3 {
 		t.Fatalf("expected 3 tool calls, got %d", len(toolCalls))
 	}
-	for _, want := range []string{"write_conversation_message", "create_follow_up_task", "upsert_agent_memory"} {
+	for _, want := range []string{ToolWriteConversationMessage, ToolCreateFollowUpTask, ToolUpsertConversationMemory} {
 		found := false
 		for _, toolCall := range toolCalls {
 			if toolCall.ToolName == want && toolCall.Status == models.AgentRunStatusReady {

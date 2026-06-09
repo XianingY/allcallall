@@ -83,6 +83,15 @@ type agentToolCallResponse struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+type agentTraceEventResponse struct {
+	Type     string         `json:"type"`
+	Name     string         `json:"name"`
+	Status   string         `json:"status"`
+	RefID    uint64         `json:"ref_id,omitempty"`
+	At       time.Time      `json:"at"`
+	Metadata map[string]any `json:"metadata,omitempty"`
+}
+
 func (h *AgentHandler) handleCreateRun(c *gin.Context) {
 	if h.service == nil {
 		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_SERVICE_UNAVAILABLE", "agent service unavailable")
@@ -164,6 +173,7 @@ func toAgentRunResultResponse(result *agent.RunResult) gin.H {
 		"run":        toAgentRunResponse(result.Run, result.ActionItems, result.RiskFlags),
 		"steps":      toAgentStepResponses(result.Steps),
 		"tool_calls": toAgentToolCallResponses(result.ToolCalls),
+		"trace":      toAgentTraceEventResponses(result.Trace),
 	}
 }
 
@@ -224,6 +234,21 @@ func toAgentToolCallResponses(toolCalls []models.AgentToolCall) []agentToolCallR
 			ErrorMessage: toolCall.ErrorMessage,
 			CreatedAt:    toolCall.CreatedAt,
 			UpdatedAt:    toolCall.UpdatedAt,
+		})
+	}
+	return out
+}
+
+func toAgentTraceEventResponses(events []agent.TraceEvent) []agentTraceEventResponse {
+	out := make([]agentTraceEventResponse, 0, len(events))
+	for _, event := range events {
+		out = append(out, agentTraceEventResponse{
+			Type:     event.Type,
+			Name:     event.Name,
+			Status:   event.Status,
+			RefID:    event.RefID,
+			At:       event.At,
+			Metadata: event.Metadata,
 		})
 	}
 	return out

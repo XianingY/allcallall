@@ -157,9 +157,21 @@ func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
 	for _, toolCall := range result.ToolCalls {
 		toolNames[toolCall.ToolName] = true
 	}
-	for _, name := range []string{"query_recent_meetings", "query_conversation_members", "query_contact_profile", "write_conversation_message", "create_follow_up_task", "upsert_agent_memory"} {
+	for _, name := range []string{ToolQueryRecentMeetings, ToolQueryConversationMembers, ToolQueryContactProfile, ToolWriteConversationMessage, ToolCreateFollowUpTask, ToolUpsertConversationMemory} {
 		if !toolNames[name] {
 			t.Fatalf("missing tool call %q in %+v", name, result.ToolCalls)
+		}
+	}
+	if len(result.Trace) == 0 {
+		t.Fatalf("expected agent trace timeline")
+	}
+	traceNames := map[string]bool{}
+	for _, event := range result.Trace {
+		traceNames[event.Name] = true
+	}
+	for _, name := range []string{"agent.run.created", "collect_context", ToolWriteConversationMessage, "agent.run.ready"} {
+		if !traceNames[name] {
+			t.Fatalf("missing trace event %q in %+v", name, result.Trace)
 		}
 	}
 	if len(result.ActionItems) == 0 || len(result.RiskFlags) == 0 {
