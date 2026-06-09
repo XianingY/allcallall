@@ -194,6 +194,7 @@ Response:
 {
   "run": {
     "id": 1,
+    "request_id": "req-123",
     "source": "rules",
     "status": "pending",
     "goal": "summarize current support handoff",
@@ -207,7 +208,7 @@ Response:
 }
 ```
 
-When the worker completes, the same run exposes `status=ready`, `steps`, and `tool_calls`.
+When the worker completes, the same run exposes `status=ready`, `steps`, and `tool_calls`. `request_id` matches the HTTP request context persisted on `agent_runs` and `event_outbox`.
 
 Current tools:
 

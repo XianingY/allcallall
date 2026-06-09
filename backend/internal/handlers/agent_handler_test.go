@@ -16,6 +16,7 @@ import (
 	"github.com/allcallall/backend/internal/agent"
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/trace"
 )
 
 func newAgentHandlerTestEnv(t *testing.T) (*AgentHandler, *gorm.DB, models.Conversation) {
@@ -88,7 +89,7 @@ func TestAgentHandlerCreateAndGetRun(t *testing.T) {
 		"conversation_id": conversation.ID,
 		"goal":            "summarize current support handoff",
 	})
-	rec = performRequestWithOrganization(t, router, http.MethodPost, "/api/v1/agent/runs", reqBody, conversation.OrganizationID)
+	rec = performRequestWithOrganizationAndRequestID(t, router, http.MethodPost, "/api/v1/agent/runs", reqBody, conversation.OrganizationID, "req-agent-handler-1")
 	expectHandlerStatus(t, rec, http.StatusAccepted)
 
 	var createResponse struct {
@@ -96,6 +97,7 @@ func TestAgentHandlerCreateAndGetRun(t *testing.T) {
 			ID             uint64   `json:"id"`
 			Status         string   `json:"status"`
 			ConversationID uint64   `json:"conversation_id"`
+			RequestID      string   `json:"request_id"`
 			Goal           string   `json:"goal"`
 			ActionItems    []string `json:"action_items"`
 		} `json:"run"`
@@ -109,12 +111,25 @@ func TestAgentHandlerCreateAndGetRun(t *testing.T) {
 	if createResponse.Run.ConversationID != conversation.ID || createResponse.Run.Goal != "summarize current support handoff" || len(createResponse.Run.ActionItems) != 0 {
 		t.Fatalf("unexpected run payload: %+v", createResponse.Run)
 	}
+	if createResponse.Run.RequestID != "req-agent-handler-1" {
+		t.Fatalf("unexpected request id payload: %+v", createResponse.Run)
+	}
 	if len(createResponse.Steps) != 0 || len(createResponse.ToolCalls) != 0 {
 		t.Fatalf("unexpected explainability payload: steps=%d tool_calls=%d", len(createResponse.Steps), len(createResponse.ToolCalls))
 	}
 
 	rec = performRequestWithOrganization(t, router, http.MethodGet, fmt.Sprintf("/api/v1/agent/runs/%d", createResponse.Run.ID), nil, conversation.OrganizationID)
 	expectHandlerStatus(t, rec, http.StatusOK)
+	var getResponse struct {
+		Run struct {
+			ID        uint64 `json:"id"`
+			RequestID string `json:"request_id"`
+		} `json:"run"`
+	}
+	decodeBody(t, rec.Body.Bytes(), &getResponse)
+	if getResponse.Run.RequestID != "req-agent-handler-1" {
+		t.Fatalf("unexpected get request id payload: %+v", getResponse.Run)
+	}
 }
 
 func TestAgentHandlerRejectsConversationOutsideMembership(t *testing.T) {
@@ -129,11 +144,21 @@ func TestAgentHandlerRejectsConversationOutsideMembership(t *testing.T) {
 func performRequestWithOrganization(t *testing.T, router http.Handler, method, path string, body []byte, organizationID uint64) *httptest.ResponseRecorder {
 	t.Helper()
 
+	return performRequestWithOrganizationAndRequestID(t, router, method, path, body, organizationID, "")
+}
+
+func performRequestWithOrganizationAndRequestID(t *testing.T, router http.Handler, method, path string, body []byte, organizationID uint64, requestID string) *httptest.ResponseRecorder {
+	t.Helper()
+
 	req := httptest.NewRequest(method, path, bytes.NewReader(body))
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("X-Organization-ID", fmt.Sprintf("%d", organizationID))
+	if requestID != "" {
+		req.Header.Set("X-Request-ID", requestID)
+		req = req.WithContext(trace.WithRequestID(req.Context(), requestID))
+	}
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	return rec

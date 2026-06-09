@@ -41,6 +41,7 @@ type agentRunResponse struct {
 	UserID         uint64     `json:"user_id"`
 	ConversationID uint64     `json:"conversation_id"`
 	IdempotencyKey string     `json:"idempotency_key,omitempty"`
+	RequestID      string     `json:"request_id,omitempty"`
 	Source         string     `json:"source"`
 	Status         string     `json:"status"`
 	Goal           string     `json:"goal"`
@@ -171,6 +172,7 @@ func toAgentRunResponse(run models.AgentRun, actionItems, riskFlags []string) ag
 		UserID:         run.UserID,
 		ConversationID: run.ConversationID,
 		IdempotencyKey: run.IdempotencyKey,
+		RequestID:      run.RequestID,
 		Source:         run.Source,
 		Status:         run.Status,
 		Goal:           run.Goal,
