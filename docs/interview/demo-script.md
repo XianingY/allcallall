@@ -28,7 +28,15 @@ make interview-demo
 
 ## Live Backend Variant
 
-Use this only when Docker and local database services are available:
+Use this only when Docker and local database services are available. For the strongest live evidence, run the full live suite:
+
+```bash
+make interview-live-suite
+```
+
+It starts MySQL/Redis, seeds interview data, starts the backend if needed, logs in the seeded owner, runs Agent HTTP smoke, runs chat WebSocket smoke, captures `/api/v1/metrics`, and writes a Markdown report under `/tmp/allcallall-interview-live-suite-*`.
+
+For a lighter seed-only live path:
 
 ```bash
 make interview-demo-live

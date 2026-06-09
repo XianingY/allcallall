@@ -133,7 +133,7 @@ System metrics:
 
 ## Latest Local Agent Benchmark Snapshot
 
-Measured locally on June 9, 2026 (Asia/Shanghai) at commit `6809bab` with temporary SQLite. Treat this as a functional benchmark and interview demo baseline, not a production load-test result.
+Measured locally on June 9, 2026 (Asia/Shanghai) with temporary SQLite. Treat this as a functional benchmark and interview demo baseline, not a production load-test result.
 
 Command:
 
@@ -152,15 +152,17 @@ Result summary:
 | processed_events | 75 |
 | pending_outbox_events | 0 |
 | failed_outbox_events | 0 |
-| agent_tool_calls | 150 |
-| total_duration_ms | 336 |
-| queue_latency_p95_ms | 1 |
-| execute_run_latency_p95_ms | 8 |
+| agent_tool_calls | 175 |
+| agent_context_chunks | 50 |
+| total_duration_ms | 725 |
+| queue_latency_p95_ms | 2 |
+| execute_run_latency_p95_ms | 26 |
 | outbox_publish_total | 75 |
 
 Notes:
 
-- Each completed run still records six auditable tool calls: three read-only context tools and three mutating side-effect tools.
+- Each completed run records seven auditable tool calls: three structured context tools, one RAG-lite context retrieval tool, and three mutating side-effect tools.
+- The RAG-lite path indexes notes/messages into `agent_context_chunks` and retrieves bounded Top-K snippets before planning.
 - Mutating tool orchestration is now isolated in `backend/internal/agent/tool_executor.go`, so this benchmark covers the extracted executor boundary as well as the async run queue and outbox path.
 
 ## Latest Local Realtime Replay Snapshot

@@ -10,6 +10,7 @@ const (
 	ToolQueryRecentMeetings      = "query_recent_meetings"
 	ToolQueryConversationMembers = "query_conversation_members"
 	ToolQueryContactProfile      = "query_contact_profile"
+	ToolQueryContextChunks       = "query_context_chunks"
 	ToolWriteConversationMessage = "write_conversation_message"
 	ToolCreateFollowUpTask       = "create_follow_up_task"
 	ToolUpsertConversationMemory = "upsert_agent_memory"
@@ -72,6 +73,21 @@ func RegisteredTools() []ToolDescriptor {
 				"role":                "string,omitempty",
 				"timezone":            "string,omitempty",
 				"relationship_status": "string,omitempty",
+			},
+		},
+		{
+			Name:        ToolQueryContextChunks,
+			Kind:        ToolKindReadOnly,
+			Permission:  ToolPermissionConversationMember,
+			Description: "Retrieve Top-K RAG-lite context chunks from conversation notes, messages, and scoped Agent memories.",
+			InputSchema: map[string]string{
+				"conversation_id": "uint64",
+				"query":           "string",
+				"limit":           "int",
+			},
+			OutputSchema: map[string]string{
+				"chunks": "array<{chunk_id,source_type,source_id,score,snippet}>",
+				"count":  "int",
 			},
 		},
 		{

@@ -45,7 +45,7 @@ flowchart LR
 - Realtime: `chat_events` with explicit `sequence` for replay and acknowledgement semantics
 - Meeting: `call_rooms`, `call_room_members`, `call_room_events`
 - Recording: `recording_sessions`, `recording_files`, `recording_exports`
-- Agent: `agent_runs`, `agent_steps`, `agent_tool_calls`, `agent_memories`
+- Agent: `agent_runs`, `agent_steps`, `agent_tool_calls`, `agent_memories`, `agent_context_chunks`
 - Reliability: `event_outbox`, persisted `request_id`, unified error codes
 
 ## Realtime Event Flow

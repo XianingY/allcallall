@@ -8,7 +8,7 @@ This document records repeatable interview-oriented load checks. These are not p
 - Command: `make interview-load-suite`
 - Provider: `rules`
 - Environment: local macOS, temporary SQLite/in-process HTTP where applicable
-- Report directory: `/tmp/allcallall-interview-suite-20260609-110452`
+- Report directory: `/tmp/allcallall-interview-suite-20260609-114005`
 
 ### Agent Eval
 
@@ -37,18 +37,20 @@ The eval fixture validates:
 | pending_outbox_events | 0 |
 | failed_outbox_events | 0 |
 | agent_steps | 50 |
-| agent_tool_calls | 150 |
+| agent_tool_calls | 175 |
 | system_messages | 25 |
 | follow_up_tasks | 25 |
 | agent_memories | 25 |
-| total_duration_ms | 806 |
-| queue_latency_p95_ms | 3 |
-| execute_run_latency_p95_ms | 16 |
+| agent_context_chunks | 50 |
+| total_duration_ms | 725 |
+| queue_latency_p95_ms | 2 |
+| execute_run_latency_p95_ms | 26 |
 | outbox_publish_total | 75 |
 
 Interpretation:
 
-- Each run records two steps and six tool calls.
+- Each run records two steps and seven tool calls: recent meetings, members, contact profile, RAG-lite context chunks, message write-back, follow-up task, and scoped memory upsert.
+- Notes and messages are indexed into `agent_context_chunks`, then retrieved as Top-K context for the planner.
 - Each completed run writes one system message, one follow-up task, and one memory row.
 - Outbox write amplification is visible and drains cleanly in the local processor.
 
@@ -64,8 +66,8 @@ Interpretation:
 | scoped_correctly | true |
 | monotonic_ids | true |
 | monotonic_sequences | true |
-| total_duration_ms | 3132 |
-| write_latency_p95_ms | 2 |
+| total_duration_ms | 1400 |
+| write_latency_p95_ms | 1 |
 
 Interpretation:
 
@@ -100,7 +102,47 @@ Interpretation:
 
 ## Live MySQL / Redis Checklist
 
-Use this checklist when collecting staging-like numbers:
+Use the automated live suite when collecting staging-like local numbers:
+
+```bash
+make interview-live-suite
+```
+
+The suite writes a report to `/tmp/allcallall-interview-live-suite-*` and captures seed IDs, login response, Agent trace, Agent smoke, WebSocket smoke, and metrics snapshots.
+
+### Latest Live MySQL / Redis Suite
+
+- Date: June 9, 2026
+- Command: `CONCURRENCY=2 WS_CLIENTS=1 WS_DURATION_MS=1000 make interview-live-suite`
+- Provider: `mock_llm`
+- Environment: local Docker MySQL 8.0 + Redis 7.2, live Gin backend, live JWT auth, live `/api/v1/chat/ws`
+- Report directory: `/tmp/allcallall-interview-live-suite-20260609-114138`
+
+| Check | Result |
+| --- | ---: |
+| MySQL seed / migration | pass |
+| Redis-backed backend startup | pass |
+| Auth login | pass |
+| Seeded Agent run trace fetch | pass |
+| Seeded Agent run events fetch | pass |
+| Seeded Agent tool calls | 7 |
+| Indexed context chunks | 14 |
+| Agent smoke accepted | 2 |
+| Agent smoke ready | 2 |
+| Agent smoke failed | 0 |
+| Agent smoke max elapsed seconds | 1 |
+| WebSocket clients opened | 1 |
+| WebSocket errors | 0 |
+| WebSocket messages observed | 14 |
+| Metrics snapshots captured | before + after |
+
+Interpretation:
+
+- This suite exercises the live MySQL schema instead of SQLite-only tests.
+- It verifies that the Agent HTTP path, outbox worker, auth middleware, and WebSocket transport run together in one local stack.
+- It caught and fixed two MySQL-only issues before this result: a reserved `agent_memories.key` query and a duplicate legal acceptance index tag.
+
+Manual checklist:
 
 1. Start infra:
 

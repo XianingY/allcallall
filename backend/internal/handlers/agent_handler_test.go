@@ -35,6 +35,7 @@ func newAgentHandlerTestEnv(t *testing.T) (*AgentHandler, *gorm.DB, models.Conve
 		&models.AgentStep{},
 		&models.AgentToolCall{},
 		&models.AgentMemory{},
+		&models.AgentContextChunk{},
 		&models.FollowUpTask{},
 		&models.CallRoom{},
 		&models.ContactProfile{},
@@ -129,6 +130,56 @@ func TestAgentHandlerCreateAndGetRun(t *testing.T) {
 	decodeBody(t, rec.Body.Bytes(), &getResponse)
 	if getResponse.Run.RequestID != "req-agent-handler-1" {
 		t.Fatalf("unexpected get request id payload: %+v", getResponse.Run)
+	}
+}
+
+func TestAgentHandlerGetRunEvents(t *testing.T) {
+	handler, _, conversation := newAgentHandlerTestEnv(t)
+	router := newRouterWithClaims(&auth.Claims{UserID: 7, Email: "owner@example.com"}, handler.RegisterProtectedRoutes)
+
+	reqBody, _ := json.Marshal(map[string]any{
+		"conversation_id": conversation.ID,
+		"goal":            "summarize current support handoff",
+	})
+	rec := performRequestWithOrganizationAndRequestID(t, router, http.MethodPost, "/api/v1/agent/runs", reqBody, conversation.OrganizationID, "req-agent-events-1")
+	expectHandlerStatus(t, rec, http.StatusAccepted)
+	var createResponse struct {
+		Run struct {
+			ID uint64 `json:"id"`
+		} `json:"run"`
+	}
+	decodeBody(t, rec.Body.Bytes(), &createResponse)
+	if _, err := handler.service.ExecuteRun(trace.WithRequestID(t.Context(), "req-agent-events-1"), createResponse.Run.ID); err != nil {
+		t.Fatalf("execute run failed: %v", err)
+	}
+
+	rec = performRequestWithOrganization(t, router, http.MethodGet, fmt.Sprintf("/api/v1/agent/runs/%d/events", createResponse.Run.ID), nil, conversation.OrganizationID)
+	expectHandlerStatus(t, rec, http.StatusOK)
+	var eventsResponse struct {
+		RunID  uint64                  `json:"run_id"`
+		Events []agentRunEventResponse `json:"events"`
+	}
+	decodeBody(t, rec.Body.Bytes(), &eventsResponse)
+	if eventsResponse.RunID != createResponse.Run.ID {
+		t.Fatalf("unexpected run id: %d", eventsResponse.RunID)
+	}
+	seen := map[string]bool{}
+	for i, event := range eventsResponse.Events {
+		if event.Sequence != i+1 {
+			t.Fatalf("unexpected event sequence at %d: %+v", i, event)
+		}
+		seen[event.Event] = true
+	}
+	for _, required := range []string{
+		agent.RunEventRunStarted,
+		agent.RunEventStepStarted,
+		agent.RunEventToolCalled,
+		agent.RunEventToolDone,
+		agent.RunEventRunReady,
+	} {
+		if !seen[required] {
+			t.Fatalf("missing required event %s in %+v", required, seen)
+		}
 	}
 }
 

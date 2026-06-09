@@ -53,12 +53,13 @@ type RunResult struct {
 }
 
 type conversationContext struct {
-	Conversation models.Conversation
-	Notes        []models.ConversationNote
-	Messages     []models.Message
-	Rooms        []models.CallRoom
-	Members      []models.ConversationMember
-	Memories     []models.AgentMemory
+	Conversation  models.Conversation
+	Notes         []models.ConversationNote
+	Messages      []models.Message
+	Rooms         []models.CallRoom
+	Members       []models.ConversationMember
+	Memories      []models.AgentMemory
+	ContextChunks []RetrievedContextChunk
 }
 
 func NewService(db *gorm.DB, counters ...counterRecorder) *Service {
@@ -177,6 +178,14 @@ func (s *Service) GetRun(ctx context.Context, organizationID, userID, runID uint
 	return s.buildRunResult(ctx, run)
 }
 
+func (s *Service) GetRunEvents(ctx context.Context, organizationID, userID, runID uint64) ([]RunEvent, error) {
+	result, err := s.GetRun(ctx, organizationID, userID, runID)
+	if err != nil {
+		return nil, err
+	}
+	return BuildRunEvents(result), nil
+}
+
 func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (*RunResult, error) {
 	var run models.AgentRun
 	if err := s.db.WithContext(ctx).Where("id = ?", runID).Take(&run).Error; err != nil {
@@ -265,7 +274,7 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (*RunResult, err
 }
 
 func (s *Service) executeRulesRun(ctx context.Context, run models.AgentRun, goal string) (*RunResult, error) {
-	conversationCtx, err := s.loadConversationContext(ctx, run.OrganizationID, run.ConversationID)
+	conversationCtx, err := s.loadConversationContext(ctx, run.OrganizationID, run.ConversationID, goal)
 	if err != nil {
 		return nil, err
 	}
@@ -289,8 +298,9 @@ func (s *Service) executeRulesRun(ctx context.Context, run models.AgentRun, goal
 		"planner_source":  s.planner.Name(),
 		"planner_prompt":  plannerPrompt,
 	}, map[string]any{
-		"notes":    len(conversationCtx.Notes),
-		"messages": len(conversationCtx.Messages),
+		"notes":                    len(conversationCtx.Notes),
+		"messages":                 len(conversationCtx.Messages),
+		"retrieved_context_chunks": len(conversationCtx.ContextChunks),
 	})
 	if err != nil {
 		return nil, err
@@ -412,7 +422,7 @@ func (s *Service) ensureConversationMember(ctx context.Context, organizationID, 
 	return nil
 }
 
-func (s *Service) loadConversationContext(ctx context.Context, organizationID, conversationID uint64) (*conversationContext, error) {
+func (s *Service) loadConversationContext(ctx context.Context, organizationID, conversationID uint64, goal string) (*conversationContext, error) {
 	var conv models.Conversation
 	if err := s.db.WithContext(ctx).Where("organization_id = ? AND id = ?", organizationID, conversationID).Take(&conv).Error; err != nil {
 		return nil, err
@@ -456,7 +466,14 @@ func (s *Service) loadConversationContext(ctx context.Context, organizationID, c
 		Find(&members).Error; err != nil {
 		return nil, err
 	}
-	return &conversationContext{Conversation: conv, Notes: notes, Messages: messages, Rooms: rooms, Members: members, Memories: memories}, nil
+	if err := s.refreshConversationContextChunks(ctx, organizationID, conversationID, notes, messages, memories); err != nil {
+		return nil, err
+	}
+	contextChunks, err := s.retrieveConversationContextChunks(ctx, conv, goal, defaultContextChunkLimit)
+	if err != nil {
+		return nil, err
+	}
+	return &conversationContext{Conversation: conv, Notes: notes, Messages: messages, Rooms: rooms, Members: members, Memories: memories, ContextChunks: contextChunks}, nil
 }
 
 func (s *Service) createStep(ctx context.Context, runID uint64, name string, input, output any) (models.AgentStep, error) {
@@ -542,6 +559,29 @@ func (s *Service) recordContextToolCalls(ctx context.Context, run models.AgentRu
 		Status:     models.AgentRunStatusReady,
 		InputJSON:  mustJSONString(map[string]any{"conversation_id": run.ConversationID, "contact_id": conversationCtx.Conversation.ContactID}),
 		OutputJSON: mustJSONString(contactOutput),
+	}); err != nil {
+		return count, err
+	}
+	count++
+	chunks := make([]map[string]any, 0, len(conversationCtx.ContextChunks))
+	for _, item := range conversationCtx.ContextChunks {
+		chunks = append(chunks, map[string]any{
+			"chunk_id":    item.Chunk.ID,
+			"source_type": item.Chunk.SourceType,
+			"source_id":   item.Chunk.SourceID,
+			"score":       item.Score,
+			"snippet":     compactSnippet(item.Chunk.Content, 180),
+		})
+	}
+	if err := s.recordToolCall(ctx, models.AgentToolCall{
+		RunID:     run.ID,
+		ToolName:  ToolQueryContextChunks,
+		Status:    models.AgentRunStatusReady,
+		InputJSON: mustJSONString(map[string]any{"conversation_id": run.ConversationID, "query": run.Goal, "limit": defaultContextChunkLimit}),
+		OutputJSON: mustJSONString(map[string]any{
+			"chunks": chunks,
+			"count":  len(chunks),
+		}),
 	}); err != nil {
 		return count, err
 	}
@@ -708,7 +748,7 @@ func (s *Service) upsertConversationMemory(ctx context.Context, run models.Agent
 	}
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var memory models.AgentMemory
-		err := tx.Where("organization_id = ? AND user_id = ? AND conversation_id = ? AND key = ?", run.OrganizationID, run.UserID, run.ConversationID, "last_agent_summary").
+		err := tx.Where("organization_id = ? AND user_id = ? AND conversation_id = ? AND `key` = ?", run.OrganizationID, run.UserID, run.ConversationID, "last_agent_summary").
 			Assign(models.AgentMemory{
 				Scope:     models.AgentMemoryScopeConversation,
 				ValueJSON: mustJSONString(value),
@@ -763,13 +803,14 @@ func joinMessageBodies(messages []models.Message) string {
 
 func compactSnippet(value string, max int) string {
 	value = strings.Join(strings.Fields(value), " ")
-	if len(value) <= max {
+	runes := []rune(value)
+	if len(runes) <= max {
 		return value
 	}
 	if max <= 3 {
-		return value[:max]
+		return string(runes[:max])
 	}
-	return value[:max-3] + "..."
+	return string(runes[:max-3]) + "..."
 }
 
 func uniqueStrings(items []string) []string {

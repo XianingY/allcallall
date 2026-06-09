@@ -102,6 +102,7 @@ Talking points:
 
 - `POST /api/v1/agent/runs`
 - `GET /api/v1/agent/runs/:id`
+- `GET /api/v1/agent/runs/:id/events`
 
 Required headers:
 
@@ -120,6 +121,6 @@ Talking points:
 - `POST /agent/runs` returns `202 Accepted` with a `pending` run, then `agent.run.requested` is drained by the outbox worker.
 - Provider seam: `AGENT_PROVIDER=rules` for deterministic demos; `AGENT_PROVIDER=mock_llm` for prompt + structured-output parsing demos; `AGENT_PROVIDER=openai_compatible` calls a configured Chat Completions-compatible endpoint and falls back to `rules` when no provider is configured.
 - Tool calling is persisted and permission-guarded.
-- Memory is scoped to organization/user/conversation.
+- Memory is scoped to organization/user/conversation, and RAG-lite retrieval uses `agent_context_chunks` with bounded Top-K snippets.
 - Repeating a request with the same `Idempotency-Key` returns the existing run result instead of duplicating tool side effects.
 - Outbox events `agent.run.requested`, `agent.run.completed`, and `message.created` give a durable async delivery path that can later be swapped for Kafka or Redis Streams.

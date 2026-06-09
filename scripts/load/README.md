@@ -20,6 +20,14 @@ make interview-load-suite
 
 It writes JSON artifacts plus `summary.md` to `/tmp/allcallall-interview-suite-*`.
 
+For a MySQL/Redis-backed live smoke suite, run:
+
+```bash
+make interview-live-suite
+```
+
+It starts local Docker MySQL/Redis, seeds deterministic interview data, starts the backend if needed, logs in the seeded owner, runs Agent and WebSocket smoke scripts, and captures `/api/v1/metrics` before and after the smoke load.
+
 Current boundaries:
 
 - Agent execution is asynchronous. `POST /api/v1/agent/runs` returns `202` with a `pending` run; the backend outbox worker consumes `agent.run.requested` and executes the run.

@@ -64,7 +64,7 @@ func TestExecuteSideEffectToolsRecordsToolCallsAndMetrics(t *testing.T) {
 	}
 
 	var memory models.AgentMemory
-	if err := db.Where("organization_id = ? AND conversation_id = ? AND key = ?", conversation.OrganizationID, conversation.ID, "last_agent_summary").Take(&memory).Error; err != nil {
+	if err := db.Where("organization_id = ? AND conversation_id = ? AND `key` = ?", conversation.OrganizationID, conversation.ID, "last_agent_summary").Take(&memory).Error; err != nil {
 		t.Fatalf("load memory failed: %v", err)
 	}
 	if memory.LastRunID != run.ID {

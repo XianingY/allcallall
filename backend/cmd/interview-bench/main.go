@@ -43,6 +43,7 @@ type benchOutput struct {
 	SystemMessages      int64            `json:"system_messages"`
 	FollowUpTasks       int64            `json:"follow_up_tasks"`
 	AgentMemories       int64            `json:"agent_memories"`
+	AgentContextChunks  int64            `json:"agent_context_chunks"`
 	TotalDurationMs     int64            `json:"total_duration_ms"`
 	QueueLatency        latencyStats     `json:"queue_latency"`
 	ExecuteRunLatency   latencyStats     `json:"execute_run_latency"`
@@ -143,6 +144,7 @@ func migrateBenchTables(db *gorm.DB) error {
 		&models.AgentStep{},
 		&models.AgentToolCall{},
 		&models.AgentMemory{},
+		&models.AgentContextChunk{},
 		&models.EventOutbox{},
 	)
 }
@@ -306,6 +308,7 @@ func buildBenchOutput(ctx context.Context, db *gorm.DB, started time.Time, cfg b
 		{&output.SystemMessages, &models.Message{}, "type = ?", []any{models.MessageTypeSystem}},
 		{&output.FollowUpTasks, &models.FollowUpTask{}, "", nil},
 		{&output.AgentMemories, &models.AgentMemory{}, "", nil},
+		{&output.AgentContextChunks, &models.AgentContextChunk{}, "", nil},
 	}
 	for _, item := range counts {
 		query := db.WithContext(ctx).Model(item.model)

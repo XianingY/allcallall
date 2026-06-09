@@ -30,11 +30,14 @@ func TestInterviewBenchProducesAgentPipelineEvidence(t *testing.T) {
 	if output.ProcessedEvents != 9 || output.PendingOutboxEvents != 0 || output.FailedOutboxEvents != 0 {
 		t.Fatalf("unexpected outbox counts: %+v", output)
 	}
-	if output.AgentSteps != 6 || output.AgentToolCalls != 18 {
+	if output.AgentSteps != 6 || output.AgentToolCalls != 21 {
 		t.Fatalf("unexpected agent execution counts: steps=%d tool_calls=%d", output.AgentSteps, output.AgentToolCalls)
 	}
 	if output.SystemMessages != 3 || output.FollowUpTasks != 3 || output.AgentMemories != 3 {
 		t.Fatalf("unexpected tool side effects: messages=%d tasks=%d memories=%d", output.SystemMessages, output.FollowUpTasks, output.AgentMemories)
+	}
+	if output.AgentContextChunks == 0 {
+		t.Fatalf("expected RAG context chunks to be indexed: %+v", output)
 	}
 	if output.ExecuteRunLatency.Count != 3 || output.QueueLatency.Count != 3 {
 		t.Fatalf("missing latency stats: %+v", output)

@@ -27,6 +27,7 @@ func NewAgentHandler(log zerolog.Logger, service *agent.Service) *AgentHandler {
 
 func (h *AgentHandler) RegisterProtectedRoutes(protected *gin.RouterGroup) {
 	protected.POST("/agent/runs", h.handleCreateRun)
+	protected.GET("/agent/runs/:id/events", h.handleGetRunEvents)
 	protected.GET("/agent/runs/:id", h.handleGetRun)
 }
 
@@ -92,6 +93,17 @@ type agentTraceEventResponse struct {
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
+type agentRunEventResponse struct {
+	Sequence int            `json:"sequence"`
+	Event    string         `json:"event"`
+	Status   string         `json:"status"`
+	RefType  string         `json:"ref_type"`
+	RefID    uint64         `json:"ref_id,omitempty"`
+	Name     string         `json:"name,omitempty"`
+	At       time.Time      `json:"at"`
+	Metadata map[string]any `json:"metadata,omitempty"`
+}
+
 func (h *AgentHandler) handleCreateRun(c *gin.Context) {
 	if h.service == nil {
 		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_SERVICE_UNAVAILABLE", "agent service unavailable")
@@ -138,6 +150,31 @@ func (h *AgentHandler) handleGetRun(c *gin.Context) {
 		return
 	}
 	JSONSuccess(c, http.StatusOK, toAgentRunResultResponse(result))
+}
+
+func (h *AgentHandler) handleGetRunEvents(c *gin.Context) {
+	if h.service == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_SERVICE_UNAVAILABLE", "agent service unavailable")
+		return
+	}
+	claims, organizationID, ok := h.requireAgentContext(c)
+	if !ok {
+		return
+	}
+	runID, err := parseUintParam(c.Param("id"))
+	if err != nil || runID == 0 {
+		JSONError(c, http.StatusBadRequest, "invalid agent run id")
+		return
+	}
+	events, err := h.service.GetRunEvents(c.Request.Context(), organizationID, claims.UserID, runID)
+	if err != nil {
+		h.writeAgentError(c, err)
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{
+		"run_id": runID,
+		"events": toAgentRunEventResponses(events),
+	})
 }
 
 func (h *AgentHandler) requireAgentContext(c *gin.Context) (*auth.Claims, uint64, bool) {
@@ -247,6 +284,23 @@ func toAgentTraceEventResponses(events []agent.TraceEvent) []agentTraceEventResp
 			Name:     event.Name,
 			Status:   event.Status,
 			RefID:    event.RefID,
+			At:       event.At,
+			Metadata: event.Metadata,
+		})
+	}
+	return out
+}
+
+func toAgentRunEventResponses(events []agent.RunEvent) []agentRunEventResponse {
+	out := make([]agentRunEventResponse, 0, len(events))
+	for _, event := range events {
+		out = append(out, agentRunEventResponse{
+			Sequence: event.Sequence,
+			Event:    event.Event,
+			Status:   event.Status,
+			RefType:  event.RefType,
+			RefID:    event.RefID,
+			Name:     event.Name,
 			At:       event.At,
 			Metadata: event.Metadata,
 		})

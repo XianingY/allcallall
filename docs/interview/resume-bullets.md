@@ -25,7 +25,7 @@ Use these as raw material. Pick 2-3 bullets and tune them for the target role.
 
 ## Performance Evidence
 
-- Captured local Agent/outbox benchmark evidence: 25 queued runs, 25 ready runs, 0 failures, 75 processed outbox events, 150 tool calls, and 20 ms execute-run p95 on temporary SQLite.
+- Captured local Agent/outbox benchmark evidence: 25 queued runs, 25 ready runs, 0 failures, 75 processed outbox events, 175 tool calls, 50 RAG context chunks, and 26 ms execute-run p95 on temporary SQLite.
 - Captured realtime replay benchmark evidence: 2000 persisted events, 100 replayed events, scoped replay correctness, monotonic IDs/sequences, and 3 ms write p95 on temporary SQLite.
 - Captured authenticated WebSocket replay evidence: 5 clients, 500 total replayed events, 0 upgrade/client errors, 0 duplicates, and 9 ms connect-to-last p95 against the real `/api/v1/chat/ws` path.
 

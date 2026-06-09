@@ -96,7 +96,7 @@ func (AbuseReport) TableName() string {
 // LegalAcceptance records which legal versions a user has accepted.
 type LegalAcceptance struct {
 	ID             uint64    `gorm:"primaryKey;autoIncrement"`
-	UserID         uint64    `gorm:"not null;index;uniqueIndex"`
+	UserID         uint64    `gorm:"not null;uniqueIndex"`
 	TermsVersion   string    `gorm:"size:64;not null"`
 	PrivacyVersion string    `gorm:"size:64;not null"`
 	AcceptedAt     time.Time `gorm:"not null;index"`
@@ -345,4 +345,22 @@ type AgentMemory struct {
 
 func (AgentMemory) TableName() string {
 	return "agent_memories"
+}
+
+// AgentContextChunk stores lightweight RAG-style context snippets for Agent retrieval.
+type AgentContextChunk struct {
+	ID             uint64    `gorm:"primaryKey;autoIncrement"`
+	OrganizationID uint64    `gorm:"not null;index;uniqueIndex:idx_agent_context_chunk_source"`
+	ConversationID uint64    `gorm:"not null;index;uniqueIndex:idx_agent_context_chunk_source"`
+	SourceType     string    `gorm:"size:32;not null;index;uniqueIndex:idx_agent_context_chunk_source"`
+	SourceID       uint64    `gorm:"not null;uniqueIndex:idx_agent_context_chunk_source"`
+	Content        string    `gorm:"type:longtext;not null"`
+	Keywords       string    `gorm:"type:text"`
+	LastRunID      uint64    `gorm:"not null;default:0;index"`
+	CreatedAt      time.Time `gorm:"autoCreateTime"`
+	UpdatedAt      time.Time `gorm:"autoUpdateTime"`
+}
+
+func (AgentContextChunk) TableName() string {
+	return "agent_context_chunks"
 }

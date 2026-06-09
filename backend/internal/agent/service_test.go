@@ -36,6 +36,7 @@ func newAgentServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *metrics.CounterS
 		&models.AgentStep{},
 		&models.AgentToolCall{},
 		&models.AgentMemory{},
+		&models.AgentContextChunk{},
 		&models.FollowUpTask{},
 		&models.CallRoom{},
 		&models.ContactProfile{},
@@ -151,14 +152,14 @@ func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
 	if !strings.Contains(result.Steps[0].InputJSON, "planner_prompt") || !strings.Contains(result.Steps[0].InputJSON, "estimated_tokens") {
 		t.Fatalf("collect_context step missing planner prompt metadata: %s", result.Steps[0].InputJSON)
 	}
-	if len(result.ToolCalls) != 6 {
+	if len(result.ToolCalls) != 7 {
 		t.Fatalf("unexpected tool calls: %+v", result.ToolCalls)
 	}
 	toolNames := map[string]bool{}
 	for _, toolCall := range result.ToolCalls {
 		toolNames[toolCall.ToolName] = true
 	}
-	for _, name := range []string{ToolQueryRecentMeetings, ToolQueryConversationMembers, ToolQueryContactProfile, ToolWriteConversationMessage, ToolCreateFollowUpTask, ToolUpsertConversationMemory} {
+	for _, name := range []string{ToolQueryRecentMeetings, ToolQueryConversationMembers, ToolQueryContactProfile, ToolQueryContextChunks, ToolWriteConversationMessage, ToolCreateFollowUpTask, ToolUpsertConversationMemory} {
 		if !toolNames[name] {
 			t.Fatalf("missing tool call %q in %+v", name, result.ToolCalls)
 		}
@@ -197,8 +198,22 @@ func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
 		t.Fatalf("unexpected task type: %s", task.Type)
 	}
 	var memory models.AgentMemory
-	if err := db.Where("organization_id = ? AND conversation_id = ? AND key = ?", conversation.OrganizationID, conversation.ID, "last_agent_summary").Take(&memory).Error; err != nil {
+	if err := db.Where("organization_id = ? AND conversation_id = ? AND `key` = ?", conversation.OrganizationID, conversation.ID, "last_agent_summary").Take(&memory).Error; err != nil {
 		t.Fatalf("load agent memory failed: %v", err)
+	}
+	var chunkCount int64
+	if err := db.Model(&models.AgentContextChunk{}).Where("organization_id = ? AND conversation_id = ?", conversation.OrganizationID, conversation.ID).Count(&chunkCount).Error; err != nil {
+		t.Fatalf("count context chunks failed: %v", err)
+	}
+	if chunkCount < 2 {
+		t.Fatalf("expected notes/messages to be indexed as context chunks, got %d", chunkCount)
+	}
+	var ragToolCall models.AgentToolCall
+	if err := db.Where("run_id = ? AND tool_name = ?", result.Run.ID, ToolQueryContextChunks).Take(&ragToolCall).Error; err != nil {
+		t.Fatalf("load RAG context tool call failed: %v", err)
+	}
+	if !strings.Contains(ragToolCall.OutputJSON, `"chunks"`) {
+		t.Fatalf("RAG tool output missing chunks: %s", ragToolCall.OutputJSON)
 	}
 	var completedOutbox models.EventOutbox
 	if err := db.Where("event = ? AND aggregate_id = ?", "agent.run.completed", conversation.ID).Take(&completedOutbox).Error; err != nil {
@@ -225,7 +240,7 @@ func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
 	if _, ok := snapshot["agent_planner_latency_ms_total"]; !ok {
 		t.Fatalf("agent_planner_latency_ms_total missing: %v", snapshot)
 	}
-	if snapshot["agent_tool_call_total"] != 6 {
+	if snapshot["agent_tool_call_total"] != 7 {
 		t.Fatalf("agent_tool_call_total mismatch: %v", snapshot)
 	}
 	if snapshot["agent_memory_write_total"] != 1 {
@@ -239,6 +254,16 @@ func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
 		if !spanNames[name] {
 			t.Fatalf("missing span %q in %+v", name, recorder.Records())
 		}
+	}
+}
+
+func TestCompactSnippetKeepsUTF8Valid(t *testing.T) {
+	got := compactSnippet("AI 协作助手已生成跟进建议", 8)
+	if strings.ContainsRune(got, '\uFFFD') {
+		t.Fatalf("snippet contains replacement rune: %q", got)
+	}
+	if len([]rune(got)) > 8 {
+		t.Fatalf("snippet exceeds rune limit: %q", got)
 	}
 }
 
@@ -284,14 +309,14 @@ func TestRunConversationAssistantIsIdempotentByKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("replay execute idempotent run failed: %v", err)
 	}
-	if executed.Run.ID != replayed.Run.ID || len(replayed.ToolCalls) != 6 {
+	if executed.Run.ID != replayed.Run.ID || len(replayed.ToolCalls) != 7 {
 		t.Fatalf("unexpected replayed run: executed=%d replayed=%d tool_calls=%d", executed.Run.ID, replayed.Run.ID, len(replayed.ToolCalls))
 	}
 	if err := db.Model(&models.AgentToolCall{}).Where("run_id = ?", first.Run.ID).Count(&count).Error; err != nil {
 		t.Fatalf("count tool calls failed: %v", err)
 	}
-	if count != 6 {
-		t.Fatalf("expected exactly six tool calls after repeated execute, got %d", count)
+	if count != 7 {
+		t.Fatalf("expected exactly seven tool calls after repeated execute, got %d", count)
 	}
 }
 
@@ -337,7 +362,7 @@ func TestOutboxProcessorExecutesQueuedAgentRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load executed run failed: %v", err)
 	}
-	if result.Run.Status != models.AgentRunStatusReady || len(result.ToolCalls) != 6 {
+	if result.Run.Status != models.AgentRunStatusReady || len(result.ToolCalls) != 7 {
 		t.Fatalf("expected ready run after outbox worker, got status=%s tool_calls=%d", result.Run.Status, len(result.ToolCalls))
 	}
 

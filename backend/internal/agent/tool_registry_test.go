@@ -4,8 +4,8 @@ import "testing"
 
 func TestRegisteredToolsDocumentsAgentBoundary(t *testing.T) {
 	tools := RegisteredTools()
-	if len(tools) != 6 {
-		t.Fatalf("unexpected tool count: got=%d want=6", len(tools))
+	if len(tools) != 7 {
+		t.Fatalf("unexpected tool count: got=%d want=7", len(tools))
 	}
 
 	seen := map[string]ToolDescriptor{}
@@ -23,6 +23,7 @@ func TestRegisteredToolsDocumentsAgentBoundary(t *testing.T) {
 		ToolQueryRecentMeetings,
 		ToolQueryConversationMembers,
 		ToolQueryContactProfile,
+		ToolQueryContextChunks,
 		ToolWriteConversationMessage,
 		ToolCreateFollowUpTask,
 		ToolUpsertConversationMemory,

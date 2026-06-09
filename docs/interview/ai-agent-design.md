@@ -18,6 +18,7 @@ Supported API:
 
 - `POST /api/v1/agent/runs`
 - `GET /api/v1/agent/runs/:id`
+- `GET /api/v1/agent/runs/:id/events`
 
 Both APIs require:
 
@@ -32,6 +33,7 @@ Both APIs require:
 - `agent_steps`: explainable intermediate stages, such as context collection and next-action planning.
 - `agent_tool_calls`: side-effect records with input/output JSON and status.
 - `agent_memories`: scoped memory entries, currently `last_agent_summary` per organization/user/conversation.
+- `agent_context_chunks`: lightweight RAG-style snippets indexed from conversation notes, messages, and scoped memories.
 - `event_outbox`: durable domain events emitted by Agent tools.
 
 Source enum:
@@ -72,6 +74,7 @@ sequenceDiagram
     Worker->>Service: ExecuteRun(run_id)
     Service->>DB: pending -> running
     Service->>DB: load conversation, notes, messages, rooms, memories
+    Service->>DB: upsert agent_context_chunks and retrieve Top-K snippets
     Service->>DB: create collect_context step
     Service->>Planner: Plan with configured provider
     Planner-->>Service: PlannerOutput
@@ -96,6 +99,7 @@ Current tools are documented in `backend/internal/agent/tool_registry.go`. Each 
 - `query_recent_meetings`: records recent room/meeting context for the conversation.
 - `query_conversation_members`: records member/peer context for bounded planning.
 - `query_contact_profile`: records bound business-contact context when a conversation has `contact_id`.
+- `query_context_chunks`: records RAG-lite Top-K context snippets from notes, messages, and scoped memories.
 - `write_conversation_message`: writes a system message into the collaboration thread and enqueues an outbox event.
 - `create_follow_up_task`: creates a lightweight follow-up task from the planned next step.
 - `upsert_agent_memory`: stores the latest scoped Agent summary for future context.
@@ -123,6 +127,23 @@ Agent API responses include a derived `trace` array built from persisted run, st
 
 See [Agent Trace Example](agent-trace-example.md) for a concrete response.
 
+## Streaming-Style Run Events
+
+`GET /api/v1/agent/runs/:id/events` exposes the same persisted execution as a polling-friendly event stream shape. It is designed for demos and future SSE/WebSocket delivery without adding a second persistence model.
+
+Current event names:
+
+- `run_queued`
+- `run_started`
+- `step_started`
+- `step_done`
+- `tool_called`
+- `tool_done`
+- `run_ready`
+- `run_failed`
+
+Each event includes `sequence`, `event`, `status`, `ref_type`, `ref_id`, `name`, `at`, and optional metadata. Tool events include registry metadata such as tool `kind` and `permission`, so an interviewer can see the boundary between read-only context gathering and mutating tool execution.
+
 ## Idempotency And Side Effects
 
 `POST /api/v1/agent/runs` accepts `Idempotency-Key`. When the same user, organization, conversation, and key are seen again, the service returns the existing run result instead of creating a new run. That prevents duplicate pending jobs and later duplicate conversation messages, follow-up tasks, memories, and outbox events during client retries.
@@ -132,6 +153,17 @@ The outbox writes have their own idempotency keys: `agent.run.requested:<run_id>
 ## Memory Model
 
 `agent_memories` is scoped by organization, user, conversation, and key. The current key is `last_agent_summary`, and the value stores summary, action items, next step, and risk flags. The memory is inspectable in tests and is loaded into future planner input, but it is not a cross-user global memory and it does not store secrets or raw media.
+
+## RAG-Lite Context Retrieval
+
+The first retrieval layer is deliberately simple and deterministic:
+
+- Index source rows into `agent_context_chunks`: conversation notes, text/system messages, and scoped Agent memories.
+- Extract lightweight keywords from chunk content.
+- Score chunks against the Agent goal plus conversation title/status/priority.
+- Return a bounded Top-K list to the planner and persist the retrieval as `query_context_chunks`.
+
+This is not embedding search yet. The point is to demonstrate the backend shape of RAG: chunking, retrieval, source attribution, Top-K limits, permission boundaries, and auditable tool calls. An embedding provider can be added behind the same table and tool boundary later.
 
 ## Eval Harness
 

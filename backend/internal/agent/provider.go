@@ -37,13 +37,14 @@ type PromptingPlanner interface {
 }
 
 type PlannerInput struct {
-	Goal         string
-	Conversation models.Conversation
-	Notes        []models.ConversationNote
-	Messages     []models.Message
-	Rooms        []models.CallRoom
-	Members      []models.ConversationMember
-	Memories     []models.AgentMemory
+	Goal          string
+	Conversation  models.Conversation
+	Notes         []models.ConversationNote
+	Messages      []models.Message
+	Rooms         []models.CallRoom
+	Members       []models.ConversationMember
+	Memories      []models.AgentMemory
+	ContextChunks []RetrievedContextChunk
 }
 
 type PlannerOutput struct {
@@ -176,6 +177,15 @@ func buildPromptContextJSON(input PlannerInput) (string, error) {
 	for _, memory := range input.Memories {
 		memories = append(memories, compactSnippet(memory.ValueJSON, 180))
 	}
+	contextChunks := make([]map[string]any, 0, len(input.ContextChunks))
+	for _, item := range input.ContextChunks {
+		contextChunks = append(contextChunks, map[string]any{
+			"source_type": item.Chunk.SourceType,
+			"source_id":   item.Chunk.SourceID,
+			"score":       item.Score,
+			"content":     compactSnippet(item.Chunk.Content, 220),
+		})
+	}
 	payload := map[string]any{
 		"conversation": map[string]any{
 			"id":                 input.Conversation.ID,
@@ -188,11 +198,12 @@ func buildPromptContextJSON(input PlannerInput) (string, error) {
 			"conversation_type":  input.Conversation.Type,
 			"last_internal_note": input.Conversation.LastInternalNoteAt,
 		},
-		"notes":        notes,
-		"messages":     messages,
-		"recent_rooms": rooms,
-		"member_count": len(input.Members),
-		"memories":     memories,
+		"notes":                    notes,
+		"messages":                 messages,
+		"recent_rooms":             rooms,
+		"member_count":             len(input.Members),
+		"memories":                 memories,
+		"retrieved_context_chunks": contextChunks,
 	}
 	raw, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -236,7 +247,9 @@ func buildRulesOutput(input PlannerInput) (string, []string, string, []string) {
 		title = fmt.Sprintf("conversation #%d", conv.ID)
 	}
 	summary := fmt.Sprintf("%s 当前状态为 %s，优先级为 %s。", title, conv.Status, conv.Priority)
-	if len(input.Notes) > 0 {
+	if len(input.ContextChunks) > 0 {
+		summary += " 检索上下文：" + compactSnippet(input.ContextChunks[0].Chunk.Content, 96)
+	} else if len(input.Notes) > 0 {
 		summary += " 最近内部备注：" + compactSnippet(input.Notes[0].Body, 96)
 	} else if len(input.Messages) > 0 {
 		summary += " 最近消息：" + compactSnippet(input.Messages[0].Body, 96)

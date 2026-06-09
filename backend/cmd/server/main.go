@@ -130,6 +130,7 @@ func main() {
 		&models.AgentStep{},
 		&models.AgentToolCall{},
 		&models.AgentMemory{},
+		&models.AgentContextChunk{},
 		&models.EventOutbox{},
 	); err != nil {
 		appLogger.Fatal().Err(err).Msg("auto migrate failed")

@@ -68,6 +68,7 @@ func migrateDemoTables(db *gorm.DB) error {
 		&models.AgentStep{},
 		&models.AgentToolCall{},
 		&models.AgentMemory{},
+		&models.AgentContextChunk{},
 		&models.EventOutbox{},
 	)
 }
@@ -81,6 +82,7 @@ type seedOutput struct {
 	AgentStatus    string   `json:"agent_status"`
 	Steps          int      `json:"steps"`
 	ToolCalls      int      `json:"tool_calls"`
+	ContextChunks  int64    `json:"context_chunks"`
 	ActionItems    []string `json:"action_items"`
 	NextStep       string   `json:"next_step"`
 }
@@ -141,10 +143,14 @@ func seedDemo(ctx context.Context, db *gorm.DB, log zerolog.Logger) (*seedOutput
 	}
 	agentSvc := agent.NewService(db)
 	agentSvc.WithPlanner(planner)
+	seedKey := strings.TrimSpace(os.Getenv("INTERVIEW_SEED_AGENT_KEY"))
+	if seedKey == "" {
+		seedKey = "interview-seed-agent-run-v2"
+	}
 	queuedRun, err := agentSvc.RunConversationAssistant(ctx, org.ID, owner.ID, agent.RunInput{
 		ConversationID: conversation.ID,
 		Goal:           "prepare interview demo summary and next step",
-		IdempotencyKey: "interview-seed-agent-run",
+		IdempotencyKey: seedKey,
 	})
 	if err != nil {
 		return nil, err
@@ -158,6 +164,12 @@ func seedDemo(ctx context.Context, db *gorm.DB, log zerolog.Logger) (*seedOutput
 		Uint64("conversation_id", conversation.ID).
 		Uint64("agent_run_id", run.Run.ID).
 		Msg("interview demo seeded")
+	var contextChunks int64
+	if err := db.WithContext(ctx).Model(&models.AgentContextChunk{}).
+		Where("organization_id = ? AND conversation_id = ?", org.ID, conversation.ID).
+		Count(&contextChunks).Error; err != nil {
+		return nil, err
+	}
 
 	return &seedOutput{
 		OrganizationID: org.ID,
@@ -168,6 +180,7 @@ func seedDemo(ctx context.Context, db *gorm.DB, log zerolog.Logger) (*seedOutput
 		AgentStatus:    run.Run.Status,
 		Steps:          len(run.Steps),
 		ToolCalls:      len(run.ToolCalls),
+		ContextChunks:  contextChunks,
 		ActionItems:    run.ActionItems,
 		NextStep:       run.Run.NextStep,
 	}, nil
