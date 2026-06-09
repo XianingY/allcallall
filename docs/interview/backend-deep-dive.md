@@ -54,7 +54,9 @@ Interview angle:
 
 - `backend/internal/trace` now provides a lightweight span recorder without adding a full OpenTelemetry SDK dependency.
 - `StartSpan` stores `trace_id`, `span_id`, `parent_span_id`, `request_id`, `outbox_id`, attributes, duration, and error status.
-- If a `SpanRecorder` is not attached to the context, spans are no-ops, so production behavior does not change.
+- If no recorder is configured, spans are no-ops, so production behavior does not change.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` enables an OTLP/HTTP export seam; when set, the server installs a global recorder and posts span payloads to `/v1/traces`.
+- `OTEL_SERVICE_NAME` can override the exported service name; otherwise it defaults to `allcallall-backend`.
 - The outbox processor records `outbox.process_event`.
 - Agent execution records `agent.execute_run`, `agent.planner.plan`, and `agent.tools.execute_side_effects`.
 - Tests can inject `MemorySpanRecorder` to assert async trace shape without parsing logs.
@@ -62,7 +64,7 @@ Interview angle:
 Interview angle:
 
 - Explain the difference between correlation IDs and spans: `request_id` tells which request started the work; spans show where time and errors occur across handler, outbox, planner, and tools.
-- Explain why this project uses a small internal recorder first: it gives deterministic tests and a clean seam for adopting a full OpenTelemetry exporter later.
+- Explain why this project uses a small internal recorder first: it gives deterministic tests and a clean seam for exporting to an OpenTelemetry Collector without making business code depend on the full SDK.
 - Explain how `event_outbox.request_id` and `trace.WithOutboxID` bridge HTTP request context into worker execution.
 
 ## Agent Backend Design
@@ -108,11 +110,24 @@ Interview angle:
 - It writes `chat_events`, assigns a stable sequence from the persisted row ID, and decodes payloads for reconnect catch-up.
 - `Service` still controls membership checks and publishing, while storage mechanics are independently testable.
 - `ListRealtimeEventsSince` keeps the API boundary while delegating replay storage to the store.
+- Tests include a reconnect replay case that creates missed room/message events and verifies `since_id` returns only the target user's missing events in stable order.
 
 Interview angle:
 
 - Explain the separation between authorization/business orchestration and durable realtime event storage.
 - Explain why `event_id`/`sequence` replay is more reliable than relying only on in-memory WebSocket delivery.
+
+## Failure Injection Evidence
+
+- Outbox delivery failures are covered by `backend/internal/events/processor_test.go`: the processor retries transient handler errors, then marks the event failed and increments retry/failure metrics.
+- Agent planner failures are covered by `backend/internal/agent/service_test.go`: failed runs can be retried, stale running runs can be recovered after lease expiry, and planner timeout now persists a failed terminal state even when the execution context is canceled.
+- Recording storage cleanup failures are covered by `backend/internal/collaboration/service_test.go`: object-delete errors leave metadata undeleted so later cleanup can retry safely.
+- Realtime reconnect loss is covered by `backend/internal/collaboration/realtime_event_store_test.go`: missed events after a disconnect are replayed by `since_id`, scoped by organization/user, and paginated deterministically.
+
+Interview angle:
+
+- Explain that the project does not only test happy paths; it deliberately injects worker, planner, storage, and realtime failures.
+- Explain why timeout/cancellation handling is subtle: if failure persistence uses the canceled request context, the system can leave jobs stuck in `running`.
 
 ## Service Boundary Refactoring Plan
 
@@ -151,6 +166,14 @@ Completed third extraction:
 - Support-side read-only room and recording diagnostics now live in `backend/internal/collaboration/support_service.go`.
 - Conversation status/priority/assignee/contact update planning now lives in `backend/internal/collaboration/conversation_update.go`, with table tests covering pure decision logic before DB transactions and realtime patch publication.
 - The main collaboration service file is now about 1,800 lines, while keeping existing API contracts and tests green.
+
+Completed handler extraction:
+
+- `backend/internal/handlers/collaboration_handler.go` keeps shared wiring, route registration, DTO parsing helpers, and response helpers.
+- Conversation/chat endpoints now live in `backend/internal/handlers/collaboration_conversation_handler.go`.
+- Room and WebRTC signaling endpoints now live in `backend/internal/handlers/collaboration_room_handler.go`.
+- Recording endpoints now live in `backend/internal/handlers/collaboration_recording_handler.go`.
+- Internal support diagnostics now live in `backend/internal/handlers/collaboration_support_handler.go`.
 
 Completed Agent extraction:
 

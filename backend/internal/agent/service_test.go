@@ -405,6 +405,17 @@ func (p *failOncePlanner) Plan(ctx context.Context, input PlannerInput) (Planner
 	return RulesPlanner{}.Plan(ctx, input)
 }
 
+type blockingPlanner struct{}
+
+func (blockingPlanner) Name() string {
+	return models.AgentRunSourceRules
+}
+
+func (blockingPlanner) Plan(ctx context.Context, input PlannerInput) (PlannerOutput, error) {
+	<-ctx.Done()
+	return PlannerOutput{}, ctx.Err()
+}
+
 func TestExecuteRunRetriesFailedRun(t *testing.T) {
 	svc, db, _ := newAgentServiceTestEnv(t)
 	conversation := seedAgentConversation(t, db)
@@ -435,6 +446,40 @@ func TestExecuteRunRetriesFailedRun(t *testing.T) {
 	}
 	if result.Run.Status != models.AgentRunStatusReady || result.Run.Attempts != 2 {
 		t.Fatalf("expected retry to complete run, got status=%s attempts=%d", result.Run.Status, result.Run.Attempts)
+	}
+}
+
+func TestExecuteRunMarksPlannerTimeoutFailed(t *testing.T) {
+	svc, db, counters := newAgentServiceTestEnv(t)
+	conversation := seedAgentConversation(t, db)
+	svc.WithPlanner(blockingPlanner{})
+
+	queued, err := svc.RunConversationAssistant(context.Background(), conversation.OrganizationID, 7, RunInput{
+		ConversationID: conversation.ID,
+		IdempotencyKey: "planner-timeout",
+	})
+	if err != nil {
+		t.Fatalf("queue run failed: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := svc.ExecuteRun(ctx, queued.Run.ID); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected planner deadline exceeded, got %v", err)
+	}
+
+	var failed models.AgentRun
+	if err := db.Take(&failed, queued.Run.ID).Error; err != nil {
+		t.Fatalf("load timed out run failed: %v", err)
+	}
+	if failed.Status != models.AgentRunStatusFailed || failed.Attempts != 1 || failed.LeaseUntil != nil {
+		t.Fatalf("expected failed run with cleared lease after planner timeout, got %+v", failed)
+	}
+	if !strings.Contains(failed.ErrorMessage, "context deadline exceeded") {
+		t.Fatalf("expected timeout error message, got %q", failed.ErrorMessage)
+	}
+	snapshot := counters.Snapshot()
+	if snapshot["agent_run_failed_total"] != 1 || snapshot["agent_planner_error_total"] != 1 {
+		t.Fatalf("unexpected timeout metrics: %v", snapshot)
 	}
 }
 

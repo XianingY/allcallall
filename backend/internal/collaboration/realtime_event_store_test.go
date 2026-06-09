@@ -56,6 +56,51 @@ func TestRealtimeEventStoreCreateAndListSince(t *testing.T) {
 	}
 }
 
+func TestRealtimeEventStoreReplaysMissedEventsAfterReconnect(t *testing.T) {
+	db := newRealtimeEventStoreTestDB(t)
+	store := NewRealtimeEventStore(db)
+
+	var created []RealtimeEventRecord
+	for _, eventName := range []string{
+		"meeting.created",
+		"room.member.updated",
+		"room.recording.updated",
+		"room.ended",
+		"message.created",
+	} {
+		event, err := store.Create(context.Background(), 1, 7, eventName, map[string]any{"event_name": eventName})
+		if err != nil {
+			t.Fatalf("create event %q failed: %v", eventName, err)
+		}
+		created = append(created, *event)
+	}
+	if _, err := store.Create(context.Background(), 1, 8, "message.created", map[string]any{"ignored": true}); err != nil {
+		t.Fatalf("create other recipient event failed: %v", err)
+	}
+
+	replayed, err := store.ListSince(context.Background(), 1, 7, created[1].ID, 10)
+	if err != nil {
+		t.Fatalf("list reconnect replay events failed: %v", err)
+	}
+	if len(replayed) != 3 {
+		t.Fatalf("expected three missed events after reconnect, got %+v", replayed)
+	}
+	for i, event := range replayed {
+		want := created[i+2]
+		if event.ID != want.ID || event.Sequence != want.Sequence || event.Event != want.Event {
+			t.Fatalf("unexpected replay order at %d: got=%+v want=%+v", i, event, want)
+		}
+	}
+
+	limited, err := store.ListSince(context.Background(), 1, 7, created[1].ID, 2)
+	if err != nil {
+		t.Fatalf("list limited reconnect replay events failed: %v", err)
+	}
+	if len(limited) != 2 || limited[0].Event != "room.recording.updated" || limited[1].Event != "room.ended" {
+		t.Fatalf("unexpected limited replay page: %+v", limited)
+	}
+}
+
 func TestRealtimeEventStoreListSinceDefaultsAndBadPayload(t *testing.T) {
 	db := newRealtimeEventStoreTestDB(t)
 	store := NewRealtimeEventStore(db)

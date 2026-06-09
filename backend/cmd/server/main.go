@@ -52,6 +52,12 @@ func main() {
 
 	appLogger := logger.New(cfg.Logging.Level)
 	counterStore := metrics.NewCounterStore()
+	if recorder := trace.NewOTLPHTTPSpanRecorderFromEnv(); recorder != nil {
+		trace.SetGlobalSpanRecorder(recorder)
+		appLogger.Info().Msg("otlp trace exporter enabled")
+	} else {
+		trace.SetGlobalSpanRecorder(nil)
+	}
 
 	mode := os.Getenv("GIN_MODE")
 	if mode == "" {

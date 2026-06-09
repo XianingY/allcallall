@@ -252,7 +252,8 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (*RunResult, err
 	result, err := s.executeRulesRun(ctx, run, goal)
 	if err != nil {
 		failedAt := time.Now().UTC()
-		_ = s.db.WithContext(ctx).Model(&models.AgentRun{}).
+		// Persist terminal state even when the execution context timed out or was canceled.
+		_ = s.db.WithContext(context.WithoutCancel(ctx)).Model(&models.AgentRun{}).
 			Where("id = ?", run.ID).
 			Updates(map[string]any{
 				"status":        models.AgentRunStatusFailed,

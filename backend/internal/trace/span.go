@@ -51,6 +51,11 @@ type MemorySpanRecorder struct {
 	records []SpanRecord
 }
 
+var globalSpanRecorder struct {
+	mu       sync.RWMutex
+	recorder SpanRecorder
+}
+
 func NewMemorySpanRecorder() *MemorySpanRecorder {
 	return &MemorySpanRecorder{}
 }
@@ -80,6 +85,18 @@ func WithSpanRecorder(ctx context.Context, recorder SpanRecorder) context.Contex
 		return ctx
 	}
 	return context.WithValue(ctx, spanRecorderKey, recorder)
+}
+
+func SetGlobalSpanRecorder(recorder SpanRecorder) {
+	globalSpanRecorder.mu.Lock()
+	defer globalSpanRecorder.mu.Unlock()
+	globalSpanRecorder.recorder = recorder
+}
+
+func GlobalSpanRecorder() SpanRecorder {
+	globalSpanRecorder.mu.RLock()
+	defer globalSpanRecorder.mu.RUnlock()
+	return globalSpanRecorder.recorder
 }
 
 func StartSpan(ctx context.Context, name string, attributes map[string]string) (context.Context, *Span) {
@@ -157,10 +174,13 @@ func SpanID(ctx context.Context) string {
 
 func spanRecorder(ctx context.Context) SpanRecorder {
 	if ctx == nil {
-		return nil
+		return GlobalSpanRecorder()
 	}
 	recorder, _ := ctx.Value(spanRecorderKey).(SpanRecorder)
-	return recorder
+	if recorder != nil {
+		return recorder
+	}
+	return GlobalSpanRecorder()
 }
 
 func copyAttributes(attributes map[string]string) map[string]string {
