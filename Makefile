@@ -1,7 +1,7 @@
 # AllCallAll Project Makefile
 # Common commands for development
 
-.PHONY: help setup build-android build-ios clean test interview-bench agent-eval realtime-replay-bench chat-ws-replay-bench
+.PHONY: help setup build-android build-ios clean test interview-demo interview-demo-live interview-load-suite interview-bench agent-eval realtime-replay-bench chat-ws-replay-bench
 
 # Default target
 help:
@@ -17,6 +17,9 @@ help:
 	@echo ""
 	@echo "Backend:"
 	@echo "  make run-backend      - Start backend server"
+	@echo "  make interview-demo   - Run local interview demo evidence suite"
+	@echo "  make interview-demo-live - Start MySQL/Redis and seed live interview demo data"
+	@echo "  make interview-load-suite - Generate local interview load suite artifacts"
 	@echo "  make agent-eval       - Run deterministic Agent eval harness"
 	@echo "  make interview-bench  - Run local Agent/outbox benchmark"
 	@echo "  make realtime-replay-bench - Run local realtime replay benchmark"
@@ -90,6 +93,18 @@ test:
 test-backend:
 	@echo "Running backend tests..."
 	cd backend && go test ./...
+
+interview-demo:
+	@echo "Running local interview demo..."
+	bash scripts/interview-demo.sh
+
+interview-demo-live:
+	@echo "Running live interview demo seed..."
+	MODE=live bash scripts/interview-demo.sh
+
+interview-load-suite:
+	@echo "Running local interview load suite..."
+	bash scripts/load/run-interview-suite.sh
 
 agent-eval:
 	@echo "Running deterministic Agent eval harness..."
