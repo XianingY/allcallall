@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -95,5 +96,51 @@ func TestOutboxStorePersistsRequestIDFromContext(t *testing.T) {
 	}
 	if row.RequestID != "req-123" {
 		t.Fatalf("expected persisted request id, got %q", row.RequestID)
+	}
+}
+
+func TestOutboxStoreClaimPendingUsesWorkerLease(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "outbox-claim.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := db.AutoMigrate(&models.EventOutbox{}); err != nil {
+		t.Fatalf("auto migrate failed: %v", err)
+	}
+	store := NewStore(db)
+
+	event, err := store.Enqueue(context.Background(), EnqueueInput{
+		AggregateType:  "agent_run",
+		AggregateID:    1,
+		Event:          "agent.run.requested",
+		IdempotencyKey: "agent.run.requested:claim",
+		Payload:        map[string]any{"run_id": 1},
+	})
+	if err != nil {
+		t.Fatalf("enqueue failed: %v", err)
+	}
+	first, err := store.ClaimPending(context.Background(), 10, "worker-a", time.Hour)
+	if err != nil {
+		t.Fatalf("claim first failed: %v", err)
+	}
+	if len(first) != 1 || first[0].ID != event.ID || first[0].LockedBy != "worker-a" || first[0].LockedUntil == nil {
+		t.Fatalf("unexpected first claim: %+v", first)
+	}
+	second, err := store.ClaimPending(context.Background(), 10, "worker-b", time.Hour)
+	if err != nil {
+		t.Fatalf("claim second failed: %v", err)
+	}
+	if len(second) != 0 {
+		t.Fatalf("expected active lease to hide event, got %+v", second)
+	}
+	if err := db.Model(&models.EventOutbox{}).Where("id = ?", event.ID).Update("locked_until", time.Now().UTC().Add(-time.Second)).Error; err != nil {
+		t.Fatalf("expire lease failed: %v", err)
+	}
+	third, err := store.ClaimPending(context.Background(), 10, "worker-b", time.Hour)
+	if err != nil {
+		t.Fatalf("claim after expiry failed: %v", err)
+	}
+	if len(third) != 1 || third[0].LockedBy != "worker-b" {
+		t.Fatalf("expected expired lease to be claimable, got %+v", third)
 	}
 }

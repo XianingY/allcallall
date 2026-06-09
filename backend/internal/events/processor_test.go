@@ -31,6 +31,7 @@ func TestProcessorPublishesRegisteredEvent(t *testing.T) {
 	store, db := newProcessorTestStore(t)
 	counters := metrics.NewCounterStore()
 	processor := NewProcessor(store, counters)
+	processor.WithWorker("processor-test", time.Minute)
 	processor.Register("agent.run.completed", func(context.Context, models.EventOutbox) error {
 		return nil
 	})
@@ -56,7 +57,7 @@ func TestProcessorPublishesRegisteredEvent(t *testing.T) {
 	if err := db.Take(&row, event.ID).Error; err != nil {
 		t.Fatalf("load outbox row failed: %v", err)
 	}
-	if row.Status != models.EventOutboxStatusPublished || row.PublishedAt == nil {
+	if row.Status != models.EventOutboxStatusPublished || row.PublishedAt == nil || row.LockedBy != "" || row.LockedUntil != nil {
 		t.Fatalf("unexpected row after publish: %+v", row)
 	}
 	if counters.Snapshot()["outbox_publish_total"] != 1 {

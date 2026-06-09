@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/trace"
 )
@@ -25,6 +27,8 @@ type Processor struct {
 	batchSize   int
 	maxAttempts int
 	retryDelay  time.Duration
+	workerID    string
+	lease       time.Duration
 	mu          sync.RWMutex
 }
 
@@ -40,6 +44,8 @@ func NewProcessor(store *Store, counters ...metricRecorder) *Processor {
 		batchSize:   100,
 		maxAttempts: 3,
 		retryDelay:  time.Minute,
+		workerID:    "outbox-" + uuid.NewString(),
+		lease:       2 * time.Minute,
 	}
 }
 
@@ -67,11 +73,20 @@ func (p *Processor) WithRetry(maxAttempts int, delay time.Duration) {
 	}
 }
 
+func (p *Processor) WithWorker(workerID string, lease time.Duration) {
+	if workerID != "" {
+		p.workerID = workerID
+	}
+	if lease > 0 {
+		p.lease = lease
+	}
+}
+
 func (p *Processor) ProcessOnce(ctx context.Context) (int, error) {
 	if p == nil || p.store == nil {
 		return 0, errors.New("outbox processor store is nil")
 	}
-	rows, err := p.store.ListPending(ctx, p.batchSize)
+	rows, err := p.store.ClaimPending(ctx, p.batchSize, p.workerID, p.lease)
 	if err != nil {
 		return 0, err
 	}

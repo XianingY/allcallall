@@ -19,6 +19,8 @@ type EventOutbox struct {
 	RequestID      string     `gorm:"size:96;index"`
 	Status         string     `gorm:"size:32;not null;default:'pending';index"`
 	Attempts       int        `gorm:"not null;default:0"`
+	LockedBy       string     `gorm:"size:120;index"`
+	LockedUntil    *time.Time `gorm:"index"`
 	LastError      string     `gorm:"type:text"`
 	AvailableAt    *time.Time `gorm:"index"`
 	PublishedAt    *time.Time `gorm:"index"`

@@ -89,13 +89,54 @@ func (s *Store) ListPending(ctx context.Context, limit int) ([]models.EventOutbo
 	now := time.Now().UTC()
 	var rows []models.EventOutbox
 	if err := s.db.WithContext(ctx).
-		Where("status = ? AND (available_at IS NULL OR available_at <= ?)", models.EventOutboxStatusPending, now).
+		Where("status = ? AND (available_at IS NULL OR available_at <= ?) AND (locked_until IS NULL OR locked_until <= ?)", models.EventOutboxStatusPending, now, now).
 		Order("id ASC").
 		Limit(limit).
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	return rows, nil
+}
+
+func (s *Store) ClaimPending(ctx context.Context, limit int, workerID string, lease time.Duration) ([]models.EventOutbox, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("outbox store database is nil")
+	}
+	workerID = strings.TrimSpace(workerID)
+	if workerID == "" {
+		return nil, errors.New("outbox worker id is required")
+	}
+	if lease <= 0 {
+		lease = time.Minute
+	}
+	rows, err := s.ListPending(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	lockedUntil := now.Add(lease)
+	claimed := make([]models.EventOutbox, 0, len(rows))
+	for _, row := range rows {
+		update := s.db.WithContext(ctx).Model(&models.EventOutbox{}).
+			Where("id = ? AND status = ? AND (available_at IS NULL OR available_at <= ?) AND (locked_until IS NULL OR locked_until <= ?)", row.ID, models.EventOutboxStatusPending, now, now).
+			Updates(map[string]any{
+				"locked_by":    workerID,
+				"locked_until": lockedUntil,
+				"updated_at":   now,
+			})
+		if update.Error != nil {
+			return nil, update.Error
+		}
+		if update.RowsAffected == 0 {
+			continue
+		}
+		var claimedRow models.EventOutbox
+		if err := s.db.WithContext(ctx).Take(&claimedRow, row.ID).Error; err != nil {
+			return nil, err
+		}
+		claimed = append(claimed, claimedRow)
+	}
+	return claimed, nil
 }
 
 func (s *Store) MarkPublished(ctx context.Context, id uint64) error {
@@ -108,6 +149,8 @@ func (s *Store) MarkPublished(ctx context.Context, id uint64) error {
 		Updates(map[string]any{
 			"status":       models.EventOutboxStatusPublished,
 			"published_at": now,
+			"locked_by":    "",
+			"locked_until": nil,
 			"updated_at":   now,
 		}).Error
 }
@@ -123,10 +166,12 @@ func (s *Store) MarkFailed(ctx context.Context, id uint64, cause error) error {
 	return s.db.WithContext(ctx).Model(&models.EventOutbox{}).
 		Where("id = ?", id).
 		Updates(map[string]any{
-			"status":     models.EventOutboxStatusFailed,
-			"last_error": message,
-			"attempts":   gorm.Expr("attempts + 1"),
-			"updated_at": time.Now().UTC(),
+			"status":       models.EventOutboxStatusFailed,
+			"last_error":   message,
+			"attempts":     gorm.Expr("attempts + 1"),
+			"locked_by":    "",
+			"locked_until": nil,
+			"updated_at":   time.Now().UTC(),
 		}).Error
 }
 
@@ -145,6 +190,8 @@ func (s *Store) MarkRetry(ctx context.Context, id uint64, cause error, available
 			"last_error":   message,
 			"attempts":     gorm.Expr("attempts + 1"),
 			"available_at": availableAt,
+			"locked_by":    "",
+			"locked_until": nil,
 			"updated_at":   time.Now().UTC(),
 		}).Error
 }

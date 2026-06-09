@@ -159,6 +159,7 @@ make chat-ws-replay-bench
 - Agent runs and outbox events persist the originating `request_id`, so asynchronous worker logs can be correlated with the original API request.
 - Agent execution uses `attempts` and `lease_until`, so transient planner failures can retry and stale `running` runs can be recovered after worker crashes.
 - Outbox records durable side effects for async event delivery; enqueue uses an idempotency key so retries do not create duplicate domain events.
+- Outbox workers claim rows with `locked_by` and `locked_until`, reducing duplicate processing when multiple backend replicas drain the same table.
 - The outbox worker drains pending rows, calls registered handlers, applies retry delay and max-attempt limits, and emits publish/retry/failure metrics.
 - WebSocket replay reduces dependency on perfect long-lived connections.
 - Recording storage has local and S3-compatible drivers.
