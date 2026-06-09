@@ -6,19 +6,28 @@ Use these as raw material. Pick 2-3 bullets and tune them for the target role.
 
 - Built an AI-powered realtime collaboration backend in Go with Gin, Gorm/MySQL, Redis, WebSocket replay, WebRTC room signaling, and S3-compatible recording storage.
 - Designed organization-scoped collaboration threads with replayable realtime events, explicit event sequence numbers, room state patches, recording lifecycle events, and conversation timeline recovery.
+- Delivered `message.created` outbox fan-out into per-recipient WebSocket replay records with dedup keys, so Agent-generated system messages and user messages share the same reconnect path.
 - Implemented refresh session hardening with HttpOnly refresh cookies, token rotation, suspicious refresh reuse tracking, logout-all, and support-side session inspection.
 
 ## AI Agent Engineering
 
-- Implemented an explainable AI Agent execution model with persisted runs, intermediate steps, tool-call records, scoped memory, idempotency keys, metrics, and backend-controlled tool execution.
+- Implemented an asynchronous explainable AI Agent run queue with persisted pending/running/ready/failed states, outbox-triggered worker execution, intermediate steps, tool-call records, scoped memory, idempotency keys, and backend-controlled tool execution.
+- Added Agent execution recovery with attempt counters and `lease_until`, allowing transient planner failures to retry and stale `running` runs to recover after worker crashes.
 - Added `AGENT_PROVIDER` selection with deterministic rules, mock structured-output, and configurable OpenAI-compatible planners, preserving stable tests while supporting LLM-backed planning with fallback metrics.
 - Integrated Agent tools for writing collaboration messages, creating follow-up tasks, upserting memory, and persisting outbox events for durable async delivery.
 
 ## Reliability / Distributed Systems
 
 - Added durable realtime event replay and explicit event sequence fields to reduce missed updates after WebSocket reconnects.
-- Introduced an event outbox model and worker with idempotent enqueue semantics, retry limits, configurable batch/interval controls, and publish/retry/failure metrics.
+- Introduced an event outbox model and worker with idempotent enqueue semantics, request-id propagation, worker claim/lease fields, retry limits, configurable batch/interval controls, and publish/retry/failure metrics.
+- Propagated `X-Request-ID` through HTTP error responses, Agent runs, outbox rows, and async worker handlers for traceable backend diagnostics.
 - Built recording lifecycle infrastructure with local/S3-compatible storage drivers, retention metadata, cleanup worker, download authorization, and support diagnostics.
+
+## Performance Evidence
+
+- Captured local Agent/outbox benchmark evidence: 25 queued runs, 25 ready runs, 0 failures, 75 processed outbox events, 150 tool calls, and 20 ms execute-run p95 on temporary SQLite.
+- Captured realtime replay benchmark evidence: 2000 persisted events, 100 replayed events, scoped replay correctness, monotonic IDs/sequences, and 3 ms write p95 on temporary SQLite.
+- Captured authenticated WebSocket replay evidence: 5 clients, 500 total replayed events, 0 upgrade/client errors, 0 duplicates, and 9 ms connect-to-last p95 against the real `/api/v1/chat/ws` path.
 
 ## Interview Short Pitch
 
