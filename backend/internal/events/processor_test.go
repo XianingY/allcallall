@@ -12,6 +12,7 @@ import (
 
 	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/trace"
 )
 
 func newProcessorTestStore(t *testing.T) (*Store, *gorm.DB) {
@@ -60,6 +61,36 @@ func TestProcessorPublishesRegisteredEvent(t *testing.T) {
 	}
 	if counters.Snapshot()["outbox_publish_total"] != 1 {
 		t.Fatalf("expected publish metric, got %v", counters.Snapshot())
+	}
+}
+
+func TestProcessorPropagatesTraceContextToHandler(t *testing.T) {
+	store, _ := newProcessorTestStore(t)
+	processor := NewProcessor(store)
+
+	var gotRequestID string
+	var gotOutboxID uint64
+	processor.Register("agent.run.completed", func(ctx context.Context, _ models.EventOutbox) error {
+		gotRequestID = trace.RequestID(ctx)
+		gotOutboxID = trace.OutboxID(ctx)
+		return nil
+	})
+	event, err := store.Enqueue(context.Background(), EnqueueInput{
+		AggregateType:  "conversation",
+		AggregateID:    1,
+		Event:          "agent.run.completed",
+		IdempotencyKey: "agent.run.completed:trace",
+		RequestID:      "req-processor-1",
+		Payload:        map[string]any{"run_id": 1},
+	})
+	if err != nil {
+		t.Fatalf("enqueue failed: %v", err)
+	}
+	if _, err := processor.ProcessOnce(context.Background()); err != nil {
+		t.Fatalf("process once failed: %v", err)
+	}
+	if gotRequestID != "req-processor-1" || gotOutboxID != event.ID {
+		t.Fatalf("unexpected trace context: request_id=%q outbox_id=%d want request_id=req-processor-1 outbox_id=%d", gotRequestID, gotOutboxID, event.ID)
 	}
 }
 

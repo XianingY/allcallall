@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/trace"
 )
 
 var ErrOutboxEventExists = errors.New("outbox event already exists")
@@ -24,6 +25,7 @@ type EnqueueInput struct {
 	Event          string
 	Payload        any
 	IdempotencyKey string
+	RequestID      string
 	AvailableAt    *time.Time
 }
 
@@ -45,6 +47,10 @@ func (s *Store) EnqueueTx(ctx context.Context, tx *gorm.DB, in EnqueueInput) (*m
 	in.AggregateType = strings.TrimSpace(in.AggregateType)
 	in.Event = strings.TrimSpace(in.Event)
 	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
+	in.RequestID = trace.NormalizeRequestID(in.RequestID)
+	if in.RequestID == "" {
+		in.RequestID = trace.RequestID(ctx)
+	}
 	if in.AggregateType == "" || in.AggregateID == 0 || in.Event == "" || in.IdempotencyKey == "" {
 		return nil, errors.New("invalid outbox event")
 	}
@@ -66,6 +72,7 @@ func (s *Store) EnqueueTx(ctx context.Context, tx *gorm.DB, in EnqueueInput) (*m
 		Event:          in.Event,
 		PayloadJSON:    string(payload),
 		IdempotencyKey: in.IdempotencyKey,
+		RequestID:      in.RequestID,
 		Status:         models.EventOutboxStatusPending,
 		AvailableAt:    in.AvailableAt,
 	}

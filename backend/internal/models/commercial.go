@@ -273,6 +273,7 @@ type AgentRun struct {
 	UserID          uint64     `gorm:"not null;index"`
 	ConversationID  uint64     `gorm:"not null;index"`
 	IdempotencyKey  string     `gorm:"size:128;index"`
+	RequestID       string     `gorm:"size:96;index"`
 	Source          string     `gorm:"size:32;not null;index"`
 	Status          string     `gorm:"size:32;not null;index"`
 	Goal            string     `gorm:"type:text"`

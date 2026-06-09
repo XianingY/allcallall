@@ -12,6 +12,7 @@ import (
 
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/trace"
 )
 
 var (
@@ -104,6 +105,7 @@ func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, 
 		UserID:         userID,
 		ConversationID: in.ConversationID,
 		IdempotencyKey: idempotencyKey,
+		RequestID:      trace.RequestID(ctx),
 		Source:         s.planner.Name(),
 		Status:         models.AgentRunStatusPending,
 		Goal:           goal,

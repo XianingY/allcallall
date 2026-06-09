@@ -3,9 +3,13 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
+
+	"github.com/allcallall/backend/internal/trace"
 )
 
 func TestCORSMiddlewareAllowsCredentialedOrigin(t *testing.T) {
@@ -78,4 +82,57 @@ func TestDefaultCORSOriginsUsesExplicitEnvList(t *testing.T) {
 	if got[0] != "https://app.example.com" || got[1] != "https://desktop.example.com/" {
 		t.Fatalf("unexpected origins: %+v", got)
 	}
+}
+
+func TestRequestLoggerPropagatesRequestIDToContextAndHeader(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(requestLogger(ginLoggerForTest(), nil))
+	router.GET("/ok", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"request_id": trace.RequestID(c.Request.Context())})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/ok", nil)
+	req.Header.Set(requestIDHeader, "req-middleware-1")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d", rec.Code)
+	}
+	if got := rec.Header().Get(requestIDHeader); got != "req-middleware-1" {
+		t.Fatalf("unexpected request id header: %q", got)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "req-middleware-1") {
+		t.Fatalf("response missing propagated request id: %s", body)
+	}
+}
+
+func TestRequestLoggerReplacesInvalidRequestID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(requestLogger(ginLoggerForTest(), nil))
+	router.GET("/ok", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"request_id": trace.RequestID(c.Request.Context())})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/ok", nil)
+	req.Header.Set(requestIDHeader, "bad\nrequest")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d", rec.Code)
+	}
+	got := rec.Header().Get(requestIDHeader)
+	if got == "" || got == "bad\nrequest" {
+		t.Fatalf("expected generated request id, got %q", got)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, got) {
+		t.Fatalf("response missing generated request id %q: %s", got, body)
+	}
+}
+
+func ginLoggerForTest() zerolog.Logger {
+	return zerolog.Nop()
 }

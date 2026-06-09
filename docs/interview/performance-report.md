@@ -15,6 +15,7 @@ Portfolio focus:
 - AI Agent reliability: `agent_runs`, `agent_steps`, `agent_tool_calls`, `agent_memories`, and `event_outbox` are the primary tables to discuss.
 - Realtime reliability: `/api/v1/chat/ws` replays durable `chat_events` by `since_id`; `/api/v1/ws` and `/api/v1/signaling/*` are separate WebRTC signaling paths.
 - Operational visibility: `/api/v1/metrics` exposes in-memory counters in Prometheus text format for demo and interview inspection.
+- Traceability: `X-Request-ID` is normalized at ingress and persisted on Agent runs plus outbox rows, so API responses, worker logs, and database rows can be correlated.
 
 ## Test Environment
 
@@ -91,6 +92,12 @@ LIMIT 20;
 SELECT status, COUNT(*) AS count, MIN(created_at) AS oldest_created_at
 FROM event_outbox
 GROUP BY status;
+
+-- Trace correlation from API request to async worker row.
+SELECT id, request_id, status, event_name, attempts, last_error
+FROM event_outbox
+WHERE request_id = '<request_id>'
+ORDER BY id DESC;
 
 -- Realtime replay window.
 SELECT id, sequence, event, created_at

@@ -5,6 +5,13 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/allcallall/backend/internal/trace"
+)
+
+const (
+	authTokenMissingCode = "AUTH_TOKEN_MISSING"
+	authTokenInvalidCode = "AUTH_TOKEN_INVALID"
 )
 
 // Middleware 返回 Gin 中间件
@@ -24,19 +31,32 @@ func Middleware(manager *Manager) gin.HandlerFunc {
 		}
 
 		if token == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing bearer token"})
+			abortAuthError(c, authTokenMissingCode, "missing bearer token")
 			return
 		}
 
 		claims, err := manager.ParseToken(token)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			abortAuthError(c, authTokenInvalidCode, "invalid token")
 			return
 		}
 
 		SetClaimsToContext(c, claims)
 		c.Next()
 	}
+}
+
+func abortAuthError(c *gin.Context, code string, message string) {
+	requestID := c.GetString("X-Request-ID")
+	if requestID == "" && c.Request != nil {
+		requestID = trace.RequestID(c.Request.Context())
+	}
+	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+		"error":      message,
+		"code":       code,
+		"request_id": requestID,
+		"success":    false,
+	})
 }
 
 func extractToken(header string) string {

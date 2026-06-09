@@ -6,6 +6,8 @@ import (
 	"unicode"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/allcallall/backend/internal/trace"
 )
 
 // JSONError 返回标准错误响应
@@ -21,6 +23,9 @@ func JSONErrorWithCode(c *gin.Context, status int, code string, message string) 
 		code = defaultErrorCode(status)
 	}
 	requestID := c.GetString("X-Request-ID")
+	if requestID == "" && c.Request != nil {
+		requestID = trace.RequestID(c.Request.Context())
+	}
 	c.JSON(status, gin.H{
 		"error":      message,
 		"code":       code,

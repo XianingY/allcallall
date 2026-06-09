@@ -16,6 +16,7 @@ type EventOutbox struct {
 	Event          string     `gorm:"size:120;not null;index"`
 	PayloadJSON    string     `gorm:"type:longtext;not null"`
 	IdempotencyKey string     `gorm:"size:160;not null;uniqueIndex"`
+	RequestID      string     `gorm:"size:96;index"`
 	Status         string     `gorm:"size:32;not null;default:'pending';index"`
 	Attempts       int        `gorm:"not null;default:0"`
 	LastError      string     `gorm:"type:text"`

@@ -14,6 +14,7 @@ import (
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/trace"
 )
 
 func newAgentServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *metrics.CounterStore) {
@@ -91,7 +92,8 @@ func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
 	svc, db, counters := newAgentServiceTestEnv(t)
 	conversation := seedAgentConversation(t, db)
 
-	queued, err := svc.RunConversationAssistant(context.Background(), conversation.OrganizationID, 7, RunInput{
+	ctx := trace.WithRequestID(context.Background(), "req-agent-queue-1")
+	queued, err := svc.RunConversationAssistant(ctx, conversation.OrganizationID, 7, RunInput{
 		ConversationID: conversation.ID,
 		Goal:           "summarize current support handoff",
 	})
@@ -104,6 +106,9 @@ func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
 	if queued.Run.Goal != "summarize current support handoff" {
 		t.Fatalf("unexpected goal: %q", queued.Run.Goal)
 	}
+	if queued.Run.RequestID != "req-agent-queue-1" {
+		t.Fatalf("unexpected queued request id: %q", queued.Run.RequestID)
+	}
 	if len(queued.Steps) != 0 || len(queued.ToolCalls) != 0 {
 		t.Fatalf("queued run should not have execution details yet: steps=%d tool_calls=%d", len(queued.Steps), len(queued.ToolCalls))
 	}
@@ -111,8 +116,11 @@ func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
 	if err := db.Where("event = ? AND aggregate_id = ?", "agent.run.requested", queued.Run.ID).Take(&requested).Error; err != nil {
 		t.Fatalf("load requested outbox event failed: %v", err)
 	}
+	if requested.RequestID != "req-agent-queue-1" {
+		t.Fatalf("unexpected requested outbox request id: %q", requested.RequestID)
+	}
 
-	result, err := svc.ExecuteRun(context.Background(), queued.Run.ID)
+	result, err := svc.ExecuteRun(ctx, queued.Run.ID)
 	if err != nil {
 		t.Fatalf("execute assistant failed: %v", err)
 	}

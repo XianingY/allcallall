@@ -18,6 +18,7 @@ flowchart LR
     API --> Collab["Collaboration Service"]
     API --> Agent["Agent Service"]
     API --> Storage["Recording Storage"]
+    API --> Trace["Request ID + Error Envelope"]
 
     Collab --> MySQL[("MySQL")]
     Auth --> MySQL
@@ -45,7 +46,7 @@ flowchart LR
 - Meeting: `call_rooms`, `call_room_members`, `call_room_events`
 - Recording: `recording_sessions`, `recording_files`, `recording_exports`
 - Agent: `agent_runs`, `agent_steps`, `agent_tool_calls`, `agent_memories`
-- Reliability: `event_outbox`
+- Reliability: `event_outbox`, persisted `request_id`, unified error codes
 
 ## Realtime Event Flow
 
@@ -90,12 +91,14 @@ sequenceDiagram
 
     Client->>Handler: POST /api/v1/agent/runs + Idempotency-Key
     Handler->>Service: RunConversationAssistant
+    Handler->>Service: propagate request_id in context
     Service->>DB: verify conversation membership
     Service->>DB: find run by idempotency key
-    Service->>DB: create agent_run pending
-    Service->>Outbox: enqueue agent.run.requested
+    Service->>DB: create agent_run pending with request_id
+    Service->>Outbox: enqueue agent.run.requested with request_id
     Handler-->>Client: 202 pending run
     Worker->>Outbox: drain requested event
+    Worker->>Service: re-inject request_id from outbox row
     Worker->>Service: ExecuteRun(run_id)
     Service->>DB: pending -> running
     Service->>DB: load messages, notes, rooms, memories
@@ -146,7 +149,9 @@ make chat-ws-replay-bench
 ## Reliability Choices
 
 - Service-layer permission checks are repeated even when handlers already authenticate.
+- HTTP middleware normalizes `X-Request-ID`; generated IDs are returned in response headers and JSON error bodies.
 - Agent run idempotency prevents repeated pending jobs and tool side effects during retry.
+- Agent runs and outbox events persist the originating `request_id`, so asynchronous worker logs can be correlated with the original API request.
 - Outbox records durable side effects for async event delivery; enqueue uses an idempotency key so retries do not create duplicate domain events.
 - The outbox worker drains pending rows, calls registered handlers, applies retry delay and max-attempt limits, and emits publish/retry/failure metrics.
 - WebSocket replay reduces dependency on perfect long-lived connections.

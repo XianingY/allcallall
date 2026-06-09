@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
 	"github.com/allcallall/backend/internal/metrics"
+	"github.com/allcallall/backend/internal/trace"
 )
 
 const requestIDHeader = "X-Request-ID"
@@ -70,12 +70,10 @@ func CORSMiddleware(cfg CORSConfig) gin.HandlerFunc {
 
 func requestLogger(log zerolog.Logger, counters *metrics.CounterStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		requestID := c.GetHeader(requestIDHeader)
-		if requestID == "" {
-			requestID = uuid.NewString()
-		}
+		requestID := trace.EnsureRequestID(c.GetHeader(requestIDHeader))
 		c.Set(requestIDHeader, requestID)
 		c.Writer.Header().Set(requestIDHeader, requestID)
+		c.Request = c.Request.WithContext(trace.WithRequestID(c.Request.Context(), requestID))
 
 		start := time.Now()
 		path := c.Request.URL.Path

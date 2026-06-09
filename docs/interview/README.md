@@ -6,7 +6,7 @@ AllCallAll is positioned as an AI-powered realtime collaboration backend project
 
 - Realtime systems: WebSocket event replay, room state patching, WebRTC signaling, and recording lifecycle events.
 - Data modeling: organizations, conversations, rooms, recordings, refresh sessions, event logs, outbox events, and Agent execution records.
-- Reliability: request IDs, metrics, cleanup workers, S3-compatible recording storage, idempotent webhook/session handling, and an outbox worker.
+- Reliability: request IDs propagated through HTTP, Agent runs, and outbox workers; metrics; cleanup workers; S3-compatible recording storage; idempotent webhook/session handling; and an outbox worker.
 - Security: organization-scoped access control, refresh session rotation, support-token protected internal APIs, and no raw media persistence by default.
 - AI Agent readiness: deterministic rules-based Agent v1 with run state, steps, tool calls, memory, idempotency, outbox, and conversation write-back.
 
@@ -26,8 +26,9 @@ AllCallAll is positioned as an AI-powered realtime collaboration backend project
 3. Show how realtime collaboration data feeds the Agent: conversation messages, internal notes, priority, assignee, and status.
 4. Explain why v1 is rules-based: stable tests, deterministic demos, no API-key dependency, and an easy seam for OpenAI-compatible providers later.
 5. Show idempotency: repeat a run with the same `Idempotency-Key` and explain why tool side effects do not duplicate.
-6. Show realtime replay: connect to `/api/v1/chat/ws?since_id=...` and point out `event_id`, `sequence`, and durable MySQL-backed replay.
-7. Open `/api/v1/metrics` and point to Agent and outbox counters such as `agent_run_queued_total`, `agent_run_started_total`, `agent_run_total`, `agent_run_failed_total`, `agent_tool_call_total`, `agent_memory_write_total`, `outbox_publish_total`, and `outbox_publish_retry_total`.
+6. Show observability: send `X-Request-ID`, trigger an Agent run, and explain how the same ID is saved on `agent_runs` and `event_outbox`.
+7. Show realtime replay: connect to `/api/v1/chat/ws?since_id=...` and point out `event_id`, `sequence`, and durable MySQL-backed replay.
+8. Open `/api/v1/metrics` and point to Agent and outbox counters such as `agent_run_queued_total`, `agent_run_started_total`, `agent_run_total`, `agent_run_failed_total`, `agent_tool_call_total`, `agent_memory_write_total`, `outbox_publish_total`, and `outbox_publish_retry_total`.
 
 ## Demo Seed Command
 

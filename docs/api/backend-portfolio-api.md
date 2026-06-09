@@ -7,6 +7,7 @@ This Markdown API guide is optimized for backend interviews. It highlights the e
 ```http
 Authorization: Bearer <access_token>
 X-Organization-ID: <organization_id>
+X-Request-ID: <optional-client-request-id>
 Content-Type: application/json
 ```
 
@@ -14,6 +15,19 @@ For retry-safe Agent calls:
 
 ```http
 Idempotency-Key: <stable-client-generated-key>
+```
+
+`X-Request-ID` is optional. The backend normalizes the supplied value or generates a new one, returns it in the response header, includes it in JSON error bodies, and persists it on Agent runs plus outbox events so async worker logs can be correlated.
+
+Common error envelope:
+
+```json
+{
+  "error": "invalid token",
+  "code": "AUTH_TOKEN_INVALID",
+  "request_id": "req-123",
+  "success": false
+}
 ```
 
 ## Health And Metrics

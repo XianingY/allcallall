@@ -36,6 +36,7 @@ import (
 	"github.com/allcallall/backend/internal/server"
 	"github.com/allcallall/backend/internal/signaling"
 	"github.com/allcallall/backend/internal/storage"
+	"github.com/allcallall/backend/internal/trace"
 	"github.com/allcallall/backend/internal/translation"
 	"github.com/allcallall/backend/internal/translation/providers"
 	"github.com/allcallall/backend/internal/user"
@@ -178,21 +179,24 @@ func main() {
 			return err
 		}
 		appLogger.Info().
+			Str("request_id", trace.RequestID(ctx)).
 			Uint64("outbox_id", event.ID).
 			Uint64("agent_run_id", payload.AgentRunID).
 			Msg("outbox agent run executed")
 		return nil
 	})
-	outboxProcessor.Register("agent.run.completed", func(_ context.Context, event models.EventOutbox) error {
+	outboxProcessor.Register("agent.run.completed", func(ctx context.Context, event models.EventOutbox) error {
 		appLogger.Info().
+			Str("request_id", trace.RequestID(ctx)).
 			Uint64("outbox_id", event.ID).
 			Uint64("aggregate_id", event.AggregateID).
 			Str("event", event.Event).
 			Msg("outbox agent event observed")
 		return nil
 	})
-	outboxProcessor.Register("message.created", func(_ context.Context, event models.EventOutbox) error {
+	outboxProcessor.Register("message.created", func(ctx context.Context, event models.EventOutbox) error {
 		appLogger.Info().
+			Str("request_id", trace.RequestID(ctx)).
 			Uint64("outbox_id", event.ID).
 			Uint64("message_id", event.AggregateID).
 			Str("event", event.Event).

@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/allcallall/backend/internal/trace"
 )
 
 func TestJSONError(t *testing.T) {
@@ -58,6 +60,25 @@ func TestJSONErrorWithCodePreservesExplicitCode(t *testing.T) {
 	}
 	if got["code"] != "ROOM_ACCESS_DENIED" {
 		t.Fatalf("unexpected code payload: %+v", got)
+	}
+}
+
+func TestJSONErrorUsesRequestContextFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/bad", nil)
+	c.Request = c.Request.WithContext(trace.WithRequestID(c.Request.Context(), "req-context-1"))
+
+	JSONError(c, http.StatusInternalServerError, "failed")
+
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if got["request_id"] != "req-context-1" {
+		t.Fatalf("unexpected request_id payload: %+v", got)
 	}
 }
 

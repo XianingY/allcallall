@@ -1,11 +1,14 @@
 package auth
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/allcallall/backend/internal/trace"
 )
 
 func TestClaimsContextRoundTrip(t *testing.T) {
@@ -77,7 +80,7 @@ func TestMiddleware(t *testing.T) {
 	}
 
 	t.Run("missing token", func(t *testing.T) {
-		router := gin.New()
+		router := authRouterWithRequestID("req-auth-missing-1")
 		router.GET("/secure", Middleware(mgr), func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"ok": true})
 		})
@@ -89,10 +92,11 @@ func TestMiddleware(t *testing.T) {
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("unexpected status: %d", rec.Code)
 		}
+		assertAuthError(t, rec, authTokenMissingCode, "missing bearer token", "req-auth-missing-1")
 	})
 
 	t.Run("invalid token", func(t *testing.T) {
-		router := gin.New()
+		router := authRouterWithRequestID("req-auth-invalid-1")
 		router.GET("/secure", Middleware(mgr), func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"ok": true})
 		})
@@ -105,6 +109,7 @@ func TestMiddleware(t *testing.T) {
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("unexpected status: %d", rec.Code)
 		}
+		assertAuthError(t, rec, authTokenInvalidCode, "invalid token", "req-auth-invalid-1")
 	})
 
 	t.Run("header token", func(t *testing.T) {
@@ -145,4 +150,35 @@ func TestMiddleware(t *testing.T) {
 			t.Fatalf("unexpected status: %d", rec.Code)
 		}
 	})
+}
+
+func authRouterWithRequestID(requestID string) *gin.Engine {
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("X-Request-ID", requestID)
+		c.Request = c.Request.WithContext(trace.WithRequestID(c.Request.Context(), requestID))
+		c.Next()
+	})
+	return router
+}
+
+func assertAuthError(t *testing.T, rec *httptest.ResponseRecorder, code string, message string, requestID string) {
+	t.Helper()
+
+	var got map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response failed: %v body=%s", err, rec.Body.String())
+	}
+	if got["error"] != message {
+		t.Fatalf("unexpected error payload: %+v", got)
+	}
+	if got["code"] != code {
+		t.Fatalf("unexpected code payload: %+v", got)
+	}
+	if got["request_id"] != requestID {
+		t.Fatalf("unexpected request_id payload: %+v", got)
+	}
+	if got["success"] != false {
+		t.Fatalf("unexpected success payload: %+v", got)
+	}
 }

@@ -38,11 +38,14 @@ Interview angle:
 - Web refresh sessions are persisted and rotated.
 - Refresh reuse is tracked as suspicious behavior.
 - Support/internal APIs use dedicated tokens and should never be exposed to regular clients.
+- `X-Request-ID` is normalized at the HTTP middleware boundary, returned in error responses, stored on Agent runs, copied into `event_outbox`, and re-injected into async outbox handlers.
+- Auth failures use the same JSON error envelope as other APIs: `error`, `code`, `request_id`, and `success=false`.
 
 Interview angle:
 
 - Discuss refresh token replay detection.
 - Discuss why organization boundary checks must be repeated in service-layer methods, not only UI routes.
+- Discuss why async work needs trace context persisted in durable rows, otherwise HTTP logs and worker logs cannot be correlated after the request ends.
 
 ## Agent Backend Design
 
@@ -66,6 +69,7 @@ Interview angle:
 ## Outbox Worker Design
 
 - `event_outbox` stores durable domain events with aggregate type, aggregate ID, event name, payload JSON, idempotency key, status, attempts, and error metadata.
+- `event_outbox.request_id` preserves the originating request context for async diagnostics.
 - The server starts `startOutboxWorker`, which drains pending rows on an interval and processes them through registered handlers.
 - Runtime knobs are `OUTBOX_WORKER_INTERVAL_SEC`, `OUTBOX_WORKER_BATCH_SIZE`, `OUTBOX_WORKER_MAX_ATTEMPTS`, and `OUTBOX_WORKER_RETRY_DELAY_SEC`.
 - Metrics distinguish publish, retry, and permanent failure paths.
@@ -74,6 +78,7 @@ Interview angle:
 
 - Explain why Agent run creation writes `agent.run.requested`, why message write-back writes `agent.run.completed`, and why both use outbox idempotency keys.
 - Explain why the current handler can be a simple observed event while the contract still allows Kafka, Redis Streams, or webhook publishers later.
+- Explain how persisting `request_id` turns the outbox from a black box into a supportable async pipeline.
 
 ## Realtime Replay Store
 

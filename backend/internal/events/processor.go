@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/trace"
 )
 
 var ErrOutboxHandlerNotFound = errors.New("outbox handler not found")
@@ -106,7 +107,8 @@ func (p *Processor) processEvent(ctx context.Context, row models.EventOutbox) er
 	handler := p.lookup(row.Event)
 	err := ErrOutboxHandlerNotFound
 	if handler != nil {
-		err = handler(ctx, row)
+		handlerCtx := trace.WithOutboxID(trace.WithRequestID(ctx, row.RequestID), row.ID)
+		err = handler(handlerCtx, row)
 	}
 	if err == nil {
 		if p.metrics != nil {
