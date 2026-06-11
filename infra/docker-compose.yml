@@ -27,6 +27,45 @@ services:
     networks:
       - allcallall_network
 
+  kafka:
+    profiles: ["interview-infra", "kafka"]
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.8
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 512M
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://kafka:9092
+    ports:
+      - "9092:9092"
+    networks:
+      - allcallall_network
+
+  elasticsearch:
+    profiles: ["interview-infra", "search"]
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - allcallall_network
+
   backend:
     build:
       context: ../backend
@@ -34,6 +73,9 @@ services:
     depends_on:
       - mysql
       - redis
+      - user-service
+      - kafka
+      - elasticsearch
     environment:
       DB_DSN: allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local
       REDIS_ADDR: redis:6379
@@ -79,6 +121,11 @@ services:
       CONFIG_PATH: /app/configs/config.yaml
       EMBEDDED_WORKERS: "0"
       AGENT_PROVIDER: ${AGENT_PROVIDER:-rules}
+      USER_SERVICE_GRPC_ADDR: ${USER_SERVICE_GRPC_ADDR:-user-service:9090}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+      KAFKA_SETTLEMENT_TOPIC: ${KAFKA_SETTLEMENT_TOPIC:-allcallall.room.settlements}
+      ELASTICSEARCH_URL: ${ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      ELASTICSEARCH_INDEX: ${ELASTICSEARCH_INDEX:-allcallall_messages}
       WEBRTC_ICE_SERVERS_JSON: '${WEBRTC_ICE_SERVERS_JSON:-[{"urls":["stun:stun.l.google.com:19302"]}]}'
       FCM_SERVICE_ACCOUNT_PATH: ${FCM_SERVICE_ACCOUNT_PATH:-}
       WS_PING_INTERVAL: ${WS_PING_INTERVAL:-30s}
@@ -96,6 +143,69 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  user-service:
+    profiles: ["microservices", "user-service"]
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    depends_on:
+      - mysql
+    environment:
+      DB_DSN: allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local
+      JWT_SECRET: ${JWT_SECRET}
+      CONFIG_PATH: /app/configs/config.yaml
+      USER_GRPC_ADDR: :9090
+    volumes:
+      - ../backend/configs:/app/configs:ro
+    restart: unless-stopped
+    command: ["/app/user-service"]
+    networks:
+      - allcallall_network
+
+  data-worker:
+    profiles: ["microservices", "data-worker"]
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    depends_on:
+      - mysql
+      - kafka
+    environment:
+      DB_DSN: allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local
+      CONFIG_PATH: /app/configs/config.yaml
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+      KAFKA_SETTLEMENT_TOPIC: ${KAFKA_SETTLEMENT_TOPIC:-allcallall.room.settlements}
+      KAFKA_CONSUMER_GROUP: ${KAFKA_CONSUMER_GROUP:-allcallall-data-worker}
+    volumes:
+      - ../backend/configs:/app/configs:ro
+    restart: unless-stopped
+    command: ["/app/data-worker"]
+    networks:
+      - allcallall_network
+
+  search-worker:
+    profiles: ["microservices", "search-worker"]
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    depends_on:
+      - mysql
+      - elasticsearch
+    environment:
+      DB_DSN: allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local
+      CONFIG_PATH: /app/configs/config.yaml
+      ELASTICSEARCH_URL: ${ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      ELASTICSEARCH_INDEX: ${ELASTICSEARCH_INDEX:-allcallall_messages}
+      WORKER_ID: search-worker
+      OUTBOX_WORKER_INTERVAL_SEC: ${OUTBOX_WORKER_INTERVAL_SEC:-1}
+      OUTBOX_WORKER_BATCH_SIZE: ${OUTBOX_WORKER_BATCH_SIZE:-50}
+    volumes:
+      - ../backend/configs:/app/configs:ro
+    restart: unless-stopped
+    command: ["/app/search-worker"]
+    networks:
+      - allcallall_network
 
   agent-worker:
     profiles: ["microservices", "agent-worker"]
@@ -141,6 +251,8 @@ services:
       WORKER_ID: outbox-worker
       OUTBOX_WORKER_INTERVAL_SEC: ${OUTBOX_WORKER_INTERVAL_SEC:-1}
       OUTBOX_WORKER_BATCH_SIZE: ${OUTBOX_WORKER_BATCH_SIZE:-50}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+      KAFKA_SETTLEMENT_TOPIC: ${KAFKA_SETTLEMENT_TOPIC:-allcallall.room.settlements}
     volumes:
       - ../backend/configs:/app/configs:ro
     restart: unless-stopped
@@ -195,6 +307,7 @@ volumes:
   mysql_data:
   redis_data:
   recording_data:
+  es_data:
 
 networks:
   allcallall_network:

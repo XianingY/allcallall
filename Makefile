@@ -1,7 +1,7 @@
 # AllCallAll Project Makefile
 # Common commands for development
 
-.PHONY: help setup build-android build-ios clean test run-api run-agent-worker run-outbox-worker run-cleanup-worker interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench interview-microservice-demo agent-eval realtime-replay-bench chat-ws-replay-bench
+.PHONY: help setup build-android build-ios clean test run-api run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench interview-microservice-demo agent-eval realtime-replay-bench chat-ws-replay-bench
 
 # Default target
 help:
@@ -18,8 +18,11 @@ help:
 	@echo "Backend:"
 	@echo "  make run-backend      - Start backend server"
 	@echo "  make run-api          - Start API server (EMBEDDED_WORKERS configurable)"
+	@echo "  make run-user-service - Start standalone gRPC User Service"
 	@echo "  make run-agent-worker - Start standalone Agent worker"
 	@echo "  make run-outbox-worker - Start standalone Outbox worker"
+	@echo "  make run-data-worker  - Start standalone Kafka settlement Data worker"
+	@echo "  make run-search-worker - Start standalone Elasticsearch indexing worker"
 	@echo "  make run-cleanup-worker - Start standalone Cleanup worker"
 	@echo "  make interview-demo   - Run local interview demo evidence suite"
 	@echo "  make interview-demo-live - Start MySQL/Redis and seed live interview demo data"
@@ -75,6 +78,10 @@ run-api:
 	@echo "Starting API server..."
 	cd backend && EMBEDDED_WORKERS=$${EMBEDDED_WORKERS:-1} go run ./cmd/server
 
+run-user-service:
+	@echo "Starting standalone gRPC User Service..."
+	cd backend && go run ./cmd/user-service
+
 run-agent-worker:
 	@echo "Starting standalone Agent worker..."
 	cd backend && go run ./cmd/agent-worker
@@ -82,6 +89,14 @@ run-agent-worker:
 run-outbox-worker:
 	@echo "Starting standalone Outbox worker..."
 	cd backend && go run ./cmd/outbox-worker
+
+run-data-worker:
+	@echo "Starting standalone Kafka settlement Data worker..."
+	cd backend && go run ./cmd/data-worker
+
+run-search-worker:
+	@echo "Starting standalone Elasticsearch search worker..."
+	cd backend && go run ./cmd/search-worker
 
 run-cleanup-worker:
 	@echo "Starting standalone Cleanup worker..."

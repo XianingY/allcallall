@@ -7,6 +7,46 @@ Use this page as a preparation checklist before backend interviews.
 - Go backend with Gin handlers, service-layer business logic, Gorm repositories/models, Redis-assisted realtime infrastructure, and S3-compatible storage abstraction.
 - Mobile/Web/Desktop clients share the same `/api/v1` backend surface instead of platform-specific APIs.
 - Collaboration data is organization-scoped: conversations, rooms, recordings, notes, messages, and Agent runs all carry organization boundaries.
+- The codebase now has extractable service entrypoints: API/signaling server, gRPC User Service, Agent worker, outbox/Kafka bridge worker, Kafka Data Worker, Elasticsearch search worker, and cleanup worker.
+
+## gRPC User Service Boundary
+
+- `backend/proto/user/v1/user.proto` defines the user-center contract.
+- `cmd/user-service` serves the user center over gRPC.
+- `cmd/server` uses local JWT validation by default, but switches protected auth middleware to gRPC when `USER_SERVICE_GRPC_ADDR` is set.
+- This creates a clear split between connection-heavy signaling/API workloads and user-center IO/auth workloads without changing external client APIs.
+
+Interview angle:
+
+- Explain why gRPC is used for latency-sensitive internal calls instead of HTTP JSON.
+- Explain why this split is safer than immediately splitting every CRUD module.
+- Explain how this keeps the monolith runnable while proving an executable microservice boundary.
+
+## Kafka Settlement Pipeline
+
+- Room end writes one `settlement.room.ended` outbox event per participant.
+- `cmd/outbox-worker` can bridge settlement outbox events to Kafka when `KAFKA_BROKERS` is configured.
+- `cmd/data-worker` consumes the Kafka topic and writes `room_settlements`.
+- Duplicate delivery is safe through `event_outbox.idempotency_key`, `room_settlements.source_event_id`, and `(room_id,user_id)` uniqueness.
+
+Interview angle:
+
+- Explain why the room leave path should not synchronously write every analytics/billing row during disconnect storms.
+- Explain outbox-to-Kafka as a safer bridge than publishing to Kafka inside a DB transaction.
+- Explain at-least-once delivery and why consumers must be idempotent.
+
+## Elasticsearch Search Read Model
+
+- Message creation enqueues `search.message.index_requested`.
+- `cmd/search-worker` loads the canonical MySQL message and indexes it into Elasticsearch.
+- `GET /api/v1/search/messages?q=...` searches ES and then filters results through service-layer conversation membership.
+- If `ELASTICSEARCH_URL` is not set, the API uses an in-memory index for local demos and tests.
+
+Interview angle:
+
+- Explain why MySQL remains the source of truth and ES is an eventually consistent read model.
+- Explain why authorization must not be delegated to Elasticsearch.
+- Explain how this avoids `LIKE '%keyword%'` scans for large message history.
 
 ## Realtime Design
 

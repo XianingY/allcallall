@@ -36,12 +36,35 @@ The current bridge is `event_outbox`:
 3. Workers mark rows as published, retry, or failed.
 4. Request IDs are persisted so API requests can be correlated with async worker execution.
 
-Future migration path:
+Current and future migration path:
 
 - Current: MySQL `event_outbox`.
-- Next: outbox worker publishes to Redis Streams.
-- Later: swap Redis Streams for Kafka, NATS, or another event bus.
+- Current executable bridge: `settlement.room.ended` outbox events can be published to Kafka-compatible brokers by `cmd/outbox-worker` when `KAFKA_BROKERS` is configured.
+- Current executable consumer: `cmd/data-worker` consumes `allcallall.room.settlements` and writes idempotent `room_settlements`.
+- Later: expand Kafka topics for analytics, notification fan-out, or Agent work queues after measuring traffic.
 - Final: Agent service, realtime gateway, and recording service subscribe to event streams and own their own persistence if needed.
+
+## Stage 4: Synchronous Service Split
+
+The first synchronous service split is the User Service:
+
+- Contract: `backend/proto/user/v1/user.proto`.
+- Server: `backend/cmd/user-service`.
+- Client: `backend/internal/usergrpc`.
+- Runtime switch: `USER_SERVICE_GRPC_ADDR`.
+
+When configured, the API/signaling gateway validates access tokens by calling `UserService/ValidateAccessToken` over gRPC instead of parsing tokens locally. This is intentionally narrow: it proves request-time service decomposition without forcing every domain into a separate database.
+
+## Stage 5: Search Read Model
+
+Message search is now an extractable read side:
+
+- Writes: `message.created` also enqueues `search.message.index_requested`.
+- Worker: `backend/cmd/search-worker`.
+- Index: Elasticsearch via `ELASTICSEARCH_URL`.
+- API: `GET /api/v1/search/messages?q=...`.
+
+The search API filters ES hits through conversation membership checks, so MySQL remains the source of truth for authorization.
 
 ## Why Not Split Everything First?
 

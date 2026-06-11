@@ -20,6 +20,9 @@ Use these as raw material. Pick 2-3 bullets and tune them for the target role.
 
 - Added durable realtime event replay and explicit event sequence fields to reduce missed updates after WebSocket reconnects.
 - Introduced an event outbox model and worker with idempotent enqueue semantics, request-id propagation, worker claim/lease fields, retry limits, configurable batch/interval controls, and publish/retry/failure metrics.
+- Extracted a gRPC User Service boundary for internal access-token validation, enabling the connection-heavy signaling/API gateway to scale independently from user-center IO workloads.
+- Added a Kafka-compatible room settlement pipeline: room-ended events are written to outbox, bridged to Kafka, and consumed by a Data Worker into idempotent `room_settlements`.
+- Added an Elasticsearch-backed message search read model with async outbox indexing and post-search service-layer permission filtering.
 - Propagated `X-Request-ID` through HTTP error responses, Agent runs, outbox rows, and async worker handlers for traceable backend diagnostics.
 - Built recording lifecycle infrastructure with local/S3-compatible storage drivers, retention metadata, cleanup worker, download authorization, and support diagnostics.
 

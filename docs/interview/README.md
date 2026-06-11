@@ -16,6 +16,7 @@ AllCallAll is positioned as an AI-powered realtime collaboration backend project
 - [Backend Deep Dive](backend-deep-dive.md): Go, transactions, realtime, auth, storage, and reliability talking points.
 - [AI Agent Design](ai-agent-design.md): Agent state machine, provider seam, tool calling, memory, guardrails.
 - [Microservice Evolution](microservice-evolution.md): modular monolith to microservice-ready worker migration path.
+- [gRPC, Kafka, and Elasticsearch Evolution](grpc-kafka-es-evolution.md): synchronous service split, async settlement pipeline, and message search index.
 - [Worker Runtime](worker-runtime.md): API-embedded workers, standalone worker commands, event ownership, and failure semantics.
 - [Demo Script](demo-script.md): 5-minute interview demo flow and live backend variant.
 - [Agent Trace Example](agent-trace-example.md): run/step/tool timeline and tool registry explanation.
@@ -30,11 +31,14 @@ AllCallAll is positioned as an AI-powered realtime collaboration backend project
 1. Show the backend module boundaries: `auth`, `collaboration`, `agent`, `events`, `storage`, and `signaling`. Mention `commerce` only as supporting domain surface, not the main portfolio story.
 2. Walk through `POST /api/v1/agent/runs`: auth claims, organization header, membership guard, pending run creation, `agent.run.requested` outbox enqueue, worker execution, steps, tool calls, and metrics.
 3. Show how realtime collaboration data feeds the Agent: conversation messages, internal notes, priority, assignee, and status.
-4. Explain why v1 is rules-based: stable tests, deterministic demos, no API-key dependency, and an easy seam for OpenAI-compatible providers later.
-5. Show idempotency: repeat a run with the same `Idempotency-Key` and explain why tool side effects do not duplicate.
-6. Show observability: send `X-Request-ID`, trigger an Agent run, and explain how the same ID is saved on `agent_runs` and `event_outbox`.
-7. Show realtime replay: connect to `/api/v1/chat/ws?since_id=...` and point out `event_id`, `sequence`, and durable MySQL-backed replay.
-8. Open `/api/v1/metrics` and point to Agent and outbox counters such as `agent_run_queued_total`, `agent_run_started_total`, `agent_run_total`, `agent_run_failed_total`, `agent_tool_call_total`, `agent_memory_write_total`, `outbox_publish_total`, and `outbox_publish_retry_total`.
+4. Explain the microservice evolution path: API/signaling gateway calls User Service through gRPC when `USER_SERVICE_GRPC_ADDR` is configured.
+5. Explain async peak shaving: room-ended settlement events are written to outbox, bridged to Kafka, then consumed by `data-worker` into `room_settlements`.
+6. Explain search scaling: message writes enqueue `search.message.index_requested`, `search-worker` indexes ES, and `/search/messages` re-applies conversation membership checks.
+7. Explain why v1 Agent is rules-based: stable tests, deterministic demos, no API-key dependency, and an easy seam for OpenAI-compatible providers later.
+8. Show idempotency: repeat a run with the same `Idempotency-Key` and explain why tool side effects do not duplicate.
+9. Show observability: send `X-Request-ID`, trigger an Agent run, and explain how the same ID is saved on `agent_runs` and `event_outbox`.
+10. Show realtime replay: connect to `/api/v1/chat/ws?since_id=...` and point out `event_id`, `sequence`, and durable MySQL-backed replay.
+11. Open `/api/v1/metrics` and point to Agent and outbox counters such as `agent_run_queued_total`, `agent_run_started_total`, `agent_run_total`, `agent_run_failed_total`, `agent_tool_call_total`, `agent_memory_write_total`, `outbox_publish_total`, and `outbox_publish_retry_total`.
 
 ## One-Command Demo
 
@@ -95,6 +99,15 @@ Run the modular monolith plus standalone worker demo:
 make interview-microservice-demo
 ```
 
+Run extracted gRPC/Kafka/ES services locally:
+
+```bash
+make run-user-service
+make run-outbox-worker
+make run-data-worker
+make run-search-worker
+```
+
 Generate a local load-suite report:
 
 ```bash
@@ -105,6 +118,9 @@ make interview-load-suite
 
 - Built an organization-scoped realtime collaboration backend in Go with Gin, Gorm, Redis, WebSocket replay, room-state patch events, and S3-compatible recording storage.
 - Designed an explainable AI Agent execution model with persisted runs, intermediate steps, tool-call records, permission checks, metrics, and conversation write-back.
+- Added a gRPC User Service boundary for request-time auth validation, allowing the signaling/API gateway to scale separately from user-center IO workloads.
+- Added Kafka-compatible room settlement events and a Data Worker with idempotent consumption to demonstrate async peak shaving for meeting end storms.
+- Added Elasticsearch-backed message search with async outbox indexing and service-layer membership filtering to avoid MySQL wildcard scans.
 - Implemented production-oriented auth/session hardening with refresh-token rotation, reuse detection, logout-all, and support-side session inspection.
 - Added recording lifecycle management with storage abstraction, retention cleanup worker, signed/proxy downloads, organization boundary checks, and support diagnostics.
 

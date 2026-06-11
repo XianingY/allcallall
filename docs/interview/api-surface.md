@@ -34,6 +34,17 @@ Talking points:
 - Conversation state, priority, assignee, notes, and system event messages.
 - Local patch events instead of full-page reloads.
 
+## Message Search
+
+- `GET /api/v1/search/messages?q=<keyword>&limit=20`
+
+Talking points:
+
+- Message writes enqueue `search.message.index_requested`.
+- Search worker indexes canonical MySQL message rows into Elasticsearch.
+- The API re-checks conversation membership after ES returns hits, so ES is never the authorization source of truth.
+- Local development can use the memory indexer; production/demo infrastructure uses `ELASTICSEARCH_URL`.
+
 ## Realtime
 
 Collaboration event stream:
@@ -65,6 +76,26 @@ Talking points:
 
 - Chat replay and WebRTC signaling are separate realtime concerns.
 - Polling signaling is a proxy-friendly fallback when WebSocket signaling is not reliable.
+
+## Internal Service Boundaries
+
+gRPC User Service:
+
+- `allcallall.user.v1.UserService/ValidateAccessToken`
+- `allcallall.user.v1.UserService/GetUser`
+
+Worker entrypoints:
+
+- `cmd/user-service`
+- `cmd/outbox-worker`
+- `cmd/data-worker`
+- `cmd/search-worker`
+
+Talking points:
+
+- API/signaling can call User Service via gRPC by setting `USER_SERVICE_GRPC_ADDR`.
+- Room settlement uses outbox -> Kafka -> Data Worker to protect MySQL from meeting-end write spikes.
+- Search indexing uses outbox -> Search Worker -> Elasticsearch to keep message creation fast.
 
 ## Meetings And Rooms
 
