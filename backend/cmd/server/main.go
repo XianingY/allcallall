@@ -30,10 +30,12 @@ import (
 	"github.com/allcallall/backend/internal/ratelimit"
 	appruntime "github.com/allcallall/backend/internal/runtime"
 	"github.com/allcallall/backend/internal/server"
+	"github.com/allcallall/backend/internal/settlement"
 	"github.com/allcallall/backend/internal/signaling"
 	"github.com/allcallall/backend/internal/translation"
 	"github.com/allcallall/backend/internal/translation/providers"
 	"github.com/allcallall/backend/internal/user"
+	"github.com/allcallall/backend/internal/usergrpc"
 )
 
 // main 入口
@@ -110,6 +112,26 @@ func main() {
 		appLogger.Fatal().Err(err).Msg("failed to initialize recording storage")
 	}
 	collaborationSvc.WithRecordingStorage(recordingStorage)
+	searchSvc, searchDriver, err := appruntime.SearchServiceFromEnv()
+	if err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to initialize search service")
+	}
+	appruntime.RegisterSearchOutboxHandlers(outboxProcessor, collaborationSvc, searchSvc, appLogger)
+	appLogger.Info().Str("driver", searchDriver).Msg("message search service enabled")
+	settlementProducer, settlementKafkaEnabled, err := appruntime.KafkaProducerFromEnv()
+	if err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to initialize kafka producer")
+	}
+	if settlementKafkaEnabled {
+		settlementSvc := settlement.NewService(nil, settlementProducer, appruntime.SettlementTopicFromEnv())
+		appruntime.RegisterSettlementKafkaOutboxHandlers(outboxProcessor, settlementSvc, appLogger)
+		defer func() {
+			if err := settlementProducer.Close(); err != nil {
+				appLogger.Warn().Err(err).Msg("kafka settlement producer close with error")
+			}
+		}()
+		appLogger.Info().Str("topic", appruntime.SettlementTopicFromEnv()).Msg("kafka settlement bridge enabled")
+	}
 	contactRepo := contact.NewRepository(db)
 	contactSvc := contact.NewService(contactRepo, userSvc, commerceSvc)
 	invitationSvc := invitation.NewService(db, userSvc, contactSvc, commerceSvc)
@@ -142,6 +164,24 @@ func main() {
 		appLogger.Fatal().Err(err).Msg("failed to initialize jwt manager")
 	}
 	refreshSessionSvc := auth.NewRefreshSessionService(db, counterStore)
+	authMiddleware := auth.Middleware(jwtManager)
+	var closeUserGRPC func() error
+	if userGRPCAddr := strings.TrimSpace(os.Getenv("USER_SERVICE_GRPC_ADDR")); userGRPCAddr != "" {
+		remoteAuth, closeFn, err := usergrpc.DialClientAuthenticator(rootCtx, userGRPCAddr, 2*time.Second)
+		if err != nil {
+			appLogger.Fatal().Err(err).Str("addr", userGRPCAddr).Msg("failed to initialize user grpc auth client")
+		}
+		closeUserGRPC = closeFn
+		authMiddleware = auth.MiddlewareWithValidator(remoteAuth)
+		appLogger.Info().Str("addr", userGRPCAddr).Msg("protected auth middleware using user grpc service")
+	}
+	defer func() {
+		if closeUserGRPC != nil {
+			if err := closeUserGRPC(); err != nil {
+				appLogger.Warn().Err(err).Msg("user grpc connection close with error")
+			}
+		}
+	}()
 
 	authHandler := handlers.NewAuthHandler(appLogger, userSvc, jwtManager, verificationCodeSvc, handlers.AuthHandlerOptions{
 		Commerce:        commerceSvc,
@@ -160,6 +200,7 @@ func main() {
 	})
 	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, mailSvc, rateLimitSvc, counterStore)
 	collaborationHandler := handlers.NewCollaborationHandler(appLogger, collaborationSvc, userSvc, chatHub)
+	collaborationHandler.WithSearchService(searchSvc)
 	agentHandler := handlers.NewAgentHandler(appLogger, agentSvc)
 	invitationHandler := handlers.NewInvitationHandler(appLogger, invitationSvc, contactSvc, userSvc)
 	webrtcHandler := handlers.NewWebRTCHandler(appLogger, cfg.WebRTC)
@@ -234,12 +275,21 @@ func main() {
 		SignalingPoll:    signalingPollHandler,
 		WebRTCHandler:    webrtcHandler,
 		TranslationWS:    translationWSHandler,
-		AuthMiddleware:   auth.Middleware(jwtManager),
+		AuthMiddleware:   authMiddleware,
 		Metrics:          counterStore,
 	})
 
 	if appruntime.EmbeddedWorkersEnabledFromEnv() {
-		appruntime.ConfigureOutboxProcessorFromEnv(outboxProcessor, "api-embedded-outbox")
+		outboxEvents := []string{
+			appruntime.EventAgentRunRequested,
+			appruntime.EventAgentRunCompleted,
+			appruntime.EventMessageCreated,
+			appruntime.EventSearchMessageIndex,
+		}
+		if settlementKafkaEnabled {
+			outboxEvents = append(outboxEvents, appruntime.EventSettlementRoomEnd)
+		}
+		appruntime.ConfigureOutboxProcessorFromEnv(outboxProcessor, "api-embedded-outbox", outboxEvents...)
 		appruntime.StartCleanupWorker(rootCtx, appLogger, collaborationSvc, refreshSessionSvc)
 		appruntime.StartOutboxWorker(rootCtx, appLogger, outboxProcessor)
 	} else {

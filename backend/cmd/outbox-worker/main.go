@@ -12,6 +12,7 @@ import (
 	"github.com/allcallall/backend/internal/logger"
 	"github.com/allcallall/backend/internal/metrics"
 	appruntime "github.com/allcallall/backend/internal/runtime"
+	"github.com/allcallall/backend/internal/settlement"
 	"github.com/allcallall/backend/internal/user"
 )
 
@@ -37,10 +38,27 @@ func main() {
 
 	processor := events.NewProcessor(events.NewStore(db), counterStore)
 	appruntime.RegisterCollaborationOutboxHandlers(processor, collaborationSvc, appLogger)
+	eventFilter := []string{appruntime.EventAgentRunCompleted, appruntime.EventMessageCreated}
+	settlementProducer, settlementKafkaEnabled, err := appruntime.KafkaProducerFromEnv()
+	if err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to initialize kafka producer")
+	}
+	if settlementKafkaEnabled {
+		settlementSvc := settlement.NewService(nil, settlementProducer, appruntime.SettlementTopicFromEnv())
+		appruntime.RegisterSettlementKafkaOutboxHandlers(processor, settlementSvc, appLogger)
+		eventFilter = append(eventFilter, appruntime.EventSettlementRoomEnd)
+		defer func() {
+			if err := settlementProducer.Close(); err != nil {
+				appLogger.Warn().Err(err).Msg("kafka settlement producer close with error")
+			}
+		}()
+		appLogger.Info().Str("topic", appruntime.SettlementTopicFromEnv()).Msg("settlement kafka bridge enabled")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	appruntime.StartCollaborationOutboxWorker(ctx, appLogger, processor)
+	appruntime.ConfigureOutboxProcessorFromEnv(processor, "outbox-worker", eventFilter...)
+	appruntime.StartOutboxWorker(ctx, appLogger, processor)
 	appLogger.Info().Msg("outbox worker started")
 	<-ctx.Done()
 	appLogger.Info().Msg("outbox worker stopped")

@@ -1137,6 +1137,20 @@ func (s *Service) createMessageTx(ctx context.Context, tx *gorm.DB, organization
 		if err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
 			return nil, err
 		}
+		_, err = s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
+			AggregateType:  "message",
+			AggregateID:    message.ID,
+			Event:          "search.message.index_requested",
+			IdempotencyKey: fmt.Sprintf("search.message.index_requested:%d", message.ID),
+			Payload: map[string]any{
+				"organization_id": organizationID,
+				"conversation_id": conversationID,
+				"message_id":      message.ID,
+			},
+		})
+		if err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
+			return nil, err
+		}
 	}
 	if publish {
 		record, err := s.loadMessageRecord(ctx, message.ID)

@@ -15,6 +15,7 @@ import (
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/search"
 	"github.com/allcallall/backend/internal/user"
 )
 
@@ -22,6 +23,7 @@ type CollaborationHandler struct {
 	logger     zerolog.Logger
 	service    *collaboration.Service
 	users      *user.Service
+	search     *search.Service
 	chatHub    *collaboration.ChatHub
 	wsUpgrader websocket.Upgrader
 }
@@ -36,6 +38,10 @@ func NewCollaborationHandler(log zerolog.Logger, service *collaboration.Service,
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 	}
+}
+
+func (h *CollaborationHandler) WithSearchService(service *search.Service) {
+	h.search = service
 }
 
 func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGroup) {
@@ -58,6 +64,7 @@ func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGrou
 	protected.POST("/conversations/:id/notes", h.handleCreateConversationNote)
 	protected.POST("/conversations/:id/rooms", h.handleCreateConversationRoom)
 	protected.GET("/chat/ws", h.handleChatWS)
+	protected.GET("/search/messages", h.handleSearchMessages)
 
 	protected.POST("/rooms", h.handleCreateRoom)
 	protected.GET("/rooms", h.handleListRooms)

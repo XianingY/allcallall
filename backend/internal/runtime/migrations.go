@@ -48,6 +48,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.RecordingFile{},
 		&models.RecordingConsent{},
 		&models.RecordingExport{},
+		&models.RoomSettlement{},
 		&models.Pipeline{},
 		&models.PipelineStage{},
 		&models.Deal{},

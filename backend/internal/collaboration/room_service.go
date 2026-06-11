@@ -12,6 +12,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/media"
 	"github.com/allcallall/backend/internal/models"
 )
@@ -302,6 +303,40 @@ func (s *Service) LeaveRoom(ctx context.Context, organizationID, userID, roomID 
 					"ended_at": now,
 				}).Error; err != nil {
 				return err
+			}
+			if s.outbox != nil {
+				var memberIDs []uint64
+				if err := tx.Model(&models.CallRoomMember{}).Where("room_id = ?", roomID).Pluck("user_id", &memberIDs).Error; err != nil {
+					return err
+				}
+				startedAt := now
+				if room.StartedAt != nil {
+					startedAt = *room.StartedAt
+				}
+				durationSeconds := int64(now.Sub(startedAt).Seconds())
+				if durationSeconds < 0 {
+					durationSeconds = 0
+				}
+				for _, memberID := range uniqueUint64s(memberIDs) {
+					_, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
+						AggregateType:  "room",
+						AggregateID:    roomID,
+						Event:          "settlement.room.ended",
+						IdempotencyKey: fmt.Sprintf("settlement.room.ended:%d:%d", roomID, memberID),
+						Payload: map[string]any{
+							"event_id":          fmt.Sprintf("room:%d:user:%d:ended", roomID, memberID),
+							"organization_id":   organizationID,
+							"room_id":           roomID,
+							"user_id":           memberID,
+							"duration_seconds":  durationSeconds,
+							"participant_count": int64(len(memberIDs)),
+							"occurred_at":       now.Format(time.RFC3339),
+						},
+					})
+					if err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
+						return err
+					}
+				}
 			}
 			return s.createConversationSystemMessageTx(ctx, tx, organizationID, userID, room.ConversationID, "meeting.ended", fmt.Sprintf("会议“%s”已结束。", room.Title), map[string]any{
 				"room_id":  roomID,

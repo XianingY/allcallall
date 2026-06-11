@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/collaboration"
+	"github.com/allcallall/backend/internal/search"
 )
 
 func (h *CollaborationHandler) handleListConversations(c *gin.Context) {
@@ -156,6 +158,47 @@ func (h *CollaborationHandler) handleMarkConversationRead(c *gin.Context) {
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
+}
+
+func (h *CollaborationHandler) handleSearchMessages(c *gin.Context) {
+	if h.search == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "SEARCH_UNAVAILABLE", "message search is not configured")
+		return
+	}
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	query := strings.TrimSpace(c.Query("q"))
+	if query == "" {
+		JSONError(c, http.StatusBadRequest, "q is required")
+		return
+	}
+	limit := 20
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			JSONError(c, http.StatusBadRequest, "invalid limit")
+			return
+		}
+		limit = parsed
+	}
+	results, err := h.search.SearchMessages(c.Request.Context(), search.MessageSearchQuery{
+		OrganizationID: orgID,
+		UserID:         claims.UserID,
+		Query:          query,
+		Limit:          limit,
+	})
+	if err != nil {
+		JSONErrorWithCode(c, http.StatusBadGateway, "SEARCH_QUERY_FAILED", err.Error())
+		return
+	}
+	filtered, err := h.service.FilterSearchResults(c.Request.Context(), orgID, claims.UserID, results)
+	if err != nil {
+		JSONError(c, http.StatusForbidden, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"results": filtered})
 }
 
 func (h *CollaborationHandler) handleListConversationNotes(c *gin.Context) {

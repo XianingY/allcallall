@@ -16,18 +16,78 @@ import (
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/search"
+	"github.com/allcallall/backend/internal/settlement"
 	"github.com/allcallall/backend/internal/trace"
 )
 
 const (
-	EventAgentRunRequested = "agent.run.requested"
-	EventAgentRunCompleted = "agent.run.completed"
-	EventMessageCreated    = "message.created"
+	EventAgentRunRequested  = "agent.run.requested"
+	EventAgentRunCompleted  = "agent.run.completed"
+	EventMessageCreated     = "message.created"
+	EventSearchMessageIndex = "search.message.index_requested"
+	EventSettlementRoomEnd  = "settlement.room.ended"
 )
 
 func EmbeddedWorkersEnabledFromEnv() bool {
 	raw := strings.ToLower(strings.TrimSpace(os.Getenv("EMBEDDED_WORKERS")))
 	return raw == "" || raw == "1" || raw == "true" || raw == "yes"
+}
+
+func RegisterSearchOutboxHandlers(processor *events.Processor, collaborationSvc *collaboration.Service, searchSvc *search.Service, log zerolog.Logger) {
+	if processor == nil || collaborationSvc == nil || searchSvc == nil {
+		return
+	}
+	processor.Register(EventSearchMessageIndex, func(ctx context.Context, event models.EventOutbox) error {
+		messageID := event.AggregateID
+		if messageID == 0 {
+			var payload struct {
+				MessageID uint64 `json:"message_id"`
+			}
+			if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+				return err
+			}
+			messageID = payload.MessageID
+		}
+		if messageID == 0 {
+			return fmt.Errorf("message id missing in search payload")
+		}
+		doc, err := collaborationSvc.BuildMessageSearchDocument(ctx, messageID)
+		if err != nil {
+			return err
+		}
+		if err := searchSvc.IndexMessage(ctx, doc); err != nil {
+			return err
+		}
+		log.Info().
+			Str("request_id", trace.RequestID(ctx)).
+			Uint64("outbox_id", event.ID).
+			Uint64("message_id", messageID).
+			Msg("outbox message indexed for search")
+		return nil
+	})
+}
+
+func RegisterSettlementKafkaOutboxHandlers(processor *events.Processor, settlementSvc *settlement.Service, log zerolog.Logger) {
+	if processor == nil || settlementSvc == nil {
+		return
+	}
+	processor.Register(EventSettlementRoomEnd, func(ctx context.Context, event models.EventOutbox) error {
+		var payload settlement.RoomEndedEvent
+		if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+			return err
+		}
+		if err := settlementSvc.PublishRoomEnded(ctx, payload); err != nil {
+			return err
+		}
+		log.Info().
+			Str("request_id", trace.RequestID(ctx)).
+			Uint64("outbox_id", event.ID).
+			Uint64("room_id", payload.RoomID).
+			Uint64("user_id", payload.UserID).
+			Msg("outbox room settlement published to kafka")
+		return nil
+	})
 }
 
 func RegisterAgentOutboxHandlers(processor *events.Processor, agentSvc *agent.Service, log zerolog.Logger) {
@@ -129,6 +189,16 @@ func StartAgentWorker(ctx context.Context, log zerolog.Logger, processor *events
 func StartCollaborationOutboxWorker(ctx context.Context, log zerolog.Logger, processor *events.Processor) {
 	ConfigureOutboxProcessorFromEnv(processor, workerIDFromEnv("outbox-worker"), EventAgentRunCompleted, EventMessageCreated)
 	StartOutboxWorker(ctx, log.With().Str("worker", "outbox").Logger(), processor)
+}
+
+func StartSearchOutboxWorker(ctx context.Context, log zerolog.Logger, processor *events.Processor) {
+	ConfigureOutboxProcessorFromEnv(processor, workerIDFromEnv("search-worker"), EventSearchMessageIndex)
+	StartOutboxWorker(ctx, log.With().Str("worker", "search").Logger(), processor)
+}
+
+func StartSettlementBridgeWorker(ctx context.Context, log zerolog.Logger, processor *events.Processor) {
+	ConfigureOutboxProcessorFromEnv(processor, workerIDFromEnv("settlement-bridge"), EventSettlementRoomEnd)
+	StartOutboxWorker(ctx, log.With().Str("worker", "settlement-bridge").Logger(), processor)
 }
 
 func StartCleanupWorker(ctx context.Context, log zerolog.Logger, collaborationSvc *collaboration.Service, refreshSessions *auth.RefreshSessionService) {
