@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -17,6 +18,16 @@ const (
 // Middleware 返回 Gin 中间件
 // Middleware validates Authorization header (Bearer token) or query parameter token for WebSocket.
 func Middleware(manager *Manager) gin.HandlerFunc {
+	return MiddlewareWithValidator(manager)
+}
+
+// TokenValidator validates access tokens for HTTP and WebSocket request paths.
+type TokenValidator interface {
+	ValidateAccessToken(ctx context.Context, token string) (*Claims, error)
+}
+
+// MiddlewareWithValidator returns a Gin middleware backed by a local or remote token validator.
+func MiddlewareWithValidator(validator TokenValidator) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 优先尝试从 Authorization 请求头中提取 token
 		token := extractToken(c.Request.Header.Get("Authorization"))
@@ -35,7 +46,7 @@ func Middleware(manager *Manager) gin.HandlerFunc {
 			return
 		}
 
-		claims, err := manager.ParseToken(token)
+		claims, err := validator.ValidateAccessToken(c.Request.Context(), token)
 		if err != nil {
 			abortAuthError(c, authTokenInvalidCode, "invalid token")
 			return

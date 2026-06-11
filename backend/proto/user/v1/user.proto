@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package allcallall.user.v1;
+
+option go_package = "github.com/allcallall/backend/internal/usergrpc/userpb";
+
+// UserService is the extractable user-center boundary used by Signaling Service.
+service UserService {
+  rpc ValidateAccessToken(ValidateAccessTokenRequest) returns (ValidateAccessTokenResponse);
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+}
+
+message ValidateAccessTokenRequest {
+  string access_token = 1;
+}
+
+message ValidateAccessTokenResponse {
+  uint64 user_id = 1;
+  string email = 2;
+  string status = 3;
+}
+
+message GetUserRequest {
+  uint64 user_id = 1;
+  string email = 2;
+}
+
+message GetUserResponse {
+  uint64 user_id = 1;
+  string email = 2;
+  string display_name = 3;
+  string status = 4;
+}

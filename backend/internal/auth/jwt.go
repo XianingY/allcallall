@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -101,6 +102,11 @@ func (m *Manager) ParseToken(tokenString string) (*Claims, error) {
 		return nil, errors.New("invalid access token type")
 	}
 	return claims, nil
+}
+
+// ValidateAccessToken implements TokenValidator for local in-process auth.
+func (m *Manager) ValidateAccessToken(_ context.Context, tokenString string) (*Claims, error) {
+	return m.ParseToken(tokenString)
 }
 
 // ParseRefreshToken validates refresh-cookie JWTs only.
