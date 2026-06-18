@@ -1,7 +1,7 @@
 # AllCallAll Project Makefile
 # Common commands for development
 
-.PHONY: help setup build-android build-ios clean test run-api run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench interview-microservice-demo agent-eval realtime-replay-bench chat-ws-replay-bench
+.PHONY: help setup build-android build-ios clean test run-api run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench interview-microservice-demo agent-eval rag-eval workflow-eval agent-demo-report mcp-tool-server realtime-replay-bench chat-ws-replay-bench
 
 # Default target
 help:
@@ -30,6 +30,10 @@ help:
 	@echo "  make interview-load-suite - Generate local interview load suite artifacts"
 	@echo "  make interview-microservice-demo - Run API + standalone worker demo"
 	@echo "  make agent-eval       - Run deterministic Agent eval harness"
+	@echo "  make rag-eval         - Run deterministic RAG retrieval eval harness"
+	@echo "  make workflow-eval    - Run deterministic Workflow multi-agent eval harness"
+	@echo "  make agent-demo-report - Generate combined Agent/RAG/Workflow demo report"
+	@echo "  make mcp-tool-server  - Start MCP-compatible read-only tool server"
 	@echo "  make interview-bench  - Run local Agent/outbox benchmark"
 	@echo "  make realtime-replay-bench - Run local realtime replay benchmark"
 	@echo "  make chat-ws-replay-bench - Run authenticated chat WebSocket replay benchmark"
@@ -155,6 +159,25 @@ agent-eval:
 	@echo "Running deterministic Agent eval harness..."
 	@mkdir -p /tmp/allcallall-go-cache
 	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/agent-eval -provider $${AGENT_PROVIDER:-rules}
+
+rag-eval:
+	@echo "Running deterministic RAG eval harness..."
+	@mkdir -p /tmp/allcallall-go-cache
+	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/rag-eval
+
+workflow-eval:
+	@echo "Running deterministic Workflow eval harness..."
+	@mkdir -p /tmp/allcallall-go-cache
+	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/agent-eval -fixture ./internal/agent/testdata/workflow_eval_cases.json
+
+agent-demo-report:
+	@echo "Generating combined Agent demo report..."
+	@mkdir -p /tmp/allcallall-go-cache
+	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/allcallallctl eval -provider $${AGENT_PROVIDER:-rules} -out ../docs/interview/generated-agent-report
+
+mcp-tool-server:
+	@echo "Starting MCP-compatible read-only tool server..."
+	cd backend && go run ./cmd/mcp-tool-server
 
 interview-bench:
 	@echo "Running local Agent/outbox benchmark..."
