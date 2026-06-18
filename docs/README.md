@@ -20,6 +20,8 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 - [Backend Deep Dive](./interview/backend-deep-dive.md): backend module explanation.
 - [AI Agent Design](./interview/ai-agent-design.md): Agent runs, tools, approvals, memory, and RAG.
 - [Agent RAG Current State](./interview/agent-rag-current-state.md): retrieval implementation notes.
+- [Agent Demo Eval Report](./interview/agent-demo-report.md): reproducible planner, RAG, and workflow eval report.
+- [MCP Tool Server](./interview/mcp-tool-server.md): read-only MCP tools and repo-native AI Skill demo.
 - [gRPC, Kafka, and Elasticsearch Evolution](./interview/grpc-kafka-es-evolution.md): extracted boundaries and infra extensions.
 - [Worker Runtime](./interview/worker-runtime.md): embedded and standalone workers.
 - [API Surface](./interview/api-surface.md): route map for interview discussion.

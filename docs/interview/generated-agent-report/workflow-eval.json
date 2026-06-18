@@ -1,0 +1,24 @@
+{
+  "mode": "workflow",
+  "cases": 2,
+  "passed": 2,
+  "failed": 0,
+  "results": [
+    {
+      "name": "approval_parallel_merge_tool_commit",
+      "passed": true,
+      "status": "ready",
+      "tasks": 9,
+      "messages": 12,
+      "approvals": 3
+    },
+    {
+      "name": "tool_policy_denies_write",
+      "passed": true,
+      "status": "failed",
+      "tasks": 9,
+      "messages": 6,
+      "approvals": 0
+    }
+  ]
+}

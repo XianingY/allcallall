@@ -19,6 +19,7 @@ AllCallAll is positioned as an AI-powered realtime collaboration backend project
 - [gRPC, Kafka, and Elasticsearch Evolution](grpc-kafka-es-evolution.md): synchronous service split, async settlement pipeline, and message search index.
 - [Worker Runtime](worker-runtime.md): API-embedded workers, standalone worker commands, event ownership, and failure semantics.
 - [Demo Script](demo-script.md): 5-minute interview demo flow and live backend variant.
+- [Agent Demo Eval Report](agent-demo-report.md): one-command planner, RAG, and workflow eval report.
 - [Agent Trace Example](agent-trace-example.md): run/step/tool timeline and tool registry explanation.
 - [API Surface](api-surface.md): APIs worth demoing in interviews.
 - [Performance Report](performance-report.md): load-test template and metrics checklist.
@@ -92,6 +93,9 @@ Run deterministic Agent evals directly:
 
 ```bash
 make agent-eval
+make rag-eval
+make workflow-eval
+make agent-demo-report
 ```
 
 Run the modular monolith plus standalone worker demo:

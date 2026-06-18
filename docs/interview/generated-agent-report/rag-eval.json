@@ -1,0 +1,45 @@
+{
+  "cases": 2,
+  "passed": 2,
+  "failed": 0,
+  "results": [
+    {
+      "name": "vector_hit_security_budget",
+      "passed": true,
+      "hits": [
+        {
+          "chunk_id": 1,
+          "source_title": "Security rollout note",
+          "retrieval_mode": "vector",
+          "score": 100,
+          "snippet": "Security approval is the main risk. The customer needs a data retention answer before the budget window closes."
+        },
+        {
+          "chunk_id": 2,
+          "source_title": "Training plan",
+          "retrieval_mode": "vector",
+          "score": 0,
+          "snippet": "Training should cover agent handoff, translation quality review, and support escalation."
+        }
+      ],
+      "mode": "vector",
+      "elapsed": "41.60675ms"
+    },
+    {
+      "name": "sql_fallback_pricing_latency",
+      "passed": true,
+      "hits": [
+        {
+          "chunk_id": 1,
+          "source_title": "Pricing latency note",
+          "retrieval_mode": "sql_fallback",
+          "score": 21,
+          "snippet": "Pricing depends on the pilot seat count. Latency and translation quality are the key acceptance criteria."
+        }
+      ],
+      "mode": "sql_fallback",
+      "fallback_reason": "indexer_unavailable",
+      "elapsed": "52.469208ms"
+    }
+  ]
+}
