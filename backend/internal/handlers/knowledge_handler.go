@@ -187,7 +187,10 @@ func (h *KnowledgeHandler) handleListSources(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sources, err := h.service.ListSources(c.Request.Context(), organizationID, claims.UserID)
+	sources, err := h.service.ListSources(c.Request.Context(), organizationID, claims.UserID, knowledge.ListSourcesFilter{
+		ConversationID: parseOptionalUintQuery(c.Query("conversation_id")),
+		Status:         c.Query("status"),
+	})
 	if err != nil {
 		h.writeKnowledgeError(c, err)
 		return

@@ -152,9 +152,14 @@ type ConversationWorkspace struct {
 type ConversationAgentContext struct {
 	LatestCallID           string     `json:"latest_call_id,omitempty"`
 	TranscriptSegmentCount int        `json:"transcript_segment_count"`
+	LatestTranscriptAt     *time.Time `json:"latest_transcript_at,omitempty"`
 	LatestMemoryKeys       []string   `json:"latest_memory_keys,omitempty"`
 	LastAgentRunAt         *time.Time `json:"last_agent_run_at,omitempty"`
 	LastAgentStatus        string     `json:"last_agent_status,omitempty"`
+	LastWorkflowID         *uint64    `json:"last_workflow_id,omitempty"`
+	LastWorkflowPreset     string     `json:"last_workflow_preset,omitempty"`
+	PendingApprovalCount   int64      `json:"pending_approval_count"`
+	KnowledgeSourceCount   int64      `json:"knowledge_source_count"`
 }
 
 type MeetingSummaryCard struct {
@@ -665,6 +670,14 @@ func (s *Service) buildConversationAgentContext(ctx context.Context, organizatio
 				Count(&transcriptCount).Error; err == nil {
 				result.TranscriptSegmentCount = int(transcriptCount)
 			}
+			var latestSegment models.CallTranscriptSegment
+			if err := s.db.WithContext(ctx).
+				Select("created_at").
+				Where("call_id = ?", result.LatestCallID).
+				Order("created_at DESC").
+				Take(&latestSegment).Error; err == nil {
+				result.LatestTranscriptAt = &latestSegment.CreatedAt
+			}
 		}
 	}
 	var memories []models.AgentMemory
@@ -679,22 +692,52 @@ func (s *Service) buildConversationAgentContext(ctx context.Context, organizatio
 		}
 		result.LatestMemoryKeys = uniqueStrings(keys)
 	}
-	var run models.AgentRun
+	var workflow models.WorkflowRun
 	if err := s.db.WithContext(ctx).
 		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
 		Order("COALESCE(completed_at, started_at, updated_at) DESC").
-		Take(&run).Error; err == nil {
-		result.LastAgentStatus = run.Status
+		Take(&workflow).Error; err == nil {
+		result.LastWorkflowID = &workflow.ID
+		result.LastWorkflowPreset = workflow.Preset
+		result.LastAgentStatus = workflow.Status
 		switch {
-		case run.CompletedAt != nil:
-			result.LastAgentRunAt = run.CompletedAt
-		case run.StartedAt != nil:
-			result.LastAgentRunAt = run.StartedAt
+		case workflow.CompletedAt != nil:
+			result.LastAgentRunAt = workflow.CompletedAt
+		case workflow.StartedAt != nil:
+			result.LastAgentRunAt = workflow.StartedAt
 		default:
-			at := run.UpdatedAt
+			at := workflow.UpdatedAt
 			result.LastAgentRunAt = &at
 		}
+	} else {
+		var run models.AgentRun
+		if err := s.db.WithContext(ctx).
+			Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
+			Order("COALESCE(completed_at, started_at, updated_at) DESC").
+			Take(&run).Error; err == nil {
+			result.LastAgentStatus = run.Status
+			switch {
+			case run.CompletedAt != nil:
+				result.LastAgentRunAt = run.CompletedAt
+			case run.StartedAt != nil:
+				result.LastAgentRunAt = run.StartedAt
+			default:
+				at := run.UpdatedAt
+				result.LastAgentRunAt = &at
+			}
+		}
 	}
+	_ = s.db.WithContext(ctx).
+		Model(&models.ToolApproval{}).
+		Joins("JOIN workflow_runs ON workflow_runs.id = tool_approvals.workflow_run_id").
+		Where("tool_approvals.organization_id = ? AND workflow_runs.conversation_id = ? AND tool_approvals.status = ?", organizationID, conversationID, models.ToolApprovalStatusPending).
+		Count(&result.PendingApprovalCount).Error
+	_ = s.db.WithContext(ctx).
+		Model(&models.RAGSource{}).
+		Where("organization_id = ? AND (conversation_id IS NULL OR conversation_id = ?)", organizationID, conversationID).
+		Where("status = ?", models.RAGSourceStatusReady).
+		Where("(dedupe_status IS NULL OR dedupe_status <> ?)", models.RAGSourceDedupeStatusConfirmedDuplicate).
+		Count(&result.KnowledgeSourceCount).Error
 	return result
 }
 

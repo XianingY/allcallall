@@ -174,9 +174,14 @@ type conversationWorkspaceResponse struct {
 type conversationAgentContextResponse struct {
 	LatestCallID           string     `json:"latest_call_id,omitempty"`
 	TranscriptSegmentCount int        `json:"transcript_segment_count"`
+	LatestTranscriptAt     *time.Time `json:"latest_transcript_at,omitempty"`
 	LatestMemoryKeys       []string   `json:"latest_memory_keys,omitempty"`
 	LastAgentRunAt         *time.Time `json:"last_agent_run_at,omitempty"`
 	LastAgentStatus        string     `json:"last_agent_status,omitempty"`
+	LastWorkflowID         *uint64    `json:"last_workflow_id,omitempty"`
+	LastWorkflowPreset     string     `json:"last_workflow_preset,omitempty"`
+	PendingApprovalCount   int64      `json:"pending_approval_count"`
+	KnowledgeSourceCount   int64      `json:"knowledge_source_count"`
 }
 
 type meetingSummaryCardResponse struct {
@@ -690,9 +695,14 @@ func toConversationDetailResponse(item collaboration.ConversationDetail) convers
 			AgentContext: conversationAgentContextResponse{
 				LatestCallID:           item.Workspace.AgentContext.LatestCallID,
 				TranscriptSegmentCount: item.Workspace.AgentContext.TranscriptSegmentCount,
+				LatestTranscriptAt:     item.Workspace.AgentContext.LatestTranscriptAt,
 				LatestMemoryKeys:       item.Workspace.AgentContext.LatestMemoryKeys,
 				LastAgentRunAt:         item.Workspace.AgentContext.LastAgentRunAt,
 				LastAgentStatus:        item.Workspace.AgentContext.LastAgentStatus,
+				LastWorkflowID:         item.Workspace.AgentContext.LastWorkflowID,
+				LastWorkflowPreset:     item.Workspace.AgentContext.LastWorkflowPreset,
+				PendingApprovalCount:   item.Workspace.AgentContext.PendingApprovalCount,
+				KnowledgeSourceCount:   item.Workspace.AgentContext.KnowledgeSourceCount,
 			},
 		},
 	}

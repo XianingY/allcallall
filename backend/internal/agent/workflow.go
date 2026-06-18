@@ -37,6 +37,17 @@ type WorkflowInput struct {
 	IdempotencyKey string
 }
 
+type WorkflowListFilter struct {
+	ConversationID *uint64
+	Status         string
+	Limit          int
+}
+
+type ToolApprovalListFilter struct {
+	ConversationID *uint64
+	Status         string
+}
+
 type WorkflowResult struct {
 	Run         models.WorkflowRun            `json:"run"`
 	Tasks       []models.WorkflowTask         `json:"tasks"`
@@ -238,17 +249,21 @@ func (s *Service) GetWorkflowRun(ctx context.Context, organizationID, userID, wo
 	return s.buildWorkflowResult(ctx, run)
 }
 
-func (s *Service) ListWorkflowRuns(ctx context.Context, organizationID, userID uint64, limit int) ([]WorkflowResult, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 50
+func (s *Service) ListWorkflowRuns(ctx context.Context, organizationID, userID uint64, filter WorkflowListFilter) ([]WorkflowResult, error) {
+	if filter.Limit <= 0 || filter.Limit > 100 {
+		filter.Limit = 50
+	}
+	query := s.db.WithContext(ctx).Model(&models.WorkflowRun{}).
+		Joins("JOIN conversation_members ON conversation_members.conversation_id = workflow_runs.conversation_id").
+		Where("workflow_runs.organization_id = ? AND conversation_members.user_id = ?", organizationID, userID)
+	if filter.ConversationID != nil {
+		query = query.Where("workflow_runs.conversation_id = ?", *filter.ConversationID)
+	}
+	if status := strings.TrimSpace(filter.Status); status != "" {
+		query = query.Where("workflow_runs.status = ?", status)
 	}
 	var runs []models.WorkflowRun
-	if err := s.db.WithContext(ctx).
-		Joins("JOIN conversation_members ON conversation_members.conversation_id = workflow_runs.conversation_id").
-		Where("workflow_runs.organization_id = ? AND conversation_members.user_id = ?", organizationID, userID).
-		Order("workflow_runs.id DESC").
-		Limit(limit).
-		Find(&runs).Error; err != nil {
+	if err := query.Order("workflow_runs.id DESC").Limit(filter.Limit).Find(&runs).Error; err != nil {
 		return nil, err
 	}
 	out := make([]WorkflowResult, 0, len(runs))
@@ -1157,20 +1172,24 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 	return s.buildWorkflowResult(ctx, run)
 }
 
-func (s *Service) ListToolApprovals(ctx context.Context, organizationID, userID uint64, status string) ([]models.ToolApproval, error) {
+func (s *Service) ListToolApprovals(ctx context.Context, organizationID, userID uint64, filter ToolApprovalListFilter) ([]models.ToolApproval, error) {
 	role, err := s.organizationRole(ctx, organizationID, userID)
 	if err != nil {
 		return nil, err
 	}
-	query := s.db.WithContext(ctx).Model(&models.ToolApproval{}).Where("organization_id = ?", organizationID)
-	if status = strings.TrimSpace(status); status != "" {
-		query = query.Where("status = ?", status)
+	query := s.db.WithContext(ctx).Model(&models.ToolApproval{}).Where("tool_approvals.organization_id = ?", organizationID)
+	if filter.ConversationID != nil {
+		query = query.Joins("JOIN workflow_runs ON workflow_runs.id = tool_approvals.workflow_run_id").
+			Where("workflow_runs.conversation_id = ?", *filter.ConversationID)
+	}
+	if status := strings.TrimSpace(filter.Status); status != "" {
+		query = query.Where("tool_approvals.status = ?", status)
 	}
 	if role != models.OrganizationRoleOwner && role != models.OrganizationRoleAdmin {
-		query = query.Where("requested_by = ?", userID)
+		query = query.Where("tool_approvals.requested_by = ?", userID)
 	}
 	var approvals []models.ToolApproval
-	if err := query.Order("id DESC").Limit(100).Find(&approvals).Error; err != nil {
+	if err := query.Order("tool_approvals.id DESC").Limit(100).Find(&approvals).Error; err != nil {
 		return nil, err
 	}
 	return approvals, nil

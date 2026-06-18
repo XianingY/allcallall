@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -289,7 +290,12 @@ func (h *AgentHandler) handleListWorkflows(c *gin.Context) {
 		return
 	}
 	limit := parseOptionalPositiveInt(c.Query("limit"), 50)
-	results, err := h.service.ListWorkflowRuns(c.Request.Context(), organizationID, claims.UserID, limit)
+	filter := agent.WorkflowListFilter{
+		ConversationID: parseOptionalUintQuery(c.Query("conversation_id")),
+		Status:         c.Query("status"),
+		Limit:          limit,
+	}
+	results, err := h.service.ListWorkflowRuns(c.Request.Context(), organizationID, claims.UserID, filter)
 	if err != nil {
 		h.writeAgentError(c, err)
 		return
@@ -358,7 +364,11 @@ func (h *AgentHandler) handleListApprovals(c *gin.Context) {
 	if !ok {
 		return
 	}
-	approvals, err := h.service.ListToolApprovals(c.Request.Context(), organizationID, claims.UserID, c.Query("status"))
+	filter := agent.ToolApprovalListFilter{
+		ConversationID: parseOptionalUintQuery(c.Query("conversation_id")),
+		Status:         c.Query("status"),
+	}
+	approvals, err := h.service.ListToolApprovals(c.Request.Context(), organizationID, claims.UserID, filter)
 	if err != nil {
 		h.writeAgentError(c, err)
 		return
@@ -847,4 +857,16 @@ func parseOptionalPositiveInt(raw string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func parseOptionalUintQuery(raw string) *uint64 {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	value, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil || value == 0 {
+		return nil
+	}
+	return &value
 }

@@ -104,7 +104,7 @@ const AppNavigator: React.FC = () => {
   return (
     <Stack.Navigator
       initialRouteName={
-        token ? (Platform.OS === "web" ? "AgentDemo" : "Rooms") : "Login"
+        token ? (Platform.OS === "web" ? "Conversations" : "Rooms") : "Login"
       }
     >
       {token ? (

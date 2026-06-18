@@ -146,6 +146,11 @@ interface DuplicateCandidatesResponse {
   duplicate_candidates: DuplicateCandidateRecord[];
 }
 
+export interface KnowledgeSourceListParams {
+  conversation_id?: number;
+  status?: string;
+}
+
 const authHeaders = (token: string): Record<string, string> => {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
@@ -158,9 +163,14 @@ const authHeaders = (token: string): Record<string, string> => {
   return headers;
 };
 
-export const listKnowledgeSources = async (token: string): Promise<KnowledgeSourceRecord[]> => {
+export const listKnowledgeSources = async (
+  token: string,
+  params?: KnowledgeSourceListParams
+): Promise<KnowledgeSourceRecord[]> => {
   const client = createApiClient(token);
-  const response = await client.get<SourcesResponse>("/knowledge/sources");
+  const response = await client.get<SourcesResponse>("/knowledge/sources", {
+    params,
+  });
   return response.data.sources ?? [];
 };
 

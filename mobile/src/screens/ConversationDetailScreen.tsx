@@ -40,6 +40,7 @@ import fileDownloadAdapter from "../platform/fileDownload";
 import ChatRealtimeService from "../services/ChatRealtimeService";
 import {
   createWorkflowRun,
+  fetchWorkflowRun,
   listWorkflowRuns,
   processWorkflowRun,
   submitToolApprovalDecision,
@@ -77,6 +78,105 @@ const WORKFLOW_TASK_ORDER = [
   "approval",
   "commit_result",
 ];
+
+const WORKFLOW_TERMINAL_STATUSES = new Set([
+  "ready",
+  "requires_action",
+  "failed",
+]);
+
+const parseJSONRecord = (raw?: string): Record<string, unknown> => {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+};
+
+const toTextList = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+
+const workflowStatusLabel = (
+  workflow: WorkflowResult | null,
+  pendingApprovalCount: number,
+  loading: boolean,
+) => {
+  if (loading) return "运行中";
+  const status = workflow?.workflow.status;
+  if (!status) return "未运行";
+  if (status === "requires_action" || pendingApprovalCount > 0) {
+    return "等待审批";
+  }
+  if (status === "ready") return "已写回";
+  if (status === "failed") return "失败";
+  if (status === "running" || status === "pending") return "运行中";
+  return status;
+};
+
+const citationModeLabel = (mode?: string) => {
+  switch (mode) {
+    case "hybrid_rrf":
+      return "Hybrid";
+    case "bm25":
+      return "BM25";
+    case "vector":
+      return "Vector";
+    case "sql_fallback":
+      return "Fallback";
+    default:
+      return mode || "Context";
+  }
+};
+
+const readableToolName = (toolName: string) => {
+  switch (toolName) {
+    case "write_conversation_message":
+      return "写入会话消息";
+    case "create_follow_up_task":
+      return "创建跟进任务";
+    case "upsert_agent_memory":
+      return "更新 Agent 记忆";
+    case "delegate_task":
+      return "委派子任务";
+    default:
+      return toolName;
+  }
+};
+
+const approvalPreview = (approval: ToolApprovalRecord) => {
+  const input = parseJSONRecord(approval.input_json);
+  const actionItems = toTextList(input.action_items);
+  const riskFlags = toTextList(input.risk_flags);
+  const lines: string[] = [];
+  if (typeof input.summary === "string" && input.summary.trim()) {
+    lines.push(`摘要：${input.summary.trim()}`);
+  }
+  if (typeof input.next_step === "string" && input.next_step.trim()) {
+    lines.push(`下一步：${input.next_step.trim()}`);
+  }
+  if (typeof input.key === "string" && input.key.trim()) {
+    lines.push(`Memory key：${input.key.trim()}`);
+  }
+  if (actionItems.length > 0) {
+    lines.push(`行动项：${actionItems.join(" / ")}`);
+  }
+  if (riskFlags.length > 0) {
+    lines.push(`风险：${riskFlags.join(" / ")}`);
+  }
+  if (lines.length === 0 && approval.input_json) {
+    lines.push(approval.input_json);
+  }
+  return {
+    title: readableToolName(approval.tool_name),
+    lines,
+  };
+};
 
 const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const { token, user } = useAuthContext();
@@ -128,7 +228,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
           listMessages(token, conversationId),
           listConversationNotes(token, conversationId),
           listContacts(token),
-          listWorkflowRuns(token, 20),
+          listWorkflowRuns(token, { conversation_id: conversationId, limit: 20 }),
         ]);
       const nextRecording =
         nextDetail.workspace?.latest_recording ??
@@ -144,9 +244,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       setMessages(nextMessages);
       setLatestRecording(nextRecording);
       setActiveWorkflow(
-        nextWorkflows.find(
-          (item) => item.workflow.conversation_id === conversationId,
-        ) ?? null,
+        nextWorkflows[0] ?? null,
       );
       await markConversationRead(token, conversationId);
     } catch (error) {
@@ -207,6 +305,42 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     };
   }, [conversationId, currentOrganization, loadData, token]);
 
+  useEffect(() => {
+    if (!token || !activeWorkflow) {
+      return;
+    }
+    const workflowId = activeWorkflow.workflow.id;
+    if (WORKFLOW_TERMINAL_STATUSES.has(activeWorkflow.workflow.status)) {
+      return;
+    }
+    let cancelled = false;
+    const timer = setInterval(() => {
+      void fetchWorkflowRun(token, workflowId)
+        .then((next) => {
+          if (cancelled) return;
+          setActiveWorkflow(next);
+          if (WORKFLOW_TERMINAL_STATUSES.has(next.workflow.status)) {
+            void loadData();
+          }
+        })
+        .catch((error) => {
+          console.error(
+            "[ConversationDetailScreen] Workflow polling failed:",
+            error,
+          );
+        });
+    }, 1500);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [
+    activeWorkflow?.workflow.id,
+    activeWorkflow?.workflow.status,
+    loadData,
+    token,
+  ]);
+
   const assigneeLabel = useMemo(() => {
     if (conversation.assignee_user_id === user?.id) {
       return "我";
@@ -232,6 +366,19 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const pendingApprovals =
     activeWorkflow?.approvals?.filter((item) => item.status === "pending") ??
     [];
+  const agentStatusLabel = workflowStatusLabel(
+    activeWorkflow,
+    agentContext?.pending_approval_count ?? pendingApprovals.length,
+    workflowLoading,
+  );
+  const completedTaskCount =
+    activeWorkflow?.tasks.filter((item) => item.status === "ready").length ?? 0;
+  const executedApprovalCount =
+    activeWorkflow?.approvals.filter((item) => item.status === "executed")
+      .length ?? 0;
+  const rejectedApprovalCount =
+    activeWorkflow?.approvals.filter((item) => item.status === "rejected")
+      .length ?? 0;
   const orderedWorkflowTasks = useMemo(
     () =>
       [...(activeWorkflow?.tasks ?? [])].sort(
@@ -281,6 +428,11 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
           Alert.alert(
             "等待审批",
             "Meeting Agent 已完成分析，但写回线程前还需要审批。",
+          );
+        } else if (processed.workflow.status === "failed") {
+          Alert.alert(
+            "Agent 运行失败",
+            processed.workflow.error_message || "workflow 执行失败。",
           );
         }
       } catch (e) {
@@ -629,28 +781,61 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       </View>
 
       <View style={styles.infoCard}>
-        <Text style={styles.infoTitle}>Meeting Agent</Text>
-        <Text style={styles.infoMeta}>
-          Transcript {transcriptReady ? "ready" : "not ready"} ·{" "}
-          {agentContext?.transcript_segment_count ?? 0} final segments
-        </Text>
-        {agentContext?.latest_call_id ? (
+        <View style={styles.agentHeader}>
+          <View>
+            <Text style={styles.infoTitle}>Meeting Agent</Text>
+            <Text style={styles.infoMeta}>
+              {transcriptReady
+                ? `${agentContext?.transcript_segment_count ?? 0} final transcript segments`
+                : "No final transcript yet; using notes and messages"}
+            </Text>
+          </View>
+          <View style={styles.agentStatusBadge}>
+            <Text style={styles.agentStatusText}>{agentStatusLabel}</Text>
+          </View>
+        </View>
+        <View style={styles.agentContextGrid}>
+          <Text style={styles.agentContextItem}>
+            Call {agentContext?.latest_call_id || "-"}
+          </Text>
+          <Text style={styles.agentContextItem}>
+            Knowledge {agentContext?.knowledge_source_count ?? 0}
+          </Text>
+          <Text style={styles.agentContextItem}>
+            Approvals {agentContext?.pending_approval_count ?? pendingApprovals.length}
+          </Text>
+          <Text style={styles.agentContextItem}>
+            Workflow {agentContext?.last_workflow_id ?? activeWorkflow?.workflow.id ?? "-"}
+          </Text>
+        </View>
+        {agentContext?.latest_transcript_at ? (
           <Text style={styles.infoMeta}>
-            Latest call {agentContext.latest_call_id}
+            Latest transcript{" "}
+            {new Date(agentContext.latest_transcript_at).toLocaleString()}
           </Text>
         ) : null}
-        {agentContext?.last_agent_status ? (
+        {agentContext?.last_agent_run_at ? (
           <Text style={styles.infoMeta}>
-            Last run {agentContext.last_agent_status}
-            {agentContext.last_agent_run_at
-              ? ` · ${new Date(agentContext.last_agent_run_at).toLocaleString()}`
-              : ""}
+            Last workflow {agentContext.last_agent_status || "-"} ·{" "}
+            {agentContext.last_workflow_preset || activeWorkflow?.workflow.preset || "custom"} ·{" "}
+            {new Date(agentContext.last_agent_run_at).toLocaleString()}
+          </Text>
+        ) : null}
+        {activeWorkflow ? (
+          <Text style={styles.infoMeta}>
+            Progress {completedTaskCount}/{activeWorkflow.tasks.length} tasks ·
+            write-back executed {executedApprovalCount}
+            {rejectedApprovalCount ? ` · rejected ${rejectedApprovalCount}` : ""}
           </Text>
         ) : null}
         {agentContext?.latest_memory_keys?.length ? (
-          <Text style={styles.infoMeta}>
-            Memory hits {agentContext.latest_memory_keys.join(" / ")}
-          </Text>
+          <View style={styles.memoryChipRow}>
+            {agentContext.latest_memory_keys.map((key) => (
+              <Text key={key} style={styles.memoryChip}>
+                {key}
+              </Text>
+            ))}
+          </View>
         ) : null}
         <View style={styles.optionRow}>
           {MEETING_PRESETS.map((preset) => (
@@ -677,7 +862,10 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
           />
         </View>
         {activeWorkflow?.workflow?.summary ? (
-          <Text style={styles.infoBody}>{activeWorkflow.workflow.summary}</Text>
+          <View style={styles.agentResultBox}>
+            <Text style={styles.citationTitle}>Result</Text>
+            <Text style={styles.infoBody}>{activeWorkflow.workflow.summary}</Text>
+          </View>
         ) : (
           <Text style={styles.infoMeta}>
             基于 final transcript、follow-up、memory 和线程上下文生成 grounded
@@ -702,10 +890,14 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
                 style={styles.citationItem}
                 onPress={() => void handleCitationPress(citation)}
               >
-                <Text style={styles.citationTitle}>{citation.title}</Text>
+                <View style={styles.citationHeader}>
+                  <Text style={styles.citationTitle}>{citation.title}</Text>
+                  <Text style={styles.citationBadge}>
+                    {citationModeLabel(citation.retrieval_mode)}
+                  </Text>
+                </View>
                 <Text style={styles.citationMeta}>
-                  {citation.retrieval_mode || "context"} · score{" "}
-                  {citation.score}
+                  {citation.source_type} · score {citation.score}
                 </Text>
                 <Text style={styles.citationSnippet}>{citation.snippet}</Text>
               </Pressable>
@@ -720,10 +912,14 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
             </Text>
             {pendingApprovals.map((approval) => (
               <View key={approval.id} style={styles.approvalItem}>
-                <Text style={styles.citationTitle}>{approval.tool_name}</Text>
-                <Text style={styles.citationSnippet}>
-                  {approval.input_json || "Awaiting approval input"}
+                <Text style={styles.citationTitle}>
+                  {approvalPreview(approval).title}
                 </Text>
+                {approvalPreview(approval).lines.map((line) => (
+                  <Text key={line} style={styles.citationSnippet}>
+                    {line}
+                  </Text>
+                ))}
                 <View style={styles.inlineActionRow}>
                   <Pressable
                     style={styles.approveChip}
@@ -1315,6 +1511,59 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#0f172a",
   },
+  agentHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  agentStatusBadge: {
+    backgroundColor: "#0f172a",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  agentStatusText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  agentContextGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12,
+  },
+  agentContextItem: {
+    color: "#334155",
+    backgroundColor: "#f1f5f9",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 12,
+    overflow: "hidden",
+  },
+  memoryChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12,
+  },
+  memoryChip: {
+    color: "#1e293b",
+    backgroundColor: "#e0f2fe",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 12,
+    overflow: "hidden",
+  },
+  agentResultBox: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+  },
   infoBody: {
     color: "#334155",
     marginTop: 8,
@@ -1412,6 +1661,21 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: "#e2e8f0",
+  },
+  citationHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  citationBadge: {
+    color: "#075985",
+    backgroundColor: "#e0f2fe",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    fontSize: 11,
+    fontWeight: "700",
+    overflow: "hidden",
   },
   approvalItem: {
     paddingTop: 10,

@@ -77,9 +77,14 @@ export interface ConversationWorkspaceRecord {
   agent_context: {
     latest_call_id?: string;
     transcript_segment_count: number;
+    latest_transcript_at?: string | null;
     latest_memory_keys?: string[];
     last_agent_run_at?: string | null;
     last_agent_status?: string;
+    last_workflow_id?: number | null;
+    last_workflow_preset?: string;
+    pending_approval_count?: number;
+    knowledge_source_count?: number;
   };
   assignee_user_id?: number | null;
   assignee_label?: string;

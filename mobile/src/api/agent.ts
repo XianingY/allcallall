@@ -363,6 +363,17 @@ export interface ToolApprovalsResponse {
   approvals: ToolApprovalRecord[];
 }
 
+export interface WorkflowListParams {
+  conversation_id?: number;
+  status?: string;
+  limit?: number;
+}
+
+export interface ToolApprovalListParams {
+  conversation_id?: number;
+  status?: string;
+}
+
 export const createAgentRun = async (
   token: string,
   data: CreateAgentRunRequest,
@@ -436,11 +447,13 @@ export const fetchWorkflowRun = async (
 
 export const listWorkflowRuns = async (
   token: string,
-  limit = 25,
+  params: number | WorkflowListParams = 25,
 ): Promise<WorkflowResult[]> => {
   const client = createApiClient(token);
+  const queryParams =
+    typeof params === "number" ? { limit: params } : { limit: 25, ...params };
   const response = await client.get<WorkflowListResponse>("/agent/workflows", {
-    params: { limit },
+    params: queryParams,
   });
   return response.data.workflows ?? [];
 };
@@ -459,11 +472,13 @@ export const processWorkflowRun = async (
 
 export const listToolApprovals = async (
   token: string,
-  status?: string,
+  params?: string | ToolApprovalListParams,
 ): Promise<ToolApprovalRecord[]> => {
   const client = createApiClient(token);
+  const queryParams =
+    typeof params === "string" ? { status: params } : params;
   const response = await client.get<ToolApprovalsResponse>("/agent/approvals", {
-    params: status ? { status } : undefined,
+    params: queryParams,
   });
   return response.data.approvals ?? [];
 };

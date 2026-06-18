@@ -193,6 +193,23 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
       knowledgeOnly ? tabs.filter((item) => item.key === "knowledge") : tabs,
     [knowledgeOnly],
   );
+  const sourceTitleById = useMemo(() => {
+    const index = new Map<number, string>();
+    sources.forEach((source) => {
+      index.set(source.id, source.title);
+    });
+    return index;
+  }, [sources]);
+  const selectedChunkStats = useMemo(() => {
+    const stats = { indexed: 0, failed: 0, skipped: 0, pending: 0 };
+    sourceDetail?.chunks.forEach((chunk) => {
+      const key = chunk.index_status as keyof typeof stats;
+      if (key in stats) {
+        stats[key] += 1;
+      }
+    });
+    return stats;
+  }, [sourceDetail?.chunks]);
 
   useEffect(() => {
     if (knowledgeOnly) {
@@ -647,9 +664,10 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const renderKnowledgeTab = () => (
     <ScrollView style={styles.main} contentContainerStyle={styles.mainContent}>
+      <Text style={styles.pageSectionTitle}>Ingest</Text>
       <View style={styles.grid}>
         <View style={[styles.panel, styles.formPanel]}>
-          <Text style={styles.sectionTitle}>Add Text</Text>
+          <Text style={styles.sectionTitle}>Manual Text</Text>
           <TextField
             label="Title"
             value={manualTitle}
@@ -670,7 +688,7 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
           />
         </View>
         <View style={[styles.panel, styles.formPanel]}>
-          <Text style={styles.sectionTitle}>Add URL</Text>
+          <Text style={styles.sectionTitle}>URL</Text>
           <TextField
             label="Title"
             value={urlTitle}
@@ -690,7 +708,7 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
           />
         </View>
         <View style={[styles.panel, styles.formPanel]}>
-          <Text style={styles.sectionTitle}>Upload File</Text>
+          <Text style={styles.sectionTitle}>File Upload</Text>
           <TextField
             label="Title"
             value={fileTitle}
@@ -706,6 +724,7 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
         </View>
       </View>
 
+      <Text style={styles.pageSectionTitle}>Sources</Text>
       <View style={styles.grid}>
         <View style={[styles.panel, styles.listPanel]}>
           <View style={styles.panelHeader}>
@@ -726,6 +745,13 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
                 {source.kind} · group {source.source_group_id ?? "-"} ·{" "}
                 {source.dedupe_status || "unique"} ·{" "}
                 {formatTime(source.updated_at)}
+              </Text>
+              <Text style={styles.rowMeta}>
+                active version #{source.active_version_id ?? "-"} · authority{" "}
+                {Math.round((source.authority_score ?? 0) * 100)}
+                {source.conversation_id
+                  ? ` · conversation #${source.conversation_id}`
+                  : " · organization"}
               </Text>
               {source.last_error ? (
                 <Text style={styles.errorText}>
@@ -762,6 +788,12 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
                 {sourceDetail.source.kind} ·{" "}
                 {sourceDetail.versions[0]?.chunk_count ?? 0} chunks
               </Text>
+              <View style={styles.statsRow}>
+                <Text style={styles.statChip}>Indexed {selectedChunkStats.indexed}</Text>
+                <Text style={styles.statChip}>Failed {selectedChunkStats.failed}</Text>
+                <Text style={styles.statChip}>Skipped {selectedChunkStats.skipped}</Text>
+                <Text style={styles.statChip}>Pending {selectedChunkStats.pending}</Text>
+              </View>
               {sourceDetail.versions.map((version) => (
                 <View key={version.id} style={styles.versionRow}>
                   <Text style={styles.rowTitle}>Version {version.version}</Text>
@@ -786,6 +818,7 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
         </View>
       </View>
 
+      <Text style={styles.pageSectionTitle}>Duplicate Review</Text>
       <View style={styles.grid}>
         <View style={[styles.panel, styles.listPanel]}>
           <View style={styles.panelHeader}>
@@ -839,12 +872,16 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
             <View key={item.id} style={styles.rowItem}>
               <View style={styles.rowTop}>
                 <Text style={styles.rowTitle}>
-                  #{item.source_id} vs #{item.candidate_source_id}
+                  {sourceTitleById.get(item.source_id) ||
+                    `Source #${item.source_id}`}
                 </Text>
                 <StatusPill status={item.status} />
               </View>
               <Text style={styles.rowMeta}>
-                {item.duplicate_kind} · similarity{" "}
+                Candidate{" "}
+                {sourceTitleById.get(item.candidate_source_id) ||
+                  `#${item.candidate_source_id}`}{" "}
+                · {item.duplicate_kind} · similarity{" "}
                 {Math.round(item.similarity * 100)} · group{" "}
                 {item.source_group_id ?? "-"}
               </Text>
@@ -876,6 +913,7 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
         </View>
       </View>
 
+      <Text style={styles.pageSectionTitle}>Recovery</Text>
       <View style={styles.panel}>
         <Text style={styles.sectionTitle}>Dead Letters</Text>
         {deadLetters.map((item) => (
@@ -886,6 +924,9 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
             </View>
             <Text style={styles.rowMeta}>
               attempts {item.attempts} · #{item.id}
+              {item.available_at
+                ? ` · available ${formatTime(item.available_at)}`
+                : ""}
             </Text>
             {item.last_error ? (
               <Text style={styles.errorText}>
@@ -1513,6 +1554,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "800",
   },
+  pageSectionTitle: {
+    color: "#0f172a",
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 6,
+    marginBottom: 10,
+  },
   contextLine: {
     color: "#64748b",
     marginTop: 4,
@@ -1583,6 +1631,22 @@ const styles = StyleSheet.create({
   chunkTitle: {
     color: "#334155",
     fontWeight: "800",
+  },
+  statsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+  statChip: {
+    color: "#334155",
+    backgroundColor: "#f1f5f9",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    fontSize: 12,
+    fontWeight: "700",
+    overflow: "hidden",
   },
   taskRow: {
     flexDirection: "row",

@@ -86,6 +86,11 @@ type CreateSourceInput struct {
 	FileBytes      []byte
 }
 
+type ListSourcesFilter struct {
+	ConversationID *uint64
+	Status         string
+}
+
 type SearchResult struct {
 	Chunk          models.RAGChunk
 	Source         models.RAGSource
@@ -267,13 +272,24 @@ func (s *Service) CreateSource(ctx context.Context, organizationID, userID uint6
 	return &source, nil
 }
 
-func (s *Service) ListSources(ctx context.Context, organizationID, userID uint64) ([]models.RAGSource, error) {
+func (s *Service) ListSources(ctx context.Context, organizationID, userID uint64, filter ListSourcesFilter) ([]models.RAGSource, error) {
 	if err := s.ensureOrganizationMember(ctx, organizationID, userID); err != nil {
 		return nil, err
 	}
+	if filter.ConversationID != nil {
+		if err := s.ensureConversationMember(ctx, organizationID, userID, *filter.ConversationID); err != nil {
+			return nil, err
+		}
+	}
+	query := s.db.WithContext(ctx).Where("organization_id = ?", organizationID)
+	if filter.ConversationID != nil {
+		query = query.Where("(conversation_id IS NULL OR conversation_id = ?)", *filter.ConversationID)
+	}
+	if status := strings.TrimSpace(filter.Status); status != "" {
+		query = query.Where("status = ?", status)
+	}
 	var sources []models.RAGSource
-	if err := s.db.WithContext(ctx).
-		Where("organization_id = ?", organizationID).
+	if err := query.
 		Order("updated_at DESC, id DESC").
 		Limit(100).
 		Find(&sources).Error; err != nil {
