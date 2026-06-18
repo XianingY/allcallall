@@ -145,6 +145,8 @@ func migrateBenchTables(db *gorm.DB) error {
 		&models.AgentToolCall{},
 		&models.AgentMemory{},
 		&models.AgentContextChunk{},
+		&models.AgentPromptVersion{},
+		&models.ToolSchemaVersion{},
 		&models.EventOutbox{},
 	)
 }
