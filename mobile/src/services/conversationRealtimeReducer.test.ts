@@ -10,7 +10,9 @@ import {
   applyConversationListPatch,
 } from "./conversationRealtimeReducer";
 
-const conversation = (overrides: Partial<ConversationRecord> = {}): ConversationRecord => ({
+const conversation = (
+  overrides: Partial<ConversationRecord> = {},
+): ConversationRecord => ({
   id: 1,
   organization_id: 10,
   type: "direct",
@@ -21,13 +23,19 @@ const conversation = (overrides: Partial<ConversationRecord> = {}): Conversation
   ...overrides,
 });
 
-const detail = (record: ConversationRecord = conversation()): ConversationDetailRecord => ({
+const detail = (
+  record: ConversationRecord = conversation(),
+): ConversationDetailRecord => ({
   conversation: record,
   workspace: {
+    agent_context: {
+      transcript_segment_count: 0,
+    },
     status: record.status,
     priority: record.priority,
     assignee_user_id: record.assignee_user_id,
-    assignee_label: record.assignee_display_name || record.assignee_email || "未指派",
+    assignee_label:
+      record.assignee_display_name || record.assignee_email || "未指派",
   },
 });
 
@@ -50,14 +58,22 @@ test("applyConversationListPatch preserves array reference when event is irrelev
   const items = [conversation({ id: 1 })];
 
   assert.equal(applyConversationListPatch(items, undefined), items);
-  assert.equal(applyConversationListPatch(items, { conversation_id: 9, changes: { status: "pending" } }), items);
+  assert.equal(
+    applyConversationListPatch(items, {
+      conversation_id: 9,
+      changes: { status: "pending" },
+    }),
+    items,
+  );
 });
 
 test("applyConversationDetailPatch updates conversation and workspace summary", () => {
-  const previous = detail(conversation({
-    assignee_user_id: 1,
-    assignee_display_name: "Alice",
-  }));
+  const previous = detail(
+    conversation({
+      assignee_user_id: 1,
+      assignee_display_name: "Alice",
+    }),
+  );
 
   const next = applyConversationDetailPatch(previous, {
     conversation_id: 1,
@@ -84,6 +100,6 @@ test("applyConversationDetailPatch ignores updates for other conversations", () 
       conversation_id: 99,
       changes: { status: "pending" },
     }),
-    previous
+    previous,
   );
 });

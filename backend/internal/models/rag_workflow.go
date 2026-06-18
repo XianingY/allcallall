@@ -251,6 +251,7 @@ type WorkflowRun struct {
 	Status            string     `gorm:"size:32;not null;index"`
 	WorkflowType      string     `gorm:"size:80;not null;default:'agent_lab';index"`
 	WorkflowVersion   string     `gorm:"size:64;not null;default:'agent_lab_v1';index"`
+	Preset            string     `gorm:"size:64;index"`
 	PromptVersion     string     `gorm:"size:64;index"`
 	ToolSchemaVersion string     `gorm:"size:64;index"`
 	StateJSON         string     `gorm:"type:longtext"`

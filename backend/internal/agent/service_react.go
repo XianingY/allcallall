@@ -19,15 +19,16 @@ func (s *Service) executeReActRun(ctx context.Context, run models.AgentRun, goal
 	}
 
 	plannerInput := PlannerInput{
-		Role:          run.Role,
-		Goal:          goal,
-		Conversation:  conversationCtx.Conversation,
-		Notes:         conversationCtx.Notes,
-		Messages:      conversationCtx.Messages,
-		Rooms:         conversationCtx.Rooms,
-		Members:       conversationCtx.Members,
-		Memories:      conversationCtx.Memories,
-		ContextChunks: conversationCtx.ContextChunks,
+		Role:           run.Role,
+		Goal:           goal,
+		Conversation:   conversationCtx.Conversation,
+		Notes:          conversationCtx.Notes,
+		Messages:       conversationCtx.Messages,
+		Rooms:          conversationCtx.Rooms,
+		Members:        conversationCtx.Members,
+		Memories:       conversationCtx.Memories,
+		ContextChunks:  conversationCtx.ContextChunks,
+		MeetingContext: conversationCtx.MeetingContext,
 		OnToken: func(ctx context.Context, token string) {
 			if s.streamPublisher != nil {
 				_ = s.streamPublisher.PublishToken(ctx, run.ID, token)
@@ -52,6 +53,7 @@ func (s *Service) executeReActRun(ctx context.Context, run models.AgentRun, goal
 		"notes":                    len(conversationCtx.Notes),
 		"messages":                 len(conversationCtx.Messages),
 		"retrieved_context_chunks": len(conversationCtx.ContextChunks),
+		"meeting_context":          conversationCtx.MeetingContext,
 	})
 	if err != nil {
 		return nil, err
@@ -259,7 +261,14 @@ func (s *Service) executeToolLocally(ctx context.Context, run models.AgentRun, t
 		}
 		return tcOut.OutputJSON, nil
 	case ToolUpsertConversationMemory:
-		tcOut, err := s.upsertConversationMemory(ctx, run, summary, actionItems, nextStep, riskFlags)
+		key, _ := params["key"].(string)
+		tcOut, err := s.upsertConversationMemory(ctx, run, conversationMemoryInput{
+			Key:         key,
+			Summary:     summary,
+			ActionItems: actionItems,
+			NextStep:    nextStep,
+			RiskFlags:   riskFlags,
+		})
 		if err != nil {
 			return "", err
 		}

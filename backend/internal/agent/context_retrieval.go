@@ -40,6 +40,14 @@ type RetrievedContextChunk struct {
 	VectorScore      float64
 }
 
+type bm25ChunkSearcher interface {
+	SearchChunksBM25(ctx context.Context, query search.ContextChunkSearchQuery) ([]search.ContextChunkSearchResult, error)
+}
+
+type hybridChunkSearcher interface {
+	SearchChunksHybrid(ctx context.Context, query search.ContextChunkSearchQuery) ([]search.ContextChunkSearchResult, error)
+}
+
 func (s *Service) refreshConversationContextChunks(ctx context.Context, conversationCtx *conversationContext) error {
 	organizationID := conversationCtx.Conversation.OrganizationID
 	conversationID := conversationCtx.Conversation.ID
@@ -149,10 +157,14 @@ func (s *Service) upsertContextChunk(ctx context.Context, organizationID, conver
 	return nil
 }
 
-func (s *Service) retrieveConversationContextChunks(ctx context.Context, conv models.Conversation, goal string, limit int) ([]RetrievedContextChunk, error) {
+func (s *Service) retrieveConversationContextChunks(ctx context.Context, conversationCtx *conversationContext, goal string, limit int) ([]RetrievedContextChunk, error) {
 	if limit <= 0 {
 		limit = defaultContextChunkLimit
 	}
+	if conversationCtx == nil {
+		return nil, nil
+	}
+	conv := conversationCtx.Conversation
 	var chunks []models.AgentContextChunk
 	if err := s.db.WithContext(ctx).
 		Where("organization_id = ? AND conversation_id = ?", conv.OrganizationID, conv.ID).
@@ -171,22 +183,32 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, conv mo
 	scored := make([]RetrievedContextChunk, 0, len(chunks))
 	fallbackReason := "indexer_unavailable"
 	if s.indexer != nil {
+		searchQuery := search.ContextChunkSearchQuery{
+			OrganizationID: conv.OrganizationID,
+			ConversationID: conv.ID,
+			SourceTypes: []string{
+				contextChunkSourceTranscript,
+				contextChunkSourceFollowup,
+				contextChunkSourceMemory,
+				contextChunkSourceNote,
+				contextChunkSourceMessage,
+				contextChunkSourceContactProfile,
+			},
+			QueryText: query,
+			Limit:     limit,
+		}
 		if ep, ok := s.planner.(EmbeddingProvider); ok {
 			if vec, err := ep.CreateEmbedding(ctx, query); err == nil && len(vec) > 0 {
-				searchRes, searchErr := s.indexer.SearchChunks(ctx, search.ContextChunkSearchQuery{
-					OrganizationID: conv.OrganizationID,
-					ConversationID: conv.ID,
-					SourceTypes: []string{
-						contextChunkSourceNote,
-						contextChunkSourceMessage,
-						contextChunkSourceMemory,
-						contextChunkSourceFollowup,
-						contextChunkSourceContactProfile,
-						contextChunkSourceTranscript,
-					},
-					QueryVector: vec,
-					Limit:       limit,
-				})
+				searchQuery.QueryVector = vec
+				var (
+					searchRes []search.ContextChunkSearchResult
+					searchErr error
+				)
+				if hybrid, ok := s.indexer.(hybridChunkSearcher); ok {
+					searchRes, searchErr = hybrid.SearchChunksHybrid(ctx, searchQuery)
+				} else {
+					searchRes, searchErr = s.indexer.SearchChunks(ctx, searchQuery)
+				}
 				if searchErr == nil && len(searchRes) > 0 {
 					for _, res := range searchRes {
 						scored = append(scored, RetrievedContextChunk{
@@ -199,8 +221,13 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, conv mo
 								Keywords:       res.Keywords,
 								UpdatedAt:      res.UpdatedAt,
 							},
-							Score:         int(res.Score * 100),
-							RetrievalMode: models.RAGRetrievalModeVector,
+							Score:         hybridConversationChunkScore(res),
+							RetrievalMode: firstNonEmptyString(res.RetrievalMode, models.RAGRetrievalModeVector),
+							BM25Rank:      res.BM25Rank,
+							VectorRank:    res.VectorRank,
+							RRFScore:      res.RRFScore,
+							BM25Score:     res.BM25Score,
+							VectorScore:   res.VectorScore,
 						})
 					}
 				} else if searchErr != nil {
@@ -210,6 +237,38 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, conv mo
 				}
 			} else {
 				fallbackReason = "embedding_unavailable"
+			}
+		}
+		if len(scored) == 0 {
+			if bm25, ok := s.indexer.(bm25ChunkSearcher); ok {
+				searchRes, searchErr := bm25.SearchChunksBM25(ctx, searchQuery)
+				if searchErr == nil && len(searchRes) > 0 {
+					for _, res := range searchRes {
+						scored = append(scored, RetrievedContextChunk{
+							Chunk: models.AgentContextChunk{
+								OrganizationID: res.OrganizationID,
+								ConversationID: res.ConversationID,
+								SourceType:     res.SourceType,
+								SourceID:       res.SourceID,
+								Content:        res.Content,
+								Keywords:       res.Keywords,
+								UpdatedAt:      res.UpdatedAt,
+							},
+							Score:         hybridConversationChunkScore(res),
+							RetrievalMode: firstNonEmptyString(res.RetrievalMode, models.RAGRetrievalModeBM25),
+							BM25Rank:      res.BM25Rank,
+							VectorRank:    res.VectorRank,
+							RRFScore:      res.RRFScore,
+							BM25Score:     res.BM25Score,
+							VectorScore:   res.VectorScore,
+						})
+					}
+					fallbackReason = ""
+				} else if searchErr != nil {
+					fallbackReason = "bm25_error"
+				} else if fallbackReason == "indexer_unavailable" {
+					fallbackReason = "bm25_empty"
+				}
 			}
 		}
 	}
@@ -273,15 +332,174 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, conv mo
 
 	scored = dedupeRetrievedContextChunks(scored)
 	sort.SliceStable(scored, func(i, j int) bool {
+		leftWeight := conversationSourcePriority(scored[i])
+		rightWeight := conversationSourcePriority(scored[j])
+		if leftWeight != rightWeight {
+			return leftWeight > rightWeight
+		}
 		if scored[i].Score != scored[j].Score {
 			return scored[i].Score > scored[j].Score
 		}
 		return retrievedChunkUpdatedAt(scored[i]).After(retrievedChunkUpdatedAt(scored[j]))
 	})
+	scored = ensureMeetingAwareContext(conversationCtx, scored, limit)
 	if len(scored) > limit {
 		scored = scored[:limit]
 	}
 	return scored, nil
+}
+
+func hybridConversationChunkScore(result search.ContextChunkSearchResult) int {
+	switch result.RetrievalMode {
+	case models.RAGRetrievalModeHybridRRF:
+		if result.RRFScore > 0 {
+			return int(result.RRFScore * 10000)
+		}
+	case models.RAGRetrievalModeBM25:
+		if result.BM25Score > 0 {
+			return int(result.BM25Score * 100)
+		}
+	}
+	if result.Score > 0 {
+		return int(result.Score * 100)
+	}
+	return 1
+}
+
+func conversationSourcePriority(item RetrievedContextChunk) int {
+	switch retrievedChunkSourceType(item) {
+	case contextChunkSourceTranscript:
+		return 6
+	case contextChunkSourceFollowup:
+		return 5
+	case contextChunkSourceMemory:
+		return 4
+	case contextChunkSourceNote:
+		return 3
+	case contextChunkSourceMessage:
+		return 2
+	case contextChunkSourceContactProfile:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func ensureMeetingAwareContext(conversationCtx *conversationContext, scored []RetrievedContextChunk, limit int) []RetrievedContextChunk {
+	if conversationCtx == nil {
+		return scored
+	}
+	out := append([]RetrievedContextChunk{}, scored...)
+	seen := make(map[string]struct{}, len(out))
+	for _, item := range out {
+		seen[retrievedChunkKey(item)] = struct{}{}
+	}
+	appendIfMissing := func(item RetrievedContextChunk) {
+		key := retrievedChunkKey(item)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		out = append(out, item)
+		seen[key] = struct{}{}
+	}
+	for _, memory := range conversationCtx.Memories {
+		if strings.TrimSpace(memory.Key) == models.AgentMemoryKeyLatestMeetingBrief {
+			appendIfMissing(memoryToRetrievedContextChunk(memory))
+			break
+		}
+	}
+	if len(conversationCtx.Followups) > 0 {
+		appendIfMissing(followupToRetrievedContextChunk(conversationCtx.Followups[0]))
+	}
+	addedTranscript := 0
+	for _, segment := range conversationCtx.TranscriptSegments {
+		appendIfMissing(transcriptToRetrievedContextChunk(segment))
+		addedTranscript++
+		if addedTranscript >= 2 {
+			break
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		leftWeight := conversationSourcePriority(out[i])
+		rightWeight := conversationSourcePriority(out[j])
+		if leftWeight != rightWeight {
+			return leftWeight > rightWeight
+		}
+		if out[i].Score != out[j].Score {
+			return out[i].Score > out[j].Score
+		}
+		return retrievedChunkUpdatedAt(out[i]).After(retrievedChunkUpdatedAt(out[j]))
+	})
+	if len(out) > limit {
+		return out[:limit]
+	}
+	return out
+}
+
+func memoryToRetrievedContextChunk(memory models.AgentMemory) RetrievedContextChunk {
+	return RetrievedContextChunk{
+		Chunk: models.AgentContextChunk{
+			ID:             memory.ID,
+			OrganizationID: memory.OrganizationID,
+			ConversationID: memory.ConversationID,
+			SourceType:     contextChunkSourceMemory,
+			SourceID:       memory.ID,
+			Content:        memory.ValueJSON,
+			LastRunID:      memory.LastRunID,
+			CreatedAt:      memory.CreatedAt,
+			UpdatedAt:      memory.UpdatedAt,
+		},
+		Score:          999,
+		RetrievalMode:  models.RAGRetrievalModeSQLFallback,
+		FallbackReason: "meeting_memory_boost",
+	}
+}
+
+func followupToRetrievedContextChunk(followup models.CallFollowup) RetrievedContextChunk {
+	return RetrievedContextChunk{
+		Chunk: models.AgentContextChunk{
+			OrganizationID: followup.OrganizationID,
+			SourceType:     contextChunkSourceFollowup,
+			SourceID:       followup.ID,
+			Content:        buildFollowupContextContent(followup),
+			CreatedAt:      followup.CreatedAt,
+			UpdatedAt:      followup.UpdatedAt,
+		},
+		Score:          998,
+		RetrievalMode:  models.RAGRetrievalModeSQLFallback,
+		FallbackReason: "meeting_followup_boost",
+	}
+}
+
+func transcriptToRetrievedContextChunk(segment models.CallTranscriptSegment) RetrievedContextChunk {
+	return RetrievedContextChunk{
+		Chunk: models.AgentContextChunk{
+			SourceType: contextChunkSourceTranscript,
+			SourceID:   segment.ID,
+			Content:    buildTranscriptContextContent(segment),
+			CreatedAt:  segment.CreatedAt,
+			UpdatedAt:  segment.CreatedAt,
+		},
+		Score:          997,
+		RetrievalMode:  models.RAGRetrievalModeSQLFallback,
+		FallbackReason: "meeting_transcript_boost",
+	}
+}
+
+func retrievedChunkKey(item RetrievedContextChunk) string {
+	if item.KnowledgeChunk != nil {
+		return fmt.Sprintf("knowledge:%d", item.KnowledgeChunk.ID)
+	}
+	return fmt.Sprintf("%s:%d", item.Chunk.SourceType, item.Chunk.SourceID)
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func contextChunkTitle(chunk models.AgentContextChunk) string {

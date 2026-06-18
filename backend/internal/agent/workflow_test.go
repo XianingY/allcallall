@@ -241,6 +241,65 @@ func TestWorkflowAgentReclaimsExpiredLease(t *testing.T) {
 	}
 }
 
+func TestMeetingBriefWorkflowWritesMeetingMemoriesWithoutFollowupTask(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	svc.WithOutbox(events.NewStore(db))
+	conversation := seedWorkflowConversation(t, db)
+
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Preset:         WorkflowPresetMeetingBrief,
+	})
+	if err != nil {
+		t.Fatalf("start workflow failed: %v", err)
+	}
+
+	paused, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatalf("process workflow failed: %v", err)
+	}
+	if paused.Run.Preset != WorkflowPresetMeetingBrief {
+		t.Fatalf("unexpected preset: %+v", paused.Run)
+	}
+	if len(paused.Approvals) != 3 {
+		t.Fatalf("expected message + two memory approvals, got %d", len(paused.Approvals))
+	}
+	for _, approval := range paused.Approvals {
+		if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "approve"); err != nil {
+			t.Fatalf("approve tool failed: %v", err)
+		}
+	}
+	ready, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatalf("resume workflow failed: %v", err)
+	}
+	if ready.Run.Status != models.WorkflowRunStatusReady {
+		t.Fatalf("expected workflow ready, got %s", ready.Run.Status)
+	}
+	var tasks int64
+	if err := db.Model(&models.FollowUpTask{}).Where("user_id = ?", uint64(7)).Count(&tasks).Error; err != nil {
+		t.Fatalf("count follow-up tasks failed: %v", err)
+	}
+	if tasks != 0 {
+		t.Fatalf("expected no follow-up task for meeting brief, got %d", tasks)
+	}
+	var memories []models.AgentMemory
+	if err := db.Where("conversation_id = ?", conversation.ID).Order("id ASC").Find(&memories).Error; err != nil {
+		t.Fatalf("list memories failed: %v", err)
+	}
+	if len(memories) != 2 {
+		t.Fatalf("expected two memory writes, got %d", len(memories))
+	}
+	seenKeys := map[string]bool{}
+	for _, memory := range memories {
+		seenKeys[memory.Key] = true
+	}
+	if !seenKeys[models.AgentMemoryKeyLastAgentSummary] || !seenKeys[models.AgentMemoryKeyLatestMeetingBrief] {
+		t.Fatalf("unexpected memory keys: %+v", memories)
+	}
+}
+
 func TestWorkflowApprovalTimeoutMarksRunFailed(t *testing.T) {
 	ctx := context.Background()
 	svc, db := newWorkflowTestService(t)

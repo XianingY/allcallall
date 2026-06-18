@@ -36,7 +36,13 @@ func (s *Service) executeSideEffectTools(ctx context.Context, run models.AgentRu
 	executed++
 	s.recordAgentToolCalls(1)
 
-	if _, err := s.upsertConversationMemory(ctx, run, input.Summary, input.ActionItems, input.NextStep, input.RiskFlags); err != nil {
+	if _, err := s.upsertConversationMemory(ctx, run, conversationMemoryInput{
+		Key:         models.AgentMemoryKeyLastAgentSummary,
+		Summary:     input.Summary,
+		ActionItems: input.ActionItems,
+		NextStep:    input.NextStep,
+		RiskFlags:   input.RiskFlags,
+	}); err != nil {
 		span.End(err)
 		return executed, err
 	}

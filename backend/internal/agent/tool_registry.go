@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+
+	"github.com/allcallall/backend/internal/models"
 )
 
 const (
@@ -169,14 +171,14 @@ func RegisteredTools() []ToolDescriptor {
 			Permission:             ToolPermissionConversationWriter,
 			Description:            "Upsert a small conversation-scoped memory entry for future Agent context retrieval.",
 			RequiresApproval:       true,
-			IdempotencyKeyTemplate: "agent.memory:{organization_id}:{user_id}:{conversation_id}:last_agent_summary",
+			IdempotencyKeyTemplate: "agent.memory:{organization_id}:{user_id}:{conversation_id}:{key}",
 			InputSchema: objectSchema([]string{"conversation_id", "summary", "action_items", "next_step", "risk_flags"}, map[string]any{
 				"conversation_id": integerSchema("Conversation id associated with the memory."),
 				"summary":         stringSchema("Grounded assistant summary."),
 				"action_items":    arraySchema(stringSchema("Action item.")),
 				"next_step":       stringSchema("Recommended next step."),
 				"risk_flags":      arraySchema(stringSchema("Risk flag.")),
-				"key":             enumStringSchema([]string{"last_agent_summary"}, "Memory key."),
+				"key":             enumStringSchema([]string{models.AgentMemoryKeyLastAgentSummary, models.AgentMemoryKeyLatestMeetingBrief, models.AgentMemoryKeyOpenRiskRegister, models.AgentMemoryKeyFollowUpCommitment}, "Memory key."),
 			}),
 			OutputSchema: objectSchema([]string{"memory_id"}, map[string]any{
 				"memory_id": integerSchema("Upserted memory id."),

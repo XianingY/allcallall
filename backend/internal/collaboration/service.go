@@ -138,14 +138,23 @@ type ConversationDetail struct {
 }
 
 type ConversationWorkspace struct {
-	LatestMeeting   *RoomListItem           `json:"latest_meeting,omitempty"`
-	LatestRecording *RecordingView          `json:"latest_recording,omitempty"`
-	MeetingSummary  *MeetingSummaryCard     `json:"meeting_summary,omitempty"`
-	LatestNote      *ConversationNoteRecord `json:"latest_note,omitempty"`
-	AssigneeUserID  *uint64                 `json:"assignee_user_id,omitempty"`
-	AssigneeLabel   string                  `json:"assignee_label,omitempty"`
-	Status          string                  `json:"status"`
-	Priority        string                  `json:"priority"`
+	LatestMeeting   *RoomListItem            `json:"latest_meeting,omitempty"`
+	LatestRecording *RecordingView           `json:"latest_recording,omitempty"`
+	MeetingSummary  *MeetingSummaryCard      `json:"meeting_summary,omitempty"`
+	LatestNote      *ConversationNoteRecord  `json:"latest_note,omitempty"`
+	AgentContext    ConversationAgentContext `json:"agent_context"`
+	AssigneeUserID  *uint64                  `json:"assignee_user_id,omitempty"`
+	AssigneeLabel   string                   `json:"assignee_label,omitempty"`
+	Status          string                   `json:"status"`
+	Priority        string                   `json:"priority"`
+}
+
+type ConversationAgentContext struct {
+	LatestCallID           string     `json:"latest_call_id,omitempty"`
+	TranscriptSegmentCount int        `json:"transcript_segment_count"`
+	LatestMemoryKeys       []string   `json:"latest_memory_keys,omitempty"`
+	LastAgentRunAt         *time.Time `json:"last_agent_run_at,omitempty"`
+	LastAgentStatus        string     `json:"last_agent_status,omitempty"`
 }
 
 type MeetingSummaryCard struct {
@@ -304,6 +313,7 @@ type CleanupExpiredRecordingResult struct {
 }
 
 type ConversationFollowupSummary struct {
+	CallID      string   `json:"call_id,omitempty"`
 	SummaryCN   string   `json:"summary_cn,omitempty"`
 	SummaryEN   string   `json:"summary_en,omitempty"`
 	ActionItems []string `json:"action_items,omitempty"`
@@ -621,6 +631,7 @@ func (s *Service) GetConversation(ctx context.Context, organizationID, userID, c
 	detail.Workspace = ConversationWorkspace{
 		LatestMeeting:  detail.LatestRoom,
 		LatestNote:     detail.LatestNote,
+		AgentContext:   s.buildConversationAgentContext(ctx, organizationID, conversationID, detail.LatestFollowup),
 		AssigneeUserID: summary.AssigneeUserID,
 		AssigneeLabel:  firstNonEmpty(summary.AssigneeDisplayName, summary.AssigneeEmail),
 		Status:         summary.Status,
@@ -640,6 +651,51 @@ func (s *Service) GetConversation(ctx context.Context, organizationID, userID, c
 		}
 	}
 	return detail, nil
+}
+
+func (s *Service) buildConversationAgentContext(ctx context.Context, organizationID, conversationID uint64, latestFollowup *ConversationFollowupSummary) ConversationAgentContext {
+	result := ConversationAgentContext{}
+	if latestFollowup != nil {
+		result.LatestCallID = latestFollowup.CallID
+		if result.LatestCallID != "" {
+			var transcriptCount int64
+			if err := s.db.WithContext(ctx).
+				Model(&models.CallTranscriptSegment{}).
+				Where("call_id = ?", result.LatestCallID).
+				Count(&transcriptCount).Error; err == nil {
+				result.TranscriptSegmentCount = int(transcriptCount)
+			}
+		}
+	}
+	var memories []models.AgentMemory
+	if err := s.db.WithContext(ctx).
+		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
+		Order("updated_at DESC").
+		Limit(10).
+		Find(&memories).Error; err == nil {
+		keys := make([]string, 0, len(memories))
+		for _, memory := range memories {
+			keys = append(keys, memory.Key)
+		}
+		result.LatestMemoryKeys = uniqueStrings(keys)
+	}
+	var run models.AgentRun
+	if err := s.db.WithContext(ctx).
+		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
+		Order("COALESCE(completed_at, started_at, updated_at) DESC").
+		Take(&run).Error; err == nil {
+		result.LastAgentStatus = run.Status
+		switch {
+		case run.CompletedAt != nil:
+			result.LastAgentRunAt = run.CompletedAt
+		case run.StartedAt != nil:
+			result.LastAgentRunAt = run.StartedAt
+		default:
+			at := run.UpdatedAt
+			result.LastAgentRunAt = &at
+		}
+	}
+	return result
 }
 
 func (s *Service) CreateConversation(ctx context.Context, organizationID, userID uint64, input CreateConversationInput) (*models.Conversation, error) {
@@ -1074,6 +1130,7 @@ func (s *Service) latestConversationFollowup(ctx context.Context, conversationID
 		_ = json.Unmarshal([]byte(followup.ActionItemsJSON), &actionItems)
 	}
 	return &ConversationFollowupSummary{
+		CallID:      callID,
 		SummaryCN:   followup.SummaryCN,
 		SummaryEN:   followup.SummaryEN,
 		ActionItems: actionItems,

@@ -41,7 +41,17 @@ func newAgentHandlerTestEnv(t *testing.T) (*AgentHandler, *gorm.DB, models.Conve
 		&models.ToolSchemaVersion{},
 		&models.FollowUpTask{},
 		&models.CallRoom{},
+		&models.CallFollowup{},
+		&models.CallTranscriptSegment{},
 		&models.ContactProfile{},
+		&models.WorkflowRun{},
+		&models.WorkflowTask{},
+		&models.WorkflowHistoryEvent{},
+		&models.WorkflowSignal{},
+		&models.WorkflowTimer{},
+		&models.AgentMessage{},
+		&models.ToolPolicy{},
+		&models.ToolApproval{},
 		&models.EventOutbox{},
 	); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)
@@ -183,6 +193,41 @@ func TestAgentHandlerGetRunEvents(t *testing.T) {
 		if !seen[required] {
 			t.Fatalf("missing required event %s in %+v", required, seen)
 		}
+	}
+}
+
+func TestAgentHandlerCreateWorkflowWithPreset(t *testing.T) {
+	handler, _, conversation := newAgentHandlerTestEnv(t)
+	router := newRouterWithClaims(&auth.Claims{UserID: 7, Email: "owner@example.com"}, handler.RegisterProtectedRoutes)
+
+	reqBody, _ := json.Marshal(map[string]any{
+		"conversation_id": conversation.ID,
+		"preset":          "meeting_brief",
+	})
+	rec := performRequestWithOrganizationAndRequestID(t, router, http.MethodPost, "/api/v1/agent/workflows", reqBody, conversation.OrganizationID, "req-workflow-handler-1")
+	expectHandlerStatus(t, rec, http.StatusAccepted)
+
+	var response struct {
+		Workflow struct {
+			ID             uint64 `json:"id"`
+			ConversationID uint64 `json:"conversation_id"`
+			Preset         string `json:"preset"`
+			Goal           string `json:"goal"`
+			WorkflowType   string `json:"workflow_type"`
+		} `json:"workflow"`
+	}
+	decodeBody(t, rec.Body.Bytes(), &response)
+	if response.Workflow.ConversationID != conversation.ID {
+		t.Fatalf("unexpected conversation id: %+v", response.Workflow)
+	}
+	if response.Workflow.Preset != "meeting_brief" {
+		t.Fatalf("unexpected preset: %+v", response.Workflow)
+	}
+	if response.Workflow.WorkflowType != "meeting_agent" {
+		t.Fatalf("unexpected workflow type: %+v", response.Workflow)
+	}
+	if response.Workflow.Goal == "" {
+		t.Fatalf("expected default goal for preset, got %+v", response.Workflow)
 	}
 }
 

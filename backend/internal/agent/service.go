@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -83,6 +84,26 @@ type conversationContext struct {
 	TranscriptSegments []models.CallTranscriptSegment
 	ContactProfile     *models.ContactProfile
 	ContextChunks      []RetrievedContextChunk
+	MeetingContext     meetingContextSummary
+}
+
+type meetingContextSummary struct {
+	LatestCallID           string
+	TranscriptSegmentCount int
+	LatestTranscriptAt     *time.Time
+	LatestFollowupPresent  bool
+}
+
+type conversationMemoryInput struct {
+	Key         string
+	Summary     string
+	ActionItems []string
+	NextStep    string
+	RiskFlags   []string
+	MemoryType  string
+	Importance  int
+	SourceType  string
+	SourceRefID uint64
 }
 
 func NewService(db *gorm.DB, counters ...counterRecorder) *Service {
@@ -564,15 +585,108 @@ func (s *Service) loadConversationContext(ctx context.Context, organizationID, u
 		TranscriptSegments: transcriptSegments,
 		ContactProfile:     contactProfile,
 	}
+	conversationCtx.MeetingContext = buildMeetingContextSummary(conversationCtx.TranscriptSegments, conversationCtx.Followups)
+	prioritizeMeetingConversationArtifacts(conversationCtx)
 	if err := s.refreshConversationContextChunks(ctx, conversationCtx); err != nil {
 		return nil, err
 	}
-	contextChunks, err := s.retrieveConversationContextChunks(ctx, conv, goal, defaultContextChunkLimit)
+	contextChunks, err := s.retrieveConversationContextChunks(ctx, conversationCtx, goal, defaultContextChunkLimit)
 	if err != nil {
 		return nil, err
 	}
 	conversationCtx.ContextChunks = contextChunks
 	return conversationCtx, nil
+}
+
+func buildMeetingContextSummary(segments []models.CallTranscriptSegment, followups []models.CallFollowup) meetingContextSummary {
+	summary := meetingContextSummary{}
+	if len(segments) > 0 {
+		summary.LatestCallID = strings.TrimSpace(segments[0].CallID)
+		if !segments[0].CreatedAt.IsZero() {
+			at := segments[0].CreatedAt.UTC()
+			summary.LatestTranscriptAt = &at
+		}
+	}
+	if summary.LatestCallID == "" && len(followups) > 0 {
+		summary.LatestCallID = strings.TrimSpace(followups[0].CallID)
+	}
+	if summary.LatestCallID != "" {
+		for _, segment := range segments {
+			if strings.TrimSpace(segment.CallID) == summary.LatestCallID {
+				summary.TranscriptSegmentCount++
+				if segment.CreatedAt.IsZero() {
+					continue
+				}
+				at := segment.CreatedAt.UTC()
+				if summary.LatestTranscriptAt == nil || at.After(*summary.LatestTranscriptAt) {
+					summary.LatestTranscriptAt = &at
+				}
+			}
+		}
+		for _, followup := range followups {
+			if strings.TrimSpace(followup.CallID) == summary.LatestCallID {
+				summary.LatestFollowupPresent = true
+				break
+			}
+		}
+	}
+	return summary
+}
+
+func prioritizeMeetingConversationArtifacts(conversationCtx *conversationContext) {
+	if conversationCtx == nil || strings.TrimSpace(conversationCtx.MeetingContext.LatestCallID) == "" {
+		return
+	}
+	latestCallID := conversationCtx.MeetingContext.LatestCallID
+	sort.SliceStable(conversationCtx.TranscriptSegments, func(i, j int) bool {
+		left := strings.TrimSpace(conversationCtx.TranscriptSegments[i].CallID) == latestCallID
+		right := strings.TrimSpace(conversationCtx.TranscriptSegments[j].CallID) == latestCallID
+		if left != right {
+			return left
+		}
+		if conversationCtx.TranscriptSegments[i].TimestampMS != conversationCtx.TranscriptSegments[j].TimestampMS {
+			return conversationCtx.TranscriptSegments[i].TimestampMS > conversationCtx.TranscriptSegments[j].TimestampMS
+		}
+		return conversationCtx.TranscriptSegments[i].CreatedAt.After(conversationCtx.TranscriptSegments[j].CreatedAt)
+	})
+	sort.SliceStable(conversationCtx.Followups, func(i, j int) bool {
+		left := strings.TrimSpace(conversationCtx.Followups[i].CallID) == latestCallID
+		right := strings.TrimSpace(conversationCtx.Followups[j].CallID) == latestCallID
+		if left != right {
+			return left
+		}
+		leftAt := latestFollowupTimestamp(conversationCtx.Followups[i])
+		rightAt := latestFollowupTimestamp(conversationCtx.Followups[j])
+		return leftAt.After(rightAt)
+	})
+	sort.SliceStable(conversationCtx.Memories, func(i, j int) bool {
+		return meetingMemorySortWeight(conversationCtx.Memories[i].Key) > meetingMemorySortWeight(conversationCtx.Memories[j].Key)
+	})
+}
+
+func latestFollowupTimestamp(followup models.CallFollowup) time.Time {
+	if followup.GeneratedAt != nil && !followup.GeneratedAt.IsZero() {
+		return followup.GeneratedAt.UTC()
+	}
+	if !followup.UpdatedAt.IsZero() {
+		return followup.UpdatedAt.UTC()
+	}
+	return followup.CreatedAt.UTC()
+}
+
+func meetingMemorySortWeight(key string) int {
+	switch strings.TrimSpace(key) {
+	case models.AgentMemoryKeyLatestMeetingBrief:
+		return 4
+	case models.AgentMemoryKeyFollowUpCommitment:
+		return 3
+	case models.AgentMemoryKeyOpenRiskRegister:
+		return 2
+	case models.AgentMemoryKeyLastAgentSummary:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func (s *Service) createStep(ctx context.Context, runID uint64, name string, input, output any) (models.AgentStep, error) {
@@ -867,12 +981,17 @@ func (s *Service) createFollowUpTask(ctx context.Context, run models.AgentRun, n
 	return toolCall, nil
 }
 
-func (s *Service) upsertConversationMemory(ctx context.Context, run models.AgentRun, summary string, actionItems []string, nextStep string, riskFlags []string) (models.AgentToolCall, error) {
+func (s *Service) upsertConversationMemory(ctx context.Context, run models.AgentRun, input conversationMemoryInput) (models.AgentToolCall, error) {
+	key := strings.TrimSpace(input.Key)
+	if key == "" {
+		key = models.AgentMemoryKeyLastAgentSummary
+	}
+	metadata := normalizeConversationMemoryInput(key, input, run.ID)
 	value := map[string]any{
-		"summary":      summary,
-		"action_items": actionItems,
-		"next_step":    nextStep,
-		"risk_flags":   riskFlags,
+		"summary":      metadata.Summary,
+		"action_items": metadata.ActionItems,
+		"next_step":    metadata.NextStep,
+		"risk_flags":   metadata.RiskFlags,
 	}
 	toolCall := models.AgentToolCall{
 		RunID:    run.ID,
@@ -880,22 +999,26 @@ func (s *Service) upsertConversationMemory(ctx context.Context, run models.Agent
 		Status:   models.AgentRunStatusRunning,
 		InputJSON: mustJSONString(map[string]any{
 			"conversation_id": run.ConversationID,
-			"key":             "last_agent_summary",
+			"key":             metadata.Key,
 		}),
 	}
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var memory models.AgentMemory
-		err := tx.Where("organization_id = ? AND user_id = ? AND conversation_id = ? AND `key` = ?", run.OrganizationID, run.UserID, run.ConversationID, "last_agent_summary").
+		err := tx.Where("organization_id = ? AND user_id = ? AND conversation_id = ? AND `key` = ?", run.OrganizationID, run.UserID, run.ConversationID, metadata.Key).
 			Assign(models.AgentMemory{
-				Scope:     models.AgentMemoryScopeConversation,
-				ValueJSON: mustJSONString(value),
-				LastRunID: run.ID,
+				Scope:       models.AgentMemoryScopeConversation,
+				MemoryType:  metadata.MemoryType,
+				Importance:  metadata.Importance,
+				SourceType:  metadata.SourceType,
+				SourceRefID: metadata.SourceRefID,
+				ValueJSON:   mustJSONString(value),
+				LastRunID:   run.ID,
 			}).
 			FirstOrCreate(&memory, models.AgentMemory{
 				OrganizationID: run.OrganizationID,
 				UserID:         run.UserID,
 				ConversationID: run.ConversationID,
-				Key:            "last_agent_summary",
+				Key:            metadata.Key,
 			}).Error
 		if err != nil {
 			return err
@@ -909,6 +1032,39 @@ func (s *Service) upsertConversationMemory(ctx context.Context, run models.Agent
 		return toolCall, err
 	}
 	return toolCall, nil
+}
+
+func normalizeConversationMemoryInput(key string, input conversationMemoryInput, sourceRefID uint64) conversationMemoryInput {
+	input.Key = key
+	if strings.TrimSpace(input.MemoryType) == "" {
+		switch key {
+		case models.AgentMemoryKeyOpenRiskRegister:
+			input.MemoryType = models.AgentMemoryTypeRisk
+		case models.AgentMemoryKeyFollowUpCommitment:
+			input.MemoryType = models.AgentMemoryTypeFollowUp
+		default:
+			input.MemoryType = models.AgentMemoryTypeSummary
+		}
+	}
+	if input.Importance <= 0 {
+		switch key {
+		case models.AgentMemoryKeyLatestMeetingBrief:
+			input.Importance = 90
+		case models.AgentMemoryKeyOpenRiskRegister:
+			input.Importance = 85
+		case models.AgentMemoryKeyFollowUpCommitment:
+			input.Importance = 80
+		default:
+			input.Importance = 70
+		}
+	}
+	if strings.TrimSpace(input.SourceType) == "" {
+		input.SourceType = "workflow_run"
+	}
+	if input.SourceRefID == 0 {
+		input.SourceRefID = sourceRefID
+	}
+	return input
 }
 
 func (s *Service) buildRunResult(ctx context.Context, run models.AgentRun) (*RunResult, error) {

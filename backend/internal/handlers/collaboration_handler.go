@@ -160,14 +160,23 @@ type conversationDetailResponse struct {
 }
 
 type conversationWorkspaceResponse struct {
-	LatestMeeting   *roomListItemResponse       `json:"latest_meeting,omitempty"`
-	LatestRecording *recordingResponse          `json:"latest_recording,omitempty"`
-	MeetingSummary  *meetingSummaryCardResponse `json:"meeting_summary,omitempty"`
-	LatestNote      *conversationNoteResponse   `json:"latest_note,omitempty"`
-	AssigneeUserID  *uint64                     `json:"assignee_user_id,omitempty"`
-	AssigneeLabel   string                      `json:"assignee_label,omitempty"`
-	Status          string                      `json:"status"`
-	Priority        string                      `json:"priority"`
+	LatestMeeting   *roomListItemResponse            `json:"latest_meeting,omitempty"`
+	LatestRecording *recordingResponse               `json:"latest_recording,omitempty"`
+	MeetingSummary  *meetingSummaryCardResponse      `json:"meeting_summary,omitempty"`
+	LatestNote      *conversationNoteResponse        `json:"latest_note,omitempty"`
+	AgentContext    conversationAgentContextResponse `json:"agent_context"`
+	AssigneeUserID  *uint64                          `json:"assignee_user_id,omitempty"`
+	AssigneeLabel   string                           `json:"assignee_label,omitempty"`
+	Status          string                           `json:"status"`
+	Priority        string                           `json:"priority"`
+}
+
+type conversationAgentContextResponse struct {
+	LatestCallID           string     `json:"latest_call_id,omitempty"`
+	TranscriptSegmentCount int        `json:"transcript_segment_count"`
+	LatestMemoryKeys       []string   `json:"latest_memory_keys,omitempty"`
+	LastAgentRunAt         *time.Time `json:"last_agent_run_at,omitempty"`
+	LastAgentStatus        string     `json:"last_agent_status,omitempty"`
 }
 
 type meetingSummaryCardResponse struct {
@@ -234,6 +243,7 @@ type conversationNoteResponse struct {
 }
 
 type conversationFollowupResponse struct {
+	CallID      string   `json:"call_id,omitempty"`
 	SummaryCN   string   `json:"summary_cn,omitempty"`
 	SummaryEN   string   `json:"summary_en,omitempty"`
 	ActionItems []string `json:"action_items,omitempty"`
@@ -677,6 +687,13 @@ func toConversationDetailResponse(item collaboration.ConversationDetail) convers
 			AssigneeLabel:  item.Workspace.AssigneeLabel,
 			Status:         item.Workspace.Status,
 			Priority:       item.Workspace.Priority,
+			AgentContext: conversationAgentContextResponse{
+				LatestCallID:           item.Workspace.AgentContext.LatestCallID,
+				TranscriptSegmentCount: item.Workspace.AgentContext.TranscriptSegmentCount,
+				LatestMemoryKeys:       item.Workspace.AgentContext.LatestMemoryKeys,
+				LastAgentRunAt:         item.Workspace.AgentContext.LastAgentRunAt,
+				LastAgentStatus:        item.Workspace.AgentContext.LastAgentStatus,
+			},
 		},
 	}
 	if item.LatestNote != nil {
@@ -814,6 +831,7 @@ func toConversationNoteResponse(item collaboration.ConversationNoteRecord) conve
 
 func toConversationFollowupResponse(item collaboration.ConversationFollowupSummary) conversationFollowupResponse {
 	return conversationFollowupResponse{
+		CallID:      item.CallID,
 		SummaryCN:   item.SummaryCN,
 		SummaryEN:   item.SummaryEN,
 		ActionItems: item.ActionItems,

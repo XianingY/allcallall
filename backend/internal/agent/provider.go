@@ -41,6 +41,7 @@ type EmbeddingProvider interface {
 type PlannerInput struct {
 	Role           string
 	Goal           string
+	Preset         string
 	Conversation   models.Conversation
 	Notes          []models.ConversationNote
 	Messages       []models.Message
@@ -48,6 +49,7 @@ type PlannerInput struct {
 	Members        []models.ConversationMember
 	Memories       []models.AgentMemory
 	ContextChunks  []RetrievedContextChunk
+	MeetingContext meetingContextSummary
 	MessageHistory []map[string]any
 	OnToken        func(ctx context.Context, token string) `json:"-"`
 }
@@ -139,6 +141,10 @@ func BuildPlannerPrompt(input PlannerInput) (PlannerPrompt, error) {
 		system = "You are a research agent. Your task is to search the knowledge base using context tools and answer the queries."
 	case "summarizer":
 		system = "You are an expert summarization agent. Your task is to synthesize large contexts into concise reports."
+	case "risk_analyst":
+		system = "You are a risk analyst. Focus on blockers, unresolved decisions, approval-sensitive actions, and escalation needs."
+	case "merger":
+		system = "You merge parallel agent outputs into one grounded result with concise summary, actions, and next step."
 	default:
 		system = "You are AllCallAll's primary orchestrator Agent. Delegate tasks to specialized sub-agents ('translator', 'searcher', 'summarizer') using the delegate_task tool for complex requests, or handle simple requests directly."
 	}
@@ -225,6 +231,8 @@ func buildPromptContextJSON(input PlannerInput) (string, error) {
 			"conversation_type":  input.Conversation.Type,
 			"last_internal_note": input.Conversation.LastInternalNoteAt,
 		},
+		"preset":                   input.Preset,
+		"meeting_context":          input.MeetingContext,
 		"notes":                    notes,
 		"messages":                 messages,
 		"recent_rooms":             rooms,
@@ -284,6 +292,9 @@ func buildRulesOutput(input PlannerInput) (string, []string, string, []string) {
 	if len(input.Rooms) > 0 {
 		summary += fmt.Sprintf(" 最近会议：%s（%s）。", compactSnippet(input.Rooms[0].Title, 48), input.Rooms[0].Status)
 	}
+	if input.MeetingContext.TranscriptSegmentCount > 0 {
+		summary += fmt.Sprintf(" 已加载最近会议 %d 条 final transcript。", input.MeetingContext.TranscriptSegmentCount)
+	}
 
 	actionItems := []string{"在线程中同步下一步负责人和截止时间"}
 	riskFlags := []string{}
@@ -307,6 +318,21 @@ func buildRulesOutput(input PlannerInput) (string, []string, string, []string) {
 	combined := strings.ToLower(summary + " " + joinMessageBodies(input.Messages))
 	if strings.Contains(combined, "schedule") || strings.Contains(combined, "next call") || strings.Contains(combined, "明天") || strings.Contains(combined, "下次") {
 		nextStep = "安排下一次会议或回访，并在线程内同步时间。"
+	}
+	switch input.Preset {
+	case WorkflowPresetMeetingBrief:
+		summary = "Meeting Brief: " + summary
+		actionItems = append(actionItems, "确认本次会议结论是否需要同步给外部参与方")
+		nextStep = "确认摘要准确后，将会议结论同步到线程并明确下一步。"
+	case WorkflowPresetFollowUp:
+		summary = "Follow-up Plan: " + summary
+		actionItems = append(actionItems, "整理对外跟进消息草案并确认 owner")
+		nextStep = "将 follow-up 承诺落成具体任务，并确认发送窗口。"
+	case WorkflowPresetRiskReview:
+		summary = "Risk Review: " + summary
+		riskFlags = append(riskFlags, "meeting_risk_review")
+		actionItems = append(actionItems, "确认是否存在未决项需要升级或额外审批")
+		nextStep = "复核风险点并决定是否需要升级处理。"
 	}
 	return summary, uniqueStrings(actionItems), nextStep, uniqueStrings(riskFlags)
 }

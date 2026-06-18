@@ -33,6 +33,7 @@ var (
 type WorkflowInput struct {
 	ConversationID uint64
 	Goal           string
+	Preset         string
 	IdempotencyKey string
 }
 
@@ -65,6 +66,11 @@ type workflowRoleResult struct {
 	Snippets    []string   `json:"snippets,omitempty"`
 }
 
+type workflowToolRequest struct {
+	ToolName string
+	Input    map[string]any
+}
+
 func workflowTaskSpecs() []workflowTaskSpec {
 	return []workflowTaskSpec{
 		{Name: models.WorkflowTaskCollectContext, Role: "workflow"},
@@ -80,9 +86,10 @@ func workflowTaskSpecs() []workflowTaskSpec {
 }
 
 func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID uint64, in WorkflowInput) (*WorkflowResult, error) {
+	preset := normalizeWorkflowPreset(in.Preset)
 	goal := strings.TrimSpace(in.Goal)
 	if goal == "" {
-		goal = "summarize_conversation_next_steps"
+		goal = workflowPresetDefaultGoal(preset)
 	}
 	idempotencyKey := strings.TrimSpace(in.IdempotencyKey)
 	if in.ConversationID == 0 {
@@ -106,6 +113,12 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 
 	var workflow models.WorkflowRun
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		workflowType := "agent_lab"
+		workflowVersion := "agent_lab_v1"
+		if preset != "" {
+			workflowType = "meeting_agent"
+			workflowVersion = "meeting_agent_v1"
+		}
 		agentRun := models.AgentRun{
 			OrganizationID:    organizationID,
 			UserID:            userID,
@@ -130,11 +143,12 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 			IdempotencyKey:    idempotencyKey,
 			RequestID:         trace.RequestID(ctx),
 			Status:            models.WorkflowRunStatusPending,
-			WorkflowType:      "agent_lab",
-			WorkflowVersion:   "agent_lab_v1",
+			WorkflowType:      workflowType,
+			WorkflowVersion:   workflowVersion,
+			Preset:            preset,
 			PromptVersion:     CurrentWorkflowPromptVersion,
 			ToolSchemaVersion: CurrentToolSchemaVersion,
-			StateJSON:         mustJSONString(map[string]any{"phase": "created"}),
+			StateJSON:         mustJSONString(map[string]any{"phase": "created", "preset": preset}),
 			Goal:              goal,
 		}
 		if err := tx.Create(&workflow).Error; err != nil {
@@ -143,6 +157,7 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 		if err := s.appendWorkflowHistoryTx(ctx, tx, workflow, models.WorkflowHistoryEventWorkflowStarted, "workflow_run", &workflow.ID, map[string]any{
 			"workflow_type":       workflow.WorkflowType,
 			"workflow_version":    workflow.WorkflowVersion,
+			"preset":              preset,
 			"prompt_version":      workflow.PromptVersion,
 			"tool_schema_version": workflow.ToolSchemaVersion,
 		}); err != nil {
@@ -286,7 +301,7 @@ func (s *Service) ProcessWorkflowRun(ctx context.Context, workflowRunID uint64) 
 			"attempts":      gorm.Expr("attempts + 1"),
 			"started_at":    now,
 			"lease_until":   leaseUntil,
-			"state_json":    mustJSONString(map[string]any{"phase": "running"}),
+			"state_json":    workflowStateJSON(run, map[string]any{"phase": "running"}),
 			"error_message": "",
 			"completed_at":  nil,
 			"updated_at":    now,
@@ -384,14 +399,21 @@ func (s *Service) ProcessDueWorkflowTimers(ctx context.Context, limit int) ([]ui
 func (s *Service) executeCollectContextTask(ctx context.Context, run models.WorkflowRun, conversationCtx *conversationContext) error {
 	return s.executeWorkflowTask(ctx, run.ID, models.WorkflowTaskCollectContext, map[string]any{
 		"goal":            run.Goal,
+		"preset":          workflowPresetFromRun(run),
 		"conversation_id": run.ConversationID,
 	}, func(task models.WorkflowTask) (map[string]any, error) {
 		citations := buildCitationsFromContextChunks(conversationCtx.ContextChunks)
+		memoryKeys := make([]string, 0, len(conversationCtx.Memories))
+		for _, memory := range conversationCtx.Memories {
+			memoryKeys = append(memoryKeys, memory.Key)
+		}
 		output := map[string]any{
 			"notes":                    len(conversationCtx.Notes),
 			"messages":                 len(conversationCtx.Messages),
 			"rooms":                    len(conversationCtx.Rooms),
 			"retrieved_context_chunks": len(conversationCtx.ContextChunks),
+			"meeting_context":          conversationCtx.MeetingContext,
+			"memory_keys":              uniqueStrings(memoryKeys),
 			"citations":                citations,
 		}
 		return output, s.createAgentMessage(ctx, run, &task.ID, "workflow", "planner", models.AgentMessageTypeTaskInput, output, "collect_context")
@@ -399,14 +421,27 @@ func (s *Service) executeCollectContextTask(ctx context.Context, run models.Work
 }
 
 func (s *Service) executeDecomposeTask(ctx context.Context, run models.WorkflowRun) error {
+	preset := workflowPresetFromRun(run)
+	searcherGoal := "Find grounding evidence and relevant citations."
+	summarizerGoal := "Summarize the conversation and knowledge context."
+	riskGoal := "Identify risks, blockers, and approval-sensitive actions."
+	switch preset {
+	case WorkflowPresetMeetingBrief:
+		summarizerGoal = "Produce a grounded meeting brief with concise summary, evidence, and next steps."
+	case WorkflowPresetFollowUp:
+		summarizerGoal = "Extract follow-up commitments, likely owners, and suggested external next actions."
+	case WorkflowPresetRiskReview:
+		riskGoal = "Focus on risks, unresolved items, and whether escalation or approval is needed."
+	}
 	return s.executeWorkflowTask(ctx, run.ID, models.WorkflowTaskDecompose, map[string]any{
-		"goal": run.Goal,
+		"goal":   run.Goal,
+		"preset": preset,
 	}, func(task models.WorkflowTask) (map[string]any, error) {
 		output := map[string]any{
 			"parallel_roles": []map[string]string{
-				{"role": "searcher", "goal": "Find grounding evidence and relevant citations."},
-				{"role": "summarizer", "goal": "Summarize the conversation and knowledge context."},
-				{"role": "risk_analyst", "goal": "Identify risks, blockers, and approval-sensitive actions."},
+				{"role": "searcher", "goal": searcherGoal},
+				{"role": "summarizer", "goal": summarizerGoal},
+				{"role": "risk_analyst", "goal": riskGoal},
 			},
 		}
 		return output, s.createAgentMessage(ctx, run, &task.ID, "planner", "parallel_agents", models.AgentMessageTypeTaskInput, output, "decompose")
@@ -456,15 +491,17 @@ func (s *Service) executeWorkflowRoleTask(ctx context.Context, run models.Workfl
 
 func (s *Service) runWorkflowRoleAgent(ctx context.Context, run models.WorkflowRun, role string, conversationCtx *conversationContext) (workflowRoleResult, error) {
 	plannerInput := PlannerInput{
-		Role:          role,
-		Goal:          run.Goal,
-		Conversation:  conversationCtx.Conversation,
-		Notes:         conversationCtx.Notes,
-		Messages:      conversationCtx.Messages,
-		Rooms:         conversationCtx.Rooms,
-		Members:       conversationCtx.Members,
-		Memories:      conversationCtx.Memories,
-		ContextChunks: conversationCtx.ContextChunks,
+		Role:           role,
+		Goal:           run.Goal,
+		Preset:         workflowPresetFromRun(run),
+		Conversation:   conversationCtx.Conversation,
+		Notes:          conversationCtx.Notes,
+		Messages:       conversationCtx.Messages,
+		Rooms:          conversationCtx.Rooms,
+		Members:        conversationCtx.Members,
+		Memories:       conversationCtx.Memories,
+		ContextChunks:  conversationCtx.ContextChunks,
+		MeetingContext: conversationCtx.MeetingContext,
 	}
 	output, _, _, err := s.planWithFallback(ctx, plannerInput)
 	if err != nil {
@@ -551,7 +588,21 @@ func (s *Service) executeMergeTask(ctx context.Context, run models.WorkflowRun) 
 		}
 		merged = mergeWorkflowRoleResults(results)
 	}
+	if err := s.persistWorkflowMergedPreview(ctx, run, merged); err != nil {
+		return workflowRoleResult{}, err
+	}
 	return merged, nil
+}
+
+func (s *Service) persistWorkflowMergedPreview(ctx context.Context, run models.WorkflowRun, merged workflowRoleResult) error {
+	return s.db.WithContext(ctx).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
+		"summary":           merged.Summary,
+		"action_items_json": mustJSONString(merged.ActionItems),
+		"next_step":         merged.NextStep,
+		"risk_flags_json":   mustJSONString(merged.RiskFlags),
+		"citations_json":    mustJSONString(merged.Citations),
+		"updated_at":        time.Now().UTC(),
+	}).Error
 }
 
 func (s *Service) executeProposeToolsTask(ctx context.Context, run models.WorkflowRun, merged workflowRoleResult) error {
@@ -567,7 +618,9 @@ func (s *Service) executeProposeToolsTask(ctx context.Context, run models.Workfl
 		}
 		toolInputs := s.workflowToolInputs(run, merged)
 		approvals := make([]models.ToolApproval, 0, len(toolInputs))
-		for toolName, input := range toolInputs {
+		for _, item := range toolInputs {
+			toolName := item.ToolName
+			input := item.Input
 			effect, err := s.resolveToolPolicyEffect(ctx, run.OrganizationID, role, toolName)
 			if err != nil {
 				return nil, err
@@ -583,7 +636,7 @@ func (s *Service) executeProposeToolsTask(ctx context.Context, run models.Workfl
 				WorkflowRunID:     run.ID,
 				TaskID:            task.ID,
 				OrganizationID:    run.OrganizationID,
-				ToolCallID:        fmt.Sprintf("workflow:%d:%s", run.ID, toolName),
+				ToolCallID:        workflowToolCallID(run.ID, toolName, input),
 				ToolName:          toolName,
 				Status:            models.ToolApprovalStatusPending,
 				ToolSchemaVersion: CurrentToolSchemaVersion,
@@ -640,7 +693,7 @@ func (s *Service) executeApprovalTask(ctx context.Context, run models.WorkflowRu
 		if err := s.db.WithContext(ctx).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
 			"status":      models.WorkflowRunStatusRequiresAction,
 			"lease_until": nil,
-			"state_json":  mustJSONString(map[string]any{"phase": "awaiting_approval", "pending_approvals": pending}),
+			"state_json":  workflowStateJSON(run, map[string]any{"phase": "awaiting_approval", "pending_approvals": pending}),
 			"updated_at":  now,
 		}).Error; err != nil {
 			return false, err
@@ -706,7 +759,7 @@ func (s *Service) executeCommitResultTask(ctx context.Context, run models.Workfl
 			"next_step":         merged.NextStep,
 			"risk_flags_json":   mustJSONString(merged.RiskFlags),
 			"citations_json":    mustJSONString(merged.Citations),
-			"state_json":        mustJSONString(map[string]any{"phase": "completed"}),
+			"state_json":        workflowStateJSON(run, map[string]any{"phase": "completed"}),
 			"completed_at":      completedAt,
 			"lease_until":       nil,
 		}
@@ -736,7 +789,7 @@ func (s *Service) executeCommitResultTask(ctx context.Context, run models.Workfl
 	})
 }
 
-func (s *Service) workflowToolInputs(run models.WorkflowRun, merged workflowRoleResult) map[string]map[string]any {
+func (s *Service) workflowToolInputs(run models.WorkflowRun, merged workflowRoleResult) []workflowToolRequest {
 	base := map[string]any{
 		"conversation_id": run.ConversationID,
 		"summary":         merged.Summary,
@@ -744,14 +797,40 @@ func (s *Service) workflowToolInputs(run models.WorkflowRun, merged workflowRole
 		"next_step":       merged.NextStep,
 		"risk_flags":      merged.RiskFlags,
 	}
-	return map[string]map[string]any{
-		ToolWriteConversationMessage: cloneMapWith(base, map[string]any{"citations": merged.Citations}),
-		ToolCreateFollowUpTask: {
-			"conversation_id": run.ConversationID,
-			"next_step":       merged.NextStep,
+	requests := []workflowToolRequest{
+		{
+			ToolName: ToolWriteConversationMessage,
+			Input:    cloneMapWith(base, map[string]any{"citations": merged.Citations}),
 		},
-		ToolUpsertConversationMemory: cloneMapWith(base, map[string]any{"key": "last_agent_summary"}),
 	}
+	switch workflowPresetFromRun(run) {
+	case WorkflowPresetMeetingBrief:
+		requests = append(requests,
+			workflowToolRequest{ToolName: ToolUpsertConversationMemory, Input: cloneMapWith(base, map[string]any{"key": models.AgentMemoryKeyLastAgentSummary})},
+			workflowToolRequest{ToolName: ToolUpsertConversationMemory, Input: cloneMapWith(base, map[string]any{"key": models.AgentMemoryKeyLatestMeetingBrief})},
+		)
+	case WorkflowPresetFollowUp:
+		requests = append(requests,
+			workflowToolRequest{ToolName: ToolCreateFollowUpTask, Input: map[string]any{
+				"conversation_id": run.ConversationID,
+				"next_step":       merged.NextStep,
+			}},
+			workflowToolRequest{ToolName: ToolUpsertConversationMemory, Input: cloneMapWith(base, map[string]any{"key": models.AgentMemoryKeyFollowUpCommitment})},
+		)
+	case WorkflowPresetRiskReview:
+		requests = append(requests,
+			workflowToolRequest{ToolName: ToolUpsertConversationMemory, Input: cloneMapWith(base, map[string]any{"key": models.AgentMemoryKeyOpenRiskRegister})},
+		)
+	default:
+		requests = append(requests,
+			workflowToolRequest{ToolName: ToolCreateFollowUpTask, Input: map[string]any{
+				"conversation_id": run.ConversationID,
+				"next_step":       merged.NextStep,
+			}},
+			workflowToolRequest{ToolName: ToolUpsertConversationMemory, Input: cloneMapWith(base, map[string]any{"key": models.AgentMemoryKeyLastAgentSummary})},
+		)
+	}
+	return requests
 }
 
 func cloneMapWith(base, extra map[string]any) map[string]any {
@@ -763,6 +842,23 @@ func cloneMapWith(base, extra map[string]any) map[string]any {
 		out[key] = value
 	}
 	return out
+}
+
+func workflowToolCallID(workflowRunID uint64, toolName string, input map[string]any) string {
+	if key, ok := input["key"].(string); ok && strings.TrimSpace(key) != "" {
+		return fmt.Sprintf("workflow:%d:%s:%s", workflowRunID, toolName, key)
+	}
+	return fmt.Sprintf("workflow:%d:%s", workflowRunID, toolName)
+}
+
+func workflowStateJSON(run models.WorkflowRun, payload map[string]any) string {
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	if _, ok := payload["preset"]; !ok {
+		payload["preset"] = workflowPresetFromRun(run)
+	}
+	return mustJSONString(payload)
 }
 
 func (s *Service) executeWorkflowTask(ctx context.Context, workflowRunID uint64, name string, input map[string]any, execute func(models.WorkflowTask) (map[string]any, error)) error {
@@ -1016,7 +1112,7 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 				"status":      models.WorkflowRunStatusPending,
 				"attempts":    0,
 				"lease_until": nil,
-				"state_json":  mustJSONString(map[string]any{"phase": "resuming"}),
+				"state_json":  workflowStateJSON(run, map[string]any{"phase": "resuming"}),
 				"updated_at":  now,
 			}).Error; err != nil {
 				return err
@@ -1258,7 +1354,7 @@ func (s *Service) processWorkflowTimer(ctx context.Context, timer models.Workflo
 			}
 			if err := tx.Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
 				"status":        models.WorkflowRunStatusFailed,
-				"state_json":    mustJSONString(map[string]any{"phase": "timed_out", "timer": fresh.TimerName}),
+				"state_json":    workflowStateJSON(run, map[string]any{"phase": "timed_out", "timer": fresh.TimerName}),
 				"error_message": "workflow approval timed out",
 				"completed_at":  now,
 				"lease_until":   nil,
@@ -1333,7 +1429,7 @@ func (s *Service) failWorkflowRun(ctx context.Context, run models.WorkflowRun, c
 	now := time.Now().UTC()
 	_ = s.db.WithContext(context.WithoutCancel(ctx)).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
 		"status":        models.WorkflowRunStatusFailed,
-		"state_json":    mustJSONString(map[string]any{"phase": "failed"}),
+		"state_json":    workflowStateJSON(run, map[string]any{"phase": "failed"}),
 		"error_message": message,
 		"completed_at":  now,
 		"lease_until":   nil,

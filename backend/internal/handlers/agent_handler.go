@@ -56,6 +56,7 @@ type createAgentRunRequest struct {
 type createWorkflowRequest struct {
 	ConversationID uint64 `json:"conversation_id" binding:"required"`
 	Goal           string `json:"goal"`
+	Preset         string `json:"preset"`
 }
 
 type submitApprovalDecisionRequest struct {
@@ -268,6 +269,7 @@ func (h *AgentHandler) handleCreateWorkflow(c *gin.Context) {
 	result, err := h.service.StartWorkflowAgent(c.Request.Context(), organizationID, claims.UserID, agent.WorkflowInput{
 		ConversationID: req.ConversationID,
 		Goal:           req.Goal,
+		Preset:         req.Preset,
 		IdempotencyKey: c.GetHeader("Idempotency-Key"),
 	})
 	if err != nil {
@@ -569,6 +571,7 @@ func toWorkflowRunResponse(run models.WorkflowRun, actionItems, riskFlags []stri
 		"status":              run.Status,
 		"workflow_type":       run.WorkflowType,
 		"workflow_version":    run.WorkflowVersion,
+		"preset":              run.Preset,
 		"prompt_version":      run.PromptVersion,
 		"tool_schema_version": run.ToolSchemaVersion,
 		"state_json":          run.StateJSON,

@@ -137,7 +137,7 @@ const parseJSON = (raw?: string): Record<string, unknown> | null => {
   try {
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
+      ? (parsed as Record<string, unknown>)
       : null;
   } catch {
     return null;
@@ -153,7 +153,9 @@ const toNumber = (value: unknown, fallback = 0) => {
   return fallback;
 };
 
-export const extractAgentCitations = (toolCalls: AgentToolCallRecord[]): AgentCitation[] => {
+export const extractAgentCitations = (
+  toolCalls: AgentToolCallRecord[],
+): AgentCitation[] => {
   const seen = new Set<string>();
   const citations: AgentCitation[] = [];
 
@@ -192,14 +194,18 @@ export const extractAgentCitations = (toolCalls: AgentToolCallRecord[]): AgentCi
   return citations;
 };
 
-const normalizeAgentRunResult = (payload: AgentRunResultPayload): AgentRunResult => {
+const normalizeAgentRunResult = (
+  payload: AgentRunResultPayload,
+): AgentRunResult => {
   const toolCalls = payload.tool_calls ?? [];
   return {
     run: payload.run,
     steps: payload.steps ?? [],
     tool_calls: toolCalls,
     trace: payload.trace ?? [],
-    citations: payload.citations?.length ? payload.citations : extractAgentCitations(toolCalls),
+    citations: payload.citations?.length
+      ? payload.citations
+      : extractAgentCitations(toolCalls),
   };
 };
 
@@ -213,6 +219,7 @@ export interface AgentRunEventsResponse {
 export interface CreateWorkflowRequest {
   conversation_id: number;
   goal?: string;
+  preset?: "meeting_brief" | "follow_up" | "risk_review";
 }
 
 export interface WorkflowRunRecord {
@@ -226,6 +233,7 @@ export interface WorkflowRunRecord {
   status: string;
   workflow_type?: string;
   workflow_version?: string;
+  preset?: string;
   prompt_version?: string;
   tool_schema_version?: string;
   state_json?: string;
@@ -357,34 +365,41 @@ export interface ToolApprovalsResponse {
 
 export const createAgentRun = async (
   token: string,
-  data: CreateAgentRunRequest
+  data: CreateAgentRunRequest,
 ): Promise<AgentRunResponse> => {
   const client = createApiClient(token);
-  const response = await client.post<AgentRunResultPayload>("/agent/runs", data);
+  const response = await client.post<AgentRunResultPayload>(
+    "/agent/runs",
+    data,
+  );
   return normalizeAgentRunResult(response.data);
 };
 
 export const fetchAgentRun = async (
   token: string,
-  runId: number
+  runId: number,
 ): Promise<AgentRunResponse> => {
   const client = createApiClient(token);
-  const response = await client.get<AgentRunResultPayload>(`/agent/runs/${runId}`);
+  const response = await client.get<AgentRunResultPayload>(
+    `/agent/runs/${runId}`,
+  );
   return normalizeAgentRunResult(response.data);
 };
 
 export const fetchAgentRunEvents = async (
   token: string,
-  runId: number
+  runId: number,
 ): Promise<AgentRunEventRecord[]> => {
   const client = createApiClient(token);
-  const response = await client.get<AgentRunEventsResponse>(`/agent/runs/${runId}/events`);
+  const response = await client.get<AgentRunEventsResponse>(
+    `/agent/runs/${runId}/events`,
+  );
   return response.data.events ?? [];
 };
 
 export const createAgentRunEventSource = (
   token: string,
-  runId: number
+  runId: number,
 ): EventSource => {
   const url = `${API_BASE_URL}/agent/runs/${runId}/events/stream`;
   const headers: Record<string, string> = {
@@ -401,7 +416,7 @@ export const createAgentRunEventSource = (
 
 export const createWorkflowRun = async (
   token: string,
-  data: CreateWorkflowRequest
+  data: CreateWorkflowRequest,
 ): Promise<WorkflowResult> => {
   const client = createApiClient(token);
   const response = await client.post<WorkflowResult>("/agent/workflows", data);
@@ -410,16 +425,18 @@ export const createWorkflowRun = async (
 
 export const fetchWorkflowRun = async (
   token: string,
-  workflowId: number
+  workflowId: number,
 ): Promise<WorkflowResult> => {
   const client = createApiClient(token);
-  const response = await client.get<WorkflowResult>(`/agent/workflows/${workflowId}`);
+  const response = await client.get<WorkflowResult>(
+    `/agent/workflows/${workflowId}`,
+  );
   return response.data;
 };
 
 export const listWorkflowRuns = async (
   token: string,
-  limit = 25
+  limit = 25,
 ): Promise<WorkflowResult[]> => {
   const client = createApiClient(token);
   const response = await client.get<WorkflowListResponse>("/agent/workflows", {
@@ -430,16 +447,19 @@ export const listWorkflowRuns = async (
 
 export const processWorkflowRun = async (
   token: string,
-  workflowId: number
+  workflowId: number,
 ): Promise<WorkflowResult> => {
   const client = createApiClient(token);
-  const response = await client.post<WorkflowResult>(`/agent/workflows/${workflowId}/process`, {});
+  const response = await client.post<WorkflowResult>(
+    `/agent/workflows/${workflowId}/process`,
+    {},
+  );
   return response.data;
 };
 
 export const listToolApprovals = async (
   token: string,
-  status?: string
+  status?: string,
 ): Promise<ToolApprovalRecord[]> => {
   const client = createApiClient(token);
   const response = await client.get<ToolApprovalsResponse>("/agent/approvals", {
@@ -451,11 +471,14 @@ export const listToolApprovals = async (
 export const submitToolApprovalDecision = async (
   token: string,
   approvalId: number,
-  decision: "approve" | "reject"
+  decision: "approve" | "reject",
 ): Promise<WorkflowResult> => {
   const client = createApiClient(token);
-  const response = await client.post<WorkflowResult>(`/agent/approvals/${approvalId}/decision`, {
-    decision,
-  });
+  const response = await client.post<WorkflowResult>(
+    `/agent/approvals/${approvalId}/decision`,
+    {
+      decision,
+    },
+  );
   return response.data;
 };

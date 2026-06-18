@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, FlatList, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import {
+  Alert,
+  FlatList,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
 
@@ -17,7 +25,7 @@ import {
   type ConversationNoteRecord,
   type ConversationDetailRecord,
   type MessageRecord,
-  type RecordingRecord
+  type RecordingRecord,
 } from "../api/collaboration";
 import { listContacts, type User } from "../api/users";
 import { useAuthContext } from "../context/AuthContext";
@@ -27,8 +35,11 @@ import PrimaryButton from "../components/PrimaryButton";
 import TextField from "../components/TextField";
 import fileDownloadAdapter from "../platform/fileDownload";
 import ChatRealtimeService from "../services/ChatRealtimeService";
-import { createAgentRun } from "../api/agent";
-import AgentMessageBubble from "../components/AgentMessageBubble";
+import {
+  createWorkflowRun,
+  processWorkflowRun,
+  type WorkflowResult,
+} from "../api/agent";
 import {
   applyConversationDetailPatch,
   type ConversationUpdatedPayload,
@@ -39,6 +50,11 @@ type Props = NativeStackScreenProps<RootStackParamList, "ConversationDetail">;
 
 const STATUS_OPTIONS = ["open", "pending", "resolved"] as const;
 const PRIORITY_OPTIONS = ["low", "normal", "high", "urgent"] as const;
+const MEETING_PRESETS = [
+  { key: "meeting_brief", label: "Meeting Brief" },
+  { key: "follow_up", label: "Follow-up" },
+  { key: "risk_review", label: "Risk Review" },
+] as const;
 
 const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const { token, user } = useAuthContext();
@@ -48,22 +64,28 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const [contacts, setContacts] = useState<User[]>([]);
   const [notes, setNotes] = useState<ConversationNoteRecord[]>([]);
   const [messages, setMessages] = useState<MessageRecord[]>([]);
-  const [latestRecording, setLatestRecording] = useState<RecordingRecord | null>(null);
+  const [latestRecording, setLatestRecording] =
+    useState<RecordingRecord | null>(null);
   const [draft, setDraft] = useState("");
   const [noteDraft, setNoteDraft] = useState("");
   const [loading, setLoading] = useState(false);
-  const [activeAgentRunId, setActiveAgentRunId] = useState<number | null>(null);
-  const conversationId = route.params.conversationId ?? route.params.conversation?.id ?? 0;
+  const [activeWorkflow, setActiveWorkflow] = useState<WorkflowResult | null>(
+    null,
+  );
+  const [workflowLoading, setWorkflowLoading] = useState(false);
+  const conversationId =
+    route.params.conversationId ?? route.params.conversation?.id ?? 0;
 
-  const conversation = detail?.conversation ?? route.params.conversation ?? {
-    id: conversationId,
-    organization_id: currentOrganization?.id ?? 0,
-    type: "direct",
-    title: "协作线程",
-    status: "open",
-    priority: "normal",
-    unread_count: 0,
-  };
+  const conversation = detail?.conversation ??
+    route.params.conversation ?? {
+      id: conversationId,
+      organization_id: currentOrganization?.id ?? 0,
+      type: "direct",
+      title: "协作线程",
+      status: "open",
+      priority: "normal",
+      unread_count: 0,
+    };
   const isWideScreen = width >= 1180;
 
   const loadData = useCallback(async () => {
@@ -72,15 +94,20 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     }
     try {
       setLoading(true);
-      const [nextDetail, nextMessages, nextNotes, nextContacts] = await Promise.all([
-        fetchConversationDetail(token, conversationId),
-        listMessages(token, conversationId),
-        listConversationNotes(token, conversationId),
-        listContacts(token)
-      ]);
-      const nextRecording = nextDetail.workspace?.latest_recording
-        ?? (nextDetail.conversation.latest_recording_id
-          ? await fetchRecording(token, nextDetail.conversation.latest_recording_id)
+      const [nextDetail, nextMessages, nextNotes, nextContacts] =
+        await Promise.all([
+          fetchConversationDetail(token, conversationId),
+          listMessages(token, conversationId),
+          listConversationNotes(token, conversationId),
+          listContacts(token),
+        ]);
+      const nextRecording =
+        nextDetail.workspace?.latest_recording ??
+        (nextDetail.conversation.latest_recording_id
+          ? await fetchRecording(
+              token,
+              nextDetail.conversation.latest_recording_id,
+            )
           : null);
       setDetail(nextDetail);
       setContacts(nextContacts);
@@ -89,7 +116,10 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       setLatestRecording(nextRecording);
       await markConversationRead(token, conversationId);
     } catch (error) {
-      console.error("[ConversationDetailScreen] Failed to load conversation detail:", error);
+      console.error(
+        "[ConversationDetailScreen] Failed to load conversation detail:",
+        error,
+      );
       Alert.alert("加载失败", "无法加载协作线程详情。");
     } finally {
       setLoading(false);
@@ -108,12 +138,29 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     const handleOpen = () => {
       void loadData();
     };
-    const handleEvent = (event: { event: string; organization_id: number; payload: unknown }) => {
+    const handleEvent = (event: {
+      event: string;
+      organization_id: number;
+      payload: unknown;
+    }) => {
       if (event.event === "conversation.updated") {
-        setDetail((previous) => applyConversationDetailPatch(previous, event.payload as ConversationUpdatedPayload));
+        setDetail((previous) =>
+          applyConversationDetailPatch(
+            previous,
+            event.payload as ConversationUpdatedPayload,
+          ),
+        );
         return;
       }
-      if (["message.created", "conversation.note.created", "room.recording.updated", "room.state.updated", "room.ended"].includes(event.event)) {
+      if (
+        [
+          "message.created",
+          "conversation.note.created",
+          "room.recording.updated",
+          "room.state.updated",
+          "room.ended",
+        ].includes(event.event)
+      ) {
         void loadData();
       }
     };
@@ -130,13 +177,27 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     if (conversation.assignee_user_id === user?.id) {
       return "我";
     }
-    return conversation.assignee_display_name || conversation.assignee_email || "未指派";
-  }, [conversation.assignee_display_name, conversation.assignee_email, conversation.assignee_user_id, user?.id]);
+    return (
+      conversation.assignee_display_name ||
+      conversation.assignee_email ||
+      "未指派"
+    );
+  }, [
+    conversation.assignee_display_name,
+    conversation.assignee_email,
+    conversation.assignee_user_id,
+    user?.id,
+  ]);
 
   const boundContact = useMemo(
     () => contacts.find((item) => item.id === conversation.contact_id),
-    [contacts, conversation.contact_id]
+    [contacts, conversation.contact_id],
   );
+  const agentContext = detail?.workspace.agent_context;
+  const transcriptReady = (agentContext?.transcript_segment_count ?? 0) > 0;
+  const pendingApprovals =
+    activeWorkflow?.approvals?.filter((item) => item.status === "pending") ??
+    [];
 
   const handleCopyConversationLink = async () => {
     const links = buildConversationShareLinks(conversationId);
@@ -156,20 +217,46 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     }
   }, [token, draft, conversationId, loadData]);
 
+  const runMeetingAgent = useCallback(
+    async (input: {
+      preset?: "meeting_brief" | "follow_up" | "risk_review";
+      goal?: string;
+    }) => {
+      if (!token) return;
+      try {
+        setWorkflowLoading(true);
+        const created = await createWorkflowRun(token, {
+          conversation_id: conversationId,
+          preset: input.preset,
+          goal: input.goal,
+        });
+        const processed = await processWorkflowRun(token, created.workflow.id);
+        setActiveWorkflow(processed);
+        if (processed.workflow.status === "ready") {
+          await loadData();
+        } else if (processed.workflow.status === "requires_action") {
+          Alert.alert(
+            "等待审批",
+            "Meeting Agent 已完成分析，但写回线程前还需要审批。",
+          );
+        }
+      } catch (e) {
+        console.error("Run Meeting Agent failed", e);
+        Alert.alert("Agent 调用失败");
+      } finally {
+        setWorkflowLoading(false);
+      }
+    },
+    [conversationId, loadData, token],
+  );
+
   const handleAskAgent = useCallback(async () => {
-    if (!token) return;
-    try {
-      const run = await createAgentRun(token, {
-        conversation_id: conversationId,
-        goal: draft.trim() || undefined,
-      });
+    const goal = draft.trim();
+    await runMeetingAgent({ goal: goal || undefined });
+    if (goal) {
       setDraft("");
-      setActiveAgentRunId(run.run.id);
-    } catch (e) {
-      console.error("Ask Agent failed", e);
-      Alert.alert("Agent 调用失败");
     }
-  }, [token, draft, conversationId]);
+  }, [draft, runMeetingAgent]);
 
   const handleAddNote = async () => {
     if (!token || !noteDraft.trim()) {
@@ -190,8 +277,12 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       return;
     }
     try {
-      const updated = await updateConversation(token, conversationId, { assignee_user_id: user.id });
-      setDetail((previous) => previous ? { ...previous, conversation: updated } : previous);
+      const updated = await updateConversation(token, conversationId, {
+        assignee_user_id: user.id,
+      });
+      setDetail((previous) =>
+        previous ? { ...previous, conversation: updated } : previous,
+      );
     } catch (error) {
       console.error("[ConversationDetailScreen] Failed to assign self:", error);
       Alert.alert("更新失败", "无法更新负责人。");
@@ -203,36 +294,61 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       return;
     }
     try {
-      const updated = await updateConversation(token, conversationId, { assignee_user_id: 0 });
-      setDetail((previous) => previous ? { ...previous, conversation: updated } : previous);
+      const updated = await updateConversation(token, conversationId, {
+        assignee_user_id: 0,
+      });
+      setDetail((previous) =>
+        previous ? { ...previous, conversation: updated } : previous,
+      );
     } catch (error) {
-      console.error("[ConversationDetailScreen] Failed to unassign conversation:", error);
+      console.error(
+        "[ConversationDetailScreen] Failed to unassign conversation:",
+        error,
+      );
       Alert.alert("更新失败", "无法清空负责人。");
     }
   };
 
-  const handleUpdateStatus = async (status: typeof STATUS_OPTIONS[number]) => {
+  const handleUpdateStatus = async (
+    status: (typeof STATUS_OPTIONS)[number],
+  ) => {
     if (!token) {
       return;
     }
     try {
-      const updated = await updateConversation(token, conversationId, { status });
-      setDetail((previous) => previous ? { ...previous, conversation: updated } : previous);
+      const updated = await updateConversation(token, conversationId, {
+        status,
+      });
+      setDetail((previous) =>
+        previous ? { ...previous, conversation: updated } : previous,
+      );
     } catch (error) {
-      console.error("[ConversationDetailScreen] Failed to update status:", error);
+      console.error(
+        "[ConversationDetailScreen] Failed to update status:",
+        error,
+      );
       Alert.alert("更新失败", "无法更新会话状态。");
     }
   };
 
-  const handleUpdatePriority = async (priority: typeof PRIORITY_OPTIONS[number]) => {
+  const handleUpdatePriority = async (
+    priority: (typeof PRIORITY_OPTIONS)[number],
+  ) => {
     if (!token) {
       return;
     }
     try {
-      const updated = await updateConversation(token, conversationId, { priority });
-      setDetail((previous) => previous ? { ...previous, conversation: updated } : previous);
+      const updated = await updateConversation(token, conversationId, {
+        priority,
+      });
+      setDetail((previous) =>
+        previous ? { ...previous, conversation: updated } : previous,
+      );
     } catch (error) {
-      console.error("[ConversationDetailScreen] Failed to update priority:", error);
+      console.error(
+        "[ConversationDetailScreen] Failed to update priority:",
+        error,
+      );
       Alert.alert("更新失败", "无法更新优先级。");
     }
   };
@@ -242,7 +358,11 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       return;
     }
     try {
-      const room = await createConversationRoom(token, conversationId, `${conversation.title || "协作线程"} 会议`);
+      const room = await createConversationRoom(
+        token,
+        conversationId,
+        `${conversation.title || "协作线程"} 会议`,
+      );
       await loadData();
       navigation.navigate("PreJoin", {
         roomId: room.room.id,
@@ -266,28 +386,45 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       return;
     }
     try {
-      const updated = await updateConversation(token, conversationId, { contact_id: contactId });
-      setDetail((previous) => previous ? { ...previous, conversation: updated } : previous);
+      const updated = await updateConversation(token, conversationId, {
+        contact_id: contactId,
+      });
+      setDetail((previous) =>
+        previous ? { ...previous, conversation: updated } : previous,
+      );
     } catch (error) {
-      console.error("[ConversationDetailScreen] Failed to bind contact:", error);
+      console.error(
+        "[ConversationDetailScreen] Failed to bind contact:",
+        error,
+      );
       Alert.alert("更新失败", "无法绑定联系人。");
     }
   };
 
-  const handleDownloadRecording = async (recordingId: number, fileId: number, fileName: string) => {
+  const handleDownloadRecording = async (
+    recordingId: number,
+    fileId: number,
+    fileName: string,
+  ) => {
     if (!token) {
       return;
     }
     try {
       const request = buildRecordingDownloadRequest(token, recordingId, fileId);
-      const result = await fileDownloadAdapter.download(request, fileName || `recording-${fileId}`);
+      const result = await fileDownloadAdapter.download(
+        request,
+        fileName || `recording-${fileId}`,
+      );
       try {
         await fileDownloadAdapter.open(result);
       } catch {
         Alert.alert("下载完成", `文件已保存到 ${result.location}`);
       }
     } catch (error) {
-      console.error("[ConversationDetailScreen] Failed to download recording:", error);
+      console.error(
+        "[ConversationDetailScreen] Failed to download recording:",
+        error,
+      );
       Alert.alert("下载失败", "无法下载最近录音资产。");
     }
   };
@@ -297,35 +434,140 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       <Text style={styles.heading}>{conversation.title || "协作线程"}</Text>
 
       <View style={styles.summaryCard}>
-        <Text style={styles.summaryText}>负责人 {detail?.workspace.assignee_label || assigneeLabel}</Text>
-        <Text style={styles.summaryText}>状态 {detail?.workspace.status || conversation.status}</Text>
-        <Text style={styles.summaryText}>优先级 {detail?.workspace.priority || conversation.priority}</Text>
-        <Text style={styles.summaryText}>关联联系人 {boundContact?.display_name || boundContact?.email || "未绑定"}</Text>
-        <PrimaryButton title="复制线程 Web 链接" onPress={() => void handleCopyConversationLink()} style={styles.inlineButtonSecondary} />
+        <Text style={styles.summaryText}>
+          负责人 {detail?.workspace.assignee_label || assigneeLabel}
+        </Text>
+        <Text style={styles.summaryText}>
+          状态 {detail?.workspace.status || conversation.status}
+        </Text>
+        <Text style={styles.summaryText}>
+          优先级 {detail?.workspace.priority || conversation.priority}
+        </Text>
+        <Text style={styles.summaryText}>
+          关联联系人{" "}
+          {boundContact?.display_name || boundContact?.email || "未绑定"}
+        </Text>
+        <PrimaryButton
+          title="复制线程 Web 链接"
+          onPress={() => void handleCopyConversationLink()}
+          style={styles.inlineButtonSecondary}
+        />
         {detail?.latest_room ? (
           <PrimaryButton
             title="进入当前会议"
-            onPress={() => navigation.navigate("PreJoin", {
-              roomId: detail.latest_room?.id ?? 0,
-              title: detail.latest_room?.title ?? "Meeting",
-              conversationId: detail.latest_room?.conversation_id ?? null,
-              joinOptions: {
-                audioEnabled: true,
-                videoEnabled: true,
-                cameraFacing: "front",
-                speakerOn: true,
-              },
-            })}
+            onPress={() =>
+              navigation.navigate("PreJoin", {
+                roomId: detail.latest_room?.id ?? 0,
+                title: detail.latest_room?.title ?? "Meeting",
+                conversationId: detail.latest_room?.conversation_id ?? null,
+                joinOptions: {
+                  audioEnabled: true,
+                  videoEnabled: true,
+                  cameraFacing: "front",
+                  speakerOn: true,
+                },
+              })
+            }
             style={styles.inlineButton}
           />
         ) : (
-          <PrimaryButton title="升级为会议" onPress={handleCreateMeeting} style={styles.inlineButton} />
+          <PrimaryButton
+            title="升级为会议"
+            onPress={handleCreateMeeting}
+            style={styles.inlineButton}
+          />
         )}
       </View>
 
       <View style={styles.buttonRow}>
-        <PrimaryButton title="指派给我" onPress={handleAssignSelf} style={styles.button} />
-        <PrimaryButton title="清空负责人" onPress={handleUnassign} style={styles.buttonSecondary} />
+        <PrimaryButton
+          title="指派给我"
+          onPress={handleAssignSelf}
+          style={styles.button}
+        />
+        <PrimaryButton
+          title="清空负责人"
+          onPress={handleUnassign}
+          style={styles.buttonSecondary}
+        />
+      </View>
+
+      <View style={styles.infoCard}>
+        <Text style={styles.infoTitle}>Meeting Agent</Text>
+        <Text style={styles.infoMeta}>
+          Transcript {transcriptReady ? "ready" : "not ready"} ·{" "}
+          {agentContext?.transcript_segment_count ?? 0} final segments
+        </Text>
+        {agentContext?.latest_call_id ? (
+          <Text style={styles.infoMeta}>
+            Latest call {agentContext.latest_call_id}
+          </Text>
+        ) : null}
+        {agentContext?.last_agent_status ? (
+          <Text style={styles.infoMeta}>
+            Last run {agentContext.last_agent_status}
+            {agentContext.last_agent_run_at
+              ? ` · ${new Date(agentContext.last_agent_run_at).toLocaleString()}`
+              : ""}
+          </Text>
+        ) : null}
+        {agentContext?.latest_memory_keys?.length ? (
+          <Text style={styles.infoMeta}>
+            Memory hits {agentContext.latest_memory_keys.join(" / ")}
+          </Text>
+        ) : null}
+        <View style={styles.optionRow}>
+          {MEETING_PRESETS.map((preset) => (
+            <PrimaryButton
+              key={preset.key}
+              title={preset.label}
+              onPress={() => void runMeetingAgent({ preset: preset.key })}
+              disabled={workflowLoading}
+              style={styles.option}
+            />
+          ))}
+        </View>
+        {activeWorkflow?.workflow?.summary ? (
+          <Text style={styles.infoBody}>{activeWorkflow.workflow.summary}</Text>
+        ) : (
+          <Text style={styles.infoMeta}>
+            基于 final transcript、follow-up、memory 和线程上下文生成 grounded
+            结果。
+          </Text>
+        )}
+        {activeWorkflow?.workflow?.next_step ? (
+          <Text style={styles.infoMeta}>
+            Next step {activeWorkflow.workflow.next_step}
+          </Text>
+        ) : null}
+        {activeWorkflow?.workflow?.action_items?.length ? (
+          <Text style={styles.infoMeta}>
+            Action items {activeWorkflow.workflow.action_items.join(" / ")}
+          </Text>
+        ) : null}
+        {activeWorkflow?.citations?.length ? (
+          <View style={styles.citationList}>
+            {activeWorkflow.citations.slice(0, 4).map((citation, index) => (
+              <View
+                key={`${citation.source_type}:${citation.source_id}:${index}`}
+                style={styles.citationItem}
+              >
+                <Text style={styles.citationTitle}>{citation.title}</Text>
+                <Text style={styles.citationMeta}>
+                  {citation.retrieval_mode || "context"} · score{" "}
+                  {citation.score}
+                </Text>
+                <Text style={styles.citationSnippet}>{citation.snippet}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        {pendingApprovals.length ? (
+          <Text style={styles.infoMeta}>
+            Pending approvals{" "}
+            {pendingApprovals.map((item) => item.tool_name).join(" / ")}
+          </Text>
+        ) : null}
       </View>
 
       <Text style={styles.sectionTitle}>状态</Text>
@@ -335,7 +577,11 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
             key={status}
             title={status}
             onPress={() => handleUpdateStatus(status)}
-            style={conversation.status === status ? styles.optionActive : styles.option}
+            style={
+              conversation.status === status
+                ? styles.optionActive
+                : styles.option
+            }
           />
         ))}
       </View>
@@ -347,7 +593,11 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
             key={priority}
             title={priority}
             onPress={() => handleUpdatePriority(priority)}
-            style={conversation.priority === priority ? styles.optionActive : styles.option}
+            style={
+              conversation.priority === priority
+                ? styles.optionActive
+                : styles.option
+            }
           />
         ))}
       </View>
@@ -355,23 +605,45 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       <Text style={styles.sectionTitle}>联系人绑定</Text>
       {boundContact ? (
         <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>{boundContact.display_name || boundContact.email}</Text>
+          <Text style={styles.infoTitle}>
+            {boundContact.display_name || boundContact.email}
+          </Text>
           <Text style={styles.infoMeta}>{boundContact.email}</Text>
-          {boundContact.profile?.company ? <Text style={styles.infoMeta}>公司 {boundContact.profile.company}</Text> : null}
-          {boundContact.profile?.role ? <Text style={styles.infoMeta}>角色 {boundContact.profile.role}</Text> : null}
-          {boundContact.profile?.timezone ? <Text style={styles.infoMeta}>时区 {boundContact.profile.timezone}</Text> : null}
-          {boundContact.profile?.default_source_lang || boundContact.profile?.default_target_lang ? (
+          {boundContact.profile?.company ? (
             <Text style={styles.infoMeta}>
-              默认语言 {boundContact.profile?.default_source_lang || "-"} → {boundContact.profile?.default_target_lang || "-"}
+              公司 {boundContact.profile.company}
+            </Text>
+          ) : null}
+          {boundContact.profile?.role ? (
+            <Text style={styles.infoMeta}>
+              角色 {boundContact.profile.role}
+            </Text>
+          ) : null}
+          {boundContact.profile?.timezone ? (
+            <Text style={styles.infoMeta}>
+              时区 {boundContact.profile.timezone}
+            </Text>
+          ) : null}
+          {boundContact.profile?.default_source_lang ||
+          boundContact.profile?.default_target_lang ? (
+            <Text style={styles.infoMeta}>
+              默认语言 {boundContact.profile?.default_source_lang || "-"} →{" "}
+              {boundContact.profile?.default_target_lang || "-"}
             </Text>
           ) : null}
           <View style={styles.buttonRow}>
             <PrimaryButton
               title="查看联系人"
-              onPress={() => navigation.navigate("ContactDetail", { contact: boundContact })}
+              onPress={() =>
+                navigation.navigate("ContactDetail", { contact: boundContact })
+              }
               style={styles.button}
             />
-            <PrimaryButton title="解除绑定" onPress={() => handleBindContact(null)} style={styles.buttonSecondary} />
+            <PrimaryButton
+              title="解除绑定"
+              onPress={() => handleBindContact(null)}
+              style={styles.buttonSecondary}
+            />
           </View>
         </View>
       ) : (
@@ -390,16 +662,41 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       {detail?.workspace ? (
         <View style={styles.infoCard}>
           <Text style={styles.infoTitle}>顶部工作区</Text>
-          {detail.workspace.latest_meeting ? <Text style={styles.infoMeta}>最近会议 {detail.workspace.latest_meeting.title}</Text> : null}
-          {detail.workspace.latest_recording ? <Text style={styles.infoMeta}>最近录音资产 #{detail.workspace.latest_recording.session.id}</Text> : null}
-          {detail.workspace.meeting_summary?.summary ? <Text style={styles.infoBody}>{detail.workspace.meeting_summary.summary}</Text> : null}
-          {detail.workspace.meeting_summary?.action_items?.length ? (
-            <Text style={styles.infoMeta}>Action items {detail.workspace.meeting_summary.action_items.join(" / ")}</Text>
+          {detail.workspace.latest_meeting ? (
+            <Text style={styles.infoMeta}>
+              最近会议 {detail.workspace.latest_meeting.title}
+            </Text>
           ) : null}
-          {detail.workspace.meeting_summary?.next_step ? <Text style={styles.infoMeta}>Next step {detail.workspace.meeting_summary.next_step}</Text> : null}
+          {detail.workspace.latest_recording ? (
+            <Text style={styles.infoMeta}>
+              最近录音资产 #{detail.workspace.latest_recording.session.id}
+            </Text>
+          ) : null}
+          {detail.workspace.meeting_summary?.summary ? (
+            <Text style={styles.infoBody}>
+              {detail.workspace.meeting_summary.summary}
+            </Text>
+          ) : null}
+          {detail.workspace.meeting_summary?.action_items?.length ? (
+            <Text style={styles.infoMeta}>
+              Action items{" "}
+              {detail.workspace.meeting_summary.action_items.join(" / ")}
+            </Text>
+          ) : null}
+          {detail.workspace.meeting_summary?.next_step ? (
+            <Text style={styles.infoMeta}>
+              Next step {detail.workspace.meeting_summary.next_step}
+            </Text>
+          ) : null}
           {detail.workspace.latest_note ? (
             <Text style={styles.infoMeta}>
-              最近备注 {detail.workspace.latest_note.author_display_name || detail.workspace.latest_note.author_email} · {new Date(detail.workspace.latest_note.created_at).toLocaleString()}
+              最近备注{" "}
+              {detail.workspace.latest_note.author_display_name ||
+                detail.workspace.latest_note.author_email}{" "}
+              ·{" "}
+              {new Date(
+                detail.workspace.latest_note.created_at,
+              ).toLocaleString()}
             </Text>
           ) : null}
         </View>
@@ -412,7 +709,8 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
             <View key={note.id} style={styles.noteRow}>
               <Text style={styles.noteBody}>{note.body}</Text>
               <Text style={styles.infoMeta}>
-                {note.author_display_name || note.author_email} · {new Date(note.created_at).toLocaleString()}
+                {note.author_display_name || note.author_email} ·{" "}
+                {new Date(note.created_at).toLocaleString()}
               </Text>
             </View>
           ))}
@@ -423,10 +721,18 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         <View style={styles.infoCard}>
           <Text style={styles.infoTitle}>最近会议/通话摘要</Text>
           <Text style={styles.infoBody}>
-            {detail.workspace.meeting_summary?.summary || detail.latest_followup.summary_cn || detail.latest_followup.summary_en || "暂无摘要"}
+            {detail.workspace.meeting_summary?.summary ||
+              detail.latest_followup.summary_cn ||
+              detail.latest_followup.summary_en ||
+              "暂无摘要"}
           </Text>
-          {(detail.workspace.meeting_summary?.next_step || detail.latest_followup.next_step) ? (
-            <Text style={styles.infoMeta}>下一步 {detail.workspace.meeting_summary?.next_step || detail.latest_followup.next_step}</Text>
+          {detail.workspace.meeting_summary?.next_step ||
+          detail.latest_followup.next_step ? (
+            <Text style={styles.infoMeta}>
+              下一步{" "}
+              {detail.workspace.meeting_summary?.next_step ||
+                detail.latest_followup.next_step}
+            </Text>
           ) : null}
         </View>
       ) : null}
@@ -434,18 +740,31 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       {latestRecording ? (
         <View style={styles.infoCard}>
           <Text style={styles.infoTitle}>最近录音资产</Text>
-          <Text style={styles.infoMeta}>录音会话 #{latestRecording.session.id}</Text>
-          <Text style={styles.infoMeta}>状态 {latestRecording.session.status}</Text>
-          <Text style={styles.infoMeta}>文件数 {latestRecording.files.length}</Text>
+          <Text style={styles.infoMeta}>
+            录音会话 #{latestRecording.session.id}
+          </Text>
+          <Text style={styles.infoMeta}>
+            状态 {latestRecording.session.status}
+          </Text>
+          <Text style={styles.infoMeta}>
+            文件数 {latestRecording.files.length}
+          </Text>
           {latestRecording.files.slice(0, 2).map((file) => (
             <View key={file.id} style={styles.recordingFileRow}>
               <Text style={styles.recordingFileTitle}>{file.file_name}</Text>
               <Text style={styles.infoMeta}>
-                {file.recording_kind} · {file.file_size_bytes} bytes · {file.duration_seconds}s
+                {file.recording_kind} · {file.file_size_bytes} bytes ·{" "}
+                {file.duration_seconds}s
               </Text>
               <PrimaryButton
                 title="下载最近录音"
-                onPress={() => void handleDownloadRecording(latestRecording.session.id, file.id, file.file_name)}
+                onPress={() =>
+                  void handleDownloadRecording(
+                    latestRecording.session.id,
+                    file.id,
+                    file.file_name,
+                  )
+                }
                 style={styles.recordingButton}
               />
             </View>
@@ -464,7 +783,12 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         onChangeText={setNoteDraft}
         placeholder="记录交接说明、风险点或下一步动作"
       />
-      <PrimaryButton title="添加内部备注" onPress={handleAddNote} disabled={!noteDraft.trim()} style={styles.createNoteButton} />
+      <PrimaryButton
+        title="添加内部备注"
+        onPress={handleAddNote}
+        disabled={!noteDraft.trim()}
+        style={styles.createNoteButton}
+      />
     </>
   );
 
@@ -479,39 +803,52 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         const isMine = item.sender_id === user?.id;
         const isSystem = item.type === "system";
         return (
-          <View style={[
-            styles.messageBubble,
-            isSystem ? styles.systemBubble : isMine ? styles.mine : styles.theirs
-          ]}>
-            <Text style={styles.sender}>{item.sender_display_name || item.sender_email}</Text>
+          <View
+            style={[
+              styles.messageBubble,
+              isSystem
+                ? styles.systemBubble
+                : isMine
+                  ? styles.mine
+                  : styles.theirs,
+            ]}
+          >
+            <Text style={styles.sender}>
+              {item.sender_display_name || item.sender_email}
+            </Text>
             <Text style={styles.body}>{item.body || item.type}</Text>
             {item.metadata?.event_type ? (
-              <Text style={styles.systemMeta}>{String(item.metadata.event_type)}</Text>
+              <Text style={styles.systemMeta}>
+                {String(item.metadata.event_type)}
+              </Text>
             ) : null}
-            <Text style={styles.time}>{new Date(item.created_at).toLocaleString()}</Text>
+            <Text style={styles.time}>
+              {new Date(item.created_at).toLocaleString()}
+            </Text>
           </View>
         );
       }}
       ListFooterComponent={
         <View>
-          {activeAgentRunId ? (
-            <AgentMessageBubble
-              runId={activeAgentRunId}
-              onComplete={() => {
-                void loadData(); // Reload messages after agent finishes
-                setActiveAgentRunId(null);
-              }}
-            />
-          ) : null}
           <View style={styles.composer}>
             <TextField
               value={draft}
               onChangeText={setDraft}
-              placeholder="输入线程消息，或输入指令召唤 Agent"
+              placeholder="输入线程消息，或输入自定义 Agent goal"
             />
             <View style={styles.buttonRow}>
-              <PrimaryButton title="发送消息" onPress={handleSend} disabled={!draft.trim()} style={styles.button} />
-              <PrimaryButton title="Ask AI" onPress={handleAskAgent} style={styles.buttonSecondary} />
+              <PrimaryButton
+                title="发送消息"
+                onPress={handleSend}
+                disabled={!draft.trim()}
+                style={styles.button}
+              />
+              <PrimaryButton
+                title="Run Agent"
+                onPress={() => void handleAskAgent()}
+                disabled={workflowLoading}
+                style={styles.buttonSecondary}
+              />
             </View>
           </View>
         </View>
@@ -523,12 +860,13 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     <View style={styles.container}>
       {isWideScreen ? (
         <View style={styles.desktopLayout}>
-          <ScrollView style={styles.workspaceColumn} contentContainerStyle={styles.workspaceColumnContent}>
+          <ScrollView
+            style={styles.workspaceColumn}
+            contentContainerStyle={styles.workspaceColumnContent}
+          >
             {workspacePane}
           </ScrollView>
-          <View style={styles.messageColumn}>
-            {messagePane}
-          </View>
+          <View style={styles.messageColumn}>{messagePane}</View>
         </View>
       ) : (
         <>
@@ -545,7 +883,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8fafc",
-    padding: 16
+    padding: 16,
   },
   desktopLayout: {
     flex: 1,
@@ -565,21 +903,21 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "700",
     color: "#0f172a",
-    marginBottom: 12
+    marginBottom: 12,
   },
   summaryCard: {
     backgroundColor: "#fff",
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#e2e8f0"
+    borderColor: "#e2e8f0",
   },
   summaryText: {
     color: "#334155",
-    marginTop: 4
+    marginTop: 4,
   },
   inlineButton: {
-    marginTop: 12
+    marginTop: 12,
   },
   inlineButtonSecondary: {
     marginTop: 12,
@@ -588,31 +926,31 @@ const styles = StyleSheet.create({
   buttonRow: {
     flexDirection: "row",
     gap: 12,
-    marginTop: 12
+    marginTop: 12,
   },
   button: {
-    flex: 1
+    flex: 1,
   },
   buttonSecondary: {
     flex: 1,
-    backgroundColor: "#475569"
+    backgroundColor: "#475569",
   },
   sectionTitle: {
     marginTop: 16,
     marginBottom: 8,
     color: "#0f172a",
-    fontWeight: "700"
+    fontWeight: "700",
   },
   optionRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 8,
   },
   option: {
-    backgroundColor: "#64748b"
+    backgroundColor: "#64748b",
   },
   optionActive: {
-    backgroundColor: "#0f172a"
+    backgroundColor: "#0f172a",
   },
   infoCard: {
     backgroundColor: "#fff",
@@ -620,100 +958,122 @@ const styles = StyleSheet.create({
     padding: 16,
     marginTop: 14,
     borderWidth: 1,
-    borderColor: "#e2e8f0"
+    borderColor: "#e2e8f0",
   },
   infoTitle: {
     fontWeight: "700",
-    color: "#0f172a"
+    color: "#0f172a",
   },
   infoBody: {
     color: "#334155",
-    marginTop: 8
+    marginTop: 8,
   },
   infoMeta: {
     color: "#64748b",
-    marginTop: 8
+    marginTop: 8,
   },
   createNoteButton: {
-    marginBottom: 12
+    marginBottom: 12,
   },
   recordingButton: {
     marginTop: 12,
-    backgroundColor: "#0f172a"
+    backgroundColor: "#0f172a",
   },
   recordingLinkButton: {
     marginTop: 12,
-    backgroundColor: "#334155"
+    backgroundColor: "#334155",
   },
   recordingFileRow: {
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "#e2e8f0"
+    borderTopColor: "#e2e8f0",
   },
   recordingFileTitle: {
     color: "#0f172a",
-    fontWeight: "600"
+    fontWeight: "600",
   },
   contactList: {
-    gap: 8
+    gap: 8,
   },
   contactButton: {
-    backgroundColor: "#1d4ed8"
+    backgroundColor: "#1d4ed8",
   },
   listContent: {
-    paddingBottom: 24
+    paddingBottom: 24,
   },
   messageBubble: {
     borderRadius: 16,
     padding: 14,
     marginBottom: 12,
-    maxWidth: "92%"
+    maxWidth: "92%",
   },
   mine: {
     backgroundColor: "#dbeafe",
-    alignSelf: "flex-end"
+    alignSelf: "flex-end",
   },
   theirs: {
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    alignSelf: "flex-start"
+    alignSelf: "flex-start",
   },
   systemBubble: {
     backgroundColor: "#ede9fe",
-    alignSelf: "stretch"
+    alignSelf: "stretch",
   },
   sender: {
     fontWeight: "600",
     color: "#1e293b",
-    marginBottom: 6
+    marginBottom: 6,
   },
   body: {
-    color: "#0f172a"
+    color: "#0f172a",
   },
   systemMeta: {
     color: "#6d28d9",
     fontSize: 12,
-    marginTop: 8
+    marginTop: 8,
   },
   time: {
     color: "#64748b",
     fontSize: 12,
-    marginTop: 8
+    marginTop: 8,
   },
   noteRow: {
     borderTopWidth: 1,
     borderTopColor: "#e2e8f0",
     paddingTop: 10,
-    marginTop: 10
+    marginTop: 10,
   },
   noteBody: {
-    color: "#334155"
+    color: "#334155",
+  },
+  citationList: {
+    marginTop: 12,
+    gap: 10,
+  },
+  citationItem: {
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+  },
+  citationTitle: {
+    color: "#0f172a",
+    fontWeight: "600",
+  },
+  citationMeta: {
+    color: "#475569",
+    marginTop: 4,
+    fontSize: 12,
+  },
+  citationSnippet: {
+    color: "#334155",
+    marginTop: 6,
   },
   composer: {
-    marginTop: 12
-  }
+    marginTop: 12,
+  },
 });
 
 export default ConversationDetailScreen;

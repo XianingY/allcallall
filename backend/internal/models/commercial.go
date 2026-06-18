@@ -45,6 +45,15 @@ const (
 	AgentRunSourceWorkflow         = "workflow_agent"
 
 	AgentMemoryScopeConversation = "conversation"
+
+	AgentMemoryKeyLastAgentSummary   = "last_agent_summary"
+	AgentMemoryKeyLatestMeetingBrief = "latest_meeting_brief"
+	AgentMemoryKeyOpenRiskRegister   = "open_risk_register"
+	AgentMemoryKeyFollowUpCommitment = "follow_up_commitments"
+
+	AgentMemoryTypeSummary  = "summary"
+	AgentMemoryTypeRisk     = "risk"
+	AgentMemoryTypeFollowUp = "follow_up"
 )
 
 // CallSession stores a user-visible call lifecycle snapshot.
@@ -348,6 +357,10 @@ type AgentMemory struct {
 	ConversationID uint64    `gorm:"not null;index;uniqueIndex:idx_agent_memory_key"`
 	Scope          string    `gorm:"size:32;not null;index"`
 	Key            string    `gorm:"size:120;not null;uniqueIndex:idx_agent_memory_key"`
+	MemoryType     string    `gorm:"size:32;not null;default:'summary';index"`
+	Importance     int       `gorm:"not null;default:0"`
+	SourceType     string    `gorm:"size:32;index"`
+	SourceRefID    uint64    `gorm:"not null;default:0;index"`
 	ValueJSON      string    `gorm:"type:longtext;not null"`
 	LastRunID      uint64    `gorm:"not null;index"`
 	CreatedAt      time.Time `gorm:"autoCreateTime"`
