@@ -2,6 +2,9 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
+  Linking,
+  Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -37,9 +40,17 @@ import fileDownloadAdapter from "../platform/fileDownload";
 import ChatRealtimeService from "../services/ChatRealtimeService";
 import {
   createWorkflowRun,
+  listWorkflowRuns,
   processWorkflowRun,
+  submitToolApprovalDecision,
+  type AgentCitation,
+  type ToolApprovalRecord,
   type WorkflowResult,
 } from "../api/agent";
+import {
+  fetchKnowledgeSource,
+  type KnowledgeSourceDetail,
+} from "../api/knowledge";
 import {
   applyConversationDetailPatch,
   type ConversationUpdatedPayload,
@@ -55,6 +66,17 @@ const MEETING_PRESETS = [
   { key: "follow_up", label: "Follow-up" },
   { key: "risk_review", label: "Risk Review" },
 ] as const;
+const WORKFLOW_TASK_ORDER = [
+  "collect_context",
+  "decompose",
+  "searcher",
+  "summarizer",
+  "risk_analyst",
+  "merge",
+  "propose_tools",
+  "approval",
+  "commit_result",
+];
 
 const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const { token, user } = useAuthContext();
@@ -73,6 +95,12 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     null,
   );
   const [workflowLoading, setWorkflowLoading] = useState(false);
+  const [workflowDebugVisible, setWorkflowDebugVisible] = useState(false);
+  const [citationPreview, setCitationPreview] = useState<AgentCitation | null>(
+    null,
+  );
+  const [knowledgePreview, setKnowledgePreview] =
+    useState<KnowledgeSourceDetail | null>(null);
   const conversationId =
     route.params.conversationId ?? route.params.conversation?.id ?? 0;
 
@@ -94,12 +122,13 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     }
     try {
       setLoading(true);
-      const [nextDetail, nextMessages, nextNotes, nextContacts] =
+      const [nextDetail, nextMessages, nextNotes, nextContacts, nextWorkflows] =
         await Promise.all([
           fetchConversationDetail(token, conversationId),
           listMessages(token, conversationId),
           listConversationNotes(token, conversationId),
           listContacts(token),
+          listWorkflowRuns(token, 20),
         ]);
       const nextRecording =
         nextDetail.workspace?.latest_recording ??
@@ -114,6 +143,11 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       setNotes(nextNotes);
       setMessages(nextMessages);
       setLatestRecording(nextRecording);
+      setActiveWorkflow(
+        nextWorkflows.find(
+          (item) => item.workflow.conversation_id === conversationId,
+        ) ?? null,
+      );
       await markConversationRead(token, conversationId);
     } catch (error) {
       console.error(
@@ -198,6 +232,15 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const pendingApprovals =
     activeWorkflow?.approvals?.filter((item) => item.status === "pending") ??
     [];
+  const orderedWorkflowTasks = useMemo(
+    () =>
+      [...(activeWorkflow?.tasks ?? [])].sort(
+        (left, right) =>
+          WORKFLOW_TASK_ORDER.indexOf(left.name) -
+          WORKFLOW_TASK_ORDER.indexOf(right.name),
+      ),
+    [activeWorkflow?.tasks],
+  );
 
   const handleCopyConversationLink = async () => {
     const links = buildConversationShareLinks(conversationId);
@@ -257,6 +300,99 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       setDraft("");
     }
   }, [draft, runMeetingAgent]);
+
+  const handleApprovalDecision = useCallback(
+    async (approval: ToolApprovalRecord, decision: "approve" | "reject") => {
+      if (!token) return;
+      try {
+        setWorkflowLoading(true);
+        const updated = await submitToolApprovalDecision(
+          token,
+          approval.id,
+          decision,
+        );
+        const processed = await processWorkflowRun(token, updated.workflow.id);
+        setActiveWorkflow(processed);
+        await loadData();
+      } catch (error) {
+        console.error(
+          "[ConversationDetailScreen] Approval submission failed:",
+          error,
+        );
+        Alert.alert("审批失败", "无法处理当前工具审批。");
+      } finally {
+        setWorkflowLoading(false);
+      }
+    },
+    [loadData, token],
+  );
+
+  const handleCitationPress = useCallback(
+    async (citation: AgentCitation) => {
+      if (!token) return;
+      if (citation.knowledge_source_id) {
+        try {
+          const detail = await fetchKnowledgeSource(
+            token,
+            citation.knowledge_source_id,
+          );
+          setKnowledgePreview(detail);
+          setCitationPreview(null);
+          return;
+        } catch (error) {
+          console.error(
+            "[ConversationDetailScreen] Knowledge citation load failed:",
+            error,
+          );
+          Alert.alert("加载失败", "无法打开知识源预览。");
+          return;
+        }
+      }
+      if (citation.origin_url) {
+        try {
+          await Linking.openURL(citation.origin_url);
+          return;
+        } catch (error) {
+          console.error(
+            "[ConversationDetailScreen] Citation URL open failed:",
+            error,
+          );
+        }
+      }
+      if (
+        citation.conversation_id &&
+        citation.conversation_id !== conversationId
+      ) {
+        navigation.navigate("ConversationDetail", {
+          conversationId: citation.conversation_id,
+        });
+        return;
+      }
+      setCitationPreview(citation);
+      setKnowledgePreview(null);
+    },
+    [conversationId, navigation, token],
+  );
+
+  const handleProcessCurrentWorkflow = useCallback(async () => {
+    if (!token || !activeWorkflow) {
+      return;
+    }
+    try {
+      setWorkflowLoading(true);
+      const next = await processWorkflowRun(token, activeWorkflow.workflow.id);
+      setActiveWorkflow(next);
+      await loadData();
+    } catch (error) {
+      console.error(
+        "[ConversationDetailScreen] Workflow process failed:",
+        error,
+      );
+      Alert.alert("处理失败", "无法推进 workflow。");
+    } finally {
+      setWorkflowLoading(false);
+    }
+  }, [activeWorkflow, loadData, token]);
 
   const handleAddNote = async () => {
     if (!token || !noteDraft.trim()) {
@@ -527,6 +663,19 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
             />
           ))}
         </View>
+        <View style={styles.buttonRow}>
+          <PrimaryButton
+            title="Knowledge Center"
+            onPress={() => navigation.navigate("KnowledgeCenter")}
+            style={styles.button}
+          />
+          <PrimaryButton
+            title="Workflow Debug"
+            onPress={() => setWorkflowDebugVisible(true)}
+            disabled={!activeWorkflow}
+            style={styles.buttonSecondary}
+          />
+        </View>
         {activeWorkflow?.workflow?.summary ? (
           <Text style={styles.infoBody}>{activeWorkflow.workflow.summary}</Text>
         ) : (
@@ -548,9 +697,10 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         {activeWorkflow?.citations?.length ? (
           <View style={styles.citationList}>
             {activeWorkflow.citations.slice(0, 4).map((citation, index) => (
-              <View
+              <Pressable
                 key={`${citation.source_type}:${citation.source_id}:${index}`}
                 style={styles.citationItem}
+                onPress={() => void handleCitationPress(citation)}
               >
                 <Text style={styles.citationTitle}>{citation.title}</Text>
                 <Text style={styles.citationMeta}>
@@ -558,15 +708,43 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
                   {citation.score}
                 </Text>
                 <Text style={styles.citationSnippet}>{citation.snippet}</Text>
-              </View>
+              </Pressable>
             ))}
           </View>
         ) : null}
         {pendingApprovals.length ? (
-          <Text style={styles.infoMeta}>
-            Pending approvals{" "}
-            {pendingApprovals.map((item) => item.tool_name).join(" / ")}
-          </Text>
+          <View style={styles.citationList}>
+            <Text style={styles.infoMeta}>
+              Pending approvals{" "}
+              {pendingApprovals.map((item) => item.tool_name).join(" / ")}
+            </Text>
+            {pendingApprovals.map((approval) => (
+              <View key={approval.id} style={styles.approvalItem}>
+                <Text style={styles.citationTitle}>{approval.tool_name}</Text>
+                <Text style={styles.citationSnippet}>
+                  {approval.input_json || "Awaiting approval input"}
+                </Text>
+                <View style={styles.inlineActionRow}>
+                  <Pressable
+                    style={styles.approveChip}
+                    onPress={() =>
+                      void handleApprovalDecision(approval, "approve")
+                    }
+                  >
+                    <Text style={styles.approveChipText}>Approve</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.rejectChip}
+                    onPress={() =>
+                      void handleApprovalDecision(approval, "reject")
+                    }
+                  >
+                    <Text style={styles.rejectChipText}>Reject</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </View>
         ) : null}
       </View>
 
@@ -875,6 +1053,179 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
           {messagePane}
         </>
       )}
+
+      <Modal
+        visible={knowledgePreview !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setKnowledgePreview(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>
+              {knowledgePreview?.source.title || "Knowledge Preview"}
+            </Text>
+            {knowledgePreview ? (
+              <ScrollView style={styles.modalScroll}>
+                <Text style={styles.infoMeta}>
+                  {knowledgePreview.source.kind} · versions{" "}
+                  {knowledgePreview.versions.length} · chunks{" "}
+                  {knowledgePreview.chunks.length}
+                </Text>
+                {knowledgePreview.source.uri ? (
+                  <Pressable
+                    style={styles.linkRow}
+                    onPress={() =>
+                      void Linking.openURL(knowledgePreview.source.uri || "")
+                    }
+                  >
+                    <Text style={styles.linkText}>Open origin URL</Text>
+                  </Pressable>
+                ) : null}
+                {knowledgePreview.chunks.slice(0, 8).map((chunk) => (
+                  <View key={chunk.id} style={styles.modalSection}>
+                    <Text style={styles.citationTitle}>
+                      Chunk {chunk.chunk_index}
+                    </Text>
+                    <Text style={styles.citationMeta}>
+                      {chunk.index_status} · offsets {chunk.start_offset}-
+                      {chunk.end_offset}
+                    </Text>
+                    <Text style={styles.citationSnippet}>{chunk.snippet}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : null}
+            <PrimaryButton
+              title="Close"
+              onPress={() => setKnowledgePreview(null)}
+              style={styles.modalButton}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={citationPreview !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCitationPreview(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>
+              {citationPreview?.source_title ||
+                citationPreview?.title ||
+                "Citation"}
+            </Text>
+            {citationPreview ? (
+              <>
+                <Text style={styles.infoMeta}>
+                  {citationPreview.source_type} ·{" "}
+                  {citationPreview.retrieval_mode || "context"} · score{" "}
+                  {citationPreview.score}
+                </Text>
+                <Text style={styles.citationSnippet}>
+                  {citationPreview.snippet}
+                </Text>
+              </>
+            ) : null}
+            <PrimaryButton
+              title="Close"
+              onPress={() => setCitationPreview(null)}
+              style={styles.modalButton}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={workflowDebugVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setWorkflowDebugVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.debugDrawer}>
+            <Text style={styles.modalTitle}>Workflow Debug</Text>
+            <Text style={styles.infoMeta}>
+              {activeWorkflow?.workflow.workflow_version || "-"} ·{" "}
+              {activeWorkflow?.workflow.status || "no workflow"}
+            </Text>
+            <ScrollView style={styles.modalScroll}>
+              <Text style={styles.debugHeader}>Tasks</Text>
+              {orderedWorkflowTasks.map((task) => (
+                <View key={task.id} style={styles.modalSection}>
+                  <Text style={styles.citationTitle}>
+                    {task.name} · {task.status}
+                  </Text>
+                  <Text style={styles.citationMeta}>
+                    {task.role} · attempts {task.attempts}
+                  </Text>
+                  {task.error_message ? (
+                    <Text style={styles.errorText}>{task.error_message}</Text>
+                  ) : null}
+                </View>
+              ))}
+              <Text style={styles.debugHeader}>History</Text>
+              {(activeWorkflow?.history ?? []).map((event) => (
+                <View key={event.id} style={styles.modalSection}>
+                  <Text style={styles.citationTitle}>{event.event_type}</Text>
+                  <Text style={styles.citationMeta}>
+                    {event.ref_type || "workflow"} ·{" "}
+                    {new Date(event.created_at).toLocaleString()}
+                  </Text>
+                </View>
+              ))}
+              <Text style={styles.debugHeader}>Signals & Timers</Text>
+              {(activeWorkflow?.signals ?? []).map((signal) => (
+                <View key={`signal-${signal.id}`} style={styles.modalSection}>
+                  <Text style={styles.citationTitle}>
+                    {signal.signal_name} · {signal.status}
+                  </Text>
+                </View>
+              ))}
+              {(activeWorkflow?.timers ?? []).map((timer) => (
+                <View key={`timer-${timer.id}`} style={styles.modalSection}>
+                  <Text style={styles.citationTitle}>
+                    {timer.timer_name} · {timer.status}
+                  </Text>
+                  <Text style={styles.citationMeta}>
+                    due {new Date(timer.fire_at).toLocaleString()}
+                  </Text>
+                </View>
+              ))}
+              <Text style={styles.debugHeader}>Agent Messages</Text>
+              {(activeWorkflow?.messages ?? []).map((message) => (
+                <View key={message.id} style={styles.modalSection}>
+                  <Text style={styles.citationTitle}>
+                    {message.from_role} → {message.to_role}
+                  </Text>
+                  <Text style={styles.citationMeta}>
+                    {message.message_type}
+                  </Text>
+                  <Text style={styles.citationSnippet}>
+                    {message.content_json}
+                  </Text>
+                </View>
+              ))}
+            </ScrollView>
+            <View style={styles.buttonRow}>
+              <PrimaryButton
+                title="Close"
+                onPress={() => setWorkflowDebugVisible(false)}
+                style={styles.button}
+              />
+              <PrimaryButton
+                title="Process"
+                onPress={() => void handleProcessCurrentWorkflow()}
+                disabled={!activeWorkflow || workflowLoading || !token}
+                style={styles.buttonSecondary}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -972,6 +1323,10 @@ const styles = StyleSheet.create({
     color: "#64748b",
     marginTop: 8,
   },
+  errorText: {
+    color: "#b91c1c",
+    marginTop: 8,
+  },
   createNoteButton: {
     marginBottom: 12,
   },
@@ -1058,6 +1413,36 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#e2e8f0",
   },
+  approvalItem: {
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+  },
+  inlineActionRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+  },
+  approveChip: {
+    backgroundColor: "#166534",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  approveChipText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  rejectChip: {
+    backgroundColor: "#991b1b",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  rejectChipText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
   citationTitle: {
     color: "#0f172a",
     fontWeight: "600",
@@ -1070,6 +1455,53 @@ const styles = StyleSheet.create({
   citationSnippet: {
     color: "#334155",
     marginTop: 6,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.45)",
+    justifyContent: "center",
+    padding: 18,
+  },
+  modalCard: {
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    padding: 18,
+    maxHeight: "80%",
+  },
+  debugDrawer: {
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    padding: 18,
+    maxHeight: "88%",
+  },
+  modalTitle: {
+    color: "#0f172a",
+    fontWeight: "700",
+    fontSize: 18,
+  },
+  modalScroll: {
+    marginTop: 12,
+  },
+  modalSection: {
+    paddingTop: 12,
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+  },
+  modalButton: {
+    marginTop: 16,
+  },
+  linkRow: {
+    marginTop: 12,
+  },
+  linkText: {
+    color: "#2563eb",
+    fontWeight: "600",
+  },
+  debugHeader: {
+    marginTop: 16,
+    color: "#0f172a",
+    fontWeight: "700",
   },
   composer: {
     marginTop: 12,

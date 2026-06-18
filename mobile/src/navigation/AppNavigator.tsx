@@ -32,7 +32,12 @@ import RecordingsScreen from "../screens/RecordingsScreen";
 import PreJoinScreen from "../screens/PreJoinScreen";
 import MeetingParticipantsScreen from "../screens/MeetingParticipantsScreen";
 import type { User } from "../api/users";
-import type { ConversationRecord, DealRecord, MeetingJoinOptions, RoomRecord } from "../api/collaboration";
+import type {
+  ConversationRecord,
+  DealRecord,
+  MeetingJoinOptions,
+  RoomRecord,
+} from "../api/collaboration";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -40,7 +45,12 @@ export type RootStackParamList = {
   EmailVerification: { email?: string; returnToRegister?: boolean } | undefined;
   ForgotPassword: undefined;
   Rooms: undefined;
-  PreJoin: { roomId: number; title?: string; conversationId?: number | null; joinOptions?: MeetingJoinOptions };
+  PreJoin: {
+    roomId: number;
+    title?: string;
+    conversationId?: number | null;
+    joinOptions?: MeetingJoinOptions;
+  };
   RoomDetail: { room: RoomRecord; joinOptions?: MeetingJoinOptions };
   MeetingParticipants: { roomId: number; title?: string };
   Contacts: undefined;
@@ -51,8 +61,12 @@ export type RootStackParamList = {
   FollowUps: undefined;
   Organizations: undefined;
   Conversations: undefined;
-  ConversationDetail: { conversation?: ConversationRecord; conversationId?: number };
+  ConversationDetail: {
+    conversation?: ConversationRecord;
+    conversationId?: number;
+  };
   AgentDemo: undefined;
+  KnowledgeCenter: undefined;
   Deals: undefined;
   DealDetail: { deal: DealRecord };
   Recordings: undefined;
@@ -66,13 +80,14 @@ export type RootStackParamList = {
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+const AgentSurfaceScreen = AgentDemoScreen as React.ComponentType<any>;
 
 const LoadingFallback = () => (
   <View
     style={{
       flex: 1,
       justifyContent: "center",
-      alignItems: "center"
+      alignItems: "center",
     }}
   >
     <ActivityIndicator size="large" />
@@ -87,13 +102,22 @@ const AppNavigator: React.FC = () => {
   }
 
   return (
-    <Stack.Navigator initialRouteName={token ? (Platform.OS === "web" ? "AgentDemo" : "Rooms") : "Login"}>
+    <Stack.Navigator
+      initialRouteName={
+        token ? (Platform.OS === "web" ? "AgentDemo" : "Rooms") : "Login"
+      }
+    >
       {token ? (
         <>
           <Stack.Screen
             name="AgentDemo"
-            component={AgentDemoScreen}
+            component={AgentSurfaceScreen}
             options={{ title: "Agent Lab" }}
+          />
+          <Stack.Screen
+            name="KnowledgeCenter"
+            component={AgentSurfaceScreen}
+            options={{ title: "Knowledge Center" }}
           />
           <Stack.Screen
             name="Rooms"
