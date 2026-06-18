@@ -234,6 +234,8 @@ func openRAGEvalDB(index int) (*gorm.DB, error) {
 		&models.OrganizationMember{},
 		&models.Conversation{},
 		&models.ConversationMember{},
+		&models.RAGSourceGroup{},
+		&models.RAGSourceDuplicate{},
 		&models.RAGSource{},
 		&models.RAGSourceVersion{},
 		&models.RAGChunk{},

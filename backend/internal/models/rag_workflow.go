@@ -11,6 +11,20 @@ const (
 	RAGSourceStatusReady   = "ready"
 	RAGSourceStatusFailed  = "failed"
 
+	RAGSourceGroupStatusActive   = "active"
+	RAGSourceGroupStatusArchived = "archived"
+
+	RAGSourceDedupeStatusUnique             = "unique"
+	RAGSourceDedupeStatusDuplicateCandidate = "duplicate_candidate"
+	RAGSourceDedupeStatusConfirmedDuplicate = "confirmed_duplicate"
+
+	RAGSourceDuplicateKindExact = "exact"
+	RAGSourceDuplicateKindNear  = "near"
+
+	RAGSourceDuplicateStatusPending   = "pending"
+	RAGSourceDuplicateStatusConfirmed = "confirmed"
+	RAGSourceDuplicateStatusRejected  = "rejected"
+
 	RAGSourceVersionStatusPending    = "pending"
 	RAGSourceVersionStatusActive     = "active"
 	RAGSourceVersionStatusSuperseded = "superseded"
@@ -21,7 +35,9 @@ const (
 	RAGChunkIndexStatusSkipped = "skipped"
 	RAGChunkIndexStatusFailed  = "failed"
 
+	RAGRetrievalModeBM25        = "bm25"
 	RAGRetrievalModeVector      = "vector"
+	RAGRetrievalModeHybridRRF   = "hybrid_rrf"
 	RAGRetrievalModeSQLFallback = "sql_fallback"
 
 	WorkflowRunStatusPending        = "pending"
@@ -62,22 +78,66 @@ const (
 	ToolApprovalStatusFailed   = "failed"
 )
 
+// RAGSourceGroup groups near-identical knowledge sources around a canonical source.
+type RAGSourceGroup struct {
+	ID                uint64    `gorm:"primaryKey;autoIncrement"`
+	OrganizationID    uint64    `gorm:"not null;index"`
+	CanonicalSourceID *uint64   `gorm:"index"`
+	Title             string    `gorm:"size:240;not null"`
+	Status            string    `gorm:"size:32;not null;default:'active';index"`
+	AuthorityScore    float64   `gorm:"not null;default:0"`
+	AuthorityLabel    string    `gorm:"size:64"`
+	CreatedBy         uint64    `gorm:"not null;index"`
+	CreatedAt         time.Time `gorm:"autoCreateTime;index"`
+	UpdatedAt         time.Time `gorm:"autoUpdateTime"`
+}
+
+func (RAGSourceGroup) TableName() string {
+	return "rag_source_groups"
+}
+
+// RAGSourceDuplicate stores human-reviewable duplicate candidates.
+type RAGSourceDuplicate struct {
+	ID                uint64     `gorm:"primaryKey;autoIncrement"`
+	OrganizationID    uint64     `gorm:"not null;index;uniqueIndex:idx_rag_duplicate_pair"`
+	SourceGroupID     *uint64    `gorm:"index"`
+	SourceID          uint64     `gorm:"not null;index;uniqueIndex:idx_rag_duplicate_pair"`
+	CandidateSourceID uint64     `gorm:"not null;index;uniqueIndex:idx_rag_duplicate_pair"`
+	DuplicateKind     string     `gorm:"size:32;not null;index"`
+	Similarity        float64    `gorm:"not null;default:0"`
+	Status            string     `gorm:"size:32;not null;default:'pending';index"`
+	DecidedBy         *uint64    `gorm:"index"`
+	Decision          string     `gorm:"size:32"`
+	CreatedAt         time.Time  `gorm:"autoCreateTime;index"`
+	UpdatedAt         time.Time  `gorm:"autoUpdateTime"`
+	DecidedAt         *time.Time `gorm:"index"`
+}
+
+func (RAGSourceDuplicate) TableName() string {
+	return "rag_source_duplicates"
+}
+
 // RAGSource stores an organization-scoped knowledge source, optionally bound to a conversation.
 type RAGSource struct {
-	ID              uint64    `gorm:"primaryKey;autoIncrement"`
-	OrganizationID  uint64    `gorm:"not null;index"`
-	ConversationID  *uint64   `gorm:"index"`
-	CreatedBy       uint64    `gorm:"not null;index"`
-	Kind            string    `gorm:"size:32;not null;index"`
-	Title           string    `gorm:"size:240;not null"`
-	URI             string    `gorm:"size:1024"`
-	FileName        string    `gorm:"size:255"`
-	ContentType     string    `gorm:"size:120"`
-	Status          string    `gorm:"size:32;not null;default:'pending';index"`
-	ActiveVersionID *uint64   `gorm:"index"`
-	LastError       string    `gorm:"type:text"`
-	CreatedAt       time.Time `gorm:"autoCreateTime;index"`
-	UpdatedAt       time.Time `gorm:"autoUpdateTime"`
+	ID                uint64    `gorm:"primaryKey;autoIncrement"`
+	OrganizationID    uint64    `gorm:"not null;index"`
+	ConversationID    *uint64   `gorm:"index"`
+	CreatedBy         uint64    `gorm:"not null;index"`
+	SourceGroupID     *uint64   `gorm:"index"`
+	CanonicalSourceID *uint64   `gorm:"index"`
+	Kind              string    `gorm:"size:32;not null;index"`
+	Title             string    `gorm:"size:240;not null"`
+	URI               string    `gorm:"size:1024"`
+	FileName          string    `gorm:"size:255"`
+	ContentType       string    `gorm:"size:120"`
+	AuthorityScore    float64   `gorm:"not null;default:0"`
+	AuthorityLabel    string    `gorm:"size:64"`
+	DedupeStatus      string    `gorm:"size:32;not null;default:'unique';index"`
+	Status            string    `gorm:"size:32;not null;default:'pending';index"`
+	ActiveVersionID   *uint64   `gorm:"index"`
+	LastError         string    `gorm:"type:text"`
+	CreatedAt         time.Time `gorm:"autoCreateTime;index"`
+	UpdatedAt         time.Time `gorm:"autoUpdateTime"`
 }
 
 func (RAGSource) TableName() string {
@@ -91,6 +151,8 @@ type RAGSourceVersion struct {
 	SourceID       uint64     `gorm:"not null;index;uniqueIndex:idx_rag_source_version"`
 	Version        int        `gorm:"not null;uniqueIndex:idx_rag_source_version"`
 	ContentHash    string     `gorm:"size:64;not null;index"`
+	NormalizedHash string     `gorm:"size:64;index"`
+	SimHash64      uint64     `gorm:"index"`
 	RawText        string     `gorm:"type:longtext"`
 	Status         string     `gorm:"size:32;not null;default:'pending';index"`
 	ChunkCount     int        `gorm:"not null;default:0"`

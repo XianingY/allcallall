@@ -194,6 +194,15 @@ func buildPromptContextJSON(input PlannerInput) (string, error) {
 			"retrieval_mode": item.RetrievalMode,
 			"content":        compactSnippet(retrievedChunkContent(item), 220),
 		}
+		if item.BM25Rank > 0 {
+			payload["bm25_rank"] = item.BM25Rank
+		}
+		if item.VectorRank > 0 {
+			payload["vector_rank"] = item.VectorRank
+		}
+		if item.RRFScore > 0 {
+			payload["rrf_score"] = item.RRFScore
+		}
 		if item.FallbackReason != "" {
 			payload["fallback_reason"] = item.FallbackReason
 		}

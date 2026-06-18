@@ -669,6 +669,21 @@ func (s *Service) recordContextToolCalls(ctx context.Context, run models.AgentRu
 			"snippet":        compactSnippet(retrievedChunkContent(item), 180),
 			"created_at":     retrievedChunkUpdatedAt(item).Format(time.RFC3339),
 		}
+		if item.BM25Rank > 0 {
+			chunk["bm25_rank"] = item.BM25Rank
+		}
+		if item.VectorRank > 0 {
+			chunk["vector_rank"] = item.VectorRank
+		}
+		if item.RRFScore > 0 {
+			chunk["rrf_score"] = item.RRFScore
+		}
+		if item.BM25Score > 0 {
+			chunk["bm25_score"] = item.BM25Score
+		}
+		if item.VectorScore > 0 {
+			chunk["vector_score"] = item.VectorScore
+		}
 		if item.FallbackReason != "" {
 			chunk["fallback_reason"] = item.FallbackReason
 		}

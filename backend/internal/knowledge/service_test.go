@@ -53,6 +53,30 @@ func (f *fakeChunkIndexer) SearchChunks(_ context.Context, query search.ContextC
 	return out, nil
 }
 
+type fakeHybridChunkIndexer struct {
+	fakeChunkIndexer
+}
+
+func (f *fakeHybridChunkIndexer) SearchChunksHybrid(_ context.Context, query search.ContextChunkSearchQuery) ([]search.ContextChunkSearchResult, error) {
+	var out []search.ContextChunkSearchResult
+	for _, doc := range f.docs {
+		if doc.OrganizationID != query.OrganizationID || doc.SourceType != "knowledge" {
+			continue
+		}
+		out = append(out, search.ContextChunkSearchResult{
+			ContextChunkDocument: doc,
+			Score:                0.032,
+			RetrievalMode:        models.RAGRetrievalModeHybridRRF,
+			BM25Rank:             1,
+			VectorRank:           2,
+			RRFScore:             0.032,
+			BM25Score:            8.5,
+			VectorScore:          1.3,
+		})
+	}
+	return out, nil
+}
+
 func TestChunkTextUsesOverlapAndDedupesWithinVersion(t *testing.T) {
 	input := "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
 	chunks := ChunkText(input, 24, 6)
@@ -69,6 +93,104 @@ func TestChunkTextUsesOverlapAndDedupesWithinVersion(t *testing.T) {
 	}
 	if dupes[0].ContentHash == "" || dupes[0].Keywords == "" {
 		t.Fatalf("expected hash and keywords: %+v", dupes[0])
+	}
+}
+
+func TestHybridSearchReturnsRRFMetadata(t *testing.T) {
+	ctx := context.Background()
+	db := newKnowledgeTestDB(t)
+	orgID, userID, conversationID := seedKnowledgeAccess(t, db)
+	indexer := &fakeHybridChunkIndexer{}
+	svc := NewService(db).
+		WithOutbox(events.NewStore(db)).
+		WithEmbeddingProvider(fakeEmbedder{}).
+		WithChunkIndexer(indexer)
+
+	source, err := svc.CreateSource(ctx, orgID, userID, CreateSourceInput{
+		Kind:           models.RAGSourceKindManualText,
+		Title:          "Hybrid playbook",
+		ConversationID: &conversationID,
+		Text:           "Hybrid retrieval should combine vector relevance with exact keyword evidence.",
+	})
+	if err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+	if err := svc.ProcessSourceIngest(ctx, source.ID); err != nil {
+		t.Fatalf("process ingest: %v", err)
+	}
+	var chunks []models.RAGChunk
+	if err := db.Where("source_id = ?", source.ID).Find(&chunks).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, chunk := range chunks {
+		if err := svc.ProcessChunkIndex(ctx, chunk.ID); err != nil {
+			t.Fatalf("index chunk %d: %v", chunk.ID, err)
+		}
+	}
+	results, err := svc.Search(ctx, orgID, &conversationID, "hybrid keyword evidence", 3)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatalf("expected hybrid results")
+	}
+	got := results[0]
+	if got.RetrievalMode != models.RAGRetrievalModeHybridRRF || got.BM25Rank != 1 || got.VectorRank != 2 || got.RRFScore == 0 {
+		t.Fatalf("missing hybrid metadata: %+v", got)
+	}
+}
+
+func TestDuplicateConfirmationFiltersCanonicalRetrieval(t *testing.T) {
+	ctx := context.Background()
+	db := newKnowledgeTestDB(t)
+	orgID, userID, conversationID := seedKnowledgeAccess(t, db)
+	svc := NewService(db).WithOutbox(events.NewStore(db))
+
+	first, err := svc.CreateSource(ctx, orgID, userID, CreateSourceInput{
+		Kind:           models.RAGSourceKindManualText,
+		Title:          "Canonical playbook",
+		ConversationID: &conversationID,
+		Text:           "The escalation owner must review renewal risk before the pilot deadline.",
+	})
+	if err != nil {
+		t.Fatalf("create first source: %v", err)
+	}
+	if err := svc.ProcessSourceIngest(ctx, first.ID); err != nil {
+		t.Fatalf("ingest first: %v", err)
+	}
+	second, err := svc.CreateSource(ctx, orgID, userID, CreateSourceInput{
+		Kind:           models.RAGSourceKindManualText,
+		Title:          "Duplicate playbook",
+		ConversationID: &conversationID,
+		Text:           "The escalation owner must review renewal risk before the pilot deadline.",
+	})
+	if err != nil {
+		t.Fatalf("create second source: %v", err)
+	}
+	if err := svc.ProcessSourceIngest(ctx, second.ID); err != nil {
+		t.Fatalf("ingest second: %v", err)
+	}
+	duplicates, err := svc.ListDuplicateCandidates(ctx, orgID, userID)
+	if err != nil {
+		t.Fatalf("list duplicate candidates: %v", err)
+	}
+	if len(duplicates) == 0 || duplicates[0].DuplicateKind != models.RAGSourceDuplicateKindExact {
+		t.Fatalf("expected exact duplicate candidate, got %+v", duplicates)
+	}
+	if err := svc.DecideDuplicateCandidate(ctx, orgID, userID, duplicates[0].ID, "confirm"); err != nil {
+		t.Fatalf("confirm duplicate: %v", err)
+	}
+	results, err := svc.Search(ctx, orgID, &conversationID, "renewal risk pilot", 10)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatalf("expected canonical fallback result")
+	}
+	for _, result := range results {
+		if result.Source.ID == second.ID {
+			t.Fatalf("confirmed duplicate should be filtered: %+v", result)
+		}
 	}
 }
 
@@ -237,6 +359,8 @@ func newKnowledgeTestDB(t *testing.T) *gorm.DB {
 		&models.OrganizationMember{},
 		&models.Conversation{},
 		&models.ConversationMember{},
+		&models.RAGSourceGroup{},
+		&models.RAGSourceDuplicate{},
 		&models.RAGSource{},
 		&models.RAGSourceVersion{},
 		&models.RAGChunk{},

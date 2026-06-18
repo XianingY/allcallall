@@ -59,6 +59,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.AgentToolCall{},
 		&models.AgentMemory{},
 		&models.AgentContextChunk{},
+		&models.RAGSourceGroup{},
+		&models.RAGSourceDuplicate{},
 		&models.RAGSource{},
 		&models.RAGSourceVersion{},
 		&models.RAGChunk{},

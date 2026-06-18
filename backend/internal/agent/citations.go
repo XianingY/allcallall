@@ -23,6 +23,11 @@ type Citation struct {
 	KnowledgeSourceID *uint64    `json:"knowledge_source_id,omitempty"`
 	Version           int        `json:"version,omitempty"`
 	RetrievalMode     string     `json:"retrieval_mode,omitempty"`
+	BM25Rank          int        `json:"bm25_rank,omitempty"`
+	VectorRank        int        `json:"vector_rank,omitempty"`
+	RRFScore          float64    `json:"rrf_score,omitempty"`
+	BM25Score         float64    `json:"bm25_score,omitempty"`
+	VectorScore       float64    `json:"vector_score,omitempty"`
 	Score             int        `json:"score"`
 	CreatedAt         *time.Time `json:"created_at,omitempty"`
 }
@@ -39,6 +44,11 @@ func buildCitationsFromContextChunks(chunks []RetrievedContextChunk) []Citation 
 			Title:         retrievedChunkTitle(item),
 			Snippet:       compactSnippet(retrievedChunkContent(item), 220),
 			RetrievalMode: item.RetrievalMode,
+			BM25Rank:      item.BM25Rank,
+			VectorRank:    item.VectorRank,
+			RRFScore:      item.RRFScore,
+			BM25Score:     item.BM25Score,
+			VectorScore:   item.VectorScore,
 			Score:         item.Score,
 			CreatedAt:     &updatedAt,
 		}
@@ -79,6 +89,11 @@ func buildCitationsFromToolCalls(toolCalls []models.AgentToolCall) []Citation {
 				KnowledgeSourceID *uint64 `json:"knowledge_source_id"`
 				Version           int     `json:"version"`
 				RetrievalMode     string  `json:"retrieval_mode"`
+				BM25Rank          int     `json:"bm25_rank"`
+				VectorRank        int     `json:"vector_rank"`
+				RRFScore          float64 `json:"rrf_score"`
+				BM25Score         float64 `json:"bm25_score"`
+				VectorScore       float64 `json:"vector_score"`
 				Score             int     `json:"score"`
 				CreatedAt         string  `json:"created_at"`
 			} `json:"chunks"`
@@ -110,6 +125,11 @@ func buildCitationsFromToolCalls(toolCalls []models.AgentToolCall) []Citation {
 				KnowledgeSourceID: chunk.KnowledgeSourceID,
 				Version:           chunk.Version,
 				RetrievalMode:     strings.TrimSpace(chunk.RetrievalMode),
+				BM25Rank:          chunk.BM25Rank,
+				VectorRank:        chunk.VectorRank,
+				RRFScore:          chunk.RRFScore,
+				BM25Score:         chunk.BM25Score,
+				VectorScore:       chunk.VectorScore,
 				Score:             chunk.Score,
 			}
 			if parsed, err := time.Parse(time.RFC3339, chunk.CreatedAt); err == nil {

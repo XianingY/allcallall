@@ -33,6 +33,11 @@ type RetrievedContextChunk struct {
 	Score            int
 	RetrievalMode    string
 	FallbackReason   string
+	BM25Rank         int
+	VectorRank       int
+	RRFScore         float64
+	BM25Score        float64
+	VectorScore      float64
 }
 
 func (s *Service) refreshConversationContextChunks(ctx context.Context, conversationCtx *conversationContext) error {
@@ -257,6 +262,11 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, conv mo
 				Score:            result.Score,
 				RetrievalMode:    result.RetrievalMode,
 				FallbackReason:   result.FallbackReason,
+				BM25Rank:         result.BM25Rank,
+				VectorRank:       result.VectorRank,
+				RRFScore:         result.RRFScore,
+				BM25Score:        result.BM25Score,
+				VectorScore:      result.VectorScore,
 			})
 		}
 	}

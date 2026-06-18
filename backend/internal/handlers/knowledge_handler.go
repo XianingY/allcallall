@@ -33,6 +33,11 @@ func (h *KnowledgeHandler) RegisterProtectedRoutes(protected *gin.RouterGroup) {
 	protected.GET("/knowledge/sources", h.handleListSources)
 	protected.GET("/knowledge/sources/:id", h.handleGetSource)
 	protected.POST("/knowledge/sources/:id/reingest", h.handleReingestSource)
+	protected.GET("/knowledge/source-groups", h.handleListSourceGroups)
+	protected.GET("/knowledge/source-groups/:id", h.handleGetSourceGroup)
+	protected.POST("/knowledge/source-groups/:id/canonical", h.handleSetSourceGroupCanonical)
+	protected.GET("/knowledge/duplicate-candidates", h.handleListDuplicateCandidates)
+	protected.POST("/knowledge/duplicate-candidates/:id/decision", h.handleDuplicateCandidateDecision)
 	protected.GET("/knowledge/dead-letters", h.handleListDeadLetters)
 	protected.POST("/knowledge/dead-letters/:id/retry", h.handleRetryDeadLetter)
 }
@@ -46,33 +51,40 @@ type createKnowledgeSourceRequest struct {
 }
 
 type knowledgeSourceResponse struct {
-	ID              uint64    `json:"id"`
-	OrganizationID  uint64    `json:"organization_id"`
-	ConversationID  *uint64   `json:"conversation_id,omitempty"`
-	CreatedBy       uint64    `json:"created_by"`
-	Kind            string    `json:"kind"`
-	Title           string    `json:"title"`
-	URI             string    `json:"uri,omitempty"`
-	FileName        string    `json:"file_name,omitempty"`
-	ContentType     string    `json:"content_type,omitempty"`
-	Status          string    `json:"status"`
-	ActiveVersionID *uint64   `json:"active_version_id,omitempty"`
-	LastError       string    `json:"last_error,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID                uint64    `json:"id"`
+	OrganizationID    uint64    `json:"organization_id"`
+	ConversationID    *uint64   `json:"conversation_id,omitempty"`
+	CreatedBy         uint64    `json:"created_by"`
+	SourceGroupID     *uint64   `json:"source_group_id,omitempty"`
+	CanonicalSourceID *uint64   `json:"canonical_source_id,omitempty"`
+	Kind              string    `json:"kind"`
+	Title             string    `json:"title"`
+	URI               string    `json:"uri,omitempty"`
+	FileName          string    `json:"file_name,omitempty"`
+	ContentType       string    `json:"content_type,omitempty"`
+	AuthorityScore    float64   `json:"authority_score"`
+	AuthorityLabel    string    `json:"authority_label,omitempty"`
+	DedupeStatus      string    `json:"dedupe_status"`
+	Status            string    `json:"status"`
+	ActiveVersionID   *uint64   `json:"active_version_id,omitempty"`
+	LastError         string    `json:"last_error,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type knowledgeSourceVersionResponse struct {
-	ID          uint64     `json:"id"`
-	SourceID    uint64     `json:"source_id"`
-	Version     int        `json:"version"`
-	ContentHash string     `json:"content_hash"`
-	Status      string     `json:"status"`
-	ChunkCount  int        `json:"chunk_count"`
-	LastError   string     `json:"last_error,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	ActivatedAt *time.Time `json:"activated_at,omitempty"`
+	ID             uint64     `json:"id"`
+	SourceID       uint64     `json:"source_id"`
+	Version        int        `json:"version"`
+	ContentHash    string     `json:"content_hash"`
+	NormalizedHash string     `json:"normalized_hash,omitempty"`
+	SimHash64      uint64     `json:"simhash64,omitempty"`
+	Status         string     `json:"status"`
+	ChunkCount     int        `json:"chunk_count"`
+	LastError      string     `json:"last_error,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	ActivatedAt    *time.Time `json:"activated_at,omitempty"`
 }
 
 type ragChunkResponse struct {
@@ -90,6 +102,43 @@ type ragChunkResponse struct {
 	IndexedAt       *time.Time `json:"indexed_at,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
+type sourceGroupResponse struct {
+	ID                uint64    `json:"id"`
+	OrganizationID    uint64    `json:"organization_id"`
+	CanonicalSourceID *uint64   `json:"canonical_source_id,omitempty"`
+	Title             string    `json:"title"`
+	Status            string    `json:"status"`
+	AuthorityScore    float64   `json:"authority_score"`
+	AuthorityLabel    string    `json:"authority_label,omitempty"`
+	CreatedBy         uint64    `json:"created_by"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+type duplicateCandidateResponse struct {
+	ID                uint64     `json:"id"`
+	OrganizationID    uint64     `json:"organization_id"`
+	SourceGroupID     *uint64    `json:"source_group_id,omitempty"`
+	SourceID          uint64     `json:"source_id"`
+	CandidateSourceID uint64     `json:"candidate_source_id"`
+	DuplicateKind     string     `json:"duplicate_kind"`
+	Similarity        float64    `json:"similarity"`
+	Status            string     `json:"status"`
+	DecidedBy         *uint64    `json:"decided_by,omitempty"`
+	Decision          string     `json:"decision,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	DecidedAt         *time.Time `json:"decided_at,omitempty"`
+}
+
+type setCanonicalSourceRequest struct {
+	SourceID uint64 `json:"source_id" binding:"required"`
+}
+
+type duplicateDecisionRequest struct {
+	Decision string `json:"decision" binding:"required"`
 }
 
 type deadLetterResponse struct {
@@ -203,6 +252,126 @@ func (h *KnowledgeHandler) handleReingestSource(c *gin.Context) {
 		return
 	}
 	JSONSuccess(c, http.StatusAccepted, gin.H{"status": "queued"})
+}
+
+func (h *KnowledgeHandler) handleListSourceGroups(c *gin.Context) {
+	if h.service == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "KNOWLEDGE_SERVICE_UNAVAILABLE", "knowledge service unavailable")
+		return
+	}
+	claims, organizationID, ok := h.requireKnowledgeContext(c)
+	if !ok {
+		return
+	}
+	groups, err := h.service.ListSourceGroups(c.Request.Context(), organizationID, claims.UserID)
+	if err != nil {
+		h.writeKnowledgeError(c, err)
+		return
+	}
+	out := make([]sourceGroupResponse, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, toSourceGroupResponse(group))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"source_groups": out})
+}
+
+func (h *KnowledgeHandler) handleGetSourceGroup(c *gin.Context) {
+	if h.service == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "KNOWLEDGE_SERVICE_UNAVAILABLE", "knowledge service unavailable")
+		return
+	}
+	claims, organizationID, ok := h.requireKnowledgeContext(c)
+	if !ok {
+		return
+	}
+	groupID, err := parseUintParam(c.Param("id"))
+	if err != nil || groupID == 0 {
+		JSONError(c, http.StatusBadRequest, "invalid source group id")
+		return
+	}
+	group, sources, err := h.service.GetSourceGroup(c.Request.Context(), organizationID, claims.UserID, groupID)
+	if err != nil {
+		h.writeKnowledgeError(c, err)
+		return
+	}
+	sourceResponse := make([]knowledgeSourceResponse, 0, len(sources))
+	for _, source := range sources {
+		sourceResponse = append(sourceResponse, toKnowledgeSourceResponse(source))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"source_group": toSourceGroupResponse(group), "sources": sourceResponse})
+}
+
+func (h *KnowledgeHandler) handleSetSourceGroupCanonical(c *gin.Context) {
+	if h.service == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "KNOWLEDGE_SERVICE_UNAVAILABLE", "knowledge service unavailable")
+		return
+	}
+	claims, organizationID, ok := h.requireKnowledgeContext(c)
+	if !ok {
+		return
+	}
+	groupID, err := parseUintParam(c.Param("id"))
+	if err != nil || groupID == 0 {
+		JSONError(c, http.StatusBadRequest, "invalid source group id")
+		return
+	}
+	var req setCanonicalSourceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.service.SetSourceGroupCanonical(c.Request.Context(), organizationID, claims.UserID, groupID, req.SourceID); err != nil {
+		h.writeKnowledgeError(c, err)
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"status": "updated"})
+}
+
+func (h *KnowledgeHandler) handleListDuplicateCandidates(c *gin.Context) {
+	if h.service == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "KNOWLEDGE_SERVICE_UNAVAILABLE", "knowledge service unavailable")
+		return
+	}
+	claims, organizationID, ok := h.requireKnowledgeContext(c)
+	if !ok {
+		return
+	}
+	rows, err := h.service.ListDuplicateCandidates(c.Request.Context(), organizationID, claims.UserID)
+	if err != nil {
+		h.writeKnowledgeError(c, err)
+		return
+	}
+	out := make([]duplicateCandidateResponse, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, toDuplicateCandidateResponse(row))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"duplicate_candidates": out})
+}
+
+func (h *KnowledgeHandler) handleDuplicateCandidateDecision(c *gin.Context) {
+	if h.service == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "KNOWLEDGE_SERVICE_UNAVAILABLE", "knowledge service unavailable")
+		return
+	}
+	claims, organizationID, ok := h.requireKnowledgeContext(c)
+	if !ok {
+		return
+	}
+	duplicateID, err := parseUintParam(c.Param("id"))
+	if err != nil || duplicateID == 0 {
+		JSONError(c, http.StatusBadRequest, "invalid duplicate candidate id")
+		return
+	}
+	var req duplicateDecisionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.service.DecideDuplicateCandidate(c.Request.Context(), organizationID, claims.UserID, duplicateID, req.Decision); err != nil {
+		h.writeKnowledgeError(c, err)
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"status": "updated"})
 }
 
 func (h *KnowledgeHandler) handleListDeadLetters(c *gin.Context) {
@@ -329,35 +498,75 @@ func (h *KnowledgeHandler) writeKnowledgeError(c *gin.Context, err error) {
 
 func toKnowledgeSourceResponse(source models.RAGSource) knowledgeSourceResponse {
 	return knowledgeSourceResponse{
-		ID:              source.ID,
-		OrganizationID:  source.OrganizationID,
-		ConversationID:  source.ConversationID,
-		CreatedBy:       source.CreatedBy,
-		Kind:            source.Kind,
-		Title:           source.Title,
-		URI:             source.URI,
-		FileName:        source.FileName,
-		ContentType:     source.ContentType,
-		Status:          source.Status,
-		ActiveVersionID: source.ActiveVersionID,
-		LastError:       source.LastError,
-		CreatedAt:       source.CreatedAt,
-		UpdatedAt:       source.UpdatedAt,
+		ID:                source.ID,
+		OrganizationID:    source.OrganizationID,
+		ConversationID:    source.ConversationID,
+		CreatedBy:         source.CreatedBy,
+		SourceGroupID:     source.SourceGroupID,
+		CanonicalSourceID: source.CanonicalSourceID,
+		Kind:              source.Kind,
+		Title:             source.Title,
+		URI:               source.URI,
+		FileName:          source.FileName,
+		ContentType:       source.ContentType,
+		AuthorityScore:    source.AuthorityScore,
+		AuthorityLabel:    source.AuthorityLabel,
+		DedupeStatus:      source.DedupeStatus,
+		Status:            source.Status,
+		ActiveVersionID:   source.ActiveVersionID,
+		LastError:         source.LastError,
+		CreatedAt:         source.CreatedAt,
+		UpdatedAt:         source.UpdatedAt,
 	}
 }
 
 func toKnowledgeSourceVersionResponse(version models.RAGSourceVersion) knowledgeSourceVersionResponse {
 	return knowledgeSourceVersionResponse{
-		ID:          version.ID,
-		SourceID:    version.SourceID,
-		Version:     version.Version,
-		ContentHash: version.ContentHash,
-		Status:      version.Status,
-		ChunkCount:  version.ChunkCount,
-		LastError:   version.LastError,
-		CreatedAt:   version.CreatedAt,
-		UpdatedAt:   version.UpdatedAt,
-		ActivatedAt: version.ActivatedAt,
+		ID:             version.ID,
+		SourceID:       version.SourceID,
+		Version:        version.Version,
+		ContentHash:    version.ContentHash,
+		NormalizedHash: version.NormalizedHash,
+		SimHash64:      version.SimHash64,
+		Status:         version.Status,
+		ChunkCount:     version.ChunkCount,
+		LastError:      version.LastError,
+		CreatedAt:      version.CreatedAt,
+		UpdatedAt:      version.UpdatedAt,
+		ActivatedAt:    version.ActivatedAt,
+	}
+}
+
+func toSourceGroupResponse(group models.RAGSourceGroup) sourceGroupResponse {
+	return sourceGroupResponse{
+		ID:                group.ID,
+		OrganizationID:    group.OrganizationID,
+		CanonicalSourceID: group.CanonicalSourceID,
+		Title:             group.Title,
+		Status:            group.Status,
+		AuthorityScore:    group.AuthorityScore,
+		AuthorityLabel:    group.AuthorityLabel,
+		CreatedBy:         group.CreatedBy,
+		CreatedAt:         group.CreatedAt,
+		UpdatedAt:         group.UpdatedAt,
+	}
+}
+
+func toDuplicateCandidateResponse(row models.RAGSourceDuplicate) duplicateCandidateResponse {
+	return duplicateCandidateResponse{
+		ID:                row.ID,
+		OrganizationID:    row.OrganizationID,
+		SourceGroupID:     row.SourceGroupID,
+		SourceID:          row.SourceID,
+		CandidateSourceID: row.CandidateSourceID,
+		DuplicateKind:     row.DuplicateKind,
+		Similarity:        row.Similarity,
+		Status:            row.Status,
+		DecidedBy:         row.DecidedBy,
+		Decision:          row.Decision,
+		CreatedAt:         row.CreatedAt,
+		UpdatedAt:         row.UpdatedAt,
+		DecidedAt:         row.DecidedAt,
 	}
 }
 

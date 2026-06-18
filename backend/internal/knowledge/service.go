@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"html"
 	"io"
+	"math/bits"
 	"mime"
 	"net"
 	"net/http"
@@ -33,11 +35,12 @@ const (
 	EventSourceIngestRequested = "rag.source.ingest_requested"
 	EventChunkIndexRequested   = "rag.chunk.index_requested"
 
-	MaxUploadBytes      int64 = 5 * 1024 * 1024
-	MaxURLBytes         int64 = 2 * 1024 * 1024
-	defaultChunkSize          = 900
-	defaultChunkOverlap       = 120
-	defaultSearchLimit        = 8
+	MaxUploadBytes          int64 = 5 * 1024 * 1024
+	MaxURLBytes             int64 = 2 * 1024 * 1024
+	defaultChunkSize              = 900
+	defaultChunkOverlap           = 120
+	defaultSearchLimit            = 8
+	nearDuplicateHammingMax       = 6
 )
 
 var (
@@ -50,6 +53,14 @@ var (
 type ChunkIndexer interface {
 	IndexChunk(ctx context.Context, doc search.ContextChunkDocument) error
 	SearchChunks(ctx context.Context, query search.ContextChunkSearchQuery) ([]search.ContextChunkSearchResult, error)
+}
+
+type BM25ChunkSearcher interface {
+	SearchChunksBM25(ctx context.Context, query search.ContextChunkSearchQuery) ([]search.ContextChunkSearchResult, error)
+}
+
+type HybridChunkSearcher interface {
+	SearchChunksHybrid(ctx context.Context, query search.ContextChunkSearchQuery) ([]search.ContextChunkSearchResult, error)
 }
 
 type EmbeddingProvider interface {
@@ -82,6 +93,11 @@ type SearchResult struct {
 	Score          int
 	RetrievalMode  string
 	FallbackReason string
+	BM25Rank       int
+	VectorRank     int
+	RRFScore       float64
+	BM25Score      float64
+	VectorScore    float64
 }
 
 type ChunkSpec struct {
@@ -179,6 +195,9 @@ func (s *Service) CreateSource(ctx context.Context, organizationID, userID uint6
 		URI:            strings.TrimSpace(in.URL),
 		FileName:       strings.TrimSpace(in.FileName),
 		ContentType:    contentType,
+		AuthorityScore: 0.5,
+		AuthorityLabel: "user_provided",
+		DedupeStatus:   models.RAGSourceDedupeStatusUnique,
 		Status:         models.RAGSourceStatusPending,
 		CreatedAt:      now,
 		UpdatedAt:      now,
@@ -188,12 +207,37 @@ func (s *Service) CreateSource(ctx context.Context, organizationID, userID uint6
 		if err := tx.Create(&source).Error; err != nil {
 			return err
 		}
+		group := models.RAGSourceGroup{
+			OrganizationID:    organizationID,
+			CanonicalSourceID: &source.ID,
+			Title:             source.Title,
+			Status:            models.RAGSourceGroupStatusActive,
+			AuthorityScore:    source.AuthorityScore,
+			AuthorityLabel:    source.AuthorityLabel,
+			CreatedBy:         userID,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		}
+		if err := tx.Create(&group).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.RAGSource{}).Where("id = ?", source.ID).Updates(map[string]any{
+			"source_group_id":     group.ID,
+			"canonical_source_id": source.ID,
+			"updated_at":          now,
+		}).Error; err != nil {
+			return err
+		}
+		source.SourceGroupID = &group.ID
+		source.CanonicalSourceID = &source.ID
 		if kind != models.RAGSourceKindURL {
 			version := models.RAGSourceVersion{
 				OrganizationID: organizationID,
 				SourceID:       source.ID,
 				Version:        1,
 				ContentHash:    HashText(rawText),
+				NormalizedHash: HashText(rawText),
+				SimHash64:      SimHashText(rawText),
 				RawText:        rawText,
 				Status:         models.RAGSourceVersionStatusPending,
 				CreatedAt:      now,
@@ -236,6 +280,118 @@ func (s *Service) ListSources(ctx context.Context, organizationID, userID uint64
 		return nil, err
 	}
 	return sources, nil
+}
+
+func (s *Service) ListSourceGroups(ctx context.Context, organizationID, userID uint64) ([]models.RAGSourceGroup, error) {
+	if err := s.ensureOrganizationMember(ctx, organizationID, userID); err != nil {
+		return nil, err
+	}
+	var groups []models.RAGSourceGroup
+	if err := s.db.WithContext(ctx).
+		Where("organization_id = ?", organizationID).
+		Order("updated_at DESC, id DESC").
+		Limit(100).
+		Find(&groups).Error; err != nil {
+		return nil, err
+	}
+	return groups, nil
+}
+
+func (s *Service) GetSourceGroup(ctx context.Context, organizationID, userID, groupID uint64) (models.RAGSourceGroup, []models.RAGSource, error) {
+	if err := s.ensureOrganizationMember(ctx, organizationID, userID); err != nil {
+		return models.RAGSourceGroup{}, nil, err
+	}
+	var group models.RAGSourceGroup
+	if err := s.db.WithContext(ctx).Where("id = ? AND organization_id = ?", groupID, organizationID).Take(&group).Error; err != nil {
+		return models.RAGSourceGroup{}, nil, err
+	}
+	var sources []models.RAGSource
+	if err := s.db.WithContext(ctx).
+		Where("organization_id = ? AND source_group_id = ?", organizationID, group.ID).
+		Order("id ASC").
+		Find(&sources).Error; err != nil {
+		return models.RAGSourceGroup{}, nil, err
+	}
+	return group, sources, nil
+}
+
+func (s *Service) SetSourceGroupCanonical(ctx context.Context, organizationID, userID, groupID, sourceID uint64) error {
+	if err := s.ensureOrganizationAdmin(ctx, organizationID, userID); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var source models.RAGSource
+		if err := tx.Where("id = ? AND organization_id = ? AND source_group_id = ?", sourceID, organizationID, groupID).Take(&source).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.RAGSourceGroup{}).Where("id = ? AND organization_id = ?", groupID, organizationID).Updates(map[string]any{
+			"canonical_source_id": sourceID,
+			"title":               source.Title,
+			"authority_score":     source.AuthorityScore,
+			"authority_label":     source.AuthorityLabel,
+			"updated_at":          now,
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.RAGSource{}).Where("organization_id = ? AND source_group_id = ?", organizationID, groupID).Updates(map[string]any{
+			"canonical_source_id": sourceID,
+			"updated_at":          now,
+		}).Error
+	})
+}
+
+func (s *Service) ListDuplicateCandidates(ctx context.Context, organizationID, userID uint64) ([]models.RAGSourceDuplicate, error) {
+	if err := s.ensureOrganizationMember(ctx, organizationID, userID); err != nil {
+		return nil, err
+	}
+	var rows []models.RAGSourceDuplicate
+	if err := s.db.WithContext(ctx).
+		Where("organization_id = ?", organizationID).
+		Order("status ASC, similarity DESC, updated_at DESC").
+		Limit(100).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (s *Service) DecideDuplicateCandidate(ctx context.Context, organizationID, userID, duplicateID uint64, decision string) error {
+	if err := s.ensureOrganizationAdmin(ctx, organizationID, userID); err != nil {
+		return err
+	}
+	decision = strings.TrimSpace(strings.ToLower(decision))
+	if decision != "confirm" && decision != "reject" {
+		return errors.New("duplicate decision must be confirm or reject")
+	}
+	now := time.Now().UTC()
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var duplicate models.RAGSourceDuplicate
+		if err := tx.Where("id = ? AND organization_id = ?", duplicateID, organizationID).Take(&duplicate).Error; err != nil {
+			return err
+		}
+		status := models.RAGSourceDuplicateStatusRejected
+		sourceUpdates := map[string]any{
+			"updated_at": now,
+		}
+		if decision == "confirm" {
+			status = models.RAGSourceDuplicateStatusConfirmed
+			sourceUpdates["dedupe_status"] = models.RAGSourceDedupeStatusConfirmedDuplicate
+			sourceUpdates["canonical_source_id"] = duplicate.CandidateSourceID
+		} else {
+			sourceUpdates["dedupe_status"] = models.RAGSourceDedupeStatusUnique
+		}
+		if err := tx.Model(&models.RAGSourceDuplicate{}).Where("id = ?", duplicate.ID).Updates(map[string]any{
+			"status":     status,
+			"decision":   decision,
+			"decided_by": userID,
+			"decided_at": now,
+			"updated_at": now,
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.RAGSource{}).Where("id = ? AND organization_id = ?", duplicate.SourceID, organizationID).Updates(sourceUpdates).Error
+	})
 }
 
 func (s *Service) GetSource(ctx context.Context, organizationID, userID, sourceID uint64) (models.RAGSource, []models.RAGSourceVersion, []models.RAGChunk, error) {
@@ -286,6 +442,8 @@ func (s *Service) ReingestSource(ctx context.Context, organizationID, userID, so
 				SourceID:       source.ID,
 				Version:        nextVersion,
 				ContentHash:    active.ContentHash,
+				NormalizedHash: active.NormalizedHash,
+				SimHash64:      active.SimHash64,
 				RawText:        active.RawText,
 				Status:         models.RAGSourceVersionStatusPending,
 				CreatedAt:      now,
@@ -336,6 +494,7 @@ func (s *Service) ProcessSourceIngest(ctx context.Context, sourceID uint64) erro
 		return err
 	}
 	contentHash := HashText(rawText)
+	simHash := SimHashText(rawText)
 	if source.ActiveVersionID != nil {
 		var active models.RAGSourceVersion
 		if err := s.db.WithContext(ctx).Where("id = ?", *source.ActiveVersionID).Take(&active).Error; err == nil && active.ContentHash == contentHash {
@@ -368,6 +527,9 @@ func (s *Service) ProcessSourceIngest(ctx context.Context, sourceID uint64) erro
 	now := time.Now().UTC()
 	var chunkIDs []uint64
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := s.ensureSourceGroupTx(ctx, tx, &source, now); err != nil {
+			return err
+		}
 		if err := tx.Model(&models.RAGSourceVersion{}).
 			Where("source_id = ? AND status = ?", source.ID, models.RAGSourceVersionStatusActive).
 			Updates(map[string]any{"status": models.RAGSourceVersionStatusSuperseded, "updated_at": now}).Error; err != nil {
@@ -398,13 +560,15 @@ func (s *Service) ProcessSourceIngest(ctx context.Context, sourceID uint64) erro
 			chunkIDs = append(chunkIDs, chunk.ID)
 		}
 		if err := tx.Model(&models.RAGSourceVersion{}).Where("id = ?", version.ID).Updates(map[string]any{
-			"content_hash": contentHash,
-			"raw_text":     rawText,
-			"status":       models.RAGSourceVersionStatusActive,
-			"chunk_count":  len(chunkIDs),
-			"last_error":   "",
-			"activated_at": now,
-			"updated_at":   now,
+			"content_hash":    contentHash,
+			"normalized_hash": contentHash,
+			"sim_hash64":      simHash,
+			"raw_text":        rawText,
+			"status":          models.RAGSourceVersionStatusActive,
+			"chunk_count":     len(chunkIDs),
+			"last_error":      "",
+			"activated_at":    now,
+			"updated_at":      now,
 		}).Error; err != nil {
 			return err
 		}
@@ -432,6 +596,9 @@ func (s *Service) ProcessSourceIngest(ctx context.Context, sourceID uint64) erro
 					return err
 				}
 			}
+		}
+		if err := s.createDuplicateCandidatesTx(ctx, tx, source, version.ID, contentHash, simHash, now); err != nil {
+			return err
 		}
 		return nil
 	})
@@ -512,36 +679,23 @@ func (s *Service) Search(ctx context.Context, organizationID uint64, conversatio
 			if conversationID != nil && *conversationID != 0 {
 				conversationIDs = append(conversationIDs, *conversationID)
 			}
-			searchRes, searchErr := s.indexer.SearchChunks(ctx, search.ContextChunkSearchQuery{
+			searchQuery := search.ContextChunkSearchQuery{
 				OrganizationID:  organizationID,
 				ConversationIDs: conversationIDs,
 				SourceTypes:     []string{"knowledge"},
+				QueryText:       query,
 				QueryVector:     vec,
 				Limit:           limit,
-			})
+			}
+			var searchRes []search.ContextChunkSearchResult
+			var searchErr error
+			if hybrid, ok := s.indexer.(HybridChunkSearcher); ok {
+				searchRes, searchErr = hybrid.SearchChunksHybrid(ctx, searchQuery)
+			} else {
+				searchRes, searchErr = s.indexer.SearchChunks(ctx, searchQuery)
+			}
 			if searchErr == nil && len(searchRes) > 0 {
-				out := make([]SearchResult, 0, len(searchRes))
-				seen := map[string]bool{}
-				for _, item := range searchRes {
-					chunkID := item.SourceID
-					chunk, ok := chunks[chunkID]
-					if !ok || seen[chunk.ContentHash] {
-						continue
-					}
-					seen[chunk.ContentHash] = true
-					source := sources[chunk.SourceID]
-					version := versions[chunk.SourceVersionID]
-					out = append(out, SearchResult{
-						Chunk:         chunk,
-						Source:        source,
-						Version:       version,
-						Score:         int(item.Score * 100),
-						RetrievalMode: models.RAGRetrievalModeVector,
-					})
-					if len(out) >= limit {
-						break
-					}
-				}
+				out := s.searchResultsToOutput(searchRes, chunks, sources, versions, limit)
 				if len(out) > 0 {
 					return out, nil
 				}
@@ -555,7 +709,70 @@ func (s *Service) Search(ctx context.Context, organizationID uint64, conversatio
 			fallbackReason = "embedding_unavailable"
 		}
 	}
+	if s.indexer != nil && query != "" {
+		if bm25, ok := s.indexer.(BM25ChunkSearcher); ok {
+			conversationIDs := []uint64{0}
+			if conversationID != nil && *conversationID != 0 {
+				conversationIDs = append(conversationIDs, *conversationID)
+			}
+			searchRes, searchErr := bm25.SearchChunksBM25(ctx, search.ContextChunkSearchQuery{
+				OrganizationID:  organizationID,
+				ConversationIDs: conversationIDs,
+				SourceTypes:     []string{"knowledge"},
+				QueryText:       query,
+				Limit:           limit,
+			})
+			if searchErr == nil && len(searchRes) > 0 {
+				out := s.searchResultsToOutput(searchRes, chunks, sources, versions, limit)
+				if len(out) > 0 {
+					return out, nil
+				}
+				fallbackReason = "bm25_results_not_in_sql"
+			} else if searchErr != nil {
+				fallbackReason = "bm25_error"
+			} else {
+				fallbackReason = "bm25_empty"
+			}
+		}
+	}
 	return rankSQLFallback(chunks, sources, versions, query, limit, fallbackReason), nil
+}
+
+func (s *Service) searchResultsToOutput(results []search.ContextChunkSearchResult, chunks map[uint64]models.RAGChunk, sources map[uint64]models.RAGSource, versions map[uint64]models.RAGSourceVersion, limit int) []SearchResult {
+	out := make([]SearchResult, 0, len(results))
+	seen := map[string]bool{}
+	for _, item := range results {
+		chunkID := item.SourceID
+		chunk, ok := chunks[chunkID]
+		if !ok || seen[chunk.ContentHash] {
+			continue
+		}
+		seen[chunk.ContentHash] = true
+		mode := item.RetrievalMode
+		if mode == "" {
+			mode = models.RAGRetrievalModeVector
+		}
+		score := int(item.Score * 100)
+		if item.RRFScore > 0 {
+			score = int(item.RRFScore * 10000)
+		}
+		out = append(out, SearchResult{
+			Chunk:         chunk,
+			Source:        sources[chunk.SourceID],
+			Version:       versions[chunk.SourceVersionID],
+			Score:         score,
+			RetrievalMode: mode,
+			BM25Rank:      item.BM25Rank,
+			VectorRank:    item.VectorRank,
+			RRFScore:      item.RRFScore,
+			BM25Score:     item.BM25Score,
+			VectorScore:   item.VectorScore,
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
 }
 
 func (s *Service) ListRAGDeadLetters(ctx context.Context, organizationID, userID uint64) ([]models.EventOutbox, error) {
@@ -661,6 +878,108 @@ func (s *Service) nextVersionNumber(ctx context.Context, tx *gorm.DB, sourceID u
 	return latest.Version + 1, nil
 }
 
+func (s *Service) ensureSourceGroupTx(ctx context.Context, tx *gorm.DB, source *models.RAGSource, now time.Time) error {
+	if source.SourceGroupID != nil {
+		return nil
+	}
+	group := models.RAGSourceGroup{
+		OrganizationID:    source.OrganizationID,
+		CanonicalSourceID: &source.ID,
+		Title:             source.Title,
+		Status:            models.RAGSourceGroupStatusActive,
+		AuthorityScore:    source.AuthorityScore,
+		AuthorityLabel:    source.AuthorityLabel,
+		CreatedBy:         source.CreatedBy,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	if err := tx.WithContext(ctx).Create(&group).Error; err != nil {
+		return err
+	}
+	return tx.WithContext(ctx).Model(&models.RAGSource{}).Where("id = ?", source.ID).Updates(map[string]any{
+		"source_group_id":     group.ID,
+		"canonical_source_id": source.ID,
+		"dedupe_status":       models.RAGSourceDedupeStatusUnique,
+		"updated_at":          now,
+	}).Error
+}
+
+func (s *Service) createDuplicateCandidatesTx(ctx context.Context, tx *gorm.DB, source models.RAGSource, versionID uint64, normalizedHash string, simHash uint64, now time.Time) error {
+	var candidates []struct {
+		SourceID       uint64
+		SourceGroupID  *uint64
+		ContentHash    string
+		NormalizedHash string
+		SimHash64      uint64
+	}
+	if err := tx.WithContext(ctx).
+		Table("rag_source_versions").
+		Select("rag_source_versions.source_id, rag_sources.source_group_id, rag_source_versions.content_hash, rag_source_versions.normalized_hash, rag_source_versions.sim_hash64").
+		Joins("JOIN rag_sources ON rag_sources.id = rag_source_versions.source_id").
+		Where("rag_source_versions.organization_id = ? AND rag_source_versions.status = ? AND rag_source_versions.id <> ?", source.OrganizationID, models.RAGSourceVersionStatusActive, versionID).
+		Where("(rag_sources.dedupe_status IS NULL OR rag_sources.dedupe_status <> ?)", models.RAGSourceDedupeStatusConfirmedDuplicate).
+		Find(&candidates).Error; err != nil {
+		return err
+	}
+	created := false
+	for _, candidate := range candidates {
+		if candidate.SourceID == source.ID {
+			continue
+		}
+		kind := ""
+		similarity := 0.0
+		candidateHash := candidate.NormalizedHash
+		if candidateHash == "" {
+			candidateHash = candidate.ContentHash
+		}
+		switch {
+		case candidateHash != "" && candidateHash == normalizedHash:
+			kind = models.RAGSourceDuplicateKindExact
+			similarity = 1
+		case candidate.SimHash64 != 0 && simHash != 0:
+			distance := bits.OnesCount64(candidate.SimHash64 ^ simHash)
+			if distance <= nearDuplicateHammingMax {
+				kind = models.RAGSourceDuplicateKindNear
+				similarity = 1 - float64(distance)/64
+			}
+		}
+		if kind == "" {
+			continue
+		}
+		groupID := source.SourceGroupID
+		if groupID == nil {
+			groupID = candidate.SourceGroupID
+		}
+		duplicate := models.RAGSourceDuplicate{
+			OrganizationID:    source.OrganizationID,
+			SourceGroupID:     groupID,
+			SourceID:          source.ID,
+			CandidateSourceID: candidate.SourceID,
+			DuplicateKind:     kind,
+			Similarity:        similarity,
+			Status:            models.RAGSourceDuplicateStatusPending,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		}
+		if err := tx.WithContext(ctx).Where(
+			"organization_id = ? AND source_id = ? AND candidate_source_id = ?",
+			duplicate.OrganizationID,
+			duplicate.SourceID,
+			duplicate.CandidateSourceID,
+		).FirstOrCreate(&duplicate).Error; err != nil {
+			return err
+		}
+		created = true
+	}
+	if created {
+		return tx.WithContext(ctx).Model(&models.RAGSource{}).Where("id = ?", source.ID).Updates(map[string]any{
+			"dedupe_status": models.RAGSourceDedupeStatusDuplicateCandidate,
+			"updated_at":    now,
+		}).Error
+	}
+	return nil
+}
+
 func (s *Service) loadSourceVersion(ctx context.Context, sourceID, versionID uint64) (models.RAGSource, models.RAGSourceVersion, error) {
 	var source models.RAGSource
 	if err := s.db.WithContext(ctx).Where("id = ?", sourceID).Take(&source).Error; err != nil {
@@ -678,7 +997,10 @@ func (s *Service) loadActiveChunks(ctx context.Context, organizationID uint64, c
 	query := s.db.WithContext(ctx).
 		Joins("JOIN rag_sources ON rag_sources.id = rag_chunks.source_id").
 		Joins("JOIN rag_source_versions ON rag_source_versions.id = rag_chunks.source_version_id").
-		Where("rag_chunks.organization_id = ? AND rag_sources.status = ? AND rag_source_versions.status = ?", organizationID, models.RAGSourceStatusReady, models.RAGSourceVersionStatusActive)
+		Joins("LEFT JOIN rag_source_groups ON rag_source_groups.id = rag_sources.source_group_id").
+		Where("rag_chunks.organization_id = ? AND rag_sources.status = ? AND rag_source_versions.status = ?", organizationID, models.RAGSourceStatusReady, models.RAGSourceVersionStatusActive).
+		Where("(rag_source_groups.id IS NULL OR rag_source_groups.status = ?)", models.RAGSourceGroupStatusActive).
+		Where("(rag_sources.dedupe_status IS NULL OR rag_sources.dedupe_status <> ?)", models.RAGSourceDedupeStatusConfirmedDuplicate)
 	if conversationID != nil && *conversationID != 0 {
 		query = query.Where("(rag_chunks.conversation_id IS NULL OR rag_chunks.conversation_id = ?)", *conversationID)
 	} else {
@@ -797,6 +1119,19 @@ func (s *Service) ensureOrganizationMember(ctx context.Context, organizationID, 
 	return nil
 }
 
+func (s *Service) ensureOrganizationAdmin(ctx context.Context, organizationID, userID uint64) error {
+	var member models.OrganizationMember
+	if err := s.db.WithContext(ctx).
+		Where("organization_id = ? AND user_id = ?", organizationID, userID).
+		Take(&member).Error; err != nil {
+		return ErrAccessDenied
+	}
+	if member.Role != models.OrganizationRoleOwner && member.Role != models.OrganizationRoleAdmin {
+		return ErrAccessDenied
+	}
+	return nil
+}
+
 func (s *Service) ensureConversationMember(ctx context.Context, organizationID, userID, conversationID uint64) error {
 	var count int64
 	if err := s.db.WithContext(ctx).
@@ -908,6 +1243,33 @@ func NormalizeText(input string) string {
 func HashText(input string) string {
 	sum := sha256.Sum256([]byte(NormalizeText(input)))
 	return hex.EncodeToString(sum[:])
+}
+
+func SimHashText(input string) uint64 {
+	tokens := extractKeywords(NormalizeText(input))
+	if len(tokens) == 0 {
+		return 0
+	}
+	var weights [64]int
+	for _, token := range tokens {
+		h := fnv.New64a()
+		_, _ = h.Write([]byte(token))
+		value := h.Sum64()
+		for bit := 0; bit < 64; bit++ {
+			if value&(uint64(1)<<bit) != 0 {
+				weights[bit]++
+			} else {
+				weights[bit]--
+			}
+		}
+	}
+	var out uint64
+	for bit, weight := range weights {
+		if weight >= 0 {
+			out |= uint64(1) << bit
+		}
+	}
+	return out
 }
 
 func KnowledgeDocumentID(chunkID uint64) string {
