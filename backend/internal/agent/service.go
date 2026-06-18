@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/events"
+	"github.com/allcallall/backend/internal/knowledge"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/search"
 	"github.com/allcallall/backend/internal/trace"
@@ -40,13 +41,18 @@ type StreamPublisher interface {
 	PublishToken(ctx context.Context, runID uint64, token string) error
 }
 
+type KnowledgeRetriever interface {
+	Search(ctx context.Context, organizationID uint64, conversationID *uint64, query string, limit int) ([]knowledge.SearchResult, error)
+}
+
 type Service struct {
-	db              *gorm.DB
-	metrics         counterRecorder
-	planner         Planner
-	outbox          *events.Store
-	indexer         ChunkIndexer
-	streamPublisher StreamPublisher
+	db                 *gorm.DB
+	metrics            counterRecorder
+	planner            Planner
+	outbox             *events.Store
+	indexer            ChunkIndexer
+	knowledgeRetriever KnowledgeRetriever
+	streamPublisher    StreamPublisher
 }
 
 type RunInput struct {
@@ -99,6 +105,11 @@ func (s *Service) WithPlanner(p Planner) *Service {
 
 func (s *Service) WithChunkIndexer(i ChunkIndexer) *Service {
 	s.indexer = i
+	return s
+}
+
+func (s *Service) WithKnowledgeRetriever(r KnowledgeRetriever) *Service {
+	s.knowledgeRetriever = r
 	return s
 }
 
@@ -648,15 +659,32 @@ func (s *Service) recordContextToolCalls(ctx context.Context, run models.AgentRu
 	count++
 	chunks := make([]map[string]any, 0, len(conversationCtx.ContextChunks))
 	for _, item := range conversationCtx.ContextChunks {
-		chunks = append(chunks, map[string]any{
-			"chunk_id":    item.Chunk.ID,
-			"source_type": item.Chunk.SourceType,
-			"source_id":   item.Chunk.SourceID,
-			"title":       contextChunkTitle(item.Chunk),
-			"score":       item.Score,
-			"snippet":     compactSnippet(item.Chunk.Content, 180),
-			"created_at":  item.Chunk.UpdatedAt.Format(time.RFC3339),
-		})
+		chunk := map[string]any{
+			"chunk_id":       retrievedChunkID(item),
+			"source_type":    retrievedChunkSourceType(item),
+			"source_id":      retrievedChunkSourceID(item),
+			"title":          retrievedChunkTitle(item),
+			"score":          item.Score,
+			"retrieval_mode": item.RetrievalMode,
+			"snippet":        compactSnippet(retrievedChunkContent(item), 180),
+			"created_at":     retrievedChunkUpdatedAt(item).Format(time.RFC3339),
+		}
+		if item.FallbackReason != "" {
+			chunk["fallback_reason"] = item.FallbackReason
+		}
+		if item.KnowledgeSource != nil {
+			chunk["knowledge_source_id"] = item.KnowledgeSource.ID
+			chunk["origin_type"] = item.KnowledgeSource.Kind
+			chunk["origin_url"] = item.KnowledgeSource.URI
+			chunk["source_title"] = item.KnowledgeSource.Title
+		}
+		if item.KnowledgeVersion != nil {
+			chunk["version"] = item.KnowledgeVersion.Version
+		}
+		if item.KnowledgeChunk != nil && item.KnowledgeChunk.ConversationID != nil {
+			chunk["conversation_id"] = *item.KnowledgeChunk.ConversationID
+		}
+		chunks = append(chunks, chunk)
 	}
 	if err := s.recordToolCall(ctx, models.AgentToolCall{
 		RunID:     run.ID,

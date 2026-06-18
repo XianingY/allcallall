@@ -3,12 +3,16 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/allcallall/backend/internal/agent"
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/config"
 	"github.com/allcallall/backend/internal/events"
+	"github.com/allcallall/backend/internal/knowledge"
 	"github.com/allcallall/backend/internal/logger"
 	"github.com/allcallall/backend/internal/metrics"
 	appruntime "github.com/allcallall/backend/internal/runtime"
@@ -36,9 +40,35 @@ func main() {
 	collaborationSvc := collaboration.NewService(db, userSvc)
 	collaborationSvc.WithMetrics(counterStore)
 
-	processor := events.NewProcessor(events.NewStore(db), counterStore)
+	outboxStore := events.NewStore(db)
+	knowledgeSvc := knowledge.NewService(db).WithOutbox(outboxStore)
+	planner, err := agent.NewPlanner(os.Getenv("AGENT_PROVIDER"))
+	if err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to initialize planner for knowledge indexing")
+	}
+	if embedder, ok := planner.(knowledge.EmbeddingProvider); ok {
+		knowledgeSvc.WithEmbeddingProvider(embedder)
+	}
+	if chunkIndexer, driver, err := appruntime.ChunkIndexerFromEnv(); err == nil && chunkIndexer != nil {
+		knowledgeSvc.WithChunkIndexer(chunkIndexer)
+		initCtx, initCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := chunkIndexer.InitChunkIndex(initCtx); err != nil {
+			initCancel()
+			appLogger.Fatal().Err(err).Msg("failed to initialize rag chunk vector index")
+		}
+		initCancel()
+		appLogger.Info().Str("driver", driver).Msg("rag chunk vector index ready")
+	}
+
+	processor := events.NewProcessor(outboxStore, counterStore)
 	appruntime.RegisterCollaborationOutboxHandlers(processor, collaborationSvc, appLogger)
-	eventFilter := []string{appruntime.EventAgentRunCompleted, appruntime.EventMessageCreated}
+	appruntime.RegisterKnowledgeOutboxHandlers(processor, knowledgeSvc, appLogger)
+	eventFilter := []string{
+		appruntime.EventAgentRunCompleted,
+		appruntime.EventMessageCreated,
+		appruntime.EventRAGSourceIngest,
+		appruntime.EventRAGChunkIndex,
+	}
 	settlementProducer, settlementKafkaEnabled, err := appruntime.KafkaProducerFromEnv()
 	if err != nil {
 		appLogger.Fatal().Err(err).Msg("failed to initialize kafka producer")

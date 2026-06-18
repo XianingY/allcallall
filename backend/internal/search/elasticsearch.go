@@ -137,23 +137,33 @@ func (e *ElasticsearchIndexer) withAuth(req *http.Request) {
 }
 
 type ContextChunkDocument struct {
-	ID             string    `json:"id"`
-	OrganizationID uint64    `json:"organization_id"`
-	ConversationID uint64    `json:"conversation_id"`
-	SourceType     string    `json:"source_type"`
-	SourceID       uint64    `json:"source_id"`
-	Content        string    `json:"content"`
-	Keywords       string    `json:"keywords"`
-	ContentVector  []float32 `json:"content_vector,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID                string    `json:"id"`
+	OrganizationID    uint64    `json:"organization_id"`
+	ConversationID    uint64    `json:"conversation_id"`
+	SourceType        string    `json:"source_type"`
+	SourceID          uint64    `json:"source_id"`
+	Content           string    `json:"content"`
+	Keywords          string    `json:"keywords"`
+	ContentVector     []float32 `json:"content_vector,omitempty"`
+	KnowledgeSourceID uint64    `json:"knowledge_source_id,omitempty"`
+	SourceVersionID   uint64    `json:"source_version_id,omitempty"`
+	ChunkIndex        int       `json:"chunk_index,omitempty"`
+	SourceTitle       string    `json:"source_title,omitempty"`
+	OriginType        string    `json:"origin_type,omitempty"`
+	OriginURL         string    `json:"origin_url,omitempty"`
+	ContentHash       string    `json:"content_hash,omitempty"`
+	Version           int       `json:"version,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type ContextChunkSearchQuery struct {
-	OrganizationID uint64
-	ConversationID uint64
-	QueryVector    []float32
-	Limit          int
+	OrganizationID  uint64
+	ConversationID  uint64
+	ConversationIDs []uint64
+	SourceTypes     []string
+	QueryVector     []float32
+	Limit           int
 }
 
 type ContextChunkSearchResult struct {
@@ -234,16 +244,24 @@ func (e *ElasticsearchIndexer) IndexChunk(ctx context.Context, doc ContextChunkD
 }
 
 func (e *ElasticsearchIndexer) SearchChunks(ctx context.Context, query ContextChunkSearchQuery) ([]ContextChunkSearchResult, error) {
+	filters := []map[string]any{
+		{"term": map[string]any{"organization_id": query.OrganizationID}},
+	}
+	if len(query.ConversationIDs) > 0 {
+		filters = append(filters, map[string]any{"terms": map[string]any{"conversation_id": query.ConversationIDs}})
+	} else {
+		filters = append(filters, map[string]any{"term": map[string]any{"conversation_id": query.ConversationID}})
+	}
+	if len(query.SourceTypes) > 0 {
+		filters = append(filters, map[string]any{"terms": map[string]any{"source_type": query.SourceTypes}})
+	}
 	payload := map[string]any{
 		"size": query.Limit,
 		"query": map[string]any{
 			"script_score": map[string]any{
 				"query": map[string]any{
 					"bool": map[string]any{
-						"filter": []map[string]any{
-							{"term": map[string]any{"organization_id": query.OrganizationID}},
-							{"term": map[string]any{"conversation_id": query.ConversationID}},
-						},
+						"filter": filters,
 					},
 				},
 				"script": map[string]any{

@@ -15,6 +15,7 @@ import (
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/events"
+	"github.com/allcallall/backend/internal/knowledge"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/search"
 	"github.com/allcallall/backend/internal/settlement"
@@ -26,6 +27,8 @@ const (
 	EventAgentRunCompleted  = "agent.run.completed"
 	EventMessageCreated     = "message.created"
 	EventSearchMessageIndex = "search.message.index_requested"
+	EventRAGSourceIngest    = knowledge.EventSourceIngestRequested
+	EventRAGChunkIndex      = knowledge.EventChunkIndexRequested
 	EventSettlementRoomEnd  = "settlement.room.ended"
 )
 
@@ -112,6 +115,52 @@ func RegisterAgentOutboxHandlers(processor *events.Processor, agentSvc *agent.Se
 			Uint64("outbox_id", event.ID).
 			Uint64("agent_run_id", payload.AgentRunID).
 			Msg("outbox agent run executed")
+		return nil
+	})
+}
+
+func RegisterKnowledgeOutboxHandlers(processor *events.Processor, knowledgeSvc *knowledge.Service, log zerolog.Logger) {
+	if processor == nil || knowledgeSvc == nil {
+		return
+	}
+	processor.Register(EventRAGSourceIngest, func(ctx context.Context, event models.EventOutbox) error {
+		var payload struct {
+			SourceID uint64 `json:"source_id"`
+		}
+		if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+			return err
+		}
+		if payload.SourceID == 0 {
+			return fmt.Errorf("rag source id missing in outbox payload")
+		}
+		if err := knowledgeSvc.ProcessSourceIngest(ctx, payload.SourceID); err != nil {
+			return err
+		}
+		log.Info().
+			Str("request_id", trace.RequestID(ctx)).
+			Uint64("outbox_id", event.ID).
+			Uint64("source_id", payload.SourceID).
+			Msg("outbox rag source ingested")
+		return nil
+	})
+	processor.Register(EventRAGChunkIndex, func(ctx context.Context, event models.EventOutbox) error {
+		var payload struct {
+			ChunkID uint64 `json:"chunk_id"`
+		}
+		if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+			return err
+		}
+		if payload.ChunkID == 0 {
+			return fmt.Errorf("rag chunk id missing in outbox payload")
+		}
+		if err := knowledgeSvc.ProcessChunkIndex(ctx, payload.ChunkID); err != nil {
+			return err
+		}
+		log.Info().
+			Str("request_id", trace.RequestID(ctx)).
+			Uint64("outbox_id", event.ID).
+			Uint64("chunk_id", payload.ChunkID).
+			Msg("outbox rag chunk indexed")
 		return nil
 	})
 }

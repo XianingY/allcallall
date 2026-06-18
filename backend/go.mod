@@ -1,6 +1,6 @@
 module github.com/allcallall/backend
 
-go 1.24
+go 1.24.1
 
 require (
 	firebase.google.com/go/v4 v4.16.0
@@ -15,6 +15,8 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.1
+	github.com/joho/godotenv v1.5.1
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/pion/rtp v1.8.9
 	github.com/pion/webrtc/v4 v4.0.0
 	github.com/redis/go-redis/v9 v9.5.1
@@ -88,7 +90,6 @@ require (
 	github.com/googleapis/gax-go/v2 v2.14.1 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.15.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect

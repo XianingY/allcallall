@@ -26,8 +26,13 @@ const (
 )
 
 type RetrievedContextChunk struct {
-	Chunk models.AgentContextChunk
-	Score int
+	Chunk            models.AgentContextChunk
+	KnowledgeChunk   *models.RAGChunk
+	KnowledgeSource  *models.RAGSource
+	KnowledgeVersion *models.RAGSourceVersion
+	Score            int
+	RetrievalMode    string
+	FallbackReason   string
 }
 
 func (s *Service) refreshConversationContextChunks(ctx context.Context, conversationCtx *conversationContext) error {
@@ -158,18 +163,26 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, conv mo
 		conv.Priority,
 	}, " ")
 
-	// Attempt Vector Search first if indexer and embedding provider are available
+	scored := make([]RetrievedContextChunk, 0, len(chunks))
+	fallbackReason := "indexer_unavailable"
 	if s.indexer != nil {
 		if ep, ok := s.planner.(EmbeddingProvider); ok {
 			if vec, err := ep.CreateEmbedding(ctx, query); err == nil && len(vec) > 0 {
 				searchRes, searchErr := s.indexer.SearchChunks(ctx, search.ContextChunkSearchQuery{
 					OrganizationID: conv.OrganizationID,
 					ConversationID: conv.ID,
-					QueryVector:    vec,
-					Limit:          limit,
+					SourceTypes: []string{
+						contextChunkSourceNote,
+						contextChunkSourceMessage,
+						contextChunkSourceMemory,
+						contextChunkSourceFollowup,
+						contextChunkSourceContactProfile,
+						contextChunkSourceTranscript,
+					},
+					QueryVector: vec,
+					Limit:       limit,
 				})
 				if searchErr == nil && len(searchRes) > 0 {
-					var scored []RetrievedContextChunk
 					for _, res := range searchRes {
 						scored = append(scored, RetrievedContextChunk{
 							Chunk: models.AgentContextChunk{
@@ -181,42 +194,79 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, conv mo
 								Keywords:       res.Keywords,
 								UpdatedAt:      res.UpdatedAt,
 							},
-							Score: int(res.Score * 100), // convert float score to int for compatibility
+							Score:         int(res.Score * 100),
+							RetrievalMode: models.RAGRetrievalModeVector,
 						})
 					}
-					return scored, nil
+				} else if searchErr != nil {
+					fallbackReason = "vector_error"
+				} else {
+					fallbackReason = "vector_empty"
 				}
-				// If searchErr != nil or len == 0, fallback to SQL keyword matching
+			} else {
+				fallbackReason = "embedding_unavailable"
 			}
 		}
 	}
 
-	// Fallback: SQL Keyword Matching
-	tokens := extractContextKeywords(query)
-	scored := make([]RetrievedContextChunk, 0, len(chunks))
-	for _, chunk := range chunks {
-		score := scoreContextChunk(tokens, chunk)
-		if score == 0 && len(tokens) > 0 {
-			continue
-		}
-		if score == 0 {
-			score = 1
-		}
-		scored = append(scored, RetrievedContextChunk{Chunk: chunk, Score: score})
-	}
-	if len(scored) == 0 && len(chunks) > 0 {
+	if len(scored) == 0 {
+		tokens := extractContextKeywords(query)
 		for _, chunk := range chunks {
-			scored = append(scored, RetrievedContextChunk{Chunk: chunk, Score: 1})
-			if len(scored) >= limit {
-				break
+			score := scoreContextChunk(tokens, chunk)
+			if score == 0 && len(tokens) > 0 {
+				continue
+			}
+			if score == 0 {
+				score = 1
+			}
+			scored = append(scored, RetrievedContextChunk{
+				Chunk:          chunk,
+				Score:          score,
+				RetrievalMode:  models.RAGRetrievalModeSQLFallback,
+				FallbackReason: fallbackReason,
+			})
+		}
+		if len(scored) == 0 && len(chunks) > 0 {
+			for _, chunk := range chunks {
+				scored = append(scored, RetrievedContextChunk{
+					Chunk:          chunk,
+					Score:          1,
+					RetrievalMode:  models.RAGRetrievalModeSQLFallback,
+					FallbackReason: fallbackReason,
+				})
+				if len(scored) >= limit {
+					break
+				}
 			}
 		}
 	}
+
+	if s.knowledgeRetriever != nil {
+		knowledgeResults, err := s.knowledgeRetriever.Search(ctx, conv.OrganizationID, &conv.ID, query, limit)
+		if err != nil {
+			return nil, err
+		}
+		for _, result := range knowledgeResults {
+			chunk := result.Chunk
+			source := result.Source
+			version := result.Version
+			scored = append(scored, RetrievedContextChunk{
+				KnowledgeChunk:   &chunk,
+				KnowledgeSource:  &source,
+				KnowledgeVersion: &version,
+				Score:            result.Score,
+				RetrievalMode:    result.RetrievalMode,
+				FallbackReason:   result.FallbackReason,
+			})
+		}
+	}
+
+	scored = dedupeRetrievedContextChunks(scored)
 	sort.SliceStable(scored, func(i, j int) bool {
 		if scored[i].Score != scored[j].Score {
 			return scored[i].Score > scored[j].Score
 		}
-		return scored[i].Chunk.UpdatedAt.After(scored[j].Chunk.UpdatedAt)
+		return retrievedChunkUpdatedAt(scored[i]).After(retrievedChunkUpdatedAt(scored[j]))
 	})
 	if len(scored) > limit {
 		scored = scored[:limit]
@@ -241,6 +291,69 @@ func contextChunkTitle(chunk models.AgentContextChunk) string {
 	default:
 		return fmt.Sprintf("%s #%d", chunk.SourceType, chunk.SourceID)
 	}
+}
+
+func retrievedChunkTitle(item RetrievedContextChunk) string {
+	if item.KnowledgeSource != nil {
+		return item.KnowledgeSource.Title
+	}
+	return contextChunkTitle(item.Chunk)
+}
+
+func retrievedChunkContent(item RetrievedContextChunk) string {
+	if item.KnowledgeChunk != nil {
+		return item.KnowledgeChunk.Content
+	}
+	return item.Chunk.Content
+}
+
+func retrievedChunkSourceType(item RetrievedContextChunk) string {
+	if item.KnowledgeChunk != nil {
+		return "knowledge"
+	}
+	return item.Chunk.SourceType
+}
+
+func retrievedChunkSourceID(item RetrievedContextChunk) uint64 {
+	if item.KnowledgeChunk != nil {
+		return item.KnowledgeChunk.ID
+	}
+	return item.Chunk.SourceID
+}
+
+func retrievedChunkID(item RetrievedContextChunk) uint64 {
+	if item.KnowledgeChunk != nil {
+		return item.KnowledgeChunk.ID
+	}
+	return item.Chunk.ID
+}
+
+func retrievedChunkContentHash(item RetrievedContextChunk) string {
+	if item.KnowledgeChunk != nil {
+		return item.KnowledgeChunk.ContentHash
+	}
+	return fmt.Sprintf("%s:%d", item.Chunk.SourceType, item.Chunk.SourceID)
+}
+
+func retrievedChunkUpdatedAt(item RetrievedContextChunk) time.Time {
+	if item.KnowledgeChunk != nil {
+		return item.KnowledgeChunk.UpdatedAt
+	}
+	return item.Chunk.UpdatedAt
+}
+
+func dedupeRetrievedContextChunks(input []RetrievedContextChunk) []RetrievedContextChunk {
+	seen := map[string]bool{}
+	out := make([]RetrievedContextChunk, 0, len(input))
+	for _, item := range input {
+		key := retrievedChunkSourceType(item) + ":" + retrievedChunkContentHash(item)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	return out
 }
 
 func scoreContextChunk(tokens []string, chunk models.AgentContextChunk) int {

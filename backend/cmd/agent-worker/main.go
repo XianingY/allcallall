@@ -14,6 +14,7 @@ import (
 	"github.com/allcallall/backend/internal/cache"
 	"github.com/allcallall/backend/internal/config"
 	"github.com/allcallall/backend/internal/events"
+	"github.com/allcallall/backend/internal/knowledge"
 	"github.com/allcallall/backend/internal/logger"
 	"github.com/allcallall/backend/internal/metrics"
 	appruntime "github.com/allcallall/backend/internal/runtime"
@@ -39,15 +40,21 @@ func main() {
 	outboxStore := events.NewStore(db)
 	agentSvc := agent.NewService(db, counterStore)
 	agentSvc.WithOutbox(outboxStore)
+	knowledgeSvc := knowledge.NewService(db).WithOutbox(outboxStore)
+	agentSvc.WithKnowledgeRetriever(knowledgeSvc)
 	planner, err := agent.NewPlanner(os.Getenv("AGENT_PROVIDER"))
 	if err != nil {
 		appLogger.Fatal().Err(err).Msg("failed to initialize agent planner")
 	}
 	agentSvc.WithPlanner(planner)
+	if embedder, ok := planner.(knowledge.EmbeddingProvider); ok {
+		knowledgeSvc.WithEmbeddingProvider(embedder)
+	}
 
 	if chunkIndexer, driver, err := appruntime.ChunkIndexerFromEnv(); err == nil && chunkIndexer != nil {
 		appLogger.Info().Str("driver", driver).Msg("initialized chunk indexer for agent worker")
 		agentSvc.WithChunkIndexer(chunkIndexer)
+		knowledgeSvc.WithChunkIndexer(chunkIndexer)
 		initCtx, initCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		if err := chunkIndexer.InitChunkIndex(initCtx); err != nil {
 			initCancel()

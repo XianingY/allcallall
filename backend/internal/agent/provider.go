@@ -186,13 +186,23 @@ func buildPromptContextJSON(input PlannerInput) (string, error) {
 	}
 	contextChunks := make([]map[string]any, 0, len(input.ContextChunks))
 	for _, item := range input.ContextChunks {
-		contextChunks = append(contextChunks, map[string]any{
-			"source_type": item.Chunk.SourceType,
-			"source_id":   item.Chunk.SourceID,
-			"title":       contextChunkTitle(item.Chunk),
-			"score":       item.Score,
-			"content":     compactSnippet(item.Chunk.Content, 220),
-		})
+		payload := map[string]any{
+			"source_type":    retrievedChunkSourceType(item),
+			"source_id":      retrievedChunkSourceID(item),
+			"title":          retrievedChunkTitle(item),
+			"score":          item.Score,
+			"retrieval_mode": item.RetrievalMode,
+			"content":        compactSnippet(retrievedChunkContent(item), 220),
+		}
+		if item.FallbackReason != "" {
+			payload["fallback_reason"] = item.FallbackReason
+		}
+		if item.KnowledgeSource != nil {
+			payload["knowledge_source_id"] = item.KnowledgeSource.ID
+			payload["origin_type"] = item.KnowledgeSource.Kind
+			payload["origin_url"] = item.KnowledgeSource.URI
+		}
+		contextChunks = append(contextChunks, payload)
 	}
 	payload := map[string]any{
 		"conversation": map[string]any{

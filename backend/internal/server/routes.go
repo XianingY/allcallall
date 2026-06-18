@@ -18,6 +18,7 @@ type RouteDependencies struct {
 	Commercial       *handlers.CommercialHandler
 	Collaboration    *handlers.CollaborationHandler
 	Agent            *handlers.AgentHandler
+	Knowledge        *handlers.KnowledgeHandler
 	Invitations      *handlers.InvitationHandler
 	SignalingHandler *handlers.SignalingHandler
 	SignalingPoll    *handlers.SignalingPollHandler
@@ -82,6 +83,9 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 		}
 		if deps.Agent != nil {
 			deps.Agent.RegisterProtectedRoutes(protected)
+		}
+		if deps.Knowledge != nil {
+			deps.Knowledge.RegisterProtectedRoutes(protected)
 		}
 		if deps.Invitations != nil {
 			deps.Invitations.RegisterProtectedRoutes(protected)

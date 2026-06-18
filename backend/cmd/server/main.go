@@ -24,6 +24,7 @@ import (
 	"github.com/allcallall/backend/internal/fcm"
 	"github.com/allcallall/backend/internal/handlers"
 	"github.com/allcallall/backend/internal/invitation"
+	"github.com/allcallall/backend/internal/knowledge"
 	"github.com/allcallall/backend/internal/logger"
 	"github.com/allcallall/backend/internal/mail"
 	"github.com/allcallall/backend/internal/metrics"
@@ -99,16 +100,22 @@ func main() {
 	collaborationSvc.WithOutbox(outboxStore)
 	agentSvc := agent.NewService(db, counterStore)
 	agentSvc.WithOutbox(outboxStore)
+	knowledgeSvc := knowledge.NewService(db).WithOutbox(outboxStore)
+	agentSvc.WithKnowledgeRetriever(knowledgeSvc)
 	agentPlanner, err := agent.NewPlanner(os.Getenv("AGENT_PROVIDER"))
 	if err != nil {
 		appLogger.Fatal().Err(err).Msg("failed to initialize agent planner")
 	}
 	agentSvc.WithPlanner(agentPlanner)
+	if embedder, ok := agentPlanner.(knowledge.EmbeddingProvider); ok {
+		knowledgeSvc.WithEmbeddingProvider(embedder)
+	}
 	appLogger.Info().Str("provider", agentPlanner.Name()).Msg("agent planner enabled")
 
 	if chunkIndexer, driver, err := appruntime.ChunkIndexerFromEnv(); err == nil && chunkIndexer != nil {
 		appLogger.Info().Str("driver", driver).Msg("initialized chunk indexer for api server")
 		agentSvc.WithChunkIndexer(chunkIndexer)
+		knowledgeSvc.WithChunkIndexer(chunkIndexer)
 		initCtx, initCancel := context.WithTimeout(rootCtx, 10*time.Second)
 		if err := chunkIndexer.InitChunkIndex(initCtx); err != nil {
 			initCancel()
@@ -124,6 +131,7 @@ func main() {
 
 	outboxProcessor := events.NewProcessor(outboxStore, counterStore)
 	appruntime.RegisterAgentOutboxHandlers(outboxProcessor, agentSvc, appLogger)
+	appruntime.RegisterKnowledgeOutboxHandlers(outboxProcessor, knowledgeSvc, appLogger)
 	appruntime.RegisterCollaborationOutboxHandlers(outboxProcessor, collaborationSvc, appLogger)
 	chatHub := collaboration.NewChatHub(appLogger)
 	collaborationSvc.WithPublisher(chatHub)
@@ -222,6 +230,7 @@ func main() {
 	collaborationHandler := handlers.NewCollaborationHandler(appLogger, collaborationSvc, userSvc, chatHub)
 	collaborationHandler.WithSearchService(searchSvc)
 	agentHandler := handlers.NewAgentHandler(appLogger, agentSvc).WithRedis(redisClient)
+	knowledgeHandler := handlers.NewKnowledgeHandler(appLogger, knowledgeSvc)
 	invitationHandler := handlers.NewInvitationHandler(appLogger, invitationSvc, contactSvc, userSvc)
 	webrtcHandler := handlers.NewWebRTCHandler(appLogger, cfg.WebRTC)
 	signalingHub := signaling.NewHub(redisClient, appLogger, presenceManager)
@@ -290,6 +299,7 @@ func main() {
 		Commercial:       commercialHandler,
 		Collaboration:    collaborationHandler,
 		Agent:            agentHandler,
+		Knowledge:        knowledgeHandler,
 		Invitations:      invitationHandler,
 		SignalingHandler: signalingHandler,
 		SignalingPoll:    signalingPollHandler,
@@ -305,6 +315,8 @@ func main() {
 			appruntime.EventAgentRunCompleted,
 			appruntime.EventMessageCreated,
 			appruntime.EventSearchMessageIndex,
+			appruntime.EventRAGSourceIngest,
+			appruntime.EventRAGChunkIndex,
 		}
 		if settlementKafkaEnabled {
 			outboxEvents = append(outboxEvents, appruntime.EventSettlementRoomEnd)
