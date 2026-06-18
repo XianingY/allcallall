@@ -23,7 +23,7 @@
         }
       ],
       "mode": "vector",
-      "elapsed": "41.60675ms"
+      "elapsed": "56.227708ms"
     },
     {
       "name": "sql_fallback_pricing_latency",
@@ -39,7 +39,7 @@
       ],
       "mode": "sql_fallback",
       "fallback_reason": "indexer_unavailable",
-      "elapsed": "52.469208ms"
+      "elapsed": "66.403583ms"
     }
   ]
 }

@@ -302,6 +302,87 @@ func TestMeetingBriefWorkflowWritesMeetingMemoriesWithoutFollowupTask(t *testing
 	}
 }
 
+func TestWorkflowRoleBoundedReActUsesReadToolsAndMeetingTranscript(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	svc.WithOutbox(events.NewStore(db))
+	conversation := seedWorkflowConversation(t, db)
+	now := time.Now().UTC()
+	conversationID := conversation.ID
+	if err := db.Create(&models.CallRoom{
+		OrganizationID: conversation.OrganizationID,
+		ConversationID: &conversationID,
+		Title:          "Hardware launch review",
+		Status:         "ended",
+		CreatedBy:      7,
+		StartedAt:      &now,
+		EndedAt:        &now,
+	}).Error; err != nil {
+		t.Fatalf("create call room failed: %v", err)
+	}
+	if err := db.Create(&models.MeetingTranscriptSegment{
+		OrganizationID:     conversation.OrganizationID,
+		ConversationID:     conversation.ID,
+		RoomID:             77,
+		RecordingSessionID: 88,
+		RecordingFileID:    99,
+		TrackKey:           "mixed-audio",
+		Source:             models.MeetingTranscriptSourceRecording,
+		Provider:           "test",
+		Language:           "zh",
+		Text:               "会议录音转写：供应链交付存在两周风险，质量团队需要在周五前完成回归测试。",
+		StartMS:            0,
+		EndMS:              12000,
+		Confidence:         0.98,
+	}).Error; err != nil {
+		t.Fatalf("create meeting transcript failed: %v", err)
+	}
+
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Preset:         WorkflowPresetMeetingBrief,
+	})
+	if err != nil {
+		t.Fatalf("start workflow failed: %v", err)
+	}
+	paused, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatalf("process workflow failed: %v", err)
+	}
+	if paused.Run.Status != models.WorkflowRunStatusRequiresAction {
+		t.Fatalf("expected workflow to pause for approvals, got %s", paused.Run.Status)
+	}
+
+	searcher := workflowTaskByName(paused.Tasks, models.WorkflowTaskSearcher)
+	if searcher == nil {
+		t.Fatalf("searcher task missing")
+	}
+	if iterations := roleReActIterationCount(*searcher); iterations == 0 || iterations > 3 {
+		t.Fatalf("unexpected searcher bounded iterations: %d", iterations)
+	}
+	if !roleReActTraceHasTool(*searcher, ToolQueryContextChunks) {
+		t.Fatalf("expected searcher to call query_context_chunks")
+	}
+	if !roleReActTraceContainsSource(*searcher, contextChunkSourceMeetingTranscript) {
+		t.Fatalf("expected searcher citations to include meeting transcript")
+	}
+	risk := workflowTaskByName(paused.Tasks, models.WorkflowTaskRiskAnalyst)
+	if risk == nil {
+		t.Fatalf("risk task missing")
+	}
+	if iterations := roleReActIterationCount(*risk); iterations == 0 || iterations > 2 {
+		t.Fatalf("unexpected risk bounded iterations: %d", iterations)
+	}
+	if !roleReActTraceHasTool(*risk, ToolQueryContextChunks) || !roleReActTraceHasTool(*risk, ToolQueryRecentMeetings) {
+		t.Fatalf("expected risk analyst to call bounded read tools")
+	}
+	for _, approval := range paused.Approvals {
+		if approval.ToolName == ToolQueryContextChunks || approval.ToolName == ToolQueryRecentMeetings {
+			t.Fatalf("read tool should not create approval: %+v", approval)
+		}
+	}
+}
+
 func TestWorkflowApprovalTimeoutMarksRunFailed(t *testing.T) {
 	ctx := context.Background()
 	svc, db := newWorkflowTestService(t)
@@ -368,4 +449,13 @@ func workflowTaskReady(tasks []models.WorkflowTask, name string) bool {
 		}
 	}
 	return false
+}
+
+func workflowTaskByName(tasks []models.WorkflowTask, name string) *models.WorkflowTask {
+	for i := range tasks {
+		if tasks[i].Name == name {
+			return &tasks[i]
+		}
+	}
+	return nil
 }

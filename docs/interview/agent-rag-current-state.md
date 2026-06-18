@@ -22,8 +22,8 @@
 | --- | --- | --- | --- |
 | Web Agent Lab | 可演示 | 登录后默认进入 `AgentDemo` 路由里的 Agent Lab；含 Knowledge/Run/Graph/Approvals/Eval tabs | 需要登录态和当前 organization，不是免登录公开 demo |
 | Agent run 生命周期 | 基本完整 | 创建 run、幂等键、pending/running/ready/failed/requires_action、lease、attempt、outbox worker 执行 | worker 可靠性和失败重放还偏本地开发级 |
-| Workflow+Agent 编排 | 可演示 | 固定 DAG：`collect_context -> decompose -> parallel_agents -> merge -> propose_tools -> approval -> commit_result` | DAG 目前固定，不支持用户自定义 workflow |
-| 并行多 Agent | 可演示 | `searcher/summarizer/risk_analyst` 三个 workflow task 并行执行，并通过 `agent_messages` 持久化交换结果 | 当前 role agent 主要复用 planner/rules 输出，还不是长期自治 agent |
+| Workflow+Agent 编排 | 可演示 | 固定 DAG：`collect_context -> decompose -> parallel_agents -> merge -> propose_tools -> approval -> commit_result`；部分 role task 内部运行 bounded ReAct | DAG 目前固定，不支持用户自定义 workflow |
+| 并行多 Agent | 可演示 | `searcher/summarizer/risk_analyst` 三个 workflow task 并行执行；`searcher`/`risk_analyst` 使用 read-only bounded ReAct，并通过 `agent_messages` 持久化计划、观察和结果 | 当前 role loop 是固定策略，不是完全自治 agent |
 | 工具调用 | 已收紧 | 8 个后端托管工具；工具 schema 已改为严格 JSON Schema；模型参数执行前校验 | ReAct 老 run 仍保留，主 demo 推荐走 Workflow |
 | 人工审批 | 已接入 | 写工具 `write_conversation_message/create_follow_up_task/upsert_agent_memory/delegate_task` 默认需要审批；owner/admin 可审批 | 审批策略首版按 org role + tool policy，UI 只做 approve/reject |
 | RAG 知识库 | 已可用 | 新增 `rag_sources/rag_source_versions/rag_chunks`；支持 manual text、URL、txt/md/html/pdf file ingestion | 文件 5MB、URL 2MB/10s；PDF 用 Go 依赖解析 |
@@ -31,7 +31,7 @@
 | Index retry/dead-letter | 已实现 | `rag.source.ingest_requested` 和 `rag.chunk.index_requested` 走 event_outbox；failed 即 dead-letter，可 Web 重试 | 依赖 outbox worker 或 API embedded worker |
 | ES vector | 已接入 | `allcallall_context_chunks` 使用 `dense_vector`、`index=true`、`cosine`，查询用 `cosineSimilarity` | ES 在本项目中承担向量数据库角色，不另引 Milvus/Pinecone |
 | 引用/citation | 可点击 | citation 返回 chunk/source/origin/conversation/version/retrieval_mode/score/snippet；Web 可打开知识源 preview 或 URL | 消息/备注回源目前先回到 conversation 维度，细粒度滚动定位未做 |
-| Eval | 本地可跑 | `cmd/agent-eval` 支持 planner fixture 和 workflow fixture；`cmd/rag-eval` 支持 vector/fallback/citation fixture | 尚未接入 CI，也没有在线 Eval API |
+| Eval | 本地可跑 | `cmd/agent-eval` 支持 planner/workflow fixture；`cmd/rag-eval` 支持 vector/fallback/citation fixture；组合报告覆盖 bounded role ReAct + meeting transcript | 尚未接入 CI，也没有在线 Eval API |
 | SSE/trace | 可展示 | 前端通过 SSE 看 run/step/tool 事件，结果页也可从持久化 trace 回放 | token 级流式在当前 tool-calling 模式下基本不会触发 |
 
 ## 运行架构
@@ -577,4 +577,4 @@ curl http://127.0.0.1:9200/allcallall_context_chunks/_mapping
 
 可以这样描述项目：
 
-> 我在 AllCallAll 中把协作会话系统升级成了一个可调试的 Web Agent Lab。后端实现了 organization/conversation 级知识库 ingestion、chunk/version/dedup、ES vector RAG、SQL fallback、citation 回源、outbox retry/dead-letter，以及 Workflow+Agent 编排。Workflow 使用固定 DAG 控制 `collect_context -> decompose -> parallel_agents -> merge -> propose_tools -> approval -> commit_result`，其中 `searcher/summarizer/risk_analyst` 并行执行，agent 间通过持久化 JSON message envelope 通信。写工具默认需要人工审批，工具参数使用严格 JSON Schema 校验，并配有 planner/workflow/RAG eval fixtures，方便每次改 prompt、工具或检索策略时做回归。
+> 我在 AllCallAll 中把协作会话系统升级成了一个可调试的 Web Agent Lab。后端实现了 organization/conversation 级知识库 ingestion、chunk/version/dedup、ES vector RAG、SQL fallback、citation 回源、outbox retry/dead-letter，以及 Workflow+Agent 编排。Workflow 使用固定 DAG 控制 `collect_context -> decompose -> parallel_agents -> merge -> propose_tools -> approval -> commit_result`，其中 `searcher/summarizer/risk_analyst` 并行执行；`searcher` 和 `risk_analyst` 在各自 task 内运行 bounded ReAct，只能自动调用读工具，写工具仍必须进入 approval。agent 间通过持久化 JSON message envelope 通信，工具参数使用严格 JSON Schema 校验，并配有 planner/workflow/RAG eval fixtures，方便每次改 prompt、工具或检索策略时做回归。

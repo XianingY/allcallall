@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-18T15:23:29Z",
+  "generated_at": "2026-06-18T15:38:19Z",
   "provider": "rules",
   "planner": {
     "provider": "rules",
@@ -73,7 +73,7 @@
           }
         ],
         "mode": "vector",
-        "elapsed": "41.60675ms"
+        "elapsed": "56.227708ms"
       },
       {
         "name": "sql_fallback_pricing_latency",
@@ -89,14 +89,14 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "52.469208ms"
+        "elapsed": "66.403583ms"
       }
     ]
   },
   "workflow": {
     "mode": "workflow",
-    "cases": 2,
-    "passed": 2,
+    "cases": 3,
+    "passed": 3,
     "failed": 0,
     "results": [
       {
@@ -104,7 +104,7 @@
         "passed": true,
         "status": "ready",
         "tasks": 9,
-        "messages": 12,
+        "messages": 20,
         "approvals": 3
       },
       {
@@ -112,8 +112,16 @@
         "passed": true,
         "status": "failed",
         "tasks": 9,
-        "messages": 6,
+        "messages": 14,
         "approvals": 0
+      },
+      {
+        "name": "meeting_brief_bounded_react_transcript",
+        "passed": true,
+        "status": "ready",
+        "tasks": 9,
+        "messages": 18,
+        "approvals": 3
       }
     ]
   },

@@ -1,6 +1,6 @@
 # AllCallAll Agent Demo Eval Report
 
-- Generated at: `2026-06-18T15:23:29Z`
+- Generated at: `2026-06-18T15:38:19Z`
 - Planner provider: `rules`
 - Overall status: `pass`
 
@@ -10,7 +10,7 @@
 | --- | ---: | ---: | ---: |
 | Planner | 2 | 2 | 0 |
 | RAG | 2 | 2 | 0 |
-| Workflow | 2 | 2 | 0 |
+| Workflow | 3 | 3 | 0 |
 
 ## Planner Cases
 
@@ -29,3 +29,4 @@
 
 - `approval_parallel_merge_tool_commit`: pass - status `ready`, tasks 9, approvals 3
 - `tool_policy_denies_write`: pass - status `failed`, tasks 9, approvals 0
+- `meeting_brief_bounded_react_transcript`: pass - status `ready`, tasks 9, approvals 3

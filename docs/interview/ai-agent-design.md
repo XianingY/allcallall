@@ -137,6 +137,16 @@ Models:
 
 This path is for DAG-style decomposition and human approval. Approval statuses include `pending`, `approved`, `rejected`, `executed`, and `failed`.
 
+### Bounded ReAct Inside Role Tasks
+
+The Workflow Agent now combines DAG control with bounded role-level ReAct:
+
+- `searcher` runs a read-only ReAct loop with `max_iterations=3` and can call `query_context_chunks`.
+- `risk_analyst` runs a read-only ReAct loop with `max_iterations=2` and can call `query_context_chunks` plus `query_recent_meetings`.
+- `summarizer` stays as direct synthesis for stability.
+
+Each role iteration records a plan and observation in `agent_messages`, and the task output includes `react_trace`. Only read-only tools are allowed inside role ReAct. Side-effect tools such as `write_conversation_message`, `create_follow_up_task`, and `upsert_agent_memory` still enter the `propose_tools -> approval -> commit_result` path.
+
 ## Trace And Events
 
 Agent API responses include a derived trace from persisted rows, not a separate trace table:
@@ -192,6 +202,9 @@ Conversation context chunks and knowledge chunks provide the retrieval layer:
 
 ```bash
 make agent-eval
+make rag-eval
+make workflow-eval
+make agent-demo-report
 ```
 
-The eval harness runs deterministic cases from `backend/internal/agent/testdata/eval_cases.json` and checks summary/action/risk expectations without external credentials.
+The eval harnesses run deterministic planner, RAG, and workflow cases without external credentials. Workflow eval includes a meeting recap case that verifies bounded role ReAct retrieves `meeting_transcript` citations while read tools bypass human approval and write tools still require it.

@@ -68,13 +68,14 @@ type workflowTaskSpec struct {
 }
 
 type workflowRoleResult struct {
-	Role        string     `json:"role"`
-	Summary     string     `json:"summary"`
-	ActionItems []string   `json:"action_items,omitempty"`
-	NextStep    string     `json:"next_step,omitempty"`
-	RiskFlags   []string   `json:"risk_flags,omitempty"`
-	Citations   []Citation `json:"citations,omitempty"`
-	Snippets    []string   `json:"snippets,omitempty"`
+	Role        string                `json:"role"`
+	Summary     string                `json:"summary"`
+	ActionItems []string              `json:"action_items,omitempty"`
+	NextStep    string                `json:"next_step,omitempty"`
+	RiskFlags   []string              `json:"risk_flags,omitempty"`
+	Citations   []Citation            `json:"citations,omitempty"`
+	Snippets    []string              `json:"snippets,omitempty"`
+	ReactTrace  []roleReActTraceEvent `json:"react_trace,omitempty"`
 }
 
 type workflowToolRequest struct {
@@ -492,7 +493,7 @@ func (s *Service) executeWorkflowRoleTask(ctx context.Context, run models.Workfl
 		"goal": run.Goal,
 		"role": role,
 	}, func(task models.WorkflowTask) (map[string]any, error) {
-		result, err := s.runWorkflowRoleAgent(ctx, run, role, conversationCtx)
+		result, err := s.runWorkflowRoleAgent(ctx, run, task, role, conversationCtx)
 		if err != nil {
 			return nil, err
 		}
@@ -504,7 +505,17 @@ func (s *Service) executeWorkflowRoleTask(ctx context.Context, run models.Workfl
 	})
 }
 
-func (s *Service) runWorkflowRoleAgent(ctx context.Context, run models.WorkflowRun, role string, conversationCtx *conversationContext) (workflowRoleResult, error) {
+func (s *Service) runWorkflowRoleAgent(ctx context.Context, run models.WorkflowRun, task models.WorkflowTask, role string, conversationCtx *conversationContext) (workflowRoleResult, error) {
+	if config, ok := roleReActConfigFor(role); ok {
+		result, err := s.runBoundedRoleReAct(ctx, run, task, role, conversationCtx, config)
+		if err != nil {
+			return workflowRoleResult{}, err
+		}
+		if err := s.createRoleBackedAgentRun(ctx, run, role, result); err != nil {
+			return workflowRoleResult{}, err
+		}
+		return result, nil
+	}
 	plannerInput := PlannerInput{
 		Role:           role,
 		Goal:           run.Goal,

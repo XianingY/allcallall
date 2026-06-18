@@ -461,7 +461,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         setWorkflowLoading(true);
         const created = await createWorkflowRun(token, {
           conversation_id: conversationId,
-          preset: input.preset,
+          preset: input.preset ?? "meeting_brief",
           goal: input.goal,
         });
         const processed = await processWorkflowRun(token, created.workflow.id);

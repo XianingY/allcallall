@@ -18,21 +18,24 @@ import (
 )
 
 type WorkflowEvalCase struct {
-	Name                  string   `json:"name"`
-	Goal                  string   `json:"goal"`
-	Preset                string   `json:"preset,omitempty"`
-	Messages              []string `json:"messages"`
-	Notes                 []string `json:"notes"`
-	MeetingTranscripts    []string `json:"meeting_transcripts,omitempty"`
-	DeniedTools           []string `json:"denied_tools"`
-	ApproveAll            bool     `json:"approve_all"`
-	ExpectedStatus        string   `json:"expected_status"`
-	ExpectedTasks         []string `json:"expected_tasks"`
-	ExpectedApprovalTools []string `json:"expected_approval_tools"`
-	ExpectedExecutedTools []string `json:"expected_executed_tools"`
-	RequiredMessageTypes  []string `json:"required_message_types"`
-	RequiredRoles         []string `json:"required_roles"`
-	ExpectedErrorContains string   `json:"expected_error_contains"`
+	Name                  string              `json:"name"`
+	Goal                  string              `json:"goal"`
+	Preset                string              `json:"preset,omitempty"`
+	Messages              []string            `json:"messages"`
+	Notes                 []string            `json:"notes"`
+	MeetingTranscripts    []string            `json:"meeting_transcripts,omitempty"`
+	DeniedTools           []string            `json:"denied_tools"`
+	ApproveAll            bool                `json:"approve_all"`
+	ExpectedStatus        string              `json:"expected_status"`
+	ExpectedTasks         []string            `json:"expected_tasks"`
+	ExpectedApprovalTools []string            `json:"expected_approval_tools"`
+	ExpectedExecutedTools []string            `json:"expected_executed_tools"`
+	RequiredMessageTypes  []string            `json:"required_message_types"`
+	RequiredRoles         []string            `json:"required_roles"`
+	RequiredCitationTypes []string            `json:"required_citation_source_types"`
+	RequiredRoleTools     map[string][]string `json:"required_role_tools"`
+	MaxRoleIterations     map[string]int      `json:"max_role_iterations"`
+	ExpectedErrorContains string              `json:"expected_error_contains"`
 }
 
 type WorkflowEvalResult struct {
@@ -180,6 +183,38 @@ func runWorkflowEvalCase(ctx context.Context, index int, item WorkflowEvalCase) 
 			eval.Errors = append(eval.Errors, fmt.Sprintf("role %s missing", role))
 		}
 	}
+	for _, sourceType := range item.RequiredCitationTypes {
+		if !workflowEvalCitationTypePresent(result.Citations, sourceType) {
+			eval.Errors = append(eval.Errors, fmt.Sprintf("citation source type %s missing", sourceType))
+		}
+	}
+	for role, tools := range item.RequiredRoleTools {
+		task := workflowEvalTaskByName(result.Tasks, role)
+		if task == nil {
+			eval.Errors = append(eval.Errors, fmt.Sprintf("role task %s missing", role))
+			continue
+		}
+		for _, tool := range tools {
+			if !roleReActTraceHasTool(*task, tool) {
+				eval.Errors = append(eval.Errors, fmt.Sprintf("role %s did not call tool %s", role, tool))
+			}
+		}
+	}
+	for role, maxIterations := range item.MaxRoleIterations {
+		task := workflowEvalTaskByName(result.Tasks, role)
+		if task == nil {
+			eval.Errors = append(eval.Errors, fmt.Sprintf("role task %s missing", role))
+			continue
+		}
+		iterations := roleReActIterationCount(*task)
+		if iterations == 0 {
+			eval.Errors = append(eval.Errors, fmt.Sprintf("role %s has no react trace", role))
+			continue
+		}
+		if iterations > maxIterations {
+			eval.Errors = append(eval.Errors, fmt.Sprintf("role %s iterations got %d want <= %d", role, iterations, maxIterations))
+		}
+	}
 	if item.ExpectedErrorContains != "" && !strings.Contains(result.Run.ErrorMessage, item.ExpectedErrorContains) {
 		eval.Errors = append(eval.Errors, fmt.Sprintf("error %q missing %q", result.Run.ErrorMessage, item.ExpectedErrorContains))
 	}
@@ -319,6 +354,15 @@ func workflowEvalTaskReady(tasks []models.WorkflowTask, name string) bool {
 	return false
 }
 
+func workflowEvalTaskByName(tasks []models.WorkflowTask, name string) *models.WorkflowTask {
+	for i := range tasks {
+		if tasks[i].Name == name {
+			return &tasks[i]
+		}
+	}
+	return nil
+}
+
 func workflowEvalApprovalPresent(approvals []models.ToolApproval, tool string) bool {
 	for _, approval := range approvals {
 		if approval.ToolName == tool {
@@ -354,6 +398,15 @@ func workflowEvalRolePresent(tasks []models.WorkflowTask, messages []models.Agen
 	}
 	for _, message := range messages {
 		if message.FromRole == role || message.ToRole == role {
+			return true
+		}
+	}
+	return false
+}
+
+func workflowEvalCitationTypePresent(citations []Citation, sourceType string) bool {
+	for _, citation := range citations {
+		if citation.SourceType == sourceType {
 			return true
 		}
 	}

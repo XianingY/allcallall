@@ -37,17 +37,17 @@ Current generated status:
 | --- | ---: | ---: | ---: |
 | Planner | 2 | 2 | 0 |
 | RAG | 2 | 2 | 0 |
-| Workflow | 2 | 2 | 0 |
+| Workflow | 3 | 3 | 0 |
 
 What this proves:
 
 - The rules planner can produce non-empty summaries, next steps, risks, and action items for seeded conversation fixtures.
 - RAG retrieval returns cited chunks in both vector and SQL fallback modes.
-- The workflow engine can build the fixed DAG, run parallel roles, pause for approvals, execute approved tools, and fail early when policy denies a write tool.
+- The workflow engine can build the fixed DAG, run bounded ReAct loops inside selected role tasks, pause for approvals, execute approved tools, and fail early when policy denies a write tool.
 
 ## Interview Talking Points
 
 - The eval is deterministic and does not require external model credentials.
 - RAG eval uses a local in-memory vector index so vector behavior is testable without Elasticsearch.
-- Workflow eval runs against a temporary SQLite database and still exercises real service code, task state, approvals, and tool execution.
+- Workflow eval runs against a temporary SQLite database and still exercises real service code, bounded role ReAct, task state, approvals, and tool execution.
 - The generated Markdown is for humans; the JSON files are for automated regression checks.
