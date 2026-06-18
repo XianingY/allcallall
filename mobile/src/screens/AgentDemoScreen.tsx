@@ -42,14 +42,20 @@ import {
   createFileKnowledgeSource,
   createManualKnowledgeSource,
   createURLKnowledgeSource,
+  decideKnowledgeDuplicateCandidate,
   fetchKnowledgeSource,
   listKnowledgeDeadLetters,
+  listKnowledgeDuplicateCandidates,
+  listKnowledgeSourceGroups,
   listKnowledgeSources,
   reingestKnowledgeSource,
   retryKnowledgeDeadLetter,
+  setKnowledgeSourceGroupCanonical,
   type DeadLetterRecord,
+  type DuplicateCandidateRecord,
   type KnowledgeSourceDetail,
   type KnowledgeSourceRecord,
+  type SourceGroupRecord,
 } from "../api/knowledge";
 import PrimaryButton from "../components/PrimaryButton";
 import TextField from "../components/TextField";
@@ -139,6 +145,8 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation }) => {
   const [messages, setMessages] = useState<MessageRecord[]>([]);
   const [notes, setNotes] = useState<ConversationNoteRecord[]>([]);
   const [sources, setSources] = useState<KnowledgeSourceRecord[]>([]);
+  const [sourceGroups, setSourceGroups] = useState<SourceGroupRecord[]>([]);
+  const [duplicateCandidates, setDuplicateCandidates] = useState<DuplicateCandidateRecord[]>([]);
   const [sourceDetail, setSourceDetail] = useState<KnowledgeSourceDetail | null>(null);
   const [deadLetters, setDeadLetters] = useState<DeadLetterRecord[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowResult[]>([]);
@@ -165,12 +173,16 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation }) => {
 
   const refreshKnowledge = useCallback(async () => {
     if (!token || !currentOrganization) return;
-    const [nextSources, nextDeadLetters] = await Promise.all([
+    const [nextSources, nextDeadLetters, nextGroups, nextDuplicates] = await Promise.all([
       listKnowledgeSources(token),
       listKnowledgeDeadLetters(token),
+      listKnowledgeSourceGroups(token),
+      listKnowledgeDuplicateCandidates(token),
     ]);
     setSources(nextSources);
     setDeadLetters(nextDeadLetters);
+    setSourceGroups(nextGroups);
+    setDuplicateCandidates(nextDuplicates);
     if (sourceDetail && nextSources.every((item) => item.id !== sourceDetail.source.id)) {
       setSourceDetail(null);
     }
@@ -408,6 +420,36 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation }) => {
     }
   }, [selectSource]);
 
+  const handleDuplicateDecision = useCallback(async (duplicateId: number, decision: "confirm" | "reject") => {
+    if (!token) return;
+    try {
+      setBusy(true);
+      await decideKnowledgeDuplicateCandidate(token, duplicateId, decision);
+      await refreshKnowledge();
+      setNotice(`Duplicate ${decision}ed`);
+    } catch (error) {
+      console.error("[AgentLab] Duplicate decision failed:", error);
+      Alert.alert("处理失败", "无法提交重复源决策。");
+    } finally {
+      setBusy(false);
+    }
+  }, [refreshKnowledge, token]);
+
+  const handleSetCanonical = useCallback(async (groupId: number, sourceId: number) => {
+    if (!token) return;
+    try {
+      setBusy(true);
+      await setKnowledgeSourceGroupCanonical(token, groupId, sourceId);
+      await refreshKnowledge();
+      setNotice("Canonical source updated");
+    } catch (error) {
+      console.error("[AgentLab] Canonical source update failed:", error);
+      Alert.alert("更新失败", "无法更新 canonical source。");
+    } finally {
+      setBusy(false);
+    }
+  }, [refreshKnowledge, token]);
+
   const renderSidebar = () => (
     <View style={isWide ? styles.sidebar : styles.panel}>
       <Text style={styles.eyebrow}>{currentOrganization?.name}</Text>
@@ -492,7 +534,7 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation }) => {
                 <StatusPill status={source.status} />
               </View>
               <Text style={styles.rowMeta}>
-                {source.kind} · v{source.active_version_id ?? "-"} · {formatTime(source.updated_at)}
+                {source.kind} · group {source.source_group_id ?? "-"} · {source.dedupe_status || "unique"} · {formatTime(source.updated_at)}
               </Text>
               {source.last_error ? <Text style={styles.errorText}>{compact(source.last_error)}</Text> : null}
               <View style={styles.inlineActions}>
@@ -532,6 +574,72 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation }) => {
           ) : (
             <Text style={styles.emptyText}>Select a source.</Text>
           )}
+        </View>
+      </View>
+
+      <View style={styles.grid}>
+        <View style={[styles.panel, styles.listPanel]}>
+          <View style={styles.panelHeader}>
+            <Text style={styles.sectionTitle}>Source Groups</Text>
+            <Text style={styles.contextLine}>{sourceGroups.length}</Text>
+          </View>
+          {sourceGroups.map((group) => (
+            <View key={group.id} style={styles.rowItem}>
+              <View style={styles.rowTop}>
+                <Text style={styles.rowTitle}>{group.title}</Text>
+                <StatusPill status={group.status} />
+              </View>
+              <Text style={styles.rowMeta}>
+                canonical #{group.canonical_source_id ?? "-"} · authority {Math.round((group.authority_score ?? 0) * 100)}
+              </Text>
+              {sources
+                .filter((source) => source.source_group_id === group.id)
+                .map((source) => (
+                  <View key={source.id} style={styles.inlineRow}>
+                    <Text style={styles.rowMeta}>
+                      #{source.id} {source.title}
+                    </Text>
+                    {group.canonical_source_id !== source.id ? (
+                      <Pressable style={styles.inlineButton} onPress={() => void handleSetCanonical(group.id, source.id)}>
+                        <Text style={styles.inlineButtonText}>Make canonical</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ))}
+            </View>
+          ))}
+          {sourceGroups.length === 0 ? <Text style={styles.emptyText}>No source groups.</Text> : null}
+        </View>
+
+        <View style={[styles.panel, styles.previewPanel]}>
+          <View style={styles.panelHeader}>
+            <Text style={styles.sectionTitle}>Duplicate Review</Text>
+            <Text style={styles.contextLine}>{duplicateCandidates.length}</Text>
+          </View>
+          {duplicateCandidates.map((item) => (
+            <View key={item.id} style={styles.rowItem}>
+              <View style={styles.rowTop}>
+                <Text style={styles.rowTitle}>
+                  #{item.source_id} vs #{item.candidate_source_id}
+                </Text>
+                <StatusPill status={item.status} />
+              </View>
+              <Text style={styles.rowMeta}>
+                {item.duplicate_kind} · similarity {Math.round(item.similarity * 100)} · group {item.source_group_id ?? "-"}
+              </Text>
+              {item.status === "pending" ? (
+                <View style={styles.inlineActions}>
+                  <Pressable style={styles.approveButton} onPress={() => void handleDuplicateDecision(item.id, "confirm")}>
+                    <Text style={styles.approveButtonText}>Confirm</Text>
+                  </Pressable>
+                  <Pressable style={styles.rejectButton} onPress={() => void handleDuplicateDecision(item.id, "reject")}>
+                    <Text style={styles.rejectButtonText}>Reject</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
+          ))}
+          {duplicateCandidates.length === 0 ? <Text style={styles.emptyText}>No duplicate candidates.</Text> : null}
         </View>
       </View>
 
@@ -615,6 +723,11 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation }) => {
           <Text style={styles.sectionTitle}>Task Graph</Text>
           <PrimaryButton title="Process" onPress={handleProcessWorkflow} disabled={busy || !activeWorkflow} style={styles.processButton} />
         </View>
+        {activeWorkflow ? (
+          <Text style={styles.contextLine}>
+            {activeWorkflow.workflow.workflow_version || "agent_lab_v1"} · {activeWorkflow.workflow.prompt_version || "-"} · {activeWorkflow.workflow.tool_schema_version || "-"}
+          </Text>
+        ) : null}
         {orderedTasks.map((task, index) => (
           <View key={task.id} style={styles.taskRow}>
             <View style={styles.taskIndex}>
@@ -645,6 +758,38 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         ))}
         {activeWorkflow && activeWorkflow.messages.length === 0 ? <Text style={styles.emptyText}>No agent messages.</Text> : null}
+      </View>
+
+      <View style={styles.grid}>
+        <View style={[styles.panel, styles.contextPanel]}>
+          <Text style={styles.sectionTitle}>History</Text>
+          {(activeWorkflow?.history ?? []).map((event) => (
+            <View key={event.id} style={styles.messageBox}>
+              <Text style={styles.rowTitle}>{event.event_type}</Text>
+              <Text style={styles.rowMeta}>{event.ref_type || "workflow"} · {formatTime(event.created_at)}</Text>
+              {event.attributes_json ? <Text style={styles.messageBody}>{compact(event.attributes_json, 260)}</Text> : null}
+            </View>
+          ))}
+          {activeWorkflow && activeWorkflow.history.length === 0 ? <Text style={styles.emptyText}>No history events.</Text> : null}
+        </View>
+        <View style={[styles.panel, styles.contextPanel]}>
+          <Text style={styles.sectionTitle}>Signals & Timers</Text>
+          {(activeWorkflow?.signals ?? []).map((signal) => (
+            <View key={`signal-${signal.id}`} style={styles.messageBox}>
+              <Text style={styles.rowTitle}>{signal.signal_name}</Text>
+              <Text style={styles.rowMeta}>{signal.status} · {formatTime(signal.created_at)}</Text>
+            </View>
+          ))}
+          {(activeWorkflow?.timers ?? []).map((timer) => (
+            <View key={`timer-${timer.id}`} style={styles.messageBox}>
+              <Text style={styles.rowTitle}>{timer.timer_name}</Text>
+              <Text style={styles.rowMeta}>{timer.status} · due {formatTime(timer.fire_at)}</Text>
+            </View>
+          ))}
+          {activeWorkflow && activeWorkflow.signals.length === 0 && activeWorkflow.timers.length === 0 ? (
+            <Text style={styles.emptyText}>No signals or timers.</Text>
+          ) : null}
+        </View>
       </View>
     </ScrollView>
   );
@@ -770,7 +915,10 @@ const CitationList: React.FC<CitationListProps> = ({ citations, onPress }) => {
         >
           <View style={styles.rowTop}>
             <Text style={styles.citationTitle}>{citation.source_title || citation.title}</Text>
-            <Text style={styles.scoreText}>{citation.retrieval_mode || "source"} · {citation.score}</Text>
+            <Text style={styles.scoreText}>
+              {citation.retrieval_mode || "source"} · {citation.score}
+              {citation.rrf_score ? ` · rrf ${citation.rrf_score.toFixed(3)}` : ""}
+            </Text>
           </View>
           <Text style={styles.citationSnippet}>{citation.snippet}</Text>
         </Pressable>
@@ -1037,6 +1185,13 @@ const styles = StyleSheet.create({
     marginTop: 5,
     fontSize: 12,
     fontWeight: "600",
+  },
+  inlineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginTop: 10,
   },
   previewTitle: {
     color: "#0f172a",

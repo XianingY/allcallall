@@ -274,27 +274,29 @@ func (DeletionAudit) TableName() string {
 
 // AgentRun stores a deterministic or model-backed assistant execution.
 type AgentRun struct {
-	ID              uint64     `gorm:"primaryKey;autoIncrement"`
-	OrganizationID  uint64     `gorm:"not null;index"`
-	UserID          uint64     `gorm:"not null;index"`
-	ConversationID  uint64     `gorm:"not null;index"`
-	IdempotencyKey  string     `gorm:"size:128;index"`
-	RequestID       string     `gorm:"size:96;index"`
-	Source          string     `gorm:"size:32;not null;index"`
-	Role            string     `gorm:"size:32;not null;default:'primary';index"`
-	Status          string     `gorm:"size:32;not null;index"`
-	Goal            string     `gorm:"type:text"`
-	Summary         string     `gorm:"type:text"`
-	ActionItemsJSON string     `gorm:"type:longtext"`
-	NextStep        string     `gorm:"type:text"`
-	RiskFlagsJSON   string     `gorm:"type:longtext"`
-	ErrorMessage    string     `gorm:"type:text"`
-	Attempts        int        `gorm:"not null;default:0"`
-	LeaseUntil      *time.Time `gorm:"index"`
-	StartedAt       *time.Time `gorm:"index"`
-	CompletedAt     *time.Time `gorm:"index"`
-	CreatedAt       time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt       time.Time  `gorm:"autoUpdateTime"`
+	ID                uint64     `gorm:"primaryKey;autoIncrement"`
+	OrganizationID    uint64     `gorm:"not null;index"`
+	UserID            uint64     `gorm:"not null;index"`
+	ConversationID    uint64     `gorm:"not null;index"`
+	IdempotencyKey    string     `gorm:"size:128;index"`
+	RequestID         string     `gorm:"size:96;index"`
+	Source            string     `gorm:"size:32;not null;index"`
+	Role              string     `gorm:"size:32;not null;default:'primary';index"`
+	Status            string     `gorm:"size:32;not null;index"`
+	PromptVersion     string     `gorm:"size:64;index"`
+	ToolSchemaVersion string     `gorm:"size:64;index"`
+	Goal              string     `gorm:"type:text"`
+	Summary           string     `gorm:"type:text"`
+	ActionItemsJSON   string     `gorm:"type:longtext"`
+	NextStep          string     `gorm:"type:text"`
+	RiskFlagsJSON     string     `gorm:"type:longtext"`
+	ErrorMessage      string     `gorm:"type:text"`
+	Attempts          int        `gorm:"not null;default:0"`
+	LeaseUntil        *time.Time `gorm:"index"`
+	StartedAt         *time.Time `gorm:"index"`
+	CompletedAt       *time.Time `gorm:"index"`
+	CreatedAt         time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt         time.Time  `gorm:"autoUpdateTime"`
 }
 
 func (AgentRun) TableName() string {
@@ -320,17 +322,18 @@ func (AgentStep) TableName() string {
 
 // AgentToolCall stores tool invocations made by an agent run.
 type AgentToolCall struct {
-	ID           uint64    `gorm:"primaryKey;autoIncrement"`
-	RunID        uint64    `gorm:"not null;index"`
-	StepID       *uint64   `gorm:"index"`
-	CallID       string    `gorm:"size:64;index" json:"call_id"`
-	ToolName     string    `gorm:"size:120;not null;index"`
-	Status       string    `gorm:"size:32;not null;index"`
-	InputJSON    string    `gorm:"type:longtext"`
-	OutputJSON   string    `gorm:"type:longtext"`
-	ErrorMessage string    `gorm:"type:text"`
-	CreatedAt    time.Time `gorm:"autoCreateTime"`
-	UpdatedAt    time.Time `gorm:"autoUpdateTime"`
+	ID                uint64    `gorm:"primaryKey;autoIncrement"`
+	RunID             uint64    `gorm:"not null;index"`
+	StepID            *uint64   `gorm:"index"`
+	CallID            string    `gorm:"size:64;index" json:"call_id"`
+	ToolName          string    `gorm:"size:120;not null;index"`
+	Status            string    `gorm:"size:32;not null;index"`
+	ToolSchemaVersion string    `gorm:"size:64;index"`
+	InputJSON         string    `gorm:"type:longtext"`
+	OutputJSON        string    `gorm:"type:longtext"`
+	ErrorMessage      string    `gorm:"type:text"`
+	CreatedAt         time.Time `gorm:"autoCreateTime"`
+	UpdatedAt         time.Time `gorm:"autoUpdateTime"`
 }
 
 func (AgentToolCall) TableName() string {

@@ -140,6 +140,9 @@ func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, 
 	if err := s.ensureConversationMember(ctx, organizationID, userID, in.ConversationID); err != nil {
 		return nil, err
 	}
+	if err := s.ensureWorkflowMetadataRegistered(ctx); err != nil {
+		return nil, err
+	}
 	if idempotencyKey != "" {
 		if existing, err := s.findRunByIdempotencyKey(ctx, organizationID, userID, in.ConversationID, idempotencyKey); err != nil {
 			return nil, err
@@ -149,15 +152,17 @@ func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, 
 	}
 
 	run := models.AgentRun{
-		OrganizationID: organizationID,
-		UserID:         userID,
-		ConversationID: in.ConversationID,
-		IdempotencyKey: idempotencyKey,
-		RequestID:      trace.RequestID(ctx),
-		Source:         s.planner.Name(),
-		Role:           role,
-		Status:         models.AgentRunStatusPending,
-		Goal:           goal,
+		OrganizationID:    organizationID,
+		UserID:            userID,
+		ConversationID:    in.ConversationID,
+		IdempotencyKey:    idempotencyKey,
+		RequestID:         trace.RequestID(ctx),
+		Source:            s.planner.Name(),
+		Role:              role,
+		Status:            models.AgentRunStatusPending,
+		PromptVersion:     CurrentWorkflowPromptVersion,
+		ToolSchemaVersion: CurrentToolSchemaVersion,
+		Goal:              goal,
 	}
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&run).Error; err != nil {
@@ -720,6 +725,9 @@ func (s *Service) recordContextToolCalls(ctx context.Context, run models.AgentRu
 func (s *Service) recordToolCall(ctx context.Context, toolCall models.AgentToolCall) error {
 	if toolCall.Status == "" {
 		toolCall.Status = models.AgentRunStatusReady
+	}
+	if toolCall.ToolSchemaVersion == "" {
+		toolCall.ToolSchemaVersion = CurrentToolSchemaVersion
 	}
 	return s.db.WithContext(ctx).Create(&toolCall).Error
 }

@@ -37,6 +37,8 @@ func newAgentServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *metrics.CounterS
 		&models.AgentToolCall{},
 		&models.AgentMemory{},
 		&models.AgentContextChunk{},
+		&models.AgentPromptVersion{},
+		&models.ToolSchemaVersion{},
 		&models.FollowUpTask{},
 		&models.CallRoom{},
 		&models.CallFollowup{},

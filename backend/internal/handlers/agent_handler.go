@@ -63,26 +63,28 @@ type submitApprovalDecisionRequest struct {
 }
 
 type agentRunResponse struct {
-	ID             uint64     `json:"id"`
-	OrganizationID uint64     `json:"organization_id"`
-	UserID         uint64     `json:"user_id"`
-	ConversationID uint64     `json:"conversation_id"`
-	IdempotencyKey string     `json:"idempotency_key,omitempty"`
-	RequestID      string     `json:"request_id,omitempty"`
-	Source         string     `json:"source"`
-	Status         string     `json:"status"`
-	Goal           string     `json:"goal"`
-	Summary        string     `json:"summary"`
-	ActionItems    []string   `json:"action_items"`
-	NextStep       string     `json:"next_step"`
-	RiskFlags      []string   `json:"risk_flags"`
-	ErrorMessage   string     `json:"error_message,omitempty"`
-	Attempts       int        `json:"attempts"`
-	LeaseUntil     *time.Time `json:"lease_until,omitempty"`
-	StartedAt      *time.Time `json:"started_at,omitempty"`
-	CompletedAt    *time.Time `json:"completed_at,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID                uint64     `json:"id"`
+	OrganizationID    uint64     `json:"organization_id"`
+	UserID            uint64     `json:"user_id"`
+	ConversationID    uint64     `json:"conversation_id"`
+	IdempotencyKey    string     `json:"idempotency_key,omitempty"`
+	RequestID         string     `json:"request_id,omitempty"`
+	Source            string     `json:"source"`
+	Status            string     `json:"status"`
+	PromptVersion     string     `json:"prompt_version,omitempty"`
+	ToolSchemaVersion string     `json:"tool_schema_version,omitempty"`
+	Goal              string     `json:"goal"`
+	Summary           string     `json:"summary"`
+	ActionItems       []string   `json:"action_items"`
+	NextStep          string     `json:"next_step"`
+	RiskFlags         []string   `json:"risk_flags"`
+	ErrorMessage      string     `json:"error_message,omitempty"`
+	Attempts          int        `json:"attempts"`
+	LeaseUntil        *time.Time `json:"lease_until,omitempty"`
+	StartedAt         *time.Time `json:"started_at,omitempty"`
+	CompletedAt       *time.Time `json:"completed_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 type agentStepResponse struct {
@@ -98,16 +100,17 @@ type agentStepResponse struct {
 }
 
 type agentToolCallResponse struct {
-	ID           uint64    `json:"id"`
-	RunID        uint64    `json:"run_id"`
-	StepID       *uint64   `json:"step_id,omitempty"`
-	ToolName     string    `json:"tool_name"`
-	Status       string    `json:"status"`
-	InputJSON    string    `json:"input_json,omitempty"`
-	OutputJSON   string    `json:"output_json,omitempty"`
-	ErrorMessage string    `json:"error_message,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                uint64    `json:"id"`
+	RunID             uint64    `json:"run_id"`
+	StepID            *uint64   `json:"step_id,omitempty"`
+	ToolName          string    `json:"tool_name"`
+	Status            string    `json:"status"`
+	ToolSchemaVersion string    `json:"tool_schema_version,omitempty"`
+	InputJSON         string    `json:"input_json,omitempty"`
+	OutputJSON        string    `json:"output_json,omitempty"`
+	ErrorMessage      string    `json:"error_message,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type agentTraceEventResponse struct {
@@ -545,6 +548,9 @@ func toWorkflowResultResponse(result *agent.WorkflowResult) gin.H {
 		"tasks":       toWorkflowTaskResponses(result.Tasks),
 		"messages":    toAgentMessageResponses(result.Messages),
 		"approvals":   toToolApprovalResponses(result.Approvals),
+		"history":     toWorkflowHistoryResponses(result.History),
+		"signals":     toWorkflowSignalResponses(result.Signals),
+		"timers":      toWorkflowTimerResponses(result.Timers),
 		"citations":   result.Citations,
 		"actionItems": result.ActionItems,
 		"riskFlags":   result.RiskFlags,
@@ -553,26 +559,32 @@ func toWorkflowResultResponse(result *agent.WorkflowResult) gin.H {
 
 func toWorkflowRunResponse(run models.WorkflowRun, actionItems, riskFlags []string) gin.H {
 	return gin.H{
-		"id":              run.ID,
-		"organization_id": run.OrganizationID,
-		"user_id":         run.UserID,
-		"conversation_id": run.ConversationID,
-		"agent_run_id":    run.AgentRunID,
-		"idempotency_key": run.IdempotencyKey,
-		"request_id":      run.RequestID,
-		"status":          run.Status,
-		"goal":            run.Goal,
-		"summary":         run.Summary,
-		"action_items":    actionItems,
-		"next_step":       run.NextStep,
-		"risk_flags":      riskFlags,
-		"error_message":   run.ErrorMessage,
-		"attempts":        run.Attempts,
-		"lease_until":     run.LeaseUntil,
-		"started_at":      run.StartedAt,
-		"completed_at":    run.CompletedAt,
-		"created_at":      run.CreatedAt,
-		"updated_at":      run.UpdatedAt,
+		"id":                  run.ID,
+		"organization_id":     run.OrganizationID,
+		"user_id":             run.UserID,
+		"conversation_id":     run.ConversationID,
+		"agent_run_id":        run.AgentRunID,
+		"idempotency_key":     run.IdempotencyKey,
+		"request_id":          run.RequestID,
+		"status":              run.Status,
+		"workflow_type":       run.WorkflowType,
+		"workflow_version":    run.WorkflowVersion,
+		"prompt_version":      run.PromptVersion,
+		"tool_schema_version": run.ToolSchemaVersion,
+		"state_json":          run.StateJSON,
+		"last_event_id":       run.LastEventID,
+		"goal":                run.Goal,
+		"summary":             run.Summary,
+		"action_items":        actionItems,
+		"next_step":           run.NextStep,
+		"risk_flags":          riskFlags,
+		"error_message":       run.ErrorMessage,
+		"attempts":            run.Attempts,
+		"lease_until":         run.LeaseUntil,
+		"started_at":          run.StartedAt,
+		"completed_at":        run.CompletedAt,
+		"created_at":          run.CreatedAt,
+		"updated_at":          run.UpdatedAt,
 	}
 }
 
@@ -624,23 +636,79 @@ func toToolApprovalResponses(approvals []models.ToolApproval) []gin.H {
 	out := make([]gin.H, 0, len(approvals))
 	for _, approval := range approvals {
 		out = append(out, gin.H{
-			"id":              approval.ID,
-			"workflow_run_id": approval.WorkflowRunID,
-			"task_id":         approval.TaskID,
-			"organization_id": approval.OrganizationID,
-			"tool_call_id":    approval.ToolCallID,
-			"tool_name":       approval.ToolName,
-			"status":          approval.Status,
-			"input_json":      approval.InputJSON,
-			"output_json":     approval.OutputJSON,
-			"error_message":   approval.ErrorMessage,
-			"requested_by":    approval.RequestedBy,
-			"decided_by":      approval.DecidedBy,
-			"decision":        approval.Decision,
-			"requested_at":    approval.RequestedAt,
-			"decided_at":      approval.DecidedAt,
-			"created_at":      approval.CreatedAt,
-			"updated_at":      approval.UpdatedAt,
+			"id":                  approval.ID,
+			"workflow_run_id":     approval.WorkflowRunID,
+			"task_id":             approval.TaskID,
+			"organization_id":     approval.OrganizationID,
+			"tool_call_id":        approval.ToolCallID,
+			"tool_name":           approval.ToolName,
+			"status":              approval.Status,
+			"tool_schema_version": approval.ToolSchemaVersion,
+			"input_json":          approval.InputJSON,
+			"output_json":         approval.OutputJSON,
+			"error_message":       approval.ErrorMessage,
+			"requested_by":        approval.RequestedBy,
+			"decided_by":          approval.DecidedBy,
+			"decision":            approval.Decision,
+			"requested_at":        approval.RequestedAt,
+			"decided_at":          approval.DecidedAt,
+			"created_at":          approval.CreatedAt,
+			"updated_at":          approval.UpdatedAt,
+		})
+	}
+	return out
+}
+
+func toWorkflowHistoryResponses(events []models.WorkflowHistoryEvent) []gin.H {
+	out := make([]gin.H, 0, len(events))
+	for _, event := range events {
+		out = append(out, gin.H{
+			"id":              event.ID,
+			"workflow_run_id": event.WorkflowRunID,
+			"organization_id": event.OrganizationID,
+			"event_type":      event.EventType,
+			"ref_type":        event.RefType,
+			"ref_id":          event.RefID,
+			"attributes_json": event.AttributesJSON,
+			"created_at":      event.CreatedAt,
+		})
+	}
+	return out
+}
+
+func toWorkflowSignalResponses(signals []models.WorkflowSignal) []gin.H {
+	out := make([]gin.H, 0, len(signals))
+	for _, signal := range signals {
+		out = append(out, gin.H{
+			"id":              signal.ID,
+			"workflow_run_id": signal.WorkflowRunID,
+			"organization_id": signal.OrganizationID,
+			"signal_name":     signal.SignalName,
+			"payload_json":    signal.PayloadJSON,
+			"status":          signal.Status,
+			"received_by":     signal.ReceivedBy,
+			"handled_at":      signal.HandledAt,
+			"created_at":      signal.CreatedAt,
+			"updated_at":      signal.UpdatedAt,
+		})
+	}
+	return out
+}
+
+func toWorkflowTimerResponses(timers []models.WorkflowTimer) []gin.H {
+	out := make([]gin.H, 0, len(timers))
+	for _, timer := range timers {
+		out = append(out, gin.H{
+			"id":              timer.ID,
+			"workflow_run_id": timer.WorkflowRunID,
+			"organization_id": timer.OrganizationID,
+			"timer_name":      timer.TimerName,
+			"fire_at":         timer.FireAt,
+			"status":          timer.Status,
+			"payload_json":    timer.PayloadJSON,
+			"fired_at":        timer.FiredAt,
+			"created_at":      timer.CreatedAt,
+			"updated_at":      timer.UpdatedAt,
 		})
 	}
 	return out
@@ -648,26 +716,28 @@ func toToolApprovalResponses(approvals []models.ToolApproval) []gin.H {
 
 func toAgentRunResponse(run models.AgentRun, actionItems, riskFlags []string) agentRunResponse {
 	return agentRunResponse{
-		ID:             run.ID,
-		OrganizationID: run.OrganizationID,
-		UserID:         run.UserID,
-		ConversationID: run.ConversationID,
-		IdempotencyKey: run.IdempotencyKey,
-		RequestID:      run.RequestID,
-		Source:         run.Source,
-		Status:         run.Status,
-		Goal:           run.Goal,
-		Summary:        run.Summary,
-		ActionItems:    actionItems,
-		NextStep:       run.NextStep,
-		RiskFlags:      riskFlags,
-		ErrorMessage:   run.ErrorMessage,
-		Attempts:       run.Attempts,
-		LeaseUntil:     run.LeaseUntil,
-		StartedAt:      run.StartedAt,
-		CompletedAt:    run.CompletedAt,
-		CreatedAt:      run.CreatedAt,
-		UpdatedAt:      run.UpdatedAt,
+		ID:                run.ID,
+		OrganizationID:    run.OrganizationID,
+		UserID:            run.UserID,
+		ConversationID:    run.ConversationID,
+		IdempotencyKey:    run.IdempotencyKey,
+		RequestID:         run.RequestID,
+		Source:            run.Source,
+		Status:            run.Status,
+		PromptVersion:     run.PromptVersion,
+		ToolSchemaVersion: run.ToolSchemaVersion,
+		Goal:              run.Goal,
+		Summary:           run.Summary,
+		ActionItems:       actionItems,
+		NextStep:          run.NextStep,
+		RiskFlags:         riskFlags,
+		ErrorMessage:      run.ErrorMessage,
+		Attempts:          run.Attempts,
+		LeaseUntil:        run.LeaseUntil,
+		StartedAt:         run.StartedAt,
+		CompletedAt:       run.CompletedAt,
+		CreatedAt:         run.CreatedAt,
+		UpdatedAt:         run.UpdatedAt,
 	}
 }
 
@@ -693,16 +763,17 @@ func toAgentToolCallResponses(toolCalls []models.AgentToolCall) []agentToolCallR
 	out := make([]agentToolCallResponse, 0, len(toolCalls))
 	for _, toolCall := range toolCalls {
 		out = append(out, agentToolCallResponse{
-			ID:           toolCall.ID,
-			RunID:        toolCall.RunID,
-			StepID:       toolCall.StepID,
-			ToolName:     toolCall.ToolName,
-			Status:       toolCall.Status,
-			InputJSON:    toolCall.InputJSON,
-			OutputJSON:   toolCall.OutputJSON,
-			ErrorMessage: toolCall.ErrorMessage,
-			CreatedAt:    toolCall.CreatedAt,
-			UpdatedAt:    toolCall.UpdatedAt,
+			ID:                toolCall.ID,
+			RunID:             toolCall.RunID,
+			StepID:            toolCall.StepID,
+			ToolName:          toolCall.ToolName,
+			Status:            toolCall.Status,
+			ToolSchemaVersion: toolCall.ToolSchemaVersion,
+			InputJSON:         toolCall.InputJSON,
+			OutputJSON:        toolCall.OutputJSON,
+			ErrorMessage:      toolCall.ErrorMessage,
+			CreatedAt:         toolCall.CreatedAt,
+			UpdatedAt:         toolCall.UpdatedAt,
 		})
 	}
 	return out

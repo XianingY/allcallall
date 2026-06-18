@@ -62,6 +62,24 @@ const (
 	WorkflowTaskApproval       = "approval"
 	WorkflowTaskCommitResult   = "commit_result"
 
+	WorkflowHistoryEventWorkflowStarted   = "workflow_started"
+	WorkflowHistoryEventTaskScheduled     = "task_scheduled"
+	WorkflowHistoryEventTaskStarted       = "task_started"
+	WorkflowHistoryEventTaskCompleted     = "task_completed"
+	WorkflowHistoryEventTaskFailed        = "task_failed"
+	WorkflowHistoryEventTimerScheduled    = "timer_scheduled"
+	WorkflowHistoryEventSignalReceived    = "signal_received"
+	WorkflowHistoryEventApprovalRequested = "approval_requested"
+	WorkflowHistoryEventWorkflowCompleted = "workflow_completed"
+	WorkflowHistoryEventWorkflowFailed    = "workflow_failed"
+
+	WorkflowSignalStatusReceived = "received"
+	WorkflowSignalStatusHandled  = "handled"
+
+	WorkflowTimerStatusPending  = "pending"
+	WorkflowTimerStatusFired    = "fired"
+	WorkflowTimerStatusCanceled = "canceled"
+
 	AgentMessageTypeTaskInput   = "task_input"
 	AgentMessageTypeAgentResult = "agent_result"
 	AgentMessageTypeToolRequest = "tool_request"
@@ -77,6 +95,36 @@ const (
 	ToolApprovalStatusExecuted = "executed"
 	ToolApprovalStatusFailed   = "failed"
 )
+
+// AgentPromptVersion stores versioned prompt metadata used by workflow/planner runs.
+type AgentPromptVersion struct {
+	ID          uint64    `gorm:"primaryKey;autoIncrement"`
+	Name        string    `gorm:"size:120;not null;index;uniqueIndex:idx_agent_prompt_version"`
+	Version     string    `gorm:"size:64;not null;index;uniqueIndex:idx_agent_prompt_version"`
+	ContentHash string    `gorm:"size:64;not null;index"`
+	Template    string    `gorm:"type:longtext;not null"`
+	CreatedAt   time.Time `gorm:"autoCreateTime;index"`
+	UpdatedAt   time.Time `gorm:"autoUpdateTime"`
+}
+
+func (AgentPromptVersion) TableName() string {
+	return "agent_prompt_versions"
+}
+
+// ToolSchemaVersion stores strict tool JSON Schema versions used by Agent runs.
+type ToolSchemaVersion struct {
+	ID         uint64    `gorm:"primaryKey;autoIncrement"`
+	Name       string    `gorm:"size:120;not null;index;uniqueIndex:idx_tool_schema_version"`
+	Version    string    `gorm:"size:64;not null;index;uniqueIndex:idx_tool_schema_version"`
+	SchemaHash string    `gorm:"size:64;not null;index"`
+	SchemaJSON string    `gorm:"type:longtext;not null"`
+	CreatedAt  time.Time `gorm:"autoCreateTime;index"`
+	UpdatedAt  time.Time `gorm:"autoUpdateTime"`
+}
+
+func (ToolSchemaVersion) TableName() string {
+	return "tool_schema_versions"
+}
 
 // RAGSourceGroup groups near-identical knowledge sources around a canonical source.
 type RAGSourceGroup struct {
@@ -192,27 +240,33 @@ func (RAGChunk) TableName() string {
 
 // WorkflowRun stores a controlled Workflow+Agent execution for the Web Agent Lab.
 type WorkflowRun struct {
-	ID              uint64     `gorm:"primaryKey;autoIncrement"`
-	OrganizationID  uint64     `gorm:"not null;index"`
-	UserID          uint64     `gorm:"not null;index"`
-	ConversationID  uint64     `gorm:"not null;index"`
-	AgentRunID      *uint64    `gorm:"index"`
-	IdempotencyKey  string     `gorm:"size:128;index"`
-	RequestID       string     `gorm:"size:96;index"`
-	Status          string     `gorm:"size:32;not null;index"`
-	Goal            string     `gorm:"type:text"`
-	Summary         string     `gorm:"type:text"`
-	ActionItemsJSON string     `gorm:"type:longtext"`
-	NextStep        string     `gorm:"type:text"`
-	RiskFlagsJSON   string     `gorm:"type:longtext"`
-	CitationsJSON   string     `gorm:"type:longtext"`
-	ErrorMessage    string     `gorm:"type:text"`
-	Attempts        int        `gorm:"not null;default:0"`
-	LeaseUntil      *time.Time `gorm:"index"`
-	StartedAt       *time.Time `gorm:"index"`
-	CompletedAt     *time.Time `gorm:"index"`
-	CreatedAt       time.Time  `gorm:"autoCreateTime;index"`
-	UpdatedAt       time.Time  `gorm:"autoUpdateTime"`
+	ID                uint64     `gorm:"primaryKey;autoIncrement"`
+	OrganizationID    uint64     `gorm:"not null;index"`
+	UserID            uint64     `gorm:"not null;index"`
+	ConversationID    uint64     `gorm:"not null;index"`
+	AgentRunID        *uint64    `gorm:"index"`
+	IdempotencyKey    string     `gorm:"size:128;index"`
+	RequestID         string     `gorm:"size:96;index"`
+	Status            string     `gorm:"size:32;not null;index"`
+	WorkflowType      string     `gorm:"size:80;not null;default:'agent_lab';index"`
+	WorkflowVersion   string     `gorm:"size:64;not null;default:'agent_lab_v1';index"`
+	PromptVersion     string     `gorm:"size:64;index"`
+	ToolSchemaVersion string     `gorm:"size:64;index"`
+	StateJSON         string     `gorm:"type:longtext"`
+	LastEventID       *uint64    `gorm:"index"`
+	Goal              string     `gorm:"type:text"`
+	Summary           string     `gorm:"type:text"`
+	ActionItemsJSON   string     `gorm:"type:longtext"`
+	NextStep          string     `gorm:"type:text"`
+	RiskFlagsJSON     string     `gorm:"type:longtext"`
+	CitationsJSON     string     `gorm:"type:longtext"`
+	ErrorMessage      string     `gorm:"type:text"`
+	Attempts          int        `gorm:"not null;default:0"`
+	LeaseUntil        *time.Time `gorm:"index"`
+	StartedAt         *time.Time `gorm:"index"`
+	CompletedAt       *time.Time `gorm:"index"`
+	CreatedAt         time.Time  `gorm:"autoCreateTime;index"`
+	UpdatedAt         time.Time  `gorm:"autoUpdateTime"`
 }
 
 func (WorkflowRun) TableName() string {
@@ -241,6 +295,58 @@ type WorkflowTask struct {
 
 func (WorkflowTask) TableName() string {
 	return "workflow_tasks"
+}
+
+// WorkflowHistoryEvent is the durable event log for the mini workflow engine.
+type WorkflowHistoryEvent struct {
+	ID             uint64    `gorm:"primaryKey;autoIncrement"`
+	WorkflowRunID  uint64    `gorm:"not null;index"`
+	OrganizationID uint64    `gorm:"not null;index"`
+	EventType      string    `gorm:"size:80;not null;index"`
+	RefType        string    `gorm:"size:64;index"`
+	RefID          *uint64   `gorm:"index"`
+	AttributesJSON string    `gorm:"type:longtext"`
+	CreatedAt      time.Time `gorm:"autoCreateTime;index"`
+}
+
+func (WorkflowHistoryEvent) TableName() string {
+	return "workflow_history_events"
+}
+
+// WorkflowSignal stores external signals such as human approval decisions.
+type WorkflowSignal struct {
+	ID             uint64     `gorm:"primaryKey;autoIncrement"`
+	WorkflowRunID  uint64     `gorm:"not null;index"`
+	OrganizationID uint64     `gorm:"not null;index"`
+	SignalName     string     `gorm:"size:80;not null;index"`
+	PayloadJSON    string     `gorm:"type:longtext"`
+	Status         string     `gorm:"size:32;not null;default:'received';index"`
+	ReceivedBy     *uint64    `gorm:"index"`
+	HandledAt      *time.Time `gorm:"index"`
+	CreatedAt      time.Time  `gorm:"autoCreateTime;index"`
+	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`
+}
+
+func (WorkflowSignal) TableName() string {
+	return "workflow_signals"
+}
+
+// WorkflowTimer stores durable workflow timers such as approval timeouts.
+type WorkflowTimer struct {
+	ID             uint64     `gorm:"primaryKey;autoIncrement"`
+	WorkflowRunID  uint64     `gorm:"not null;index"`
+	OrganizationID uint64     `gorm:"not null;index"`
+	TimerName      string     `gorm:"size:80;not null;index"`
+	FireAt         time.Time  `gorm:"not null;index"`
+	Status         string     `gorm:"size:32;not null;default:'pending';index"`
+	PayloadJSON    string     `gorm:"type:longtext"`
+	FiredAt        *time.Time `gorm:"index"`
+	CreatedAt      time.Time  `gorm:"autoCreateTime;index"`
+	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`
+}
+
+func (WorkflowTimer) TableName() string {
+	return "workflow_timers"
 }
 
 // AgentMessage is the persisted JSON envelope used for agent-to-agent communication.
@@ -279,23 +385,24 @@ func (ToolPolicy) TableName() string {
 
 // ToolApproval stores human-in-the-loop approval decisions for workflow tool calls.
 type ToolApproval struct {
-	ID             uint64     `gorm:"primaryKey;autoIncrement"`
-	WorkflowRunID  uint64     `gorm:"not null;index"`
-	TaskID         uint64     `gorm:"not null;index"`
-	OrganizationID uint64     `gorm:"not null;index"`
-	ToolCallID     string     `gorm:"size:96;not null;index;uniqueIndex:idx_tool_approval_call"`
-	ToolName       string     `gorm:"size:120;not null;index"`
-	Status         string     `gorm:"size:32;not null;index"`
-	InputJSON      string     `gorm:"type:longtext"`
-	OutputJSON     string     `gorm:"type:longtext"`
-	ErrorMessage   string     `gorm:"type:text"`
-	RequestedBy    uint64     `gorm:"not null;index"`
-	DecidedBy      *uint64    `gorm:"index"`
-	Decision       string     `gorm:"size:32"`
-	RequestedAt    time.Time  `gorm:"not null;index"`
-	DecidedAt      *time.Time `gorm:"index"`
-	CreatedAt      time.Time  `gorm:"autoCreateTime;index"`
-	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`
+	ID                uint64     `gorm:"primaryKey;autoIncrement"`
+	WorkflowRunID     uint64     `gorm:"not null;index"`
+	TaskID            uint64     `gorm:"not null;index"`
+	OrganizationID    uint64     `gorm:"not null;index"`
+	ToolCallID        string     `gorm:"size:96;not null;index;uniqueIndex:idx_tool_approval_call"`
+	ToolName          string     `gorm:"size:120;not null;index"`
+	Status            string     `gorm:"size:32;not null;index"`
+	ToolSchemaVersion string     `gorm:"size:64;index"`
+	InputJSON         string     `gorm:"type:longtext"`
+	OutputJSON        string     `gorm:"type:longtext"`
+	ErrorMessage      string     `gorm:"type:text"`
+	RequestedBy       uint64     `gorm:"not null;index"`
+	DecidedBy         *uint64    `gorm:"index"`
+	Decision          string     `gorm:"size:32"`
+	RequestedAt       time.Time  `gorm:"not null;index"`
+	DecidedAt         *time.Time `gorm:"index"`
+	CreatedAt         time.Time  `gorm:"autoCreateTime;index"`
+	UpdatedAt         time.Time  `gorm:"autoUpdateTime"`
 }
 
 func (ToolApproval) TableName() string {

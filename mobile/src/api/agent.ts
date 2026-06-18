@@ -88,6 +88,11 @@ export interface AgentCitation {
   knowledge_source_id?: number;
   version?: number;
   retrieval_mode?: "vector" | "sql_fallback" | string;
+  bm25_rank?: number;
+  vector_rank?: number;
+  rrf_score?: number;
+  bm25_score?: number;
+  vector_score?: number;
   score: number;
   created_at?: string;
 }
@@ -219,6 +224,12 @@ export interface WorkflowRunRecord {
   idempotency_key?: string;
   request_id?: string;
   status: string;
+  workflow_type?: string;
+  workflow_version?: string;
+  prompt_version?: string;
+  tool_schema_version?: string;
+  state_json?: string;
+  last_event_id?: number | null;
   goal: string;
   summary: string;
   action_items: string[];
@@ -273,6 +284,7 @@ export interface ToolApprovalRecord {
   tool_call_id: string;
   tool_name: string;
   status: string;
+  tool_schema_version?: string;
   input_json?: string;
   output_json?: string;
   error_message?: string;
@@ -285,11 +297,51 @@ export interface ToolApprovalRecord {
   updated_at: string;
 }
 
+export interface WorkflowHistoryRecord {
+  id: number;
+  workflow_run_id: number;
+  organization_id: number;
+  event_type: string;
+  ref_type?: string;
+  ref_id?: number | null;
+  attributes_json?: string;
+  created_at: string;
+}
+
+export interface WorkflowSignalRecord {
+  id: number;
+  workflow_run_id: number;
+  organization_id: number;
+  signal_name: string;
+  payload_json?: string;
+  status: string;
+  received_by?: number | null;
+  handled_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowTimerRecord {
+  id: number;
+  workflow_run_id: number;
+  organization_id: number;
+  timer_name: string;
+  fire_at: string;
+  status: string;
+  payload_json?: string;
+  fired_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface WorkflowResult {
   workflow: WorkflowRunRecord;
   tasks: WorkflowTaskRecord[];
   messages: WorkflowAgentMessageRecord[];
   approvals: ToolApprovalRecord[];
+  history: WorkflowHistoryRecord[];
+  signals: WorkflowSignalRecord[];
+  timers: WorkflowTimerRecord[];
   citations: AgentCitation[];
   actionItems?: string[];
   riskFlags?: string[];

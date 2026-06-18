@@ -10,11 +10,16 @@ export interface KnowledgeSourceRecord {
   organization_id: number;
   conversation_id?: number | null;
   created_by: number;
+  source_group_id?: number | null;
+  canonical_source_id?: number | null;
   kind: KnowledgeSourceKind | string;
   title: string;
   uri?: string;
   file_name?: string;
   content_type?: string;
+  authority_score?: number;
+  authority_label?: string;
+  dedupe_status?: string;
   status: string;
   active_version_id?: number | null;
   last_error?: string;
@@ -27,6 +32,8 @@ export interface KnowledgeSourceVersionRecord {
   source_id: number;
   version: number;
   content_hash: string;
+  normalized_hash?: string;
+  simhash64?: number;
   status: string;
   chunk_count: number;
   last_error?: string;
@@ -56,6 +63,40 @@ export interface KnowledgeSourceDetail {
   source: KnowledgeSourceRecord;
   versions: KnowledgeSourceVersionRecord[];
   chunks: RAGChunkRecord[];
+}
+
+export interface SourceGroupRecord {
+  id: number;
+  organization_id: number;
+  canonical_source_id?: number | null;
+  title: string;
+  status: string;
+  authority_score: number;
+  authority_label?: string;
+  created_by: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SourceGroupDetail {
+  source_group: SourceGroupRecord;
+  sources: KnowledgeSourceRecord[];
+}
+
+export interface DuplicateCandidateRecord {
+  id: number;
+  organization_id: number;
+  source_group_id?: number | null;
+  source_id: number;
+  candidate_source_id: number;
+  duplicate_kind: string;
+  similarity: number;
+  status: string;
+  decided_by?: number | null;
+  decision?: string;
+  created_at: string;
+  updated_at: string;
+  decided_at?: string | null;
 }
 
 export interface DeadLetterRecord {
@@ -95,6 +136,14 @@ interface SourceResponse {
 
 interface DeadLettersResponse {
   dead_letters: DeadLetterRecord[];
+}
+
+interface SourceGroupsResponse {
+  source_groups: SourceGroupRecord[];
+}
+
+interface DuplicateCandidatesResponse {
+  duplicate_candidates: DuplicateCandidateRecord[];
 }
 
 const authHeaders = (token: string): Record<string, string> => {
@@ -185,4 +234,43 @@ export const listKnowledgeDeadLetters = async (token: string): Promise<DeadLette
 export const retryKnowledgeDeadLetter = async (token: string, deadLetterId: number): Promise<void> => {
   const client = createApiClient(token);
   await client.post(`/knowledge/dead-letters/${deadLetterId}/retry`, {});
+};
+
+export const listKnowledgeSourceGroups = async (token: string): Promise<SourceGroupRecord[]> => {
+  const client = createApiClient(token);
+  const response = await client.get<SourceGroupsResponse>("/knowledge/source-groups");
+  return response.data.source_groups ?? [];
+};
+
+export const fetchKnowledgeSourceGroup = async (
+  token: string,
+  groupId: number
+): Promise<SourceGroupDetail> => {
+  const client = createApiClient(token);
+  const response = await client.get<SourceGroupDetail>(`/knowledge/source-groups/${groupId}`);
+  return response.data;
+};
+
+export const setKnowledgeSourceGroupCanonical = async (
+  token: string,
+  groupId: number,
+  sourceId: number
+): Promise<void> => {
+  const client = createApiClient(token);
+  await client.post(`/knowledge/source-groups/${groupId}/canonical`, { source_id: sourceId });
+};
+
+export const listKnowledgeDuplicateCandidates = async (token: string): Promise<DuplicateCandidateRecord[]> => {
+  const client = createApiClient(token);
+  const response = await client.get<DuplicateCandidatesResponse>("/knowledge/duplicate-candidates");
+  return response.data.duplicate_candidates ?? [];
+};
+
+export const decideKnowledgeDuplicateCandidate = async (
+  token: string,
+  duplicateId: number,
+  decision: "confirm" | "reject"
+): Promise<void> => {
+  const client = createApiClient(token);
+  await client.post(`/knowledge/duplicate-candidates/${duplicateId}/decision`, { decision });
 };

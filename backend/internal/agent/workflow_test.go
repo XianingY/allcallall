@@ -37,8 +37,13 @@ func newWorkflowTestService(t *testing.T) (*Service, *gorm.DB) {
 		&models.AgentToolCall{},
 		&models.AgentMemory{},
 		&models.AgentContextChunk{},
+		&models.AgentPromptVersion{},
+		&models.ToolSchemaVersion{},
 		&models.WorkflowRun{},
 		&models.WorkflowTask{},
+		&models.WorkflowHistoryEvent{},
+		&models.WorkflowSignal{},
+		&models.WorkflowTimer{},
 		&models.AgentMessage{},
 		&models.ToolPolicy{},
 		&models.ToolApproval{},
@@ -121,8 +126,17 @@ func TestWorkflowAgentPausesForApprovalAndCommitsApprovedTools(t *testing.T) {
 	if paused.Run.Status != models.WorkflowRunStatusRequiresAction {
 		t.Fatalf("expected workflow to pause for approval, got %s", paused.Run.Status)
 	}
+	if paused.Run.PromptVersion == "" || paused.Run.ToolSchemaVersion == "" {
+		t.Fatalf("expected workflow versions, got %+v", paused.Run)
+	}
 	if len(paused.Approvals) != 3 {
 		t.Fatalf("expected three pending tool approvals, got %d", len(paused.Approvals))
+	}
+	if len(paused.History) == 0 {
+		t.Fatal("expected workflow history events")
+	}
+	if len(paused.Timers) == 0 || paused.Timers[0].TimerName != "approval_timeout" {
+		t.Fatalf("expected approval timer, got %+v", paused.Timers)
 	}
 	for _, name := range []string{models.WorkflowTaskSearcher, models.WorkflowTaskSummarizer, models.WorkflowTaskRiskAnalyst} {
 		if !workflowTaskReady(paused.Tasks, name) {
@@ -149,10 +163,26 @@ func TestWorkflowAgentPausesForApprovalAndCommitsApprovedTools(t *testing.T) {
 	if ready.Run.Status != models.WorkflowRunStatusReady {
 		t.Fatalf("expected workflow ready, got %s error=%s", ready.Run.Status, ready.Run.ErrorMessage)
 	}
+	if len(ready.Signals) == 0 {
+		t.Fatal("expected approval signal history")
+	}
 	for _, approval := range ready.Approvals {
 		if approval.Status != models.ToolApprovalStatusExecuted {
 			t.Fatalf("expected approval executed, got %+v", approval)
 		}
+		if approval.ToolSchemaVersion == "" {
+			t.Fatalf("expected approval tool schema version, got %+v", approval)
+		}
+	}
+	foundCompleted := false
+	for _, event := range ready.History {
+		if event.EventType == models.WorkflowHistoryEventWorkflowCompleted {
+			foundCompleted = true
+			break
+		}
+	}
+	if !foundCompleted {
+		t.Fatalf("expected workflow completed history event, got %+v", ready.History)
 	}
 	var messageCount int64
 	if err := db.Model(&models.Message{}).Where("conversation_id = ? AND type = ?", conversation.ID, models.MessageTypeSystem).Count(&messageCount).Error; err != nil {

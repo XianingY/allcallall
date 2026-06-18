@@ -37,6 +37,8 @@ func newAgentHandlerTestEnv(t *testing.T) (*AgentHandler, *gorm.DB, models.Conve
 		&models.AgentToolCall{},
 		&models.AgentMemory{},
 		&models.AgentContextChunk{},
+		&models.AgentPromptVersion{},
+		&models.ToolSchemaVersion{},
 		&models.FollowUpTask{},
 		&models.CallRoom{},
 		&models.ContactProfile{},

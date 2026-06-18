@@ -1,5 +1,11 @@
 package agent
 
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+)
+
 const (
 	ToolKindReadOnly   = "read_only"
 	ToolKindSideEffect = "side_effect"
@@ -15,6 +21,8 @@ const (
 	ToolCreateFollowUpTask       = "create_follow_up_task"
 	ToolUpsertConversationMemory = "upsert_agent_memory"
 	ToolDelegateTask             = "delegate_task"
+
+	CurrentToolSchemaVersion = "tool_schema_v1"
 )
 
 // JSONSchema stores a strict tool argument/result schema that can be sent to LLM providers.
@@ -23,6 +31,9 @@ type JSONSchema map[string]any
 // ToolDescriptor documents the backend-owned tool boundary exposed to Agent planners.
 type ToolDescriptor struct {
 	Name                   string     `json:"name"`
+	Version                string     `json:"version"`
+	SchemaHash             string     `json:"schema_hash"`
+	Deprecated             bool       `json:"deprecated"`
 	Kind                   string     `json:"kind"`
 	Permission             string     `json:"permission"`
 	Description            string     `json:"description"`
@@ -34,7 +45,7 @@ type ToolDescriptor struct {
 
 // RegisteredTools returns a stable registry used by docs, evals, and interview traces.
 func RegisteredTools() []ToolDescriptor {
-	return []ToolDescriptor{
+	return withToolSchemaVersions([]ToolDescriptor{
 		{
 			Name:        ToolQueryRecentMeetings,
 			Kind:        ToolKindReadOnly,
@@ -189,7 +200,7 @@ func RegisteredTools() []ToolDescriptor {
 				"result_summary": stringSchema("Delegated result summary."),
 			}),
 		},
-	}
+	})
 }
 
 func ToolDescriptorByName(name string) (ToolDescriptor, bool) {
@@ -212,6 +223,26 @@ func ToOpenAITools(descriptors []ToolDescriptor) []map[string]any {
 				"parameters":  def.InputSchema,
 			},
 		})
+	}
+	return tools
+}
+
+func CurrentToolSchemaHash() string {
+	raw, _ := json.Marshal(RegisteredTools())
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+func withToolSchemaVersions(tools []ToolDescriptor) []ToolDescriptor {
+	for i := range tools {
+		tools[i].Version = CurrentToolSchemaVersion
+		raw, _ := json.Marshal(map[string]any{
+			"name":          tools[i].Name,
+			"input_schema":  tools[i].InputSchema,
+			"output_schema": tools[i].OutputSchema,
+		})
+		sum := sha256.Sum256(raw)
+		tools[i].SchemaHash = hex.EncodeToString(sum[:])
 	}
 	return tools
 }

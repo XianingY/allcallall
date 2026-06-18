@@ -37,13 +37,16 @@ type WorkflowInput struct {
 }
 
 type WorkflowResult struct {
-	Run         models.WorkflowRun    `json:"run"`
-	Tasks       []models.WorkflowTask `json:"tasks"`
-	Messages    []models.AgentMessage `json:"messages"`
-	Approvals   []models.ToolApproval `json:"approvals"`
-	Citations   []Citation            `json:"citations"`
-	ActionItems []string              `json:"action_items"`
-	RiskFlags   []string              `json:"risk_flags"`
+	Run         models.WorkflowRun            `json:"run"`
+	Tasks       []models.WorkflowTask         `json:"tasks"`
+	Messages    []models.AgentMessage         `json:"messages"`
+	Approvals   []models.ToolApproval         `json:"approvals"`
+	History     []models.WorkflowHistoryEvent `json:"history"`
+	Signals     []models.WorkflowSignal       `json:"signals"`
+	Timers      []models.WorkflowTimer        `json:"timers"`
+	Citations   []Citation                    `json:"citations"`
+	ActionItems []string                      `json:"action_items"`
+	RiskFlags   []string                      `json:"risk_flags"`
 }
 
 type workflowTaskSpec struct {
@@ -88,6 +91,9 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 	if err := s.ensureConversationMember(ctx, organizationID, userID, in.ConversationID); err != nil {
 		return nil, err
 	}
+	if err := s.ensureWorkflowMetadataRegistered(ctx); err != nil {
+		return nil, err
+	}
 	if idempotencyKey != "" {
 		existing, err := s.findWorkflowByIdempotencyKey(ctx, organizationID, userID, in.ConversationID, idempotencyKey)
 		if err != nil {
@@ -101,30 +107,45 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 	var workflow models.WorkflowRun
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		agentRun := models.AgentRun{
-			OrganizationID: organizationID,
-			UserID:         userID,
-			ConversationID: in.ConversationID,
-			IdempotencyKey: idempotencyKey,
-			RequestID:      trace.RequestID(ctx),
-			Source:         models.AgentRunSourceWorkflow,
-			Role:           "workflow",
-			Status:         models.AgentRunStatusPending,
-			Goal:           goal,
+			OrganizationID:    organizationID,
+			UserID:            userID,
+			ConversationID:    in.ConversationID,
+			IdempotencyKey:    idempotencyKey,
+			RequestID:         trace.RequestID(ctx),
+			Source:            models.AgentRunSourceWorkflow,
+			Role:              "workflow",
+			Status:            models.AgentRunStatusPending,
+			PromptVersion:     CurrentWorkflowPromptVersion,
+			ToolSchemaVersion: CurrentToolSchemaVersion,
+			Goal:              goal,
 		}
 		if err := tx.Create(&agentRun).Error; err != nil {
 			return err
 		}
 		workflow = models.WorkflowRun{
-			OrganizationID: organizationID,
-			UserID:         userID,
-			ConversationID: in.ConversationID,
-			AgentRunID:     &agentRun.ID,
-			IdempotencyKey: idempotencyKey,
-			RequestID:      trace.RequestID(ctx),
-			Status:         models.WorkflowRunStatusPending,
-			Goal:           goal,
+			OrganizationID:    organizationID,
+			UserID:            userID,
+			ConversationID:    in.ConversationID,
+			AgentRunID:        &agentRun.ID,
+			IdempotencyKey:    idempotencyKey,
+			RequestID:         trace.RequestID(ctx),
+			Status:            models.WorkflowRunStatusPending,
+			WorkflowType:      "agent_lab",
+			WorkflowVersion:   "agent_lab_v1",
+			PromptVersion:     CurrentWorkflowPromptVersion,
+			ToolSchemaVersion: CurrentToolSchemaVersion,
+			StateJSON:         mustJSONString(map[string]any{"phase": "created"}),
+			Goal:              goal,
 		}
 		if err := tx.Create(&workflow).Error; err != nil {
+			return err
+		}
+		if err := s.appendWorkflowHistoryTx(ctx, tx, workflow, models.WorkflowHistoryEventWorkflowStarted, "workflow_run", &workflow.ID, map[string]any{
+			"workflow_type":       workflow.WorkflowType,
+			"workflow_version":    workflow.WorkflowVersion,
+			"prompt_version":      workflow.PromptVersion,
+			"tool_schema_version": workflow.ToolSchemaVersion,
+		}); err != nil {
 			return err
 		}
 		for _, spec := range workflowTaskSpecs() {
@@ -137,6 +158,13 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 				DependsOnJSON:  mustJSONString(spec.DependsOn),
 			}
 			if err := tx.Create(&task).Error; err != nil {
+				return err
+			}
+			if err := s.appendWorkflowHistoryTx(ctx, tx, workflow, models.WorkflowHistoryEventTaskScheduled, "workflow_task", &task.ID, map[string]any{
+				"name":       task.Name,
+				"role":       task.Role,
+				"depends_on": spec.DependsOn,
+			}); err != nil {
 				return err
 			}
 		}
@@ -258,6 +286,7 @@ func (s *Service) ProcessWorkflowRun(ctx context.Context, workflowRunID uint64) 
 			"attempts":      gorm.Expr("attempts + 1"),
 			"started_at":    now,
 			"lease_until":   leaseUntil,
+			"state_json":    mustJSONString(map[string]any{"phase": "running"}),
 			"error_message": "",
 			"completed_at":  nil,
 			"updated_at":    now,
@@ -449,18 +478,20 @@ func (s *Service) runWorkflowRoleAgent(ctx context.Context, run models.WorkflowR
 
 func (s *Service) createRoleBackedAgentRun(ctx context.Context, workflow models.WorkflowRun, role string, result workflowRoleResult) error {
 	agentRun := models.AgentRun{
-		OrganizationID:  workflow.OrganizationID,
-		UserID:          workflow.UserID,
-		ConversationID:  workflow.ConversationID,
-		RequestID:       trace.RequestID(ctx),
-		Source:          models.AgentRunSourceWorkflow,
-		Role:            role,
-		Status:          models.AgentRunStatusReady,
-		Goal:            workflow.Goal,
-		Summary:         result.Summary,
-		ActionItemsJSON: mustJSONString(result.ActionItems),
-		NextStep:        result.NextStep,
-		RiskFlagsJSON:   mustJSONString(result.RiskFlags),
+		OrganizationID:    workflow.OrganizationID,
+		UserID:            workflow.UserID,
+		ConversationID:    workflow.ConversationID,
+		RequestID:         trace.RequestID(ctx),
+		Source:            models.AgentRunSourceWorkflow,
+		Role:              role,
+		Status:            models.AgentRunStatusReady,
+		PromptVersion:     workflow.PromptVersion,
+		ToolSchemaVersion: workflow.ToolSchemaVersion,
+		Goal:              workflow.Goal,
+		Summary:           result.Summary,
+		ActionItemsJSON:   mustJSONString(result.ActionItems),
+		NextStep:          result.NextStep,
+		RiskFlagsJSON:     mustJSONString(result.RiskFlags),
 	}
 	now := time.Now().UTC()
 	agentRun.StartedAt = &now
@@ -523,15 +554,16 @@ func (s *Service) executeProposeToolsTask(ctx context.Context, run models.Workfl
 				return nil, err
 			}
 			approval := models.ToolApproval{
-				WorkflowRunID:  run.ID,
-				TaskID:         task.ID,
-				OrganizationID: run.OrganizationID,
-				ToolCallID:     fmt.Sprintf("workflow:%d:%s", run.ID, toolName),
-				ToolName:       toolName,
-				Status:         models.ToolApprovalStatusPending,
-				InputJSON:      inputJSON,
-				RequestedBy:    run.UserID,
-				RequestedAt:    time.Now().UTC(),
+				WorkflowRunID:     run.ID,
+				TaskID:            task.ID,
+				OrganizationID:    run.OrganizationID,
+				ToolCallID:        fmt.Sprintf("workflow:%d:%s", run.ID, toolName),
+				ToolName:          toolName,
+				Status:            models.ToolApprovalStatusPending,
+				ToolSchemaVersion: CurrentToolSchemaVersion,
+				InputJSON:         inputJSON,
+				RequestedBy:       run.UserID,
+				RequestedAt:       time.Now().UTC(),
 			}
 			if effect == models.ToolPolicyEffectAllow {
 				approval.Status = models.ToolApprovalStatusApproved
@@ -582,12 +614,18 @@ func (s *Service) executeApprovalTask(ctx context.Context, run models.WorkflowRu
 		if err := s.db.WithContext(ctx).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
 			"status":      models.WorkflowRunStatusRequiresAction,
 			"lease_until": nil,
+			"state_json":  mustJSONString(map[string]any{"phase": "awaiting_approval", "pending_approvals": pending}),
 			"updated_at":  now,
 		}).Error; err != nil {
 			return false, err
 		}
+		_ = s.appendWorkflowHistory(ctx, run, models.WorkflowHistoryEventApprovalRequested, "workflow_task", &task.ID, map[string]any{
+			"pending_approvals": pending,
+		})
+		_ = s.scheduleWorkflowTimer(ctx, run, "approval_timeout", now.Add(30*time.Minute), map[string]any{"pending_approvals": pending})
 		return true, nil
 	}
+	_ = s.cancelWorkflowTimer(ctx, run, "approval_timeout")
 	return false, s.markWorkflowTaskReady(ctx, task, map[string]any{"pending_approvals": 0})
 }
 
@@ -642,6 +680,7 @@ func (s *Service) executeCommitResultTask(ctx context.Context, run models.Workfl
 			"next_step":         merged.NextStep,
 			"risk_flags_json":   mustJSONString(merged.RiskFlags),
 			"citations_json":    mustJSONString(merged.Citations),
+			"state_json":        mustJSONString(map[string]any{"phase": "completed"}),
 			"completed_at":      completedAt,
 			"lease_until":       nil,
 		}
@@ -660,6 +699,12 @@ func (s *Service) executeCommitResultTask(ctx context.Context, run models.Workfl
 			}).Error; err != nil {
 				return nil, err
 			}
+		}
+		if err := s.appendWorkflowHistory(ctx, run, models.WorkflowHistoryEventWorkflowCompleted, "workflow_run", &run.ID, map[string]any{
+			"executed_tools": executed,
+			"rejected_tools": rejected,
+		}); err != nil {
+			return nil, err
 		}
 		return map[string]any{"executed_tools": executed, "rejected_tools": rejected}, nil
 	})
@@ -699,6 +744,10 @@ func (s *Service) executeWorkflowTask(ctx context.Context, workflowRunID uint64,
 	if err := s.db.WithContext(ctx).Where("workflow_run_id = ? AND name = ?", workflowRunID, name).Take(&task).Error; err != nil {
 		return err
 	}
+	var run models.WorkflowRun
+	if err := s.db.WithContext(ctx).Where("id = ?", workflowRunID).Take(&run).Error; err != nil {
+		return err
+	}
 	if task.Status == models.WorkflowTaskStatusReady {
 		return nil
 	}
@@ -718,6 +767,10 @@ func (s *Service) executeWorkflowTask(ctx context.Context, workflowRunID uint64,
 	}).Error; err != nil {
 		return err
 	}
+	_ = s.appendWorkflowHistory(ctx, run, models.WorkflowHistoryEventTaskStarted, "workflow_task", &task.ID, map[string]any{
+		"name": task.Name,
+		"role": task.Role,
+	})
 	task.Status = models.WorkflowTaskStatusRunning
 	output, err := execute(task)
 	if err != nil {
@@ -727,9 +780,18 @@ func (s *Service) executeWorkflowTask(ctx context.Context, workflowRunID uint64,
 			"lease_until":   nil,
 			"completed_at":  time.Now().UTC(),
 		}).Error
+		_ = s.appendWorkflowHistory(ctx, run, models.WorkflowHistoryEventTaskFailed, "workflow_task", &task.ID, map[string]any{
+			"name":  task.Name,
+			"error": err.Error(),
+		})
 		return err
 	}
-	return s.markWorkflowTaskReady(ctx, task, output)
+	if err := s.markWorkflowTaskReady(ctx, task, output); err != nil {
+		return err
+	}
+	return s.appendWorkflowHistory(ctx, run, models.WorkflowHistoryEventTaskCompleted, "workflow_task", &task.ID, map[string]any{
+		"name": task.Name,
+	})
 }
 
 func (s *Service) markWorkflowTaskReady(ctx context.Context, task models.WorkflowTask, output map[string]any) error {
@@ -891,6 +953,23 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 	}
 	now := time.Now().UTC()
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		signal := models.WorkflowSignal{
+			WorkflowRunID:  run.ID,
+			OrganizationID: run.OrganizationID,
+			SignalName:     "approval_decision",
+			PayloadJSON:    mustJSONString(map[string]any{"approval_id": approval.ID, "decision": status}),
+			Status:         models.WorkflowSignalStatusReceived,
+			ReceivedBy:     &userID,
+		}
+		if err := tx.Create(&signal).Error; err != nil {
+			return err
+		}
+		if err := s.appendWorkflowHistoryTx(ctx, tx, run, models.WorkflowHistoryEventSignalReceived, "workflow_signal", &signal.ID, map[string]any{
+			"name":     signal.SignalName,
+			"decision": status,
+		}); err != nil {
+			return err
+		}
 		if err := tx.Model(&models.ToolApproval{}).Where("id = ? AND status = ?", approval.ID, models.ToolApprovalStatusPending).Updates(map[string]any{
 			"status":     status,
 			"decision":   status,
@@ -911,7 +990,21 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 				"status":      models.WorkflowRunStatusPending,
 				"attempts":    0,
 				"lease_until": nil,
+				"state_json":  mustJSONString(map[string]any{"phase": "resuming"}),
 				"updated_at":  now,
+			}).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.WorkflowTimer{}).Where("workflow_run_id = ? AND timer_name = ? AND status = ?", run.ID, "approval_timeout", models.WorkflowTimerStatusPending).Updates(map[string]any{
+				"status":     models.WorkflowTimerStatusCanceled,
+				"updated_at": now,
+			}).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.WorkflowSignal{}).Where("id = ?", signal.ID).Updates(map[string]any{
+				"status":     models.WorkflowSignalStatusHandled,
+				"handled_at": now,
+				"updated_at": now,
 			}).Error; err != nil {
 				return err
 			}
@@ -973,11 +1066,12 @@ func (s *Service) executeWorkflowApprovalTool(ctx context.Context, run models.Wo
 		return err
 	}
 	toolCall := models.AgentToolCall{
-		RunID:     agentRun.ID,
-		CallID:    approval.ToolCallID,
-		ToolName:  approval.ToolName,
-		Status:    models.ToolCallStatusPending,
-		InputJSON: approval.InputJSON,
+		RunID:             agentRun.ID,
+		CallID:            approval.ToolCallID,
+		ToolName:          approval.ToolName,
+		Status:            models.ToolCallStatusPending,
+		ToolSchemaVersion: approval.ToolSchemaVersion,
+		InputJSON:         approval.InputJSON,
 	}
 	outputJSON, err := s.executeToolLocally(ctx, agentRun, toolCall)
 	now := time.Now().UTC()
@@ -1042,6 +1136,78 @@ func (s *Service) countPendingWorkflowApprovals(ctx context.Context, workflowRun
 	return count, err
 }
 
+func (s *Service) appendWorkflowHistoryTx(ctx context.Context, tx *gorm.DB, run models.WorkflowRun, eventType, refType string, refID *uint64, attributes any) error {
+	history := models.WorkflowHistoryEvent{
+		WorkflowRunID:  run.ID,
+		OrganizationID: run.OrganizationID,
+		EventType:      eventType,
+		RefType:        refType,
+		RefID:          refID,
+		AttributesJSON: mustJSONString(attributes),
+	}
+	if err := tx.WithContext(ctx).Create(&history).Error; err != nil {
+		return err
+	}
+	return tx.WithContext(ctx).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
+		"last_event_id": history.ID,
+		"updated_at":    time.Now().UTC(),
+	}).Error
+}
+
+func (s *Service) appendWorkflowHistory(ctx context.Context, run models.WorkflowRun, eventType, refType string, refID *uint64, attributes any) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return s.appendWorkflowHistoryTx(ctx, tx, run, eventType, refType, refID, attributes)
+	})
+}
+
+func (s *Service) scheduleWorkflowTimer(ctx context.Context, run models.WorkflowRun, name string, fireAt time.Time, payload any) error {
+	timer := models.WorkflowTimer{
+		WorkflowRunID:  run.ID,
+		OrganizationID: run.OrganizationID,
+		TimerName:      name,
+		FireAt:         fireAt,
+		Status:         models.WorkflowTimerStatusPending,
+		PayloadJSON:    mustJSONString(payload),
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("workflow_run_id = ? AND timer_name = ? AND status = ?", run.ID, name, models.WorkflowTimerStatusPending).Delete(&models.WorkflowTimer{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&timer).Error; err != nil {
+			return err
+		}
+		return s.appendWorkflowHistoryTx(ctx, tx, run, models.WorkflowHistoryEventTimerScheduled, "workflow_timer", &timer.ID, map[string]any{
+			"name":    name,
+			"fire_at": fireAt,
+		})
+	})
+}
+
+func (s *Service) cancelWorkflowTimer(ctx context.Context, run models.WorkflowRun, name string) error {
+	return s.db.WithContext(ctx).Model(&models.WorkflowTimer{}).
+		Where("workflow_run_id = ? AND timer_name = ? AND status = ?", run.ID, name, models.WorkflowTimerStatusPending).
+		Updates(map[string]any{"status": models.WorkflowTimerStatusCanceled, "updated_at": time.Now().UTC()}).Error
+}
+
+func (s *Service) createWorkflowSignal(ctx context.Context, run models.WorkflowRun, signalName string, receivedBy *uint64, payload any) error {
+	signal := models.WorkflowSignal{
+		WorkflowRunID:  run.ID,
+		OrganizationID: run.OrganizationID,
+		SignalName:     signalName,
+		PayloadJSON:    mustJSONString(payload),
+		Status:         models.WorkflowSignalStatusReceived,
+		ReceivedBy:     receivedBy,
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&signal).Error; err != nil {
+			return err
+		}
+		return s.appendWorkflowHistoryTx(ctx, tx, run, models.WorkflowHistoryEventSignalReceived, "workflow_signal", &signal.ID, map[string]any{
+			"name": signalName,
+		})
+	})
+}
+
 func (s *Service) syncBackingAgentRun(ctx context.Context, run models.WorkflowRun, status, errorMessage string) {
 	if run.AgentRunID == nil {
 		return
@@ -1068,10 +1234,14 @@ func (s *Service) failWorkflowRun(ctx context.Context, run models.WorkflowRun, c
 	now := time.Now().UTC()
 	_ = s.db.WithContext(context.WithoutCancel(ctx)).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
 		"status":        models.WorkflowRunStatusFailed,
+		"state_json":    mustJSONString(map[string]any{"phase": "failed"}),
 		"error_message": message,
 		"completed_at":  now,
 		"lease_until":   nil,
 	}).Error
+	_ = s.appendWorkflowHistory(context.WithoutCancel(ctx), run, models.WorkflowHistoryEventWorkflowFailed, "workflow_run", &run.ID, map[string]any{
+		"error": message,
+	})
 	s.syncBackingAgentRun(ctx, run, models.AgentRunStatusFailed, message)
 }
 
@@ -1088,6 +1258,18 @@ func (s *Service) buildWorkflowResult(ctx context.Context, run models.WorkflowRu
 	if err := s.db.WithContext(ctx).Where("workflow_run_id = ?", run.ID).Order("id ASC").Find(&approvals).Error; err != nil {
 		return nil, err
 	}
+	var history []models.WorkflowHistoryEvent
+	if err := s.db.WithContext(ctx).Where("workflow_run_id = ?", run.ID).Order("id ASC").Find(&history).Error; err != nil {
+		return nil, err
+	}
+	var signals []models.WorkflowSignal
+	if err := s.db.WithContext(ctx).Where("workflow_run_id = ?", run.ID).Order("id ASC").Find(&signals).Error; err != nil {
+		return nil, err
+	}
+	var timers []models.WorkflowTimer
+	if err := s.db.WithContext(ctx).Where("workflow_run_id = ?", run.ID).Order("id ASC").Find(&timers).Error; err != nil {
+		return nil, err
+	}
 	var citations []Citation
 	if strings.TrimSpace(run.CitationsJSON) != "" {
 		_ = json.Unmarshal([]byte(run.CitationsJSON), &citations)
@@ -1097,6 +1279,9 @@ func (s *Service) buildWorkflowResult(ctx context.Context, run models.WorkflowRu
 		Tasks:       tasks,
 		Messages:    messages,
 		Approvals:   approvals,
+		History:     history,
+		Signals:     signals,
+		Timers:      timers,
 		Citations:   citations,
 		ActionItems: decodeStringSlice(run.ActionItemsJSON),
 		RiskFlags:   decodeStringSlice(run.RiskFlagsJSON),
