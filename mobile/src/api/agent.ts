@@ -76,10 +76,18 @@ export interface AgentRunEventRecord {
 }
 
 export interface AgentCitation {
+  chunk_id?: string;
   source_type: string;
   source_id: string;
+  source_title?: string;
   title: string;
   snippet: string;
+  origin_type?: string;
+  origin_url?: string;
+  conversation_id?: number;
+  knowledge_source_id?: number;
+  version?: number;
+  retrieval_mode?: "vector" | "sql_fallback" | string;
   score: number;
   created_at?: string;
 }
@@ -197,6 +205,104 @@ export interface AgentRunEventsResponse {
   events: AgentRunEventRecord[];
 }
 
+export interface CreateWorkflowRequest {
+  conversation_id: number;
+  goal?: string;
+}
+
+export interface WorkflowRunRecord {
+  id: number;
+  organization_id: number;
+  user_id: number;
+  conversation_id: number;
+  agent_run_id?: number | null;
+  idempotency_key?: string;
+  request_id?: string;
+  status: string;
+  goal: string;
+  summary: string;
+  action_items: string[];
+  next_step: string;
+  risk_flags: string[];
+  error_message?: string;
+  attempts: number;
+  lease_until?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowTaskRecord {
+  id: number;
+  workflow_run_id: number;
+  organization_id: number;
+  name: string;
+  role: string;
+  status: string;
+  depends_on_json?: string;
+  input_json?: string;
+  output_json?: string;
+  error_message?: string;
+  attempts: number;
+  lease_until?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowAgentMessageRecord {
+  id: number;
+  workflow_run_id: number;
+  task_id?: number | null;
+  organization_id: number;
+  from_role: string;
+  to_role: string;
+  message_type: string;
+  content_json: string;
+  correlation_id: string;
+  created_at: string;
+}
+
+export interface ToolApprovalRecord {
+  id: number;
+  workflow_run_id: number;
+  task_id: number;
+  organization_id: number;
+  tool_call_id: string;
+  tool_name: string;
+  status: string;
+  input_json?: string;
+  output_json?: string;
+  error_message?: string;
+  requested_by: number;
+  decided_by?: number | null;
+  decision?: string;
+  requested_at: string;
+  decided_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowResult {
+  workflow: WorkflowRunRecord;
+  tasks: WorkflowTaskRecord[];
+  messages: WorkflowAgentMessageRecord[];
+  approvals: ToolApprovalRecord[];
+  citations: AgentCitation[];
+  actionItems?: string[];
+  riskFlags?: string[];
+}
+
+export interface WorkflowListResponse {
+  workflows: WorkflowResult[];
+}
+
+export interface ToolApprovalsResponse {
+  approvals: ToolApprovalRecord[];
+}
+
 export const createAgentRun = async (
   token: string,
   data: CreateAgentRunRequest
@@ -239,4 +345,65 @@ export const createAgentRunEventSource = (
   return new EventSource(url, {
     headers,
   });
+};
+
+export const createWorkflowRun = async (
+  token: string,
+  data: CreateWorkflowRequest
+): Promise<WorkflowResult> => {
+  const client = createApiClient(token);
+  const response = await client.post<WorkflowResult>("/agent/workflows", data);
+  return response.data;
+};
+
+export const fetchWorkflowRun = async (
+  token: string,
+  workflowId: number
+): Promise<WorkflowResult> => {
+  const client = createApiClient(token);
+  const response = await client.get<WorkflowResult>(`/agent/workflows/${workflowId}`);
+  return response.data;
+};
+
+export const listWorkflowRuns = async (
+  token: string,
+  limit = 25
+): Promise<WorkflowResult[]> => {
+  const client = createApiClient(token);
+  const response = await client.get<WorkflowListResponse>("/agent/workflows", {
+    params: { limit },
+  });
+  return response.data.workflows ?? [];
+};
+
+export const processWorkflowRun = async (
+  token: string,
+  workflowId: number
+): Promise<WorkflowResult> => {
+  const client = createApiClient(token);
+  const response = await client.post<WorkflowResult>(`/agent/workflows/${workflowId}/process`, {});
+  return response.data;
+};
+
+export const listToolApprovals = async (
+  token: string,
+  status?: string
+): Promise<ToolApprovalRecord[]> => {
+  const client = createApiClient(token);
+  const response = await client.get<ToolApprovalsResponse>("/agent/approvals", {
+    params: status ? { status } : undefined,
+  });
+  return response.data.approvals ?? [];
+};
+
+export const submitToolApprovalDecision = async (
+  token: string,
+  approvalId: number,
+  decision: "approve" | "reject"
+): Promise<WorkflowResult> => {
+  const client = createApiClient(token);
+  const response = await client.post<WorkflowResult>(`/agent/approvals/${approvalId}/decision`, {
+    decision,
+  });
+  return response.data;
 };

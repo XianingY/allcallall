@@ -113,7 +113,7 @@ const loginIfConfigured = async (page) => {
   await page.getByText(/登录 \/ Login|Login/).click();
   await page.waitForTimeout(1200);
   const afterLogin = await waitForUsablePage(page, "post-login page");
-  assertContainsAny(afterLogin, "post-login page", ["Agent RAG Demo", "Meetings", "会议", "Inbox"]);
+  assertContainsAny(afterLogin, "post-login page", ["Agent Lab", "Meetings", "会议", "Inbox"]);
   return true;
 };
 
@@ -138,7 +138,7 @@ const main = async () => {
     const loggedIn = await loginIfConfigured(page);
 
     const agentDemoText = await visit(page, "/agent-demo", "Agent demo route");
-    assertContainsAny(agentDemoText, "Agent demo route", loggedIn ? ["Agent RAG Demo", "Ask AI", "演示线程"] : ["AllCallAll", "Login", "登录"]);
+    assertContainsAny(agentDemoText, "Agent demo route", loggedIn ? ["Agent Lab", "Knowledge", "Approvals"] : ["AllCallAll", "Login", "登录"]);
 
     const meetingsText = await visit(page, "/meetings", "Meetings");
     assertContainsAny(meetingsText, "Meetings", loggedIn ? ["Meetings", "Quick actions", "会议"] : ["AllCallAll", "Login", "登录"]);

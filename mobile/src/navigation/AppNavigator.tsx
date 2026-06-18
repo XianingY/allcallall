@@ -93,7 +93,7 @@ const AppNavigator: React.FC = () => {
           <Stack.Screen
             name="AgentDemo"
             component={AgentDemoScreen}
-            options={{ title: "Agent RAG Demo" }}
+            options={{ title: "Agent Lab" }}
           />
           <Stack.Screen
             name="Rooms"
