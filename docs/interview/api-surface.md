@@ -1,6 +1,6 @@
 # Interview API Surface
 
-This document lists the API areas worth showing in a backend interview. It intentionally focuses on backend engineering depth rather than product breadth.
+This page lists APIs worth showing in a backend interview. For the full route map, use [API Documentation](../api/api-documentation.md).
 
 ## Auth And Sessions
 
@@ -9,15 +9,15 @@ This document lists the API areas worth showing in a backend interview. It inten
 - `POST /api/v1/auth/refresh`
 - `POST /api/v1/auth/logout-all`
 - `GET /api/v1/auth/sessions`
-- `DELETE /api/v1/auth/sessions/:id`
+- `DELETE /api/v1/auth/sessions/:sessionID`
 
 Talking points:
 
 - Short-lived access token plus refresh session rotation.
-- Refresh reuse detection.
-- Logout-all for account recovery and device risk control.
+- Refresh reuse detection and logout-all.
+- HttpOnly refresh-cookie support for Web.
 
-## Collaboration Threads
+## Collaboration And Realtime
 
 - `GET /api/v1/conversations`
 - `POST /api/v1/conversations`
@@ -27,96 +27,25 @@ Talking points:
 - `POST /api/v1/conversations/:id/messages`
 - `GET /api/v1/conversations/:id/notes`
 - `POST /api/v1/conversations/:id/notes`
+- `GET /api/v1/chat/ws`
+- `GET /api/v1/search/messages?q=<keyword>`
 
 Talking points:
 
 - Organization-scoped access control.
-- Conversation state, priority, assignee, notes, and system event messages.
-- Local patch events instead of full-page reloads.
+- Durable `chat_events` replay with `event_id`, `sequence`, and `since_id`.
+- Message search is eventually consistent and membership-filtered after Elasticsearch hits.
 
-## Message Search
+## Meetings, Recording, Transcription
 
-- `GET /api/v1/search/messages?q=<keyword>&limit=20`
-
-Talking points:
-
-- Message writes enqueue `search.message.index_requested`.
-- Search worker indexes canonical MySQL message rows into Elasticsearch.
-- The API re-checks conversation membership after ES returns hits, so ES is never the authorization source of truth.
-- Local development can use the memory indexer; production/demo infrastructure uses `ELASTICSEARCH_URL`.
-
-## Realtime
-
-Collaboration event stream:
-
-- `GET /api/v1/chat/ws`
-
-Realtime payload fields:
-
-- `event_id`
-- `sequence`
-- `event`
-- `organization_id`
-- `payload`
-- `created_at`
-
-Replay behavior:
-
-- The client reconnects with `since_id`.
-- The backend reads durable `chat_events` where `id > since_id`.
-- `sequence` makes ack/replay semantics explicit while preserving existing `event_id`. Today it mirrors the persisted event ID, which keeps replay ordering durable and easy to reason about.
-
-WebRTC signaling:
-
-- `GET /api/v1/ws`
-- `POST /api/v1/signaling/send`
-- `GET /api/v1/signaling/poll`
-
-Talking points:
-
-- Chat replay and WebRTC signaling are separate realtime concerns.
-- Polling signaling is a proxy-friendly fallback when WebSocket signaling is not reliable.
-
-## Internal Service Boundaries
-
-gRPC User Service:
-
-- `allcallall.user.v1.UserService/ValidateAccessToken`
-- `allcallall.user.v1.UserService/GetUser`
-
-Worker entrypoints:
-
-- `cmd/user-service`
-- `cmd/outbox-worker`
-- `cmd/data-worker`
-- `cmd/search-worker`
-
-Talking points:
-
-- API/signaling can call User Service via gRPC by setting `USER_SERVICE_GRPC_ADDR`.
-- Room settlement uses outbox -> Kafka -> Data Worker to protect MySQL from meeting-end write spikes.
-- Search indexing uses outbox -> Search Worker -> Elasticsearch to keep message creation fast.
-
-## Meetings And Rooms
-
-- `GET /api/v1/rooms`
 - `POST /api/v1/rooms`
+- `GET /api/v1/rooms`
 - `GET /api/v1/rooms/:roomId/state`
 - `POST /api/v1/rooms/:roomId/join`
 - `POST /api/v1/rooms/:roomId/leave`
 - `POST /api/v1/rooms/:roomId/offer`
 - `POST /api/v1/rooms/:roomId/ice`
 - `POST /api/v1/rooms/:roomId/media`
-
-Talking points:
-
-- Room state model.
-- Member media state synchronization.
-- WebRTC offer/ICE path.
-- Meeting events are tied back into conversation threads.
-
-## Recordings
-
 - `POST /api/v1/rooms/:roomId/recording/start`
 - `POST /api/v1/rooms/:roomId/recording/stop`
 - `GET /api/v1/recordings`
@@ -125,37 +54,73 @@ Talking points:
 
 Talking points:
 
-- Local and S3-compatible recording storage.
-- Retention metadata and cleanup worker.
-- Download authorization and organization boundary checks.
+- Recording policy is organization-scoped.
+- `recording_files` stores object metadata; bytes live in local/S3-compatible storage.
+- Stopping a recording can enqueue `recording.transcription.requested`.
+- `recording_transcriptions` tracks `pending`, `processing`, `ready`, `failed`, or `skipped`.
+- `meeting_transcript_segments` become Agent-retrievable context after transcription succeeds.
+- This is independent of realtime translation; translation UI is currently hidden.
 
-## AI Agent
+## AI Agent And Agent Lab
 
 - `POST /api/v1/agent/runs`
 - `GET /api/v1/agent/runs/:id`
 - `GET /api/v1/agent/runs/:id/events`
 - `GET /api/v1/agent/runs/:id/events/stream`
-
-Required headers:
-
-- `Authorization: Bearer <access_token>`
-- `X-Organization-ID: <organization_id>`
-- Optional `Idempotency-Key: <stable_retry_key>`
-
-Response shape:
-
-- `run`: status, source, idempotency key, summary, action items, next step, risk flags
-- `steps`: explainable intermediate stages
-- `tool_calls`: backend-controlled read-only context calls and mutating side effects
-- `events`: polling-friendly run lifecycle timeline
-- `events/stream`: SSE stream of run lifecycle events for demos and live Agent UIs
+- `POST /api/v1/agent/workflows`
+- `GET /api/v1/agent/workflows`
+- `GET /api/v1/agent/workflows/:id`
+- `POST /api/v1/agent/workflows/:id/process`
+- `GET /api/v1/agent/approvals`
+- `POST /api/v1/agent/approvals/:id/decision`
 
 Talking points:
 
-- `POST /agent/runs` returns `202 Accepted` with a `pending` run, then `agent.run.requested` is drained by the outbox worker.
-- Provider seam: `AGENT_PROVIDER=rules` for deterministic demos; `AGENT_PROVIDER=mock_llm` for prompt + structured-output parsing demos; `AGENT_PROVIDER=openai_compatible` calls a configured Chat Completions-compatible endpoint and falls back to `rules` when no provider is configured.
-- Tool calling is persisted and permission-guarded.
-- Memory is scoped to organization/user/conversation, and RAG-lite retrieval uses `agent_context_chunks` with bounded Top-K snippets.
-- `GET /agent/runs/:id/events/stream` emits SSE events such as `run_started`, `tool_called`, `tool_done`, and `run_ready`; it is backed by persisted rows, so clients can reconnect without relying on an in-memory trace buffer.
-- Repeating a request with the same `Idempotency-Key` returns the existing run result instead of duplicating tool side effects.
-- Outbox events `agent.run.requested`, `agent.run.completed`, and `message.created` give a durable async delivery path that can later be swapped for Kafka or Redis Streams.
+- ReAct-style runs are async: handler creates a pending run and outbox event; worker executes it.
+- Workflow runs support DAG-style task execution and human approvals.
+- Tool calls are persisted, permission-labeled, and backend-executed.
+- `Idempotency-Key` prevents duplicate side effects on retry.
+- Provider seam: `rules`, `mock_llm`, `openai_compatible`.
+- Agent context includes messages, notes, members, rooms, contact profile, memory, call transcripts, meeting transcripts, and knowledge chunks.
+
+## Knowledge Base
+
+- `POST /api/v1/knowledge/sources`
+- `GET /api/v1/knowledge/sources`
+- `GET /api/v1/knowledge/sources/:id`
+- `POST /api/v1/knowledge/sources/:id/reingest`
+- `GET /api/v1/knowledge/source-groups`
+- `POST /api/v1/knowledge/source-groups/:id/canonical`
+- `GET /api/v1/knowledge/duplicate-candidates`
+- `POST /api/v1/knowledge/duplicate-candidates/:id/decision`
+- `GET /api/v1/knowledge/dead-letters`
+- `POST /api/v1/knowledge/dead-letters/:id/retry`
+
+Talking points:
+
+- Source import supports versioning and duplicate/canonical management.
+- Ingest/chunk-index work is outbox-driven.
+- Elasticsearch can back chunk indexing/search when configured.
+
+## Internal Boundaries
+
+gRPC:
+
+- `allcallall.user.v1.UserService/ValidateAccessToken`
+- `allcallall.user.v1.UserService/GetUser`
+
+Workers:
+
+- `cmd/user-service`
+- `cmd/agent-worker`
+- `cmd/outbox-worker`
+- `cmd/data-worker`
+- `cmd/search-worker`
+- `cmd/cleanup-worker`
+
+Talking points:
+
+- gRPC is a narrow synchronous boundary for auth/user lookup.
+- Kafka is used for bursty room-settlement side effects.
+- Elasticsearch is an eventually consistent read model.
+- Outbox workers own async side effects including recording transcription.

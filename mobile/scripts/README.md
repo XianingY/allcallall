@@ -138,8 +138,8 @@ echo "验证完成"
 
 ## 🔗 相关链接
 
-- [移动端文档](../docs/mobile/README.md)
-- [音频配置](../docs/mobile/setup/audio-files-setup.md)
+- [移动端文档](../../docs/mobile/README.md)
+- [音频配置](../../docs/mobile/setup/audio-files-setup.md)
 - [环境变量](../../docs/mobile/setup/app-env-usage.md)
 
 ---

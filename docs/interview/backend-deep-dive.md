@@ -69,11 +69,14 @@ Interview angle:
 - Recording storage is abstracted as `local` and `s3` drivers.
 - Retention metadata is written at upload time.
 - Cleanup workers handle stale refresh sessions and expired recording assets.
+- Recording-end transcription is decoupled from realtime translation: `TRANSCRIPTION_ENABLED=true` creates `recording.transcription.requested`, writes `recording_transcriptions`, and stores `meeting_transcript_segments` for Agent retrieval.
+- v1 transcription uses `TRANSCRIPTION_PROVIDER=mock` and requires locally readable recording files; S3-only files are marked failed until Reader/download support is added.
 
 Interview angle:
 
 - Explain why object keys are generated server-side.
 - Explain soft-delete first, then object deletion, then audit/metrics.
+- Explain why transcription failure should not roll back recording persistence.
 
 ## Auth And Security
 
@@ -119,6 +122,7 @@ Interview angle:
 - Retry safety is provided through `Idempotency-Key`.
 - Tool side effects enqueue durable `event_outbox` records.
 - Tool execution is still controlled by backend service code.
+- Agent context now includes meeting recording transcript segments in addition to messages, notes, rooms, memories, contact profile, call follow-ups, and older 1:1 call transcript segments.
 - `AGENT_PROVIDER` selects the planner: `rules` is deterministic and default, `mock_llm` exercises prompt construction plus structured-output parsing without API keys, and `openai_compatible` calls a configured Chat Completions-compatible endpoint or falls back to `rules` when unavailable.
 - `go run ./cmd/interview-bench` provides a database-free proof path: it seeds temporary SQLite data, queues Agent runs, drains outbox events, executes tools, and emits JSON counts, latencies, and counters.
 
@@ -127,6 +131,7 @@ Interview angle:
 - Explain why Agent tools need permission checks, idempotency, observability, async execution, and bounded side effects.
 - Explain why async Agent execution needs leases and attempts, not only a `pending/running/ready` enum.
 - Explain why the first version is deterministic before adding an LLM provider, and how prompt token estimates, latency metrics, and fallback counters make the provider seam observable.
+- Explain why meeting transcript source attribution matters: `meeting_transcript` and `call_transcript` are different evidence sources.
 
 ## Outbox Worker Design
 
@@ -135,13 +140,15 @@ Interview angle:
 - The shared worker runtime starts outbox processors that claim pending rows with `locked_by` and `locked_until`, then process them through registered handlers.
 - `cmd/server` can run embedded workers for local development, while `cmd/agent-worker` and `cmd/outbox-worker` can run as independent processes with event filters.
 - `message.created` outbox handling reloads the message, resolves conversation members, writes per-user replay events, and publishes to the WebSocket hub.
+- `recording.transcription.requested` outbox handling processes recording audio with the configured provider and updates transcription status without blocking the recording stop request.
 - Runtime knobs are `OUTBOX_WORKER_INTERVAL_SEC`, `OUTBOX_WORKER_BATCH_SIZE`, `OUTBOX_WORKER_MAX_ATTEMPTS`, and `OUTBOX_WORKER_RETRY_DELAY_SEC`.
 - Metrics distinguish publish, retry, and permanent failure paths.
 
 Interview angle:
 
 - Explain why Agent run creation writes `agent.run.requested`, why message write-back writes `agent.run.completed`, and why both use outbox idempotency keys.
-- Explain why the current handler can be a simple observed event while the contract still allows Kafka, Redis Streams, or webhook publishers later.
+- Explain why recording transcription belongs in the outbox worker: it is slower, retryable, and should not determine recording-save success.
+- Explain why most Agent/message events still use the MySQL outbox, while the room-settlement path already demonstrates outbox-to-Kafka for bursty downstream processing.
 - Explain how persisting `request_id` turns the outbox from a black box into a supportable async pipeline.
 - Explain how claim/lease avoids duplicate processing across multiple backend replicas while still allowing expired work to be recovered.
 - Explain how event filters allow Agent and collaboration workers to scale independently without claiming each other's outbox rows.

@@ -41,6 +41,10 @@ Scripts live in `scripts/load/`.
 - `scripts/load/realtime-replay-bench.sh`: shell wrapper around `cmd/realtime-replay-bench` for load-script consistency.
 - `go run ./cmd/chat-ws-replay-bench`: in-process authenticated Gin/WebSocket replay benchmark for `/api/v1/chat/ws`.
 - `scripts/load/chat-ws-replay-bench.sh`: shell wrapper around `cmd/chat-ws-replay-bench`.
+- `make interview-microservice-demo`: multi-process worker demo with API, Agent worker, outbox worker, and cleanup worker.
+- `cmd/user-service`: gRPC User Service for internal token validation and user lookup demos.
+- `cmd/data-worker`: Kafka consumer for `allcallall.room.settlements`.
+- `cmd/search-worker`: Elasticsearch indexing worker for `search.message.index_requested`.
 - `agent-run-smoke.sh`: concurrent Agent run creation against one conversation, with optional polling until each run reaches `ready` or `failed`.
 - `ws-connections.mjs`: WebSocket connection smoke/load template for `/api/v1/chat/ws`.
 
@@ -49,8 +53,8 @@ Current script boundaries:
 - `interview-bench` is a local functional benchmark, not a production load test. Use it to prove the Agent/outbox pipeline and capture baseline write amplification; use staging/MySQL scripts for concurrency and infrastructure numbers.
 - `realtime-replay-bench` is a local functional benchmark for the durable replay store. It proves `chat_events` scope/sequence/replay behavior without a running backend or JWT.
 - `chat-ws-replay-bench` is an in-process authenticated transport benchmark. It starts a local Gin/WebSocket server, generates a local JWT, resolves organization membership from SQLite, and validates the real `/api/v1/chat/ws` replay path without external services.
-- There is no standalone Agent queue worker script. The server outbox worker consumes `agent.run.requested`, transitions `agent_runs` from `pending` to `running`, and marks the run `ready` or `failed`.
-- There is no standalone outbox drain script. Exercise outbox drain by creating Agent runs, then observe `agent.run.requested`, `agent.run.completed`, `message.created`, `event_outbox` status counts, and `outbox_publish_*` metrics while the server worker runs.
+- Standalone workers exist for the portfolio demo. Use `EMBEDDED_WORKERS=0` plus `cmd/agent-worker`, `cmd/outbox-worker`, and `cmd/cleanup-worker` to prove process isolation while keeping the same database contracts.
+- Kafka and Elasticsearch checks require optional infrastructure. Use the Compose `interview-infra` profile or local equivalents, then run `cmd/data-worker` and `cmd/search-worker` with `KAFKA_BROKERS` and `ELASTICSEARCH_URL` configured.
 
 ## Metrics To Capture
 
@@ -72,6 +76,8 @@ Backend `/api/v1/metrics`:
 - `meeting_join_total`
 - `recording_download_total`
 - `recording_storage_write_fail_total`
+- `room_settlement_published_total` if enabled in the current build
+- `search_message_index_requested_total` if enabled in the current build
 
 Database checks:
 
@@ -105,6 +111,12 @@ FROM chat_events
 WHERE organization_id = <organization_id>
 ORDER BY id DESC
 LIMIT 20;
+
+-- Kafka settlement worker output.
+SELECT room_id, user_id, source_event_id, status, duration_seconds, created_at
+FROM room_settlements
+ORDER BY id DESC
+LIMIT 20;
 ```
 
 System metrics:
@@ -126,6 +138,9 @@ System metrics:
 | Outbox drain | TBD | TBD | TBD | TBD | `agent.run.requested`, `agent.run.completed`, `message.created` batch size/retry settings |
 | Local realtime replay benchmark | 1 process | 3815 ms | 3 ms write | 0% | commit `955e593`, temporary SQLite |
 | Authenticated chat WebSocket replay | 5 clients | 2740 ms | 9 ms connect-to-last | 0% | commit `955e593`, in-process Gin/WebSocket |
+| gRPC User Service validation | TBD | TBD | TBD | TBD | `cmd/server` with `USER_SERVICE_GRPC_ADDR` -> `cmd/user-service` |
+| Kafka room settlement | TBD | TBD | TBD | TBD | outbox -> Kafka -> `cmd/data-worker` -> `room_settlements` |
+| Elasticsearch message search | TBD | TBD | TBD | TBD | message -> outbox -> `cmd/search-worker` -> ES -> membership-filtered API |
 | WebSocket connections | TBD | TBD | TBD | TBD | Authenticated `/api/v1/chat/ws` |
 | WebSocket replay | TBD | TBD | TBD | TBD | `since_id` replay, backlog limit 100 |
 | Meeting event replay | TBD | TBD | TBD | TBD | Room events written into conversation event stream |
@@ -302,6 +317,29 @@ Outbox drain:
 - Capture `outbox_publish_total`, `outbox_publish_retry_total`, and `outbox_publish_failed_total`.
 - For failure testing, use a controlled local/dev setup only; do not claim retry/failure results unless the handler path was actually forced to fail.
 
+gRPC User Service:
+
+- Start `cmd/user-service` with the same `CONFIG_PATH` and JWT secret as the API.
+- Start `cmd/server` with `USER_SERVICE_GRPC_ADDR=127.0.0.1:<port>`.
+- Run login/refresh/protected endpoint smoke.
+- Capture user-service request logs and API latency. Do not claim a gRPC-vs-local latency improvement unless both paths were measured on the same machine and commit.
+
+Kafka room settlement:
+
+- Start Kafka-compatible infrastructure, for example Redpanda from the Compose interview profile.
+- Configure `KAFKA_BROKERS` and run the API/outbox worker so `settlement.room.ended` events are bridged to the settlement topic.
+- Run `cmd/data-worker` and end one or more rooms.
+- Query `room_settlements`; expected behavior is one idempotent settlement row per room participant.
+- Re-deliver the same source event if testing idempotency; expected behavior is no duplicate settlement side effect.
+
+Elasticsearch message search:
+
+- Start Elasticsearch and configure `ELASTICSEARCH_URL`.
+- Run `cmd/search-worker`.
+- Create messages in a conversation and wait for `search.message.index_requested` outbox events to drain.
+- Query `GET /api/v1/search/messages?q=<keyword>`.
+- Verify results are filtered by conversation membership and do not leak cross-organization messages.
+
 WebSocket replay:
 
 - Connect with `TOKEN`, `ORGANIZATION_ID`, and optionally `WS_URL=ws://localhost:8080/api/v1/chat/ws`.
@@ -312,16 +350,17 @@ WebSocket replay:
 
 ## Bottlenecks To Discuss
 
-- MySQL is currently the durable realtime replay store; high event throughput may require Redis Streams or Kafka later.
+- MySQL is currently the durable realtime replay store; high event throughput may require Redis Streams or additional Kafka topics later.
 - Agent execution is asynchronous but still writes multiple rows per completed run: run state transition, steps, tool calls, memory, outbox, message, follow-up task.
 - Outbox throughput is controlled by `OUTBOX_WORKER_INTERVAL_SEC`, `OUTBOX_WORKER_BATCH_SIZE`, retry delay, and handler latency.
+- Kafka settlement and Elasticsearch search are optional infrastructure paths, so the local demo must clearly state whether those services were actually enabled.
 - WebRTC media relay and recording are separate bottleneck domains from HTTP API latency.
 
 ## Optimization Ideas
 
-- Move Agent execution from the current outbox-worker handler to a dedicated queue/worker pool if planner latency or tool execution becomes too expensive for the general outbox processor.
+- Move high-volume Agent execution from the current outbox contract to a dedicated Kafka/Redis Streams queue if planner latency or tool execution becomes too expensive for the general outbox processor.
 - Batch realtime event writes per recipient group.
-- Replace the lightweight outbox handler with Redis Streams/Kafka publishing if event volume grows or cross-service consumers are introduced.
-- Add Redis Streams for high-volume room events.
+- Expand Kafka topics beyond room settlement after measuring event volume and consumer needs.
+- Add Redis Streams for high-volume low-retention room state patches if MySQL replay becomes too expensive.
 - Add SQL indexes for hottest replay/query paths.
 - Split collaboration service into chat, room, recording, and support services.

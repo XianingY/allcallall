@@ -5,10 +5,10 @@ AllCallAll is positioned as an AI-powered realtime collaboration backend project
 ## Why This Project Fits Backend Roles
 
 - Realtime systems: WebSocket event replay, room state patching, WebRTC signaling, and recording lifecycle events.
-- Data modeling: organizations, conversations, rooms, recordings, refresh sessions, event logs, outbox events, and Agent execution records.
+- Data modeling: organizations, conversations, rooms, recordings, recording transcription jobs, transcript segments, refresh sessions, event logs, outbox events, and Agent execution records.
 - Reliability: request IDs propagated through HTTP, Agent runs, and outbox workers; metrics; cleanup workers; S3-compatible recording storage; idempotent webhook/session handling; and an outbox worker.
 - Security: organization-scoped access control, refresh session rotation, support-token protected internal APIs, and no raw media persistence by default.
-- AI Agent readiness: deterministic rules-based Agent v1 with run state, steps, tool calls, memory, idempotency, outbox, and conversation write-back.
+- AI Agent readiness: deterministic rules-based Agent v1 with run state, steps, tool calls, memory, idempotency, outbox, conversation write-back, and meeting transcript retrieval.
 
 ## Document Map
 
@@ -30,15 +30,16 @@ AllCallAll is positioned as an AI-powered realtime collaboration backend project
 
 1. Show the backend module boundaries: `auth`, `collaboration`, `agent`, `events`, `storage`, and `signaling`. Mention `commerce` only as supporting domain surface, not the main portfolio story.
 2. Walk through `POST /api/v1/agent/runs`: auth claims, organization header, membership guard, pending run creation, `agent.run.requested` outbox enqueue, worker execution, steps, tool calls, and metrics.
-3. Show how realtime collaboration data feeds the Agent: conversation messages, internal notes, priority, assignee, and status.
+3. Show how collaboration and meeting data feed the Agent: messages, internal notes, priority, assignee, room state, call follow-ups, and meeting recording transcript segments.
 4. Explain the microservice evolution path: API/signaling gateway calls User Service through gRPC when `USER_SERVICE_GRPC_ADDR` is configured.
 5. Explain async peak shaving: room-ended settlement events are written to outbox, bridged to Kafka, then consumed by `data-worker` into `room_settlements`.
 6. Explain search scaling: message writes enqueue `search.message.index_requested`, `search-worker` indexes ES, and `/search/messages` re-applies conversation membership checks.
-7. Explain why v1 Agent is rules-based: stable tests, deterministic demos, no API-key dependency, and an easy seam for OpenAI-compatible providers later.
+7. Explain why v1 Agent is rules-based by default: stable tests, deterministic demos, no API-key dependency, and a seam for mock/OpenAI-compatible providers.
 8. Show idempotency: repeat a run with the same `Idempotency-Key` and explain why tool side effects do not duplicate.
 9. Show observability: send `X-Request-ID`, trigger an Agent run, and explain how the same ID is saved on `agent_runs` and `event_outbox`.
 10. Show realtime replay: connect to `/api/v1/chat/ws?since_id=...` and point out `event_id`, `sequence`, and durable MySQL-backed replay.
 11. Open `/api/v1/metrics` and point to Agent and outbox counters such as `agent_run_queued_total`, `agent_run_started_total`, `agent_run_total`, `agent_run_failed_total`, `agent_tool_call_total`, `agent_memory_write_total`, `outbox_publish_total`, and `outbox_publish_retry_total`.
+12. If recording transcription is enabled, stop a meeting recording and show `recording.transcription.requested`, `recording_transcriptions`, `meeting_transcript_segments`, and the Agent's ability to retrieve meeting transcript context.
 
 ## One-Command Demo
 
@@ -116,13 +117,13 @@ make interview-load-suite
 
 ## Resume Bullet Candidates
 
-- Built an organization-scoped realtime collaboration backend in Go with Gin, Gorm, Redis, WebSocket replay, room-state patch events, and S3-compatible recording storage.
+- Built an organization-scoped realtime collaboration backend in Go with Gin, Gorm, Redis, WebSocket replay, room-state patch events, S3-compatible recording storage, and recording-end meeting transcription.
 - Designed an explainable AI Agent execution model with persisted runs, intermediate steps, tool-call records, permission checks, metrics, and conversation write-back.
 - Added a gRPC User Service boundary for request-time auth validation, allowing the signaling/API gateway to scale separately from user-center IO workloads.
 - Added Kafka-compatible room settlement events and a Data Worker with idempotent consumption to demonstrate async peak shaving for meeting end storms.
 - Added Elasticsearch-backed message search with async outbox indexing and service-layer membership filtering to avoid MySQL wildcard scans.
 - Implemented production-oriented auth/session hardening with refresh-token rotation, reuse detection, logout-all, and support-side session inspection.
-- Added recording lifecycle management with storage abstraction, retention cleanup worker, signed/proxy downloads, organization boundary checks, and support diagnostics.
+- Added recording lifecycle management with storage abstraction, retention cleanup worker, signed/proxy downloads, transcription job tracking, meeting transcript segments, organization boundary checks, and support diagnostics.
 
 ## What To Improve Next For Interviews
 

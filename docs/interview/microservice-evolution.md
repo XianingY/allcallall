@@ -44,7 +44,7 @@ Current and future migration path:
 - Later: expand Kafka topics for analytics, notification fan-out, or Agent work queues after measuring traffic.
 - Final: Agent service, realtime gateway, and recording service subscribe to event streams and own their own persistence if needed.
 
-## Stage 4: Synchronous Service Split
+## Stage 4: Narrow Synchronous Service Split
 
 The first synchronous service split is the User Service:
 
@@ -53,7 +53,7 @@ The first synchronous service split is the User Service:
 - Client: `backend/internal/usergrpc`.
 - Runtime switch: `USER_SERVICE_GRPC_ADDR`.
 
-When configured, the API/signaling gateway validates access tokens by calling `UserService/ValidateAccessToken` over gRPC instead of parsing tokens locally. This is intentionally narrow: it proves request-time service decomposition without forcing every domain into a separate database.
+When configured, the API/signaling gateway validates access tokens by calling `UserService/ValidateAccessToken` over gRPC instead of parsing tokens locally. This is intentionally narrow: it proves request-time service decomposition without forcing every domain into a separate database or duplicating organization/business logic.
 
 ## Stage 5: Search Read Model
 
@@ -68,19 +68,24 @@ The search API filters ES hits through conversation membership checks, so MySQL 
 
 ## Why Not Split Everything First?
 
-Do not split `auth-service`, `user-service`, `organization-service`, or `billing-service` first. Those services have tight request-time consistency and authorization coupling. Splitting them early would add network calls, distributed transactions, and operational load without creating a stronger backend interview story.
+Do not split every CRUD module first. `organization-service`, `billing-service`, and generic profile services have tight request-time consistency and authorization coupling. Splitting them early would add network calls, distributed transactions, and operational load without creating a stronger backend interview story.
 
-The better first split is asynchronous work:
+The current project therefore uses two safer extraction styles:
 
-- Agent runs can be retried and recovered with leases.
-- Outbox fan-out is naturally idempotent and event-driven.
-- Cleanup is operational background work with clear failure semantics.
+- A narrow synchronous split: `cmd/user-service` over gRPC for token/user lookup.
+- Asynchronous splits: Agent runs, outbox fan-out, Kafka settlement, search indexing, and cleanup workers.
+
+These boundaries are easier to verify, scale, and explain than splitting the entire domain model prematurely.
 
 ## Interview Talking Point
 
 The project demonstrates a pragmatic migration path:
 
 > I kept the request path as a modular monolith for transaction safety and local demo simplicity. Then I extracted naturally asynchronous workloads into standalone worker processes using the outbox pattern. This gives independent scaling and failure recovery today, while keeping a clean path to Redis Streams or Kafka later.
+
+Updated version after the gRPC/Kafka/ES additions:
+
+> I kept the external API as a modular monolith, then extracted one narrow synchronous boundary through gRPC User Service and two read/async infrastructure paths through Kafka settlement and Elasticsearch search. This shows how to evolve a monolith by pressure point instead of doing a risky big-bang rewrite.
 
 ## Demo Commands
 
@@ -96,6 +101,9 @@ Run workers independently:
 make run-agent-worker
 make run-outbox-worker
 make run-cleanup-worker
+cd backend && CONFIG_PATH=./configs/config.yaml go run ./cmd/user-service
+cd backend && CONFIG_PATH=./configs/config.yaml go run ./cmd/data-worker
+cd backend && CONFIG_PATH=./configs/config.yaml go run ./cmd/search-worker
 ```
 
 Run the multi-process demo:
@@ -108,6 +116,12 @@ Run the Docker Compose profile:
 
 ```bash
 docker compose -f infra/docker-compose.yml --profile microservices up api agent-worker outbox-worker cleanup-worker
+```
+
+Run optional infrastructure for Kafka and Elasticsearch:
+
+```bash
+docker compose -f infra/docker-compose.yml --profile interview-infra up
 ```
 
 ## Latest Local Evidence

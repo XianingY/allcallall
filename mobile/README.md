@@ -1,3 +1,3 @@
 # Mobile Documentation
 
-Please refer to [docs/mobile](../../docs/mobile/README.md) for all mobile-related documentation.
+Please refer to [docs/mobile](../docs/mobile/README.md) for all mobile-related documentation.

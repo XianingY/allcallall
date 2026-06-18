@@ -87,7 +87,7 @@ WHERE run_id = <run_id>
 GROUP BY tool_name;
 ```
 
-Expected count for a successful v1 run is six tool calls: three read-only and three side-effect tools.
+Expected count for a successful current rules run is seven tool calls: structured context reads, RAG-lite context retrieval, and mutating side-effect tools.
 
 ## WebSocket Replay Misses Events
 
@@ -101,7 +101,7 @@ Likely causes:
 Checks:
 
 ```sql
-SELECT id, sequence, event, recipient_user_id, created_at
+SELECT id, sequence, event, user_id, created_at
 FROM chat_events
 WHERE organization_id = <organization_id>
 ORDER BY id DESC
@@ -145,6 +145,85 @@ Relevant error codes:
 - `RECORDING_DOWNLOAD_UNAUTHORIZED`
 - `RECORDING_DOWNLOAD_NOT_FOUND`
 - `RECORDING_STORAGE_WRITE_FAILED`
+
+## gRPC User Service Fails
+
+Likely causes:
+
+- `cmd/user-service` is not running.
+- `USER_SERVICE_GRPC_ADDR` points to the wrong address.
+- User Service and API use different JWT config.
+
+Checks:
+
+```bash
+cd backend
+CONFIG_PATH=./configs/config.yaml go run ./cmd/user-service
+```
+
+In another terminal:
+
+```bash
+cd backend
+USER_SERVICE_GRPC_ADDR=127.0.0.1:9090 \
+CONFIG_PATH=./configs/config.yaml \
+go run ./cmd/server/main.go
+```
+
+Then exercise login and a protected endpoint. If protected endpoints fail only in gRPC mode, compare JWT issuer/secret and inspect User Service logs.
+
+## Kafka Settlement Pipeline Fails
+
+Likely causes:
+
+- `KAFKA_BROKERS` is unset or unreachable.
+- Outbox worker is not processing `settlement.room.ended`.
+- Data worker is not running.
+- Duplicate source events are being rejected correctly and mistaken for missing writes.
+
+Checks:
+
+```sql
+SELECT id, event, status, attempts, last_error
+FROM event_outbox
+WHERE event = 'settlement.room.ended'
+ORDER BY id DESC
+LIMIT 20;
+```
+
+```sql
+SELECT room_id, user_id, source_event_id, status, duration_seconds, created_at
+FROM room_settlements
+ORDER BY id DESC
+LIMIT 20;
+```
+
+## Elasticsearch Search Fails
+
+Likely causes:
+
+- `ELASTICSEARCH_URL` is unset, so the memory/noop search path is being used.
+- Search worker is not running.
+- Index events are pending or failed in `event_outbox`.
+- The authenticated user is not a member of the conversation containing the hit.
+
+Checks:
+
+```sql
+SELECT id, event, status, attempts, last_error
+FROM event_outbox
+WHERE event = 'search.message.index_requested'
+ORDER BY id DESC
+LIMIT 20;
+```
+
+Then query:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  -H "X-Organization-ID: $ORGANIZATION_ID" \
+  "http://localhost:8080/api/v1/search/messages?q=test"
+```
 
 ## CI Mobile / Web Job Fails
 
@@ -200,4 +279,10 @@ If live mode fails, check MySQL/Redis first:
 
 ```bash
 docker compose -f infra/docker-compose.yml ps
+```
+
+For optional infrastructure demos, check the active profiles:
+
+```bash
+docker compose -f infra/docker-compose.yml --profile microservices --profile interview-infra ps
 ```

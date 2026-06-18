@@ -186,3 +186,21 @@ WS_URL=ws://localhost:8080/api/v1/chat/ws TOKEN=<jwt> ORGANIZATION_ID=<id> CLIEN
 - `chat_events` latest sequence window
 
 Do not put staging numbers in a resume unless they were measured against MySQL/Redis and the commit SHA is recorded.
+
+## Optional gRPC / Kafka / Elasticsearch Evidence
+
+These paths exist in the codebase but should only be reported with measured results from an environment where the optional services are actually running.
+
+| Scenario | Current Evidence Status | Command / Signal |
+| --- | --- | --- |
+| gRPC User Service validation | TBD measured numbers | `cmd/user-service` plus API with `USER_SERVICE_GRPC_ADDR` |
+| Kafka room settlement | TBD measured numbers | `event_outbox` -> broker -> `cmd/data-worker` -> `room_settlements` |
+| Elasticsearch message search | TBD measured numbers | `search.message.index_requested` -> `cmd/search-worker` -> `/api/v1/search/messages` |
+
+Recommended next measurement run:
+
+```bash
+docker compose -f infra/docker-compose.yml --profile microservices --profile interview-infra up
+```
+
+Capture commit SHA, topic/index names, request count, p95 latency, error rate, and database/index row counts before adding numbers to resume material.

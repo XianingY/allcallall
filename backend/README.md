@@ -1,32 +1,131 @@
 # AllCallAll Backend
 
-Go 后端服务，提供实时信令、用户管理和数据存储支持。
+This is the Go backend for AllCallAll: realtime collaboration, meeting rooms, recording storage, recording transcription, AI Agent execution, search, and extractable worker/service boundaries.
 
-## 📚 文档导航
+## What This Backend Demonstrates
 
-- **[API 文档](../docs/api/api-documentation.md)** - 接口定义和使用说明
-- **[数据库文档](../docs/api/database.md)** - 数据库结构设计
-- **[快速启动](../docs/getting-started/quick-start.md)** - 开发环境搭建
-- **[诊断指南](../docs/api/backend-diagnosis-and-fix.md)** - 常见问题排查
+- Gin HTTP APIs with thin handlers and service-layer domain logic.
+- Gorm/MySQL persistence with Redis-backed realtime, presence, cache, and rate-limit paths.
+- JWT access tokens plus HttpOnly refresh-cookie sessions, rotation, reuse detection, and logout-all.
+- Durable WebSocket collaboration replay through `chat_events`.
+- WebRTC signaling, meeting room state, recording lifecycle, and local/S3-compatible recording storage.
+- Recording-end transcription through `recording.transcription.requested`, `RecordingTranscription`, and `MeetingTranscriptSegment`.
+- Agent runs with persisted steps, tool calls, memory, approvals, RAG context chunks, and workflow/DAG execution.
+- MySQL outbox with claim/lease/retry/idempotency semantics.
+- Optional gRPC User Service, Kafka-compatible settlement pipeline, and Elasticsearch search/read model.
 
-## 🛠️ 技术栈
+Realtime translation code still exists behind `/api/v1/translation/ws`, but its mobile UI entry points are currently hidden. Recording transcription does not depend on realtime translation.
 
-- **语言**: Go 1.22+
-- **Web 框架**: Gin
-- **WebRTC**: Pion
-- **数据库**: MySQL 8.0 (Gorm)
-- **缓存**: Redis 7.2
-- **认证**: JWT
+## Entrypoints
 
-## 🚀 常用命令
+```text
+cmd/server          API/signaling server. Embedded workers enabled by default.
+cmd/user-service    gRPC User Service for ValidateAccessToken/GetUser.
+cmd/agent-worker    Standalone Agent and workflow worker.
+cmd/outbox-worker   Collaboration, knowledge, transcription, and optional Kafka bridge worker.
+cmd/data-worker     Kafka settlement consumer, writes room_settlements.
+cmd/search-worker   Message indexing worker for Elasticsearch.
+cmd/cleanup-worker  Refresh-session and recording-retention cleanup.
+cmd/mcp-tool-server MCP-compatible stdio tool server for read-only Agent tools.
+```
+
+## Common Commands
 
 ```bash
-# 运行服务
-go run cmd/server/main.go
+# Run API from repo root
+make run-api
 
-# 运行测试
-go test ./...
+# Run API from backend/
+cd backend
+CONFIG_PATH=./configs/config.yaml go run ./cmd/server
 
-# 代码格式化
-gofmt -s -w .
+# Run extracted processes
+make run-user-service
+make run-agent-worker
+make run-outbox-worker
+make run-data-worker
+make run-search-worker
+make run-cleanup-worker
+
+# Test and vet
+cd backend && go test ./...
+cd backend && go vet ./...
 ```
+
+`make run-backend` remains as a compatibility alias for `cmd/server`.
+
+## Config Loading
+
+`config.Load()` reads `CONFIG_PATH` YAML, defaulting to `./configs/config.yaml` when the process runs from `backend/`, then applies supported environment overrides.
+
+The API server, Agent Worker, and MCP tool server call `godotenv.Load()` as a local-development convenience. Other workers rely on the environment already being injected by the shell, supervisor, or Docker Compose. Treat `.env` as convenience, not as the single source of runtime configuration.
+
+Core variables:
+
+- `CONFIG_PATH`
+- `DB_DSN`
+- `REDIS_ADDR`, `REDIS_PASSWORD`
+- `JWT_SECRET`
+- `MAIL_PASSWORD`
+- `WEBRTC_ICE_SERVERS_JSON`
+- `AGENT_PROVIDER=rules|mock_llm|openai_compatible`
+- `EMBEDDED_WORKERS=0|1`
+
+Recording and transcription:
+
+- `RECORDING_STORAGE_DRIVER=local|s3`
+- `RECORDING_STORAGE_DIR`
+- `RECORDING_S3_BUCKET`, `RECORDING_S3_REGION`, `RECORDING_S3_ENDPOINT`
+- `RECORDING_S3_ACCESS_KEY_ID`, `RECORDING_S3_SECRET_ACCESS_KEY`
+- `RECORDING_S3_FORCE_PATH_STYLE=1`
+- `RECORDING_PUBLIC_BASE_URL`
+- `TRANSCRIPTION_ENABLED=true`
+- `TRANSCRIPTION_PROVIDER=mock`
+
+Infra extensions:
+
+- `USER_GRPC_ADDR=:9090`
+- `USER_SERVICE_GRPC_ADDR=localhost:9090`
+- `KAFKA_BROKERS=localhost:9092`
+- `KAFKA_SETTLEMENT_TOPIC=allcallall.room.settlements`
+- `KAFKA_CONSUMER_GROUP=allcallall-data-worker`
+- `ELASTICSEARCH_URL=http://localhost:9200`
+- `ELASTICSEARCH_INDEX=allcallall_messages`
+- `FCM_SERVICE_ACCOUNT_PATH=/path/firebase-service-account.json`
+
+## Important API Areas
+
+- Health and metrics: `GET /api/v1/health`, `GET /api/v1/metrics`.
+- Auth: `/api/v1/auth/register`, `/login`, `/refresh`, `/logout`, `/logout-all`, `/sessions`.
+- Email verification: `/api/v1/email/send-verification-code`, `/api/v1/email/verify-code`.
+- Users and contacts: `/api/v1/users/*`, `/api/v1/invitations/*`.
+- Collaboration: `/api/v1/organizations/*`, `/conversations/*`, `/chat/ws`, `/search/messages`.
+- Meetings: `/api/v1/rooms/*`, `/api/v1/webrtc/config`, `/api/v1/ws`, `/api/v1/signaling/*`.
+- Recordings: `/api/v1/rooms/:roomId/recording/start`, `/stop`, `/api/v1/recordings/*`.
+- Agent and workflows: `/api/v1/agent/runs`, `/events`, `/events/stream`, `/workflows`, `/approvals`.
+- Knowledge base: `/api/v1/knowledge/sources`, `/source-groups`, `/duplicate-candidates`, `/dead-letters`.
+- Support/commercial modules: legal, safety, follow-ups, entitlements, RevenueCat webhook, support diagnostics.
+
+See [API Documentation](../docs/api/api-documentation.md) and [Interview API Surface](../docs/interview/api-surface.md).
+
+## Verification
+
+```bash
+cd backend && go test ./...
+cd backend && go vet ./...
+```
+
+For targeted work, prefer the affected package first, for example:
+
+```bash
+cd backend && go test ./internal/collaboration ./internal/agent ./internal/runtime ./internal/handlers
+```
+
+## Related Docs
+
+- [System Design](../docs/interview/system-design.md)
+- [Backend Deep Dive](../docs/interview/backend-deep-dive.md)
+- [AI Agent Design](../docs/interview/ai-agent-design.md)
+- [Worker Runtime](../docs/interview/worker-runtime.md)
+- [Configuration](../docs/configuration/configuration.md)
+- [Recording Storage Deployment](../docs/deployment/recording-storage-deployment.md)

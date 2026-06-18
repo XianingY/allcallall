@@ -1,29 +1,31 @@
 # AllCallAll Infrastructure
 
-基础设施配置，包含 Docker 环境和部署脚本。
+Infrastructure assets for local development and interview/demo runtime profiles.
 
-## 📚 文档导航
+## Docs
 
-- **[部署指南](../docs/deployment/deployment-guide.md)** - 生产环境部署手册
-- **[部署检查清单](../docs/deployment/deployment-checklist.md)** - 上线前检查
-- **[受限网络配置](../docs/deployment/restricted-network-setup.md)** - 防火墙和 TURN 配置
+- [Deployment Guide](../docs/deployment/deployment-guide.md)
+- [Recording Storage And Transcription](../docs/deployment/recording-storage-deployment.md)
+- [Restricted Network Setup](../docs/deployment/restricted-network-setup.md)
 
-## 📂 目录结构
+## Files
 
-- `docker-compose.yml`: 开发环境配置
-- `docker-compose.production.yml`: 生产环境配置
-- `cloudflared-config.yml`: Cloudflare Tunnel 配置
-- `deploy-cloudflare-tunnel.sh`: 部署脚本
+- `docker-compose.yml`: local MySQL/Redis plus optional worker, Kafka-compatible, and Elasticsearch profiles.
 
-## 🚀 常用命令
+Older production-specific Compose and tunnel notes were removed from the maintained docs because they were host-specific. Use the deployment guide as the current source of truth.
+
+## Common Commands
 
 ```bash
-# 启动开发环境
-docker compose up -d
+# Start local database/cache
+docker compose -f infra/docker-compose.yml up -d mysql redis
 
-# 停止开发环境
-docker compose down
+# Stop local stack
+docker compose -f infra/docker-compose.yml down
 
-# 启动生产环境
-docker compose -f docker-compose.production.yml up -d
+# Start interview infra profile
+docker compose -f infra/docker-compose.yml \
+  --profile microservices \
+  --profile interview-infra \
+  up api user-service outbox-worker data-worker search-worker kafka elasticsearch
 ```

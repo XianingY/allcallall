@@ -6,6 +6,7 @@ Use these as raw material. Pick 2-3 bullets and tune them for the target role.
 
 - Built an AI-powered realtime collaboration backend in Go with Gin, Gorm/MySQL, Redis, WebSocket replay, WebRTC room signaling, and S3-compatible recording storage.
 - Designed organization-scoped collaboration threads with replayable realtime events, explicit event sequence numbers, room state patches, recording lifecycle events, and conversation timeline recovery.
+- Added recording-end meeting transcription with provider abstraction, mock ASR provider, transcription job state, transcript segment persistence, and Agent retrieval over meeting recording content.
 - Delivered `message.created` outbox fan-out into per-recipient WebSocket replay records with dedup keys, so Agent-generated system messages and user messages share the same reconnect path.
 - Implemented refresh session hardening with HttpOnly refresh cookies, token rotation, suspicious refresh reuse tracking, logout-all, and support-side session inspection.
 
@@ -15,6 +16,7 @@ Use these as raw material. Pick 2-3 bullets and tune them for the target role.
 - Added Agent execution recovery with attempt counters and `lease_until`, allowing transient planner failures to retry and stale `running` runs to recover after worker crashes.
 - Added `AGENT_PROVIDER` selection with deterministic rules, mock structured-output, and configurable OpenAI-compatible planners, preserving stable tests while supporting LLM-backed planning with fallback metrics.
 - Integrated Agent tools for writing collaboration messages, creating follow-up tasks, upserting memory, and persisting outbox events for durable async delivery.
+- Extended Agent context retrieval to include meeting transcript segments separately from 1:1 call transcript segments, improving source attribution for meeting summaries and follow-up reasoning.
 
 ## Reliability / Distributed Systems
 
@@ -25,6 +27,7 @@ Use these as raw material. Pick 2-3 bullets and tune them for the target role.
 - Added an Elasticsearch-backed message search read model with async outbox indexing and post-search service-layer permission filtering.
 - Propagated `X-Request-ID` through HTTP error responses, Agent runs, outbox rows, and async worker handlers for traceable backend diagnostics.
 - Built recording lifecycle infrastructure with local/S3-compatible storage drivers, retention metadata, cleanup worker, download authorization, and support diagnostics.
+- Decoupled meeting transcription from realtime translation, allowing recording-end transcription even when realtime translation UI is hidden.
 
 ## Performance Evidence
 
@@ -34,4 +37,4 @@ Use these as raw material. Pick 2-3 bullets and tune them for the target role.
 
 ## Interview Short Pitch
 
-AllCallAll is a Go backend engineering portfolio project that combines realtime collaboration, WebRTC meeting infrastructure, durable event replay, recording storage, secure session management, and an explainable AI Agent pipeline. The project demonstrates backend system design rather than product launch or UI polish.
+AllCallAll is a Go backend engineering portfolio project that combines realtime collaboration, WebRTC meeting infrastructure, durable event replay, recording storage/transcription, secure session management, and an explainable AI Agent pipeline. The project demonstrates backend system design rather than product launch or UI polish.

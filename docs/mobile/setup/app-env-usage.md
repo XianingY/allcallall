@@ -1,66 +1,69 @@
-# 移动端环境配置
+# Mobile Runtime Configuration
 
-AllCallAll 移动端现在只使用 Expo 的 `EXPO_PUBLIC_*` 变量控制接口地址和运行开关，不再使用 `APP_ENV`。
+AllCallAll mobile/Web uses Expo `EXPO_PUBLIC_*` variables. Do not use `APP_ENV`, `DEV_API`, or `PROD_API_IP` for new work.
 
-## 默认行为
+## Defaults
 
-- 未设置任何变量时，默认连接 `http://127.0.0.1:8080`
-- WebSocket 默认连接 `ws://127.0.0.1:8080`
-- Android 真机联调通常需要 `adb reverse tcp:8080 tcp:8080`
-
-## 支持的变量
+- HTTP default: `http://127.0.0.1:8080`
+- WebSocket default: `ws://127.0.0.1:8080`
+- Android physical-device development usually uses ADB reverse.
 
 ```bash
-EXPO_PUBLIC_API_HTTP=http://10.0.2.2:8080
-EXPO_PUBLIC_API_WS=ws://10.0.2.2:8080
-EXPO_PUBLIC_FORCE_TLS=0
-EXPO_PUBLIC_RESTRICTED_NETWORK=0
-EXPO_PUBLIC_SIGNALING_TRANSPORT=auto
-EXPO_PUBLIC_SIGNALING_SHAPING=0
-EXPO_PUBLIC_TRANSLATION_SOURCE_LANG=zh
-EXPO_PUBLIC_TRANSLATION_TARGET_LANG=en
+adb reverse tcp:8080 tcp:8080
+adb reverse tcp:8081 tcp:8081
 ```
 
-## 常见场景
+## Supported Variables
 
-本地默认:
+| Variable | Purpose |
+| --- | --- |
+| `EXPO_PUBLIC_API_HTTP` | REST API base URL. |
+| `EXPO_PUBLIC_API_WS` | WebSocket base URL. |
+| `EXPO_PUBLIC_FORCE_TLS` | `1` upgrades HTTP/WS to HTTPS/WSS. |
+| `EXPO_PUBLIC_RESTRICTED_NETWORK` | Prefer restricted-network ICE/signaling behavior. |
+| `EXPO_PUBLIC_SIGNALING_TRANSPORT` | `auto` or `poll`. |
+| `EXPO_PUBLIC_SIGNALING_SHAPING` | Enables conservative signaling shaping. |
+| `EXPO_PUBLIC_E2EE_MODE` | `experimental` enables experimental E2EE mode. |
+| `EXPO_PUBLIC_REVENUECAT_*` | Android subscription demo configuration. |
+
+Translation variables still exist in config for compatibility, but realtime translation UI is hidden and should not be presented as the current primary workflow.
+
+## Common Commands
+
+Web:
 
 ```bash
 cd mobile
-npm start
+EXPO_PUBLIC_API_HTTP=http://127.0.0.1:8080 \
+EXPO_PUBLIC_API_WS=ws://127.0.0.1:8080 \
+npm run web
 ```
 
-指定局域网后端:
+Android dev client:
 
 ```bash
 cd mobile
-EXPO_PUBLIC_API_HTTP=http://192.168.1.20:8080 \
-EXPO_PUBLIC_API_WS=ws://192.168.1.20:8080 \
-npm start
+EXPO_PUBLIC_API_HTTP=http://127.0.0.1:8080 \
+EXPO_PUBLIC_API_WS=ws://127.0.0.1:8080 \
+npm run start:dev-client
 ```
 
-强制 HTTPS/WSS:
+Restricted network:
 
 ```bash
-cd mobile
-EXPO_PUBLIC_API_HTTP=http://api.example.com \
-EXPO_PUBLIC_API_WS=ws://api.example.com \
+EXPO_PUBLIC_API_HTTP=https://api.example.com \
+EXPO_PUBLIC_API_WS=wss://api.example.com \
 EXPO_PUBLIC_FORCE_TLS=1 \
-npm start
-```
-
-受限网络下优先轮询:
-
-```bash
-cd mobile
-EXPO_PUBLIC_SIGNALING_TRANSPORT=poll \
 EXPO_PUBLIC_RESTRICTED_NETWORK=1 \
-npm start
+EXPO_PUBLIC_SIGNALING_TRANSPORT=poll \
+npm run web
 ```
 
-## 验证
+## Verification
 
 ```bash
 cd mobile
 bash scripts/verify-app-env.sh
+npx tsc --noEmit
+npm run lint
 ```

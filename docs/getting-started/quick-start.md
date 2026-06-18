@@ -1,64 +1,135 @@
-# AllCallAll 快速启动卡片
+# Quick Start
 
-## 🎯 当前网络配置
-```
-本机IP地址: <YOUR_LAN_IP>
-后端服务: http://<YOUR_LAN_IP>:8080
-WebSocket: ws://<YOUR_LAN_IP>:8080
-```
+This is the shortest current path to run the backend API and Web surface locally.
 
-## ⚡ 三个终端，三个命令
+## Prerequisites
 
-### 终端1：启动数据库（MySQL + Redis）
+- Go 1.24+
+- Node.js compatible with the Expo toolchain used by `mobile/`
+- Docker / Docker Compose
+- MySQL and Redis through `infra/docker-compose.yml`
+
+## 1. Start MySQL And Redis
+
 ```bash
-cd /Users/byzantium/github/allcallall
-bash scripts/development/start-services.sh
+./scripts/development/start-services.sh
 ```
 
-### 终端2：启动后端服务
+Verify:
+
 ```bash
-cd /Users/byzantium/github/allcallall && \
-set -a && source .env && set +a && \
-cd backend && \
-export MAIL_PASSWORD="${MAIL_PASSWORD:-你的QQ授权码}" && \
-export DB_DSN="allcallall:${MYSQL_PASSWORD}@tcp(localhost:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local" && \
-export REDIS_ADDR="localhost:6379" && export REDIS_PASSWORD="${REDIS_PASSWORD}" && \
-go run cmd/server/main.go
-```
-
-### 终端3：启动移动端开发服务器
-```bash
-cd /Users/byzantium/github/allcallall/mobile
-bash scripts/dev-client-debug.sh
-```
-
-## 📱 在真机上运行
-1. 安卓手机安装 **Expo Go** 应用
-2. 扫描终端3显示的QR码
-3. 或手动输入: `exp://<YOUR_LAN_IP>:8081`
-
-## ✅ 验证服务状态
-```bash
-# 检查后端服务
-curl http://localhost:8080/api/v1/health
-
-# 检查容器状态
 docker compose -f infra/docker-compose.yml ps
 ```
 
-## 🛑 停止所有服务
-```bash
-# 关闭Docker容器
-cd /Users/byzantium/github/allcallall/infra && docker compose -f docker-compose.yml down
+## 2. Run Backend API
 
-# 终止后端服务（Ctrl+C）和移动端服务（Ctrl+C）
+```bash
+cd backend
+CONFIG_PATH=./configs/config.yaml go run ./cmd/server
 ```
 
-## 📚 详细文档
-- 完整启动指南: `docs/getting-started/docker-startup-guide.md`
-- API文档: `docs/api/api-documentation.md`
-- 数据库文档: `docs/api/database.md`
+Health check:
 
----
+```bash
+curl http://localhost:8080/api/v1/health
+```
 
-**注意**: 真机开发建议优先使用 `mobile/scripts/dev-client-debug.sh` 自动配置 ADB 反向代理。
+Notes:
+
+- Embedded workers are enabled by default.
+- Set `EMBEDDED_WORKERS=0` if you want to run standalone workers.
+- The API server can load a local `.env` as a convenience, but explicit shell/Docker env injection is the deployable path.
+
+## 3. Optional Recording Transcription
+
+The current v1 transcription path runs after recording stop, not during realtime translation.
+
+```bash
+cd backend
+TRANSCRIPTION_ENABLED=true \
+TRANSCRIPTION_PROVIDER=mock \
+RECORDING_STORAGE_DRIVER=local \
+RECORDING_STORAGE_DIR=/tmp/allcallall-recordings \
+CONFIG_PATH=./configs/config.yaml \
+go run ./cmd/server
+```
+
+When a room recording is stopped, the service creates a `recording.transcription.requested` outbox event. The worker writes `meeting_transcript_segments` that the Agent can later retrieve as `meeting_transcript` context.
+
+## 4. Run Web Workspace
+
+```bash
+cd mobile
+npm install
+EXPO_PUBLIC_API_HTTP=http://localhost:8080 \
+EXPO_PUBLIC_API_WS=ws://localhost:8080 \
+npm run web
+```
+
+Useful Web routes:
+
+- `/meetings`
+- `/rooms/:roomId`
+- `/conversations/:conversationId`
+
+## 5. Run Android Development Client
+
+```bash
+adb reverse tcp:8080 tcp:8080
+adb reverse tcp:8081 tcp:8081
+
+cd mobile
+npm run start:dev-client
+```
+
+Mobile/Web runtime config uses `EXPO_PUBLIC_*` only. `APP_ENV` is historical.
+
+## 6. Optional Extracted Processes
+
+```bash
+make run-user-service
+make run-agent-worker
+make run-outbox-worker
+make run-data-worker
+make run-search-worker
+make run-cleanup-worker
+```
+
+Useful variables:
+
+```bash
+USER_GRPC_ADDR=:9090
+USER_SERVICE_GRPC_ADDR=localhost:9090
+KAFKA_BROKERS=localhost:9092
+KAFKA_SETTLEMENT_TOPIC=allcallall.room.settlements
+ELASTICSEARCH_URL=http://localhost:9200
+ELASTICSEARCH_INDEX=allcallall_messages
+```
+
+## 7. Optional Interview Infra
+
+```bash
+docker compose -f infra/docker-compose.yml \
+  --profile microservices \
+  --profile interview-infra \
+  up api user-service outbox-worker data-worker search-worker kafka elasticsearch
+```
+
+This starts the portfolio/demo topology: API, gRPC User Service, standalone workers, Kafka-compatible broker, and Elasticsearch.
+
+## Verification
+
+```bash
+cd backend && go test ./... && go vet ./...
+cd mobile && npm run test:unit && npx tsc --noEmit && npm run lint
+cd desktop && npm run check && npm run build
+```
+
+Use narrower checks while developing, then broaden before committing shared behavior changes.
+
+## More Docs
+
+- [Configuration](../configuration/configuration.md)
+- [Deployment Guide](../deployment/deployment-guide.md)
+- [AI Agent Design](../interview/ai-agent-design.md)
+- [Worker Runtime](../interview/worker-runtime.md)

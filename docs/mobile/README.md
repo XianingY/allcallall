@@ -1,186 +1,97 @@
-# 📱 AllCallAll 移动端文档
+# Mobile / Web Client Docs
 
-移动端（React Native）的完整开发文档和指南。
+The `mobile/` package is the shared Expo + React Native client for Android and Web. It also provides the Web surface consumed by the Electron desktop shell.
 
-## 📁 文档目录
+The current project focus is backend/Agent interview readiness, so client docs emphasize how to run and verify the frontend surfaces rather than commercial launch instructions.
 
-### 🔧 设置和初始化 (`setup/`)
+## Current Scope
 
-初始化和配置移动端开发环境。
+- Android development client.
+- Web browser workspace.
+- Electron desktop shell through Web.
+- iOS target exists, but iOS real-device validation is paused.
+- Web push and Web billing are intentionally not implemented.
+- Realtime translation UI entry points are hidden; the backend compatibility endpoint remains.
+- Meeting recording cards show transcription status when backend data is available.
 
-- **[audio-files-setup.md](./setup/audio-files-setup.md)** - 音频文件配置
-  - 音频资源的设置和验证
-  - 铃声和背景音乐配置
+## Runtime Configuration
 
-- **[app-env-usage.md](./setup/app-env-usage.md)** - 应用环境变量使用
-  - 开发/测试/生产环境配置
-  - 环境检测机制
+Use `EXPO_PUBLIC_*` variables only:
 
-- **[auto-env-detection.md](./setup/auto-env-detection.md)** - 自动环境检测
-  - 应用启动时的自动环境检测
-  - 配置文件的自动选择
-
-### 🎨 功能特性 (`features/`)
-
-移动端特定功能的实现和优化。
-
-- **[alarm-enhancements-summary.md](./features/alarm-enhancements-summary.md)** - Alarm 功能增强
-  - 来电铃声和震动
-  - 通话状态音效
-
-- **[mp3-format-update.md](./features/mp3-format-update.md)** - MP3 格式更新
-  - 音频文件格式支持
-  - 兼容性和性能优化
-
-### 📖 使用指南 (`guides/`)
-
-实现细节和使用说明。
-
-- **[implementation-status.md](./guides/implementation-status.md)** - 实现状态
-  - 功能完成情况
-  - 已知问题
-
-- **[modification-summary.md](./guides/modification-summary.md)** - 修改总结
-  - 最近的代码修改
-  - 变更日志
-
-### 🔍 故障排除 (`troubleshooting/`)
-
-常见问题和解决方案。
-
-- **[故障排除指南](./troubleshooting/README.md)** - 依赖、构建和环境问题的解决方案
-
----
-
-## 📂 项目结构
-
-```
-mobile/
-├── src/                          源代码
-│   ├── api/                      - API 调用
-│   ├── components/               - UI 组件
-│   ├── context/                  - React Context
-│   ├── screens/                  - 页面屏幕
-│   ├── services/                 - 业务服务
-│   └── config/                   - 配置文件
-├── android/                      - Android 特定代码
-├── ios/                         - iOS 特定代码
-├── assets/                       - 静态资源
-│   └── sounds/                   - 音频文件
-├── scripts/                     - 移动端脚本
-│   ├── verify-alarm-setup.sh
-│   ├── verify-app-env.sh
-│   └── README.md
-├── docs/                        - 移动端文档（本文档）
-├── package.json                - 依赖管理
-├── app.json                    - 应用配置
-├── metro.config.js            - 打包配置
-└── tsconfig.json              - TypeScript 配置
+```bash
+EXPO_PUBLIC_API_HTTP=http://127.0.0.1:8080
+EXPO_PUBLIC_API_WS=ws://127.0.0.1:8080
+EXPO_PUBLIC_FORCE_TLS=0
+EXPO_PUBLIC_SIGNALING_TRANSPORT=auto
 ```
 
----
+`APP_ENV`, `DEV_API`, and `PROD_API_IP` are historical names and are not active runtime controls.
 
-## 🚀 快速开始
+Detailed references:
 
-### 安装依赖
+- [Mobile runtime config](setup/app-env-usage.md)
+- [Configuration](../configuration/configuration.md)
+
+## Run Web
 
 ```bash
 cd mobile
 npm install
+EXPO_PUBLIC_API_HTTP=http://127.0.0.1:8080 \
+EXPO_PUBLIC_API_WS=ws://127.0.0.1:8080 \
+npm run web
 ```
 
-### 运行开发服务器
+Useful routes:
+
+- `/meetings`
+- `/rooms/:roomId`
+- `/conversations/:conversationId`
+
+## Run Android Development Client
 
 ```bash
-npm start
+adb reverse tcp:8080 tcp:8080
+adb reverse tcp:8081 tcp:8081
+
+cd mobile
+npm run start:dev-client
 ```
 
-### 构建 APK
+Build/install the dev client:
 
 ```bash
-cd android
-./gradlew assembleDebug
-```
-
-### 在真机上运行
-
-```bash
+cd mobile
 npm run android
-# 或
-adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
----
-
-## 📋 关键配置文件
-
-- **`app.json`** - 应用元数据和配置
-- **`eas.json`** - Expo 构建配置
-- **`metro.config.js`** - Metro 打包器配置
-- **`tsconfig.json`** - TypeScript 配置
-- **`package.json`** - 项目依赖和脚本
-
----
-
-## 📝 常用命令
+## Quality Gates
 
 ```bash
-# 启动开发服务器
-npm start
-
-# 清除缓存后启动
-npm start -- --clear
-
-# 运行在 Android 设备上
-npm run android
-
-# 构建 APK（Debug）
-cd android && ./gradlew assembleDebug
-
-# 构建 APK（Release）
-cd android && ./gradlew assembleRelease
+cd mobile
+npm run test:unit
+npx tsc --noEmit
+npm run lint
+npx expo export --platform web
 ```
 
----
+If Web export fails, check for native-only imports and move them behind platform adapters.
 
-## 🛠️ 故障排除
+## Important Source Areas
 
-### 依赖冲突
-
-```bash
-# 清除 node_modules 重新安装
-rm -rf node_modules package-lock.json
-npm install
+```text
+mobile/src/api/          API client and backend integration
+mobile/src/config/       EXPO_PUBLIC_* runtime config
+mobile/src/context/      Auth, signaling, rooms, follow-ups, billing
+mobile/src/platform/     Cross-platform adapters
+mobile/src/screens/      Meetings, Inbox, contacts, settings
+mobile/src/services/     Push, billing, media, audio/video/vibration
 ```
 
-### 构建失败
+## Supporting Docs
 
-```bash
-# 清除 Gradle 缓存
-cd android && ./gradlew clean
-
-# 重新构建
-./gradlew assembleDebug
-```
-
-### 环境检测失败
-
-```bash
-# 运行环境验证脚本
-./scripts/verify-app-env.sh
-./scripts/verify-alarm-setup.sh
-```
-
----
-
-## 🔗 相关链接
-
-- [主项目文档](../README.md)
-- [API 文档](../api/api-documentation.md)
-- [部署指南](../deployment/deployment-guide.md)
-- [移动端脚本](../../mobile/scripts/README.md)
-
----
-
-**最后更新**: 2025-12-16  
-**版本**: v2.0
+- [Web/Desktop workflow](../development/web-desktop-workflow.md)
+- [Web smoke tests](../testing/web-smoke.md)
+- [Restricted network setup](../deployment/restricted-network-setup.md)
+- [Audio files setup](setup/audio-files-setup.md)
+- [Mobile scripts](../../mobile/scripts/README.md)

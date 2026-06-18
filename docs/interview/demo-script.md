@@ -1,6 +1,6 @@
 # Interview Demo Script
 
-This script is optimized for a backend/AI Agent interview. It keeps the story focused on engineering evidence: deterministic Agent evaluation, async outbox execution, durable realtime replay, and authenticated WebSocket replay.
+This script is optimized for a backend/AI Agent interview. It keeps the story focused on engineering evidence: deterministic Agent evaluation, async outbox execution, durable realtime replay, authenticated WebSocket replay, and an optional microservice-friendly infrastructure path.
 
 ## 5-Minute Demo Path
 
@@ -21,10 +21,12 @@ make interview-demo
 
 ## Suggested Talking Points
 
-- Agent reliability: `POST /agent/runs` creates a pending run and enqueues `agent.run.requested`; the worker executes the run and records steps, tool calls, memory, and outbox events.
+- Agent reliability: `POST /agent/runs` creates a pending run and enqueues `agent.run.requested`; the worker executes the run and records steps, tool calls, memory, transcript references, and outbox events.
 - Tool boundary: read-only tools gather context, while side-effect tools write conversation messages, tasks, and memory. The registry documents schemas, permissions, and idempotency key templates.
 - Realtime reliability: replay is based on durable event IDs and sequence numbers, not only live WebSocket delivery.
 - Determinism: the default demo does not require external LLM keys, MySQL, Redis, JWTs, or a running backend.
+- Evolution path: the same code can run as a modular monolith, split workers, or an optional gRPC/Kafka/Elasticsearch demo without changing client-facing APIs.
+- Meeting transcription: recording stop can enqueue `recording.transcription.requested`; transcript segments are stored separately from older call subtitles and become Agent context.
 
 ## Live Backend Variant
 
@@ -43,6 +45,20 @@ make interview-microservice-demo
 ```
 
 This starts the API with `EMBEDDED_WORKERS=0`, then starts `agent-worker`, `outbox-worker`, and `cleanup-worker` as separate processes. It creates Agent runs through the API and waits for the standalone Agent worker to complete them.
+
+To demonstrate the microservice and data-infrastructure path, run the optional infrastructure profile first:
+
+```bash
+docker compose -f infra/docker-compose.yml --profile microservices --profile interview-infra up
+```
+
+Then demonstrate the three extracted capabilities:
+
+- gRPC: start `cmd/user-service`, then start the API with `USER_SERVICE_GRPC_ADDR`.
+- Kafka: configure `KAFKA_BROKERS`, run `cmd/outbox-worker` and `cmd/data-worker`, then end a room and inspect `room_settlements`.
+- Elasticsearch: configure `ELASTICSEARCH_URL`, run `cmd/search-worker`, create messages, then query `/api/v1/search/messages?q=<keyword>`.
+
+Only claim measured latency or throughput numbers after capturing them in [performance-report.md](performance-report.md). Otherwise present these as executable architecture evidence.
 
 For a lighter seed-only live path:
 
@@ -93,3 +109,12 @@ node scripts/load/ws-connections.mjs
 
 - Where is the distributed-systems part?
   Outbox events, WebSocket replay, idempotency keys, request IDs, metrics, and durable event storage are the core reliability mechanisms.
+
+- Why add gRPC if the monolith still works?
+  It proves a narrow synchronous service boundary for auth/user lookup while keeping external APIs unchanged. It is a safer extraction than splitting every CRUD module.
+
+- Why add Kafka if there is already an outbox?
+  The outbox protects the database transaction; Kafka decouples downstream consumers and absorbs bursts. The room-settlement path shows outbox-to-Kafka as a safe bridge.
+
+- Why add Elasticsearch instead of SQL LIKE?
+  MySQL remains the source of truth, while ES serves the search read model. The API still checks membership after ES returns hits, so search does not bypass authorization.
