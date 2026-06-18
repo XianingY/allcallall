@@ -24,6 +24,7 @@ import (
 
 const (
 	EventAgentRunRequested  = "agent.run.requested"
+	EventWorkflowRequested  = agent.EventWorkflowRunRequested
 	EventAgentRunCompleted  = "agent.run.completed"
 	EventMessageCreated     = "message.created"
 	EventSearchMessageIndex = "search.message.index_requested"
@@ -115,6 +116,26 @@ func RegisterAgentOutboxHandlers(processor *events.Processor, agentSvc *agent.Se
 			Uint64("outbox_id", event.ID).
 			Uint64("agent_run_id", payload.AgentRunID).
 			Msg("outbox agent run executed")
+		return nil
+	})
+	processor.Register(EventWorkflowRequested, func(ctx context.Context, event models.EventOutbox) error {
+		var payload struct {
+			WorkflowRunID uint64 `json:"workflow_run_id"`
+		}
+		if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+			return err
+		}
+		if payload.WorkflowRunID == 0 {
+			return fmt.Errorf("workflow run id missing in outbox payload")
+		}
+		if _, err := agentSvc.ProcessWorkflowRun(ctx, payload.WorkflowRunID); err != nil {
+			return err
+		}
+		log.Info().
+			Str("request_id", trace.RequestID(ctx)).
+			Uint64("outbox_id", event.ID).
+			Uint64("workflow_run_id", payload.WorkflowRunID).
+			Msg("outbox workflow run executed")
 		return nil
 	})
 }
@@ -231,7 +252,7 @@ func StartOutboxWorker(ctx context.Context, log zerolog.Logger, processor *event
 }
 
 func StartAgentWorker(ctx context.Context, log zerolog.Logger, processor *events.Processor) {
-	ConfigureOutboxProcessorFromEnv(processor, workerIDFromEnv("agent-worker"), EventAgentRunRequested)
+	ConfigureOutboxProcessorFromEnv(processor, workerIDFromEnv("agent-worker"), EventAgentRunRequested, EventWorkflowRequested)
 	StartOutboxWorker(ctx, log.With().Str("worker", "agent").Logger(), processor)
 }
 

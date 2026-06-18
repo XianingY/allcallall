@@ -312,6 +312,7 @@ func main() {
 	if appruntime.EmbeddedWorkersEnabledFromEnv() {
 		outboxEvents := []string{
 			appruntime.EventAgentRunRequested,
+			appruntime.EventWorkflowRequested,
 			appruntime.EventAgentRunCompleted,
 			appruntime.EventMessageCreated,
 			appruntime.EventSearchMessageIndex,

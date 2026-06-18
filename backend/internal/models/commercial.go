@@ -42,6 +42,7 @@ const (
 	AgentRunSourceRules            = "rules"
 	AgentRunSourceMockLLM          = "mock_llm"
 	AgentRunSourceOpenAICompatible = "openai_compatible"
+	AgentRunSourceWorkflow         = "workflow_agent"
 
 	AgentMemoryScopeConversation = "conversation"
 )

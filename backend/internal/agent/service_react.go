@@ -140,6 +140,17 @@ func (s *Service) executeReActRun(ctx context.Context, run models.AgentRun, goal
 				})
 				continue
 			}
+			if err := ValidateToolArguments(tc.ToolName, tc.InputJSON); err != nil {
+				tc.Status = models.ToolCallStatusFailed
+				tc.ErrorMessage = err.Error()
+				s.recordToolCall(ctx, tc)
+				messageHistory = append(messageHistory, map[string]any{
+					"role":         "tool",
+					"tool_call_id": tc.CallID,
+					"content":      tc.ErrorMessage,
+				})
+				continue
+			}
 
 			if toolDef.RequiresApproval {
 				// Human-in-the-loop pause!
@@ -209,6 +220,9 @@ func (s *Service) markRunReady(ctx context.Context, run models.AgentRun, output 
 }
 
 func (s *Service) executeToolLocally(ctx context.Context, run models.AgentRun, tc models.AgentToolCall) (string, error) {
+	if err := ValidateToolArguments(tc.ToolName, tc.InputJSON); err != nil {
+		return "", err
+	}
 	var params map[string]any
 	if err := json.Unmarshal([]byte(tc.InputJSON), &params); err != nil {
 		return "", fmt.Errorf("invalid tool input json: %v", err)

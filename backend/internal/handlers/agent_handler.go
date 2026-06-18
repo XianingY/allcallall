@@ -40,11 +40,26 @@ func (h *AgentHandler) RegisterProtectedRoutes(protected *gin.RouterGroup) {
 	protected.GET("/agent/runs/:id/events", h.handleGetRunEvents)
 	protected.GET("/agent/runs/:id", h.handleGetRun)
 	protected.POST("/agent/runs/:id/submit-tool-outputs", h.handleSubmitToolOutputs)
+	protected.POST("/agent/workflows", h.handleCreateWorkflow)
+	protected.GET("/agent/workflows", h.handleListWorkflows)
+	protected.GET("/agent/workflows/:id", h.handleGetWorkflow)
+	protected.POST("/agent/workflows/:id/process", h.handleProcessWorkflow)
+	protected.GET("/agent/approvals", h.handleListApprovals)
+	protected.POST("/agent/approvals/:id/decision", h.handleSubmitApprovalDecision)
 }
 
 type createAgentRunRequest struct {
 	ConversationID uint64 `json:"conversation_id" binding:"required"`
 	Goal           string `json:"goal"`
+}
+
+type createWorkflowRequest struct {
+	ConversationID uint64 `json:"conversation_id" binding:"required"`
+	Goal           string `json:"goal"`
+}
+
+type submitApprovalDecisionRequest struct {
+	Decision string `json:"decision" binding:"required"`
 }
 
 type agentRunResponse struct {
@@ -233,6 +248,146 @@ func (h *AgentHandler) handleSubmitToolOutputs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "success"})
 }
 
+func (h *AgentHandler) handleCreateWorkflow(c *gin.Context) {
+	if h.service == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_SERVICE_UNAVAILABLE", "agent service unavailable")
+		return
+	}
+	claims, organizationID, ok := h.requireAgentContext(c)
+	if !ok {
+		return
+	}
+	var req createWorkflowRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := h.service.StartWorkflowAgent(c.Request.Context(), organizationID, claims.UserID, agent.WorkflowInput{
+		ConversationID: req.ConversationID,
+		Goal:           req.Goal,
+		IdempotencyKey: c.GetHeader("Idempotency-Key"),
+	})
+	if err != nil {
+		h.writeAgentError(c, err)
+		return
+	}
+	JSONSuccess(c, http.StatusAccepted, toWorkflowResultResponse(result))
+}
+
+func (h *AgentHandler) handleListWorkflows(c *gin.Context) {
+	if h.service == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_SERVICE_UNAVAILABLE", "agent service unavailable")
+		return
+	}
+	claims, organizationID, ok := h.requireAgentContext(c)
+	if !ok {
+		return
+	}
+	limit := parseOptionalPositiveInt(c.Query("limit"), 50)
+	results, err := h.service.ListWorkflowRuns(c.Request.Context(), organizationID, claims.UserID, limit)
+	if err != nil {
+		h.writeAgentError(c, err)
+		return
+	}
+	items := make([]gin.H, 0, len(results))
+	for i := range results {
+		items = append(items, toWorkflowResultResponse(&results[i]))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"workflows": items})
+}
+
+func (h *AgentHandler) handleGetWorkflow(c *gin.Context) {
+	if h.service == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_SERVICE_UNAVAILABLE", "agent service unavailable")
+		return
+	}
+	claims, organizationID, ok := h.requireAgentContext(c)
+	if !ok {
+		return
+	}
+	workflowID, err := parseUintParam(c.Param("id"))
+	if err != nil || workflowID == 0 {
+		JSONError(c, http.StatusBadRequest, "invalid workflow id")
+		return
+	}
+	result, err := h.service.GetWorkflowRun(c.Request.Context(), organizationID, claims.UserID, workflowID)
+	if err != nil {
+		h.writeAgentError(c, err)
+		return
+	}
+	JSONSuccess(c, http.StatusOK, toWorkflowResultResponse(result))
+}
+
+func (h *AgentHandler) handleProcessWorkflow(c *gin.Context) {
+	if h.service == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_SERVICE_UNAVAILABLE", "agent service unavailable")
+		return
+	}
+	claims, organizationID, ok := h.requireAgentContext(c)
+	if !ok {
+		return
+	}
+	workflowID, err := parseUintParam(c.Param("id"))
+	if err != nil || workflowID == 0 {
+		JSONError(c, http.StatusBadRequest, "invalid workflow id")
+		return
+	}
+	if _, err := h.service.GetWorkflowRun(c.Request.Context(), organizationID, claims.UserID, workflowID); err != nil {
+		h.writeAgentError(c, err)
+		return
+	}
+	result, err := h.service.ProcessWorkflowRun(c.Request.Context(), workflowID)
+	if err != nil {
+		h.writeAgentError(c, err)
+		return
+	}
+	JSONSuccess(c, http.StatusOK, toWorkflowResultResponse(result))
+}
+
+func (h *AgentHandler) handleListApprovals(c *gin.Context) {
+	if h.service == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_SERVICE_UNAVAILABLE", "agent service unavailable")
+		return
+	}
+	claims, organizationID, ok := h.requireAgentContext(c)
+	if !ok {
+		return
+	}
+	approvals, err := h.service.ListToolApprovals(c.Request.Context(), organizationID, claims.UserID, c.Query("status"))
+	if err != nil {
+		h.writeAgentError(c, err)
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"approvals": toToolApprovalResponses(approvals)})
+}
+
+func (h *AgentHandler) handleSubmitApprovalDecision(c *gin.Context) {
+	if h.service == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_SERVICE_UNAVAILABLE", "agent service unavailable")
+		return
+	}
+	claims, organizationID, ok := h.requireAgentContext(c)
+	if !ok {
+		return
+	}
+	approvalID, err := parseUintParam(c.Param("id"))
+	if err != nil || approvalID == 0 {
+		JSONError(c, http.StatusBadRequest, "invalid approval id")
+		return
+	}
+	var req submitApprovalDecisionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := h.service.SubmitWorkflowApproval(c.Request.Context(), organizationID, claims.UserID, approvalID, req.Decision)
+	if err != nil {
+		h.writeAgentError(c, err)
+		return
+	}
+	JSONSuccess(c, http.StatusOK, toWorkflowResultResponse(result))
+}
+
 func (h *AgentHandler) handleStreamRunEvents(c *gin.Context) {
 	if h.service == nil {
 		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_SERVICE_UNAVAILABLE", "agent service unavailable")
@@ -333,6 +488,12 @@ func (h *AgentHandler) writeAgentError(c *gin.Context, err error) {
 		JSONErrorWithCode(c, http.StatusForbidden, "CONVERSATION_ACCESS_DENIED", "conversation access denied")
 	case errors.Is(err, agent.ErrAgentRunNotFound):
 		JSONErrorWithCode(c, http.StatusNotFound, "AGENT_RUN_NOT_FOUND", "agent run not found")
+	case errors.Is(err, agent.ErrWorkflowRunNotFound):
+		JSONErrorWithCode(c, http.StatusNotFound, "WORKFLOW_RUN_NOT_FOUND", "workflow run not found")
+	case errors.Is(err, agent.ErrToolApprovalNotFound):
+		JSONErrorWithCode(c, http.StatusNotFound, "TOOL_APPROVAL_NOT_FOUND", "tool approval not found")
+	case errors.Is(err, agent.ErrToolApprovalForbidden):
+		JSONErrorWithCode(c, http.StatusForbidden, "TOOL_APPROVAL_FORBIDDEN", "tool approval forbidden")
 	case errors.Is(err, agent.ErrPlannerUnavailable):
 		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_PLANNER_UNAVAILABLE", "agent planner unavailable")
 	default:
@@ -373,6 +534,116 @@ func toAgentRunResultResponse(result *agent.RunResult) gin.H {
 		"trace":      toAgentTraceEventResponses(result.Trace),
 		"citations":  result.Citations,
 	}
+}
+
+func toWorkflowResultResponse(result *agent.WorkflowResult) gin.H {
+	if result == nil {
+		return gin.H{}
+	}
+	return gin.H{
+		"workflow":    toWorkflowRunResponse(result.Run, result.ActionItems, result.RiskFlags),
+		"tasks":       toWorkflowTaskResponses(result.Tasks),
+		"messages":    toAgentMessageResponses(result.Messages),
+		"approvals":   toToolApprovalResponses(result.Approvals),
+		"citations":   result.Citations,
+		"actionItems": result.ActionItems,
+		"riskFlags":   result.RiskFlags,
+	}
+}
+
+func toWorkflowRunResponse(run models.WorkflowRun, actionItems, riskFlags []string) gin.H {
+	return gin.H{
+		"id":              run.ID,
+		"organization_id": run.OrganizationID,
+		"user_id":         run.UserID,
+		"conversation_id": run.ConversationID,
+		"agent_run_id":    run.AgentRunID,
+		"idempotency_key": run.IdempotencyKey,
+		"request_id":      run.RequestID,
+		"status":          run.Status,
+		"goal":            run.Goal,
+		"summary":         run.Summary,
+		"action_items":    actionItems,
+		"next_step":       run.NextStep,
+		"risk_flags":      riskFlags,
+		"error_message":   run.ErrorMessage,
+		"attempts":        run.Attempts,
+		"lease_until":     run.LeaseUntil,
+		"started_at":      run.StartedAt,
+		"completed_at":    run.CompletedAt,
+		"created_at":      run.CreatedAt,
+		"updated_at":      run.UpdatedAt,
+	}
+}
+
+func toWorkflowTaskResponses(tasks []models.WorkflowTask) []gin.H {
+	out := make([]gin.H, 0, len(tasks))
+	for _, task := range tasks {
+		out = append(out, gin.H{
+			"id":              task.ID,
+			"workflow_run_id": task.WorkflowRunID,
+			"organization_id": task.OrganizationID,
+			"name":            task.Name,
+			"role":            task.Role,
+			"status":          task.Status,
+			"depends_on_json": task.DependsOnJSON,
+			"input_json":      task.InputJSON,
+			"output_json":     task.OutputJSON,
+			"error_message":   task.ErrorMessage,
+			"attempts":        task.Attempts,
+			"lease_until":     task.LeaseUntil,
+			"started_at":      task.StartedAt,
+			"completed_at":    task.CompletedAt,
+			"created_at":      task.CreatedAt,
+			"updated_at":      task.UpdatedAt,
+		})
+	}
+	return out
+}
+
+func toAgentMessageResponses(messages []models.AgentMessage) []gin.H {
+	out := make([]gin.H, 0, len(messages))
+	for _, message := range messages {
+		out = append(out, gin.H{
+			"id":              message.ID,
+			"workflow_run_id": message.WorkflowRunID,
+			"task_id":         message.TaskID,
+			"organization_id": message.OrganizationID,
+			"from_role":       message.FromRole,
+			"to_role":         message.ToRole,
+			"message_type":    message.MessageType,
+			"content_json":    message.ContentJSON,
+			"correlation_id":  message.CorrelationID,
+			"created_at":      message.CreatedAt,
+		})
+	}
+	return out
+}
+
+func toToolApprovalResponses(approvals []models.ToolApproval) []gin.H {
+	out := make([]gin.H, 0, len(approvals))
+	for _, approval := range approvals {
+		out = append(out, gin.H{
+			"id":              approval.ID,
+			"workflow_run_id": approval.WorkflowRunID,
+			"task_id":         approval.TaskID,
+			"organization_id": approval.OrganizationID,
+			"tool_call_id":    approval.ToolCallID,
+			"tool_name":       approval.ToolName,
+			"status":          approval.Status,
+			"input_json":      approval.InputJSON,
+			"output_json":     approval.OutputJSON,
+			"error_message":   approval.ErrorMessage,
+			"requested_by":    approval.RequestedBy,
+			"decided_by":      approval.DecidedBy,
+			"decision":        approval.Decision,
+			"requested_at":    approval.RequestedAt,
+			"decided_at":      approval.DecidedAt,
+			"created_at":      approval.CreatedAt,
+			"updated_at":      approval.UpdatedAt,
+		})
+	}
+	return out
 }
 
 func toAgentRunResponse(run models.AgentRun, actionItems, riskFlags []string) agentRunResponse {
@@ -491,4 +762,15 @@ func parseAgentEventStreamTimeout(raw string) time.Duration {
 		return 5 * time.Minute
 	}
 	return timeout
+}
+
+func parseOptionalPositiveInt(raw string, fallback int) int {
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
 }

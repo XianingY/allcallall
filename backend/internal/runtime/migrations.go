@@ -62,6 +62,11 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.RAGSource{},
 		&models.RAGSourceVersion{},
 		&models.RAGChunk{},
+		&models.WorkflowRun{},
+		&models.WorkflowTask{},
+		&models.AgentMessage{},
+		&models.ToolPolicy{},
+		&models.ToolApproval{},
 		&models.EventOutbox{},
 	)
 }

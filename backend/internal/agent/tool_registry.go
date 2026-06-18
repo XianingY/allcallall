@@ -1,7 +1,5 @@
 package agent
 
-import "strings"
-
 const (
 	ToolKindReadOnly   = "read_only"
 	ToolKindSideEffect = "side_effect"
@@ -19,16 +17,19 @@ const (
 	ToolDelegateTask             = "delegate_task"
 )
 
+// JSONSchema stores a strict tool argument/result schema that can be sent to LLM providers.
+type JSONSchema map[string]any
+
 // ToolDescriptor documents the backend-owned tool boundary exposed to Agent planners.
 type ToolDescriptor struct {
-	Name                   string            `json:"name"`
-	Kind                   string            `json:"kind"`
-	Permission             string            `json:"permission"`
-	Description            string            `json:"description"`
-	RequiresApproval       bool              `json:"requires_approval"`
-	IdempotencyKeyTemplate string            `json:"idempotency_key_template,omitempty"`
-	InputSchema            map[string]string `json:"input_schema"`
-	OutputSchema           map[string]string `json:"output_schema"`
+	Name                   string     `json:"name"`
+	Kind                   string     `json:"kind"`
+	Permission             string     `json:"permission"`
+	Description            string     `json:"description"`
+	RequiresApproval       bool       `json:"requires_approval"`
+	IdempotencyKeyTemplate string     `json:"idempotency_key_template,omitempty"`
+	InputSchema            JSONSchema `json:"input_schema"`
+	OutputSchema           JSONSchema `json:"output_schema"`
 }
 
 // RegisteredTools returns a stable registry used by docs, evals, and interview traces.
@@ -39,120 +40,149 @@ func RegisteredTools() []ToolDescriptor {
 			Kind:        ToolKindReadOnly,
 			Permission:  ToolPermissionConversationMember,
 			Description: "Load recent meeting context attached to a conversation.",
-			InputSchema: map[string]string{
-				"conversation_id": "uint64",
-				"limit":           "int",
-			},
-			OutputSchema: map[string]string{
-				"rooms": "array<{room_id,title,status}>",
-				"count": "int",
-			},
+			InputSchema: objectSchema([]string{"conversation_id", "limit"}, map[string]any{
+				"conversation_id": integerSchema("Conversation id to inspect."),
+				"limit":           integerSchema("Maximum number of rooms to return."),
+			}),
+			OutputSchema: objectSchema([]string{"rooms", "count"}, map[string]any{
+				"rooms": arraySchema(objectSchema([]string{"room_id", "title", "status"}, map[string]any{
+					"room_id": integerSchema("Room id."),
+					"title":   stringSchema("Room title."),
+					"status":  stringSchema("Room status."),
+				})),
+				"count": integerSchema("Returned room count."),
+			}),
 		},
 		{
 			Name:        ToolQueryConversationMembers,
 			Kind:        ToolKindReadOnly,
 			Permission:  ToolPermissionConversationMember,
 			Description: "Load bounded member and peer context for a conversation.",
-			InputSchema: map[string]string{
-				"conversation_id": "uint64",
-			},
-			OutputSchema: map[string]string{
-				"member_count":  "int",
-				"peer_user_ids": "array<uint64>",
-			},
+			InputSchema: objectSchema([]string{"conversation_id"}, map[string]any{
+				"conversation_id": integerSchema("Conversation id to inspect."),
+			}),
+			OutputSchema: objectSchema([]string{"member_count", "peer_user_ids"}, map[string]any{
+				"member_count":  integerSchema("Returned member count."),
+				"peer_user_ids": arraySchema(integerSchema("Peer user id.")),
+			}),
 		},
 		{
 			Name:        ToolQueryContactProfile,
 			Kind:        ToolKindReadOnly,
 			Permission:  ToolPermissionConversationMember,
 			Description: "Load organization-scoped business contact metadata when a thread is bound to a contact.",
-			InputSchema: map[string]string{
-				"conversation_id": "uint64",
-				"contact_id":      "uint64|null",
-			},
-			OutputSchema: map[string]string{
-				"status":              "found|not_found|skipped",
-				"contact_user_id":     "uint64,omitempty",
-				"company":             "string,omitempty",
-				"role":                "string,omitempty",
-				"timezone":            "string,omitempty",
-				"relationship_status": "string,omitempty",
-			},
+			InputSchema: objectSchema([]string{"conversation_id"}, map[string]any{
+				"conversation_id": integerSchema("Conversation id to inspect."),
+				"contact_id":      nullableIntegerSchema("Optional contact user id."),
+			}),
+			OutputSchema: objectSchema([]string{"status"}, map[string]any{
+				"status":              enumStringSchema([]string{"found", "not_found", "skipped"}, "Lookup status."),
+				"contact_user_id":     integerSchema("Contact user id."),
+				"company":             stringSchema("Company."),
+				"role":                stringSchema("Role."),
+				"timezone":            stringSchema("Timezone."),
+				"relationship_status": stringSchema("Relationship status."),
+			}),
 		},
 		{
 			Name:        ToolQueryContextChunks,
 			Kind:        ToolKindReadOnly,
 			Permission:  ToolPermissionConversationMember,
-			Description: "Retrieve Top-K SQL-ranked RAG context chunks from messages, notes, memories, call follow-ups, contact profiles, and transcript segments.",
-			InputSchema: map[string]string{
-				"conversation_id": "uint64",
-				"query":           "string",
-				"limit":           "int",
-			},
-			OutputSchema: map[string]string{
-				"chunks": "array<{chunk_id,source_type,source_id,title,score,snippet,created_at}>",
-				"count":  "int",
-			},
+			Description: "Retrieve Top-K RAG context chunks from conversation context and organization knowledge sources.",
+			InputSchema: objectSchema([]string{"conversation_id", "query", "limit"}, map[string]any{
+				"conversation_id": integerSchema("Conversation id used for scoped retrieval."),
+				"query":           stringSchema("Search query."),
+				"limit":           integerSchema("Maximum number of chunks to return."),
+			}),
+			OutputSchema: objectSchema([]string{"chunks", "count"}, map[string]any{
+				"chunks": arraySchema(objectSchema([]string{"chunk_id", "source_type", "source_id", "score", "retrieval_mode", "snippet"}, map[string]any{
+					"chunk_id":            integerSchema("Chunk id."),
+					"source_type":         stringSchema("Source type."),
+					"source_id":           integerSchema("Source id."),
+					"title":               stringSchema("Display title."),
+					"score":               numberSchema("Retriever score."),
+					"retrieval_mode":      enumStringSchema([]string{"vector", "sql_fallback"}, "Retriever mode."),
+					"fallback_reason":     stringSchema("Fallback reason when vector retrieval was unavailable."),
+					"snippet":             stringSchema("Grounding snippet."),
+					"created_at":          stringSchema("Source timestamp."),
+					"knowledge_source_id": integerSchema("Knowledge source id."),
+					"origin_type":         stringSchema("Knowledge origin type."),
+					"origin_url":          stringSchema("Origin URL."),
+				})),
+				"count": integerSchema("Returned chunk count."),
+			}),
 		},
 		{
 			Name:                   ToolWriteConversationMessage,
 			Kind:                   ToolKindSideEffect,
 			Permission:             ToolPermissionConversationWriter,
 			Description:            "Write the Agent result back to the collaboration thread and enqueue message events.",
+			RequiresApproval:       true,
 			IdempotencyKeyTemplate: "agent.run.completed:{agent_run_id}",
-			InputSchema: map[string]string{
-				"conversation_id": "uint64",
-				"event_type":      "agent.run.completed",
-			},
-			OutputSchema: map[string]string{
-				"message_id": "uint64",
-			},
+			InputSchema: objectSchema([]string{"conversation_id", "summary", "action_items", "next_step", "risk_flags"}, map[string]any{
+				"conversation_id": integerSchema("Conversation id to write into."),
+				"summary":         stringSchema("Grounded assistant summary."),
+				"action_items":    arraySchema(stringSchema("Action item.")),
+				"next_step":       stringSchema("Recommended next step."),
+				"risk_flags":      arraySchema(stringSchema("Risk flag.")),
+				"citations":       arraySchema(looseObjectSchema("Grounding citation.")),
+			}),
+			OutputSchema: objectSchema([]string{"message_id"}, map[string]any{
+				"message_id": integerSchema("Created message id."),
+			}),
 		},
 		{
 			Name:                   ToolCreateFollowUpTask,
 			Kind:                   ToolKindSideEffect,
 			Permission:             ToolPermissionConversationWriter,
 			Description:            "Create a follow-up task from the planned next step.",
+			RequiresApproval:       true,
 			IdempotencyKeyTemplate: "agent.run:{agent_run_id}:follow_up_task",
-			InputSchema: map[string]string{
-				"conversation_id": "uint64",
-				"task_type":       "send_message|schedule_next_call",
-			},
-			OutputSchema: map[string]string{
-				"task_id": "uint64",
-			},
+			InputSchema: objectSchema([]string{"conversation_id", "next_step"}, map[string]any{
+				"conversation_id": integerSchema("Conversation id associated with the task."),
+				"task_type":       enumStringSchema([]string{"send_message", "schedule_next_call"}, "Optional task type override."),
+				"next_step":       stringSchema("Task description."),
+			}),
+			OutputSchema: objectSchema([]string{"task_id"}, map[string]any{
+				"task_id": integerSchema("Created follow-up task id."),
+			}),
 		},
 		{
 			Name:                   ToolUpsertConversationMemory,
 			Kind:                   ToolKindSideEffect,
 			Permission:             ToolPermissionConversationWriter,
 			Description:            "Upsert a small conversation-scoped memory entry for future Agent context retrieval.",
+			RequiresApproval:       true,
 			IdempotencyKeyTemplate: "agent.memory:{organization_id}:{user_id}:{conversation_id}:last_agent_summary",
-			InputSchema: map[string]string{
-				"conversation_id": "uint64",
-				"key":             "last_agent_summary",
-			},
-			OutputSchema: map[string]string{
-				"memory_id": "uint64",
-			},
+			InputSchema: objectSchema([]string{"conversation_id", "summary", "action_items", "next_step", "risk_flags"}, map[string]any{
+				"conversation_id": integerSchema("Conversation id associated with the memory."),
+				"summary":         stringSchema("Grounded assistant summary."),
+				"action_items":    arraySchema(stringSchema("Action item.")),
+				"next_step":       stringSchema("Recommended next step."),
+				"risk_flags":      arraySchema(stringSchema("Risk flag.")),
+				"key":             enumStringSchema([]string{"last_agent_summary"}, "Memory key."),
+			}),
+			OutputSchema: objectSchema([]string{"memory_id"}, map[string]any{
+				"memory_id": integerSchema("Upserted memory id."),
+			}),
 		},
 		{
 			Name:                   ToolDelegateTask,
 			Kind:                   ToolKindSideEffect,
 			Permission:             ToolPermissionConversationWriter,
 			Description:            "Delegate a specialized sub-task to a specific agent role.",
-			RequiresApproval:       false,
+			RequiresApproval:       true,
 			IdempotencyKeyTemplate: "agent.delegate:{agent_run_id}:{target_role}",
-			InputSchema: map[string]string{
-				"target_role": "string",
-				"task_goal":   "string",
-				"context":     "string",
-			},
-			OutputSchema: map[string]string{
-				"run_id":         "uint64",
-				"status":         "string",
-				"result_summary": "string",
-			},
+			InputSchema: objectSchema([]string{"target_role", "task_goal", "context"}, map[string]any{
+				"target_role": stringSchema("Agent role to delegate to."),
+				"task_goal":   stringSchema("Sub-task goal."),
+				"context":     stringSchema("Bounded context passed by the workflow."),
+			}),
+			OutputSchema: objectSchema([]string{"run_id", "status", "result_summary"}, map[string]any{
+				"run_id":         integerSchema("Delegated run id."),
+				"status":         stringSchema("Delegated run status."),
+				"result_summary": stringSchema("Delegated result summary."),
+			}),
 		},
 	}
 }
@@ -174,50 +204,62 @@ func ToOpenAITools(descriptors []ToolDescriptor) []map[string]any {
 			"function": map[string]any{
 				"name":        def.Name,
 				"description": def.Description,
-				"parameters":  buildJsonSchema(def.InputSchema),
+				"parameters":  def.InputSchema,
 			},
 		})
 	}
 	return tools
 }
 
-func buildJsonSchema(schema map[string]string) map[string]any {
-	properties := make(map[string]any)
-	var required []string
-
-	for key, typeDesc := range schema {
-		parts := strings.SplitN(typeDesc, ":", 2)
-		typeStr := strings.TrimSpace(parts[0])
-		desc := ""
-		if len(parts) > 1 {
-			desc = strings.TrimSpace(parts[1])
-		}
-
-		prop := map[string]any{}
-		if desc != "" {
-			prop["description"] = desc
-		}
-
-		if strings.HasPrefix(typeStr, "array<") {
-			prop["type"] = "array"
-			// Just generic item type
-			prop["items"] = map[string]any{"type": "string"}
-		} else if typeStr == "int" || typeStr == "uint64" {
-			prop["type"] = "integer"
-		} else if typeStr == "bool" {
-			prop["type"] = "boolean"
-		} else {
-			prop["type"] = "string"
-		}
-
-		properties[key] = prop
-		required = append(required, key)
+func objectSchema(required []string, properties map[string]any) JSONSchema {
+	if properties == nil {
+		properties = map[string]any{}
 	}
-
-	return map[string]any{
+	if required == nil {
+		required = []string{}
+	}
+	return JSONSchema{
 		"type":                 "object",
 		"properties":           properties,
 		"required":             required,
 		"additionalProperties": false,
 	}
+}
+
+func looseObjectSchema(description string) JSONSchema {
+	return JSONSchema{
+		"type":                 "object",
+		"description":          description,
+		"properties":           map[string]any{},
+		"required":             []string{},
+		"additionalProperties": true,
+	}
+}
+
+func stringSchema(description string) JSONSchema {
+	return JSONSchema{"type": "string", "description": description}
+}
+
+func enumStringSchema(values []string, description string) JSONSchema {
+	enum := make([]any, 0, len(values))
+	for _, value := range values {
+		enum = append(enum, value)
+	}
+	return JSONSchema{"type": "string", "enum": enum, "description": description}
+}
+
+func integerSchema(description string) JSONSchema {
+	return JSONSchema{"type": "integer", "description": description}
+}
+
+func nullableIntegerSchema(description string) JSONSchema {
+	return JSONSchema{"type": []any{"integer", "null"}, "description": description}
+}
+
+func numberSchema(description string) JSONSchema {
+	return JSONSchema{"type": "number", "description": description}
+}
+
+func arraySchema(items any) JSONSchema {
+	return JSONSchema{"type": "array", "items": items}
 }
