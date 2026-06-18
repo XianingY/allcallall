@@ -14,13 +14,19 @@ import {
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import {
+  createAgentRun,
   createWorkflowRun,
-  fetchWorkflowRun,
+  fetchAgentRun,
+  fetchAgentRunEvents,
   listToolApprovals,
   listWorkflowRuns,
   processWorkflowRun,
   submitToolApprovalDecision,
   type AgentCitation,
+  type AgentRunEventRecord,
+  type AgentRunResult,
+  type AgentTraceEventRecord,
+  type AgentToolCallRecord,
   type ToolApprovalRecord,
   type WorkflowResult,
   type WorkflowTaskRecord,
@@ -67,6 +73,8 @@ type Props =
   | NativeStackScreenProps<RootStackParamList, "AgentDemo">
   | NativeStackScreenProps<RootStackParamList, "KnowledgeCenter">;
 type LabTab = "knowledge" | "run" | "graph" | "approvals" | "eval";
+type WorkflowPreset = "meeting_brief" | "follow_up" | "risk_review";
+type ApprovalFilter = "pending" | "all";
 
 const tabs: Array<{ key: LabTab; label: string }> = [
   { key: "knowledge", label: "Knowledge" },
@@ -78,6 +86,14 @@ const tabs: Array<{ key: LabTab; label: string }> = [
 
 const defaultGoal =
   "请基于会话消息、内部备注和知识库，给出客户当前诉求、风险点、下一步建议，并列出依据。";
+
+const workflowPresets: Array<{ key: WorkflowPreset; label: string }> = [
+  { key: "meeting_brief", label: "Meeting Brief" },
+  { key: "follow_up", label: "Follow-up" },
+  { key: "risk_review", label: "Risk Review" },
+];
+
+const terminalRunStatuses = new Set(["ready", "failed", "requires_action"]);
 
 const statusTone = (status: string) => {
   switch (status) {
@@ -120,6 +136,37 @@ const formatTime = (value?: string | null) => {
   return date.toLocaleTimeString();
 };
 
+const sourceTypeLabel = (sourceType: string) => {
+  switch (sourceType) {
+    case "meeting_transcript":
+      return "Meeting transcript";
+    case "transcript":
+      return "Call captions";
+    case "knowledge":
+      return "Knowledge";
+    case "message":
+      return "Message";
+    case "note":
+      return "Internal note";
+    case "memory":
+      return "Agent memory";
+    case "followup":
+      return "Follow-up";
+    case "contact_profile":
+      return "Contact";
+    default:
+      return sourceType || "Context";
+  }
+};
+
+const jsonSummary = (raw?: string, max = 360) => {
+  const parsed = parseJSON(raw);
+  if (parsed === null || parsed === undefined) {
+    return raw ? compact(raw, max) : "";
+  }
+  return compact(JSON.stringify(parsed), max);
+};
+
 const taskOrder = (task: WorkflowTaskRecord) => {
   const index = [
     "collect_context",
@@ -160,10 +207,16 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
     useState<KnowledgeSourceDetail | null>(null);
   const [deadLetters, setDeadLetters] = useState<DeadLetterRecord[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowResult[]>([]);
+  const [activeRun, setActiveRun] = useState<AgentRunResult | null>(null);
+  const [runEvents, setRunEvents] = useState<AgentRunEventRecord[]>([]);
   const [activeWorkflow, setActiveWorkflow] = useState<WorkflowResult | null>(
     null,
   );
   const [approvals, setApprovals] = useState<ToolApprovalRecord[]>([]);
+  const [approvalFilter, setApprovalFilter] =
+    useState<ApprovalFilter>("pending");
+  const [workflowPreset, setWorkflowPreset] =
+    useState<WorkflowPreset>("meeting_brief");
   const [goal, setGoal] = useState(defaultGoal);
   const [manualTitle, setManualTitle] = useState("Demo knowledge note");
   const [manualText, setManualText] = useState(
@@ -187,6 +240,20 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
         (a, b) => taskOrder(a) - taskOrder(b),
       ),
     [activeWorkflow?.tasks],
+  );
+  const pendingWorkflowApprovals = useMemo(
+    () =>
+      (activeWorkflow?.approvals ?? []).filter(
+        (approval) => approval.status === "pending",
+      ),
+    [activeWorkflow?.approvals],
+  );
+  const visibleApprovals = useMemo(
+    () =>
+      approvalFilter === "pending"
+        ? approvals.filter((approval) => approval.status === "pending")
+        : approvals,
+    [approvalFilter, approvals],
   );
   const visibleTabs = useMemo(
     () =>
@@ -256,6 +323,19 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
     });
   }, [currentOrganization, token]);
 
+  const refreshActiveRun = useCallback(
+    async (runId: number) => {
+      if (!token) return;
+      const [nextRun, nextEvents] = await Promise.all([
+        fetchAgentRun(token, runId),
+        fetchAgentRunEvents(token, runId),
+      ]);
+      setActiveRun(nextRun);
+      setRunEvents(nextEvents);
+    },
+    [token],
+  );
+
   const refreshConversations = useCallback(async () => {
     if (!token || !currentOrganization) {
       setConversations([]);
@@ -319,6 +399,17 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
       console.error("[AgentLab] Context refresh failed:", error);
     });
   }, [refreshSelectedContext]);
+
+  useEffect(() => {
+    if (!token || !activeRun) return;
+    if (terminalRunStatuses.has(activeRun.run.status)) return;
+    const timer = setInterval(() => {
+      void refreshActiveRun(activeRun.run.id).catch((error) => {
+        console.error("[AgentLab] Agent run refresh failed:", error);
+      });
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [activeRun, refreshActiveRun, token]);
 
   const selectSource = useCallback(
     async (sourceId: number) => {
@@ -449,6 +540,27 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
     [fileTitle, refreshKnowledge, selectSource, selectedConversationId, token],
   );
 
+  const handleStartReactRun = useCallback(async () => {
+    if (!token || !selectedConversationId) return;
+    try {
+      setBusy(true);
+      const created = await createAgentRun(token, {
+        conversation_id: selectedConversationId,
+        goal: goal.trim() || defaultGoal,
+      });
+      setActiveRun(created);
+      setRunEvents([]);
+      await refreshActiveRun(created.run.id);
+      setActiveTab("run");
+      setNotice("ReAct run started");
+    } catch (error) {
+      console.error("[AgentLab] ReAct run failed:", error);
+      Alert.alert("启动失败", "无法启动 ReAct Agent。");
+    } finally {
+      setBusy(false);
+    }
+  }, [goal, refreshActiveRun, selectedConversationId, token]);
+
   const handleStartWorkflow = useCallback(async () => {
     if (!token || !selectedConversationId) return;
     try {
@@ -456,6 +568,7 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
       const created = await createWorkflowRun(token, {
         conversation_id: selectedConversationId,
         goal: goal.trim() || defaultGoal,
+        preset: workflowPreset,
       });
       const processed = await processWorkflowRun(token, created.workflow.id);
       setActiveWorkflow(processed);
@@ -468,7 +581,7 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
     } finally {
       setBusy(false);
     }
-  }, [goal, refreshWorkflows, selectedConversationId, token]);
+  }, [goal, refreshWorkflows, selectedConversationId, token, workflowPreset]);
 
   const handleProcessWorkflow = useCallback(async () => {
     if (!token || !activeWorkflow) return;
@@ -964,12 +1077,20 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
               Messages {messages.length} · Notes {notes.length}
             </Text>
           </View>
-          <PrimaryButton
-            title="Start Workflow"
-            onPress={handleStartWorkflow}
-            disabled={busy || !selectedConversationId}
-            style={styles.startButton}
-          />
+          <View style={styles.headerActions}>
+            <PrimaryButton
+              title="Start ReAct"
+              onPress={handleStartReactRun}
+              disabled={busy || !selectedConversationId}
+              style={styles.startButton}
+            />
+            <PrimaryButton
+              title="Start Workflow"
+              onPress={handleStartWorkflow}
+              disabled={busy || !selectedConversationId}
+              style={styles.workflowButton}
+            />
+          </View>
         </View>
         <TextField
           label="Goal"
@@ -978,7 +1099,67 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
           multiline
           style={styles.goalInput}
         />
+        <Text style={styles.subsectionLabel}>Workflow preset</Text>
+        <View style={styles.segmentRow}>
+          {workflowPresets.map((preset) => {
+            const selected = workflowPreset === preset.key;
+            return (
+              <Pressable
+                key={preset.key}
+                style={[styles.segmentButton, selected && styles.segmentActive]}
+                onPress={() => setWorkflowPreset(preset.key)}
+              >
+                <Text
+                  style={[
+                    styles.segmentText,
+                    selected && styles.segmentTextActive,
+                  ]}
+                >
+                  {preset.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
+
+      {activeRun ? (
+        <View style={styles.panel}>
+          <View style={styles.panelHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>ReAct Run #{activeRun.run.id}</Text>
+              <Text style={styles.contextLine}>
+                {activeRun.run.source || "agent"} · {activeRun.run.goal}
+              </Text>
+            </View>
+            <View style={styles.headerActions}>
+              <StatusPill status={activeRun.run.status} />
+              <Pressable
+                style={styles.inlineButton}
+                onPress={() => void refreshActiveRun(activeRun.run.id)}
+              >
+                <Text style={styles.inlineButtonText}>Refresh</Text>
+              </Pressable>
+            </View>
+          </View>
+          {activeRun.run.summary ? (
+            <Text style={styles.answerText}>{activeRun.run.summary}</Text>
+          ) : null}
+          {activeRun.run.next_step ? (
+            <Text style={styles.nextStep}>
+              Next step: {activeRun.run.next_step}
+            </Text>
+          ) : null}
+          <SignalList title="Action Items" items={activeRun.run.action_items} />
+          <SignalList title="Risk Flags" items={activeRun.run.risk_flags} />
+          <TraceTimeline trace={activeRun.trace} events={runEvents} />
+          <ToolCallList toolCalls={activeRun.tool_calls} />
+          <CitationList
+            citations={activeRun.citations}
+            onPress={handleCitationPress}
+          />
+        </View>
+      ) : null}
 
       {activeWorkflow ? (
         <View style={styles.panel}>
@@ -988,6 +1169,7 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
                 Workflow #{activeWorkflow.workflow.id}
               </Text>
               <Text style={styles.contextLine}>
+                {activeWorkflow.workflow.preset || "custom"} ·{" "}
                 {activeWorkflow.workflow.goal}
               </Text>
             </View>
@@ -1001,6 +1183,20 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
           {activeWorkflow.workflow.next_step ? (
             <Text style={styles.nextStep}>
               Next step: {activeWorkflow.workflow.next_step}
+            </Text>
+          ) : null}
+          <SignalList
+            title="Action Items"
+            items={activeWorkflow.workflow.action_items}
+          />
+          <SignalList
+            title="Risk Flags"
+            items={activeWorkflow.workflow.risk_flags}
+          />
+          {pendingWorkflowApprovals.length > 0 ? (
+            <Text style={styles.warningText}>
+              Waiting for {pendingWorkflowApprovals.length} tool approval
+              {pendingWorkflowApprovals.length > 1 ? "s" : ""}.
             </Text>
           ) : null}
           <CitationList
@@ -1082,6 +1278,16 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
               </Text>
               {task.error_message ? (
                 <Text style={styles.errorText}>{task.error_message}</Text>
+              ) : null}
+              {task.input_json ? (
+                <Text style={styles.messageBody}>
+                  Input: {jsonSummary(task.input_json, 220)}
+                </Text>
+              ) : null}
+              {task.output_json ? (
+                <Text style={styles.messageBody}>
+                  Output: {jsonSummary(task.output_json, 320)}
+                </Text>
               ) : null}
             </View>
           </View>
@@ -1168,10 +1374,39 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
     <ScrollView style={styles.main} contentContainerStyle={styles.mainContent}>
       <View style={styles.panel}>
         <View style={styles.panelHeader}>
-          <Text style={styles.sectionTitle}>Tool Approvals</Text>
-          <Text style={styles.contextLine}>{approvals.length}</Text>
+          <View>
+            <Text style={styles.sectionTitle}>Tool Approvals</Text>
+            <Text style={styles.contextLine}>
+              {approvals.filter((item) => item.status === "pending").length}{" "}
+              pending · {approvals.length} total
+            </Text>
+          </View>
+          <View style={styles.segmentRowCompact}>
+            {(["pending", "all"] as ApprovalFilter[]).map((filter) => {
+              const selected = approvalFilter === filter;
+              return (
+                <Pressable
+                  key={filter}
+                  style={[
+                    styles.segmentButton,
+                    selected && styles.segmentActive,
+                  ]}
+                  onPress={() => setApprovalFilter(filter)}
+                >
+                  <Text
+                    style={[
+                      styles.segmentText,
+                      selected && styles.segmentTextActive,
+                    ]}
+                  >
+                    {filter}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
-        {approvals.map((approval) => (
+        {visibleApprovals.map((approval) => (
           <View key={approval.id} style={styles.approvalBox}>
             <View style={styles.rowTop}>
               <Text style={styles.rowTitle}>{approval.tool_name}</Text>
@@ -1180,15 +1415,24 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
             <Text style={styles.rowMeta}>
               workflow #{approval.workflow_run_id} · requested by{" "}
               {approval.requested_by}
+              {approval.decided_by ? ` · decided by ${approval.decided_by}` : ""}
             </Text>
             <Text style={styles.messageBody}>
-              {compact(
-                JSON.stringify(
-                  parseJSON(approval.input_json) ?? approval.input_json,
-                ),
-                360,
-              )}
+              Input: {jsonSummary(approval.input_json, 360)}
             </Text>
+            {approval.output_json ? (
+              <Text style={styles.messageBody}>
+                Output: {jsonSummary(approval.output_json, 280)}
+              </Text>
+            ) : null}
+            {approval.decision ? (
+              <Text style={styles.rowMeta}>Decision: {approval.decision}</Text>
+            ) : null}
+            {approval.error_message ? (
+              <Text style={styles.errorText}>
+                {compact(approval.error_message, 280)}
+              </Text>
+            ) : null}
             {approval.status === "pending" ? (
               <View style={styles.inlineActions}>
                 <Pressable
@@ -1207,7 +1451,7 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
             ) : null}
           </View>
         ))}
-        {approvals.length === 0 ? (
+        {visibleApprovals.length === 0 ? (
           <Text style={styles.emptyText}>No approvals.</Text>
         ) : null}
       </View>
@@ -1291,6 +1535,120 @@ interface StatusPillProps {
   status: string;
 }
 
+interface SignalListProps {
+  title: string;
+  items?: string[];
+}
+
+const SignalList: React.FC<SignalListProps> = ({ title, items }) => {
+  if (!items?.length) return null;
+  return (
+    <View style={styles.signalBlock}>
+      <Text style={styles.signalTitle}>{title}</Text>
+      <View style={styles.chipRow}>
+        {items.map((item, index) => (
+          <Text key={`${title}-${index}-${item}`} style={styles.signalChip}>
+            {item}
+          </Text>
+        ))}
+      </View>
+    </View>
+  );
+};
+
+interface TraceTimelineProps {
+  trace: AgentTraceEventRecord[];
+  events: AgentRunEventRecord[];
+}
+
+const TraceTimeline: React.FC<TraceTimelineProps> = ({ trace, events }) => {
+  if (trace.length === 0 && events.length === 0) return null;
+  return (
+    <View style={styles.traceBlock}>
+      <Text style={styles.citationsTitle}>Trace</Text>
+      {trace.map((item, index) => (
+        <View key={`trace-${index}-${item.ref_id ?? item.name}`} style={styles.timelineItem}>
+          <View style={styles.timelineDot} />
+          <View style={styles.timelineBody}>
+            <View style={styles.rowTop}>
+              <Text style={styles.rowTitle}>{item.name || item.type}</Text>
+              <StatusPill status={item.status} />
+            </View>
+            <Text style={styles.rowMeta}>
+              {item.type} · {formatTime(item.at)}
+            </Text>
+            {item.metadata ? (
+              <Text style={styles.messageBody}>
+                {compact(JSON.stringify(item.metadata), 260)}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      ))}
+      {events.map((event) => (
+        <View key={`event-${event.sequence}`} style={styles.timelineItem}>
+          <View style={styles.timelineDotMuted} />
+          <View style={styles.timelineBody}>
+            <View style={styles.rowTop}>
+              <Text style={styles.rowTitle}>{event.name || event.event}</Text>
+              <StatusPill status={event.status} />
+            </View>
+            <Text style={styles.rowMeta}>
+              event #{event.sequence} · {event.ref_type || "run"} ·{" "}
+              {formatTime(event.at)}
+            </Text>
+            {event.metadata ? (
+              <Text style={styles.messageBody}>
+                {compact(JSON.stringify(event.metadata), 260)}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+};
+
+interface ToolCallListProps {
+  toolCalls: AgentToolCallRecord[];
+}
+
+const ToolCallList: React.FC<ToolCallListProps> = ({ toolCalls }) => {
+  if (toolCalls.length === 0) return null;
+  return (
+    <View style={styles.traceBlock}>
+      <Text style={styles.citationsTitle}>Tool Calls</Text>
+      {toolCalls.map((call) => (
+        <View key={call.id} style={styles.toolCallItem}>
+          <View style={styles.rowTop}>
+            <Text style={styles.rowTitle}>{call.tool_name}</Text>
+            <StatusPill status={call.status} />
+          </View>
+          <Text style={styles.rowMeta}>
+            call #{call.id}
+            {call.step_id ? ` · step #${call.step_id}` : ""}
+          </Text>
+          {call.input_json ? (
+            <Text style={styles.messageBody}>
+              Input: {jsonSummary(call.input_json, 300)}
+            </Text>
+          ) : null}
+          {call.output_json ? (
+            <Text style={styles.messageBody}>
+              Output: {jsonSummary(call.output_json, 360)}
+            </Text>
+          ) : null}
+          {call.error_message ? (
+            <Text style={styles.errorText}>
+              {compact(call.error_message, 260)}
+            </Text>
+          ) : null}
+        </View>
+      ))}
+    </View>
+  );
+};
+
 const StatusPill: React.FC<StatusPillProps> = ({ status }) => (
   <View style={[styles.statusPill, statusTone(status)]}>
     <Text style={styles.statusText}>{status || "unknown"}</Text>
@@ -1304,28 +1662,48 @@ interface CitationListProps {
 
 const CitationList: React.FC<CitationListProps> = ({ citations, onPress }) => {
   if (citations.length === 0) return null;
+  const grouped = citations.slice(0, 12).reduce<
+    Array<{ sourceType: string; items: AgentCitation[] }>
+  >((groups, citation) => {
+    const existing = groups.find(
+      (group) => group.sourceType === citation.source_type,
+    );
+    if (existing) {
+      existing.items.push(citation);
+    } else {
+      groups.push({ sourceType: citation.source_type, items: [citation] });
+    }
+    return groups;
+  }, []);
   return (
     <View style={styles.citationContainer}>
       <Text style={styles.citationsTitle}>Citations</Text>
-      {citations.slice(0, 8).map((citation) => (
-        <Pressable
-          key={`${citation.source_type}:${citation.source_id}:${citation.chunk_id ?? ""}`}
-          style={styles.citationItem}
-          onPress={() => onPress(citation)}
-        >
-          <View style={styles.rowTop}>
-            <Text style={styles.citationTitle}>
-              {citation.source_title || citation.title}
-            </Text>
-            <Text style={styles.scoreText}>
-              {citation.retrieval_mode || "source"} · {citation.score}
-              {citation.rrf_score
-                ? ` · rrf ${citation.rrf_score.toFixed(3)}`
-                : ""}
-            </Text>
-          </View>
-          <Text style={styles.citationSnippet}>{citation.snippet}</Text>
-        </Pressable>
+      {grouped.map((group) => (
+        <View key={group.sourceType} style={styles.citationGroup}>
+          <Text style={styles.sourceBadge}>
+            {sourceTypeLabel(group.sourceType)}
+          </Text>
+          {group.items.map((citation) => (
+            <Pressable
+              key={`${citation.source_type}:${citation.source_id}:${citation.chunk_id ?? ""}`}
+              style={styles.citationItem}
+              onPress={() => onPress(citation)}
+            >
+              <View style={styles.rowTop}>
+                <Text style={styles.citationTitle}>
+                  {citation.source_title || citation.title}
+                </Text>
+                <Text style={styles.scoreText}>
+                  {citation.retrieval_mode || "source"} · {citation.score}
+                  {citation.rrf_score
+                    ? ` · rrf ${citation.rrf_score.toFixed(3)}`
+                    : ""}
+                </Text>
+              </View>
+              <Text style={styles.citationSnippet}>{citation.snippet}</Text>
+            </Pressable>
+          ))}
+        </View>
       ))}
     </View>
   );
@@ -1472,6 +1850,17 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: "#0f766e",
   },
+  workflowButton: {
+    minWidth: 150,
+    borderRadius: 8,
+    backgroundColor: "#264653",
+  },
+  headerActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: 8,
+  },
   processButton: {
     minWidth: 120,
     borderRadius: 8,
@@ -1574,6 +1963,45 @@ const styles = StyleSheet.create({
     minHeight: 106,
     textAlignVertical: "top",
     paddingTop: 12,
+  },
+  subsectionLabel: {
+    color: "#334155",
+    fontSize: 12,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    marginBottom: 8,
+  },
+  segmentRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  segmentRowCompact: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: 8,
+  },
+  segmentButton: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    backgroundColor: "#f8fafc",
+  },
+  segmentActive: {
+    backgroundColor: "#0f766e",
+    borderColor: "#0f766e",
+  },
+  segmentText: {
+    color: "#334155",
+    fontSize: 12,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  segmentTextActive: {
+    color: "#ffffff",
   },
   rowItem: {
     borderTopWidth: 1,
@@ -1766,6 +2194,77 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     marginTop: 10,
   },
+  warningText: {
+    color: "#92400e",
+    backgroundColor: "#fef3c7",
+    borderRadius: 8,
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    lineHeight: 20,
+    marginTop: 10,
+    fontWeight: "700",
+  },
+  signalBlock: {
+    marginTop: 12,
+  },
+  signalTitle: {
+    color: "#334155",
+    fontSize: 12,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    marginBottom: 8,
+  },
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  signalChip: {
+    color: "#334155",
+    backgroundColor: "#edf2f4",
+    borderRadius: 8,
+    overflow: "hidden",
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  traceBlock: {
+    marginTop: 14,
+  },
+  timelineItem: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+  },
+  timelineDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#0f766e",
+    marginTop: 9,
+  },
+  timelineDotMuted: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#94a3b8",
+    marginTop: 9,
+  },
+  timelineBody: {
+    flex: 1,
+    borderLeftWidth: 1,
+    borderLeftColor: "#e2e8f0",
+    paddingLeft: 10,
+    paddingBottom: 8,
+  },
+  toolCallItem: {
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+    paddingTop: 10,
+    marginTop: 10,
+  },
   citationContainer: {
     marginTop: 12,
   },
@@ -1779,6 +2278,20 @@ const styles = StyleSheet.create({
     borderTopColor: "#e2e8f0",
     paddingTop: 10,
     marginTop: 10,
+  },
+  citationGroup: {
+    marginTop: 10,
+  },
+  sourceBadge: {
+    alignSelf: "flex-start",
+    color: "#0f766e",
+    backgroundColor: "#ccfbf1",
+    borderRadius: 8,
+    overflow: "hidden",
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    fontSize: 12,
+    fontWeight: "800",
   },
   citationTitle: {
     color: "#0f172a",
