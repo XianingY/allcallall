@@ -1,106 +1,80 @@
-# 📚 AllCallAll 项目文档
+# AllCallAll Documentation
 
-欢迎来到 AllCallAll 项目的文档中心！本文档按功能模块分类，方便您快速查找所需信息。
+This directory is the maintained documentation set for AllCallAll. The current project positioning is:
 
-## 📂 文档目录
+**AI-powered realtime collaboration backend for backend systems and AI Agent engineering interviews.**
 
-### 🚀 快速开始
-- [快速启动指南](./getting-started/quick-start.md) - 最快的项目启动方式
-- [Docker 启动指南](./getting-started/docker-startup-guide.md) - Docker 环境配置
-- [环境变量配置](./getting-started/unified-env-config.md) - 统一的环境变量设置
+Historical status reports, temporary migration notes, and duplicated setup guides should not be treated as implementation authority. If a document conflicts with current code, prefer the root README, backend README, and the interview/system design docs.
 
-### 🌍 部署相关
-- [部署指南](./deployment/deployment-guide.md) - 完整部署指南（含架构图和命令速查）
-- [部署检查清单](./deployment/deployment-checklist.md) - 部署前检查项目
-- [生产环境和APK构建](./deployment/production-setup-and-apk-build.md) - 本地部署、Docker配置和APK构建
-- [受限网络配置](./deployment/restricted-network-setup.md) - 企业网络和防火墙配置指南
+## Start Here
 
-### 🔌 API 和后端
-- [API 文档](./api/api-documentation.md) - API 详细说明
-- [数据库文档](./api/database.md) - 数据库结构和操作
-- [后端诊断修复](./api/backend-diagnosis-and-fix.md) - 后端常见问题诊断
-- [后端连接测试](./api/backend-connection-test-report.md) - 连接测试报告
+- [Root README](../README.md): project positioning, repo map, fast start, and runtime summary.
+- [Backend README](../backend/README.md): backend entrypoints, commands, API areas, and environment variables.
+- [Quick Start](./getting-started/quick-start.md): local startup flow.
+- [Configuration](./configuration/configuration.md): backend/mobile/infra configuration reference.
 
-### 📱 移动端开发
-- [移动端文档中心](./mobile/README.md) - 完整的移动端开发文档
-- [Alarm 功能增强](./mobile/features/alarm-enhancements-summary.md) - 来电提醒功能
-- [音频配置](./mobile/setup/audio-files-setup.md) - 音频文件设置
-- [环境配置](./mobile/setup/app-env-usage.md) - 应用环境变量
-- [脚本使用指南](../mobile/scripts/README.md) - 移动端脚本和工具
+## Interview / Portfolio
 
-### 🔔 推送通知功能
-- [FCM 实现总结](./features/push-notifications/fcm-implementation-summary.md) - 实现概览
-- [FCM 测试指南](./features/push-notifications/fcm-testing-guide.md) - 完整测试指南
-- [FCM 快速参考](./features/push-notifications/fcm-quick-reference.md) - 命令和API速查
-- [Firebase 集成指南](./features/push-notifications/firebase-integration-guide.md) - 详细集成步骤
-- [推送通知修复指南](./features/push-notifications/push-notification-fix-guide.md) - 问题诊断和修复
+- [Interview README](./interview/README.md): suggested reading path and interview narrative.
+- [System Design](./interview/system-design.md): current architecture and data flow.
+- [Backend Deep Dive](./interview/backend-deep-dive.md): backend module explanation.
+- [AI Agent Design](./interview/ai-agent-design.md): Agent runs, tools, approvals, memory, and RAG.
+- [Agent RAG Current State](./interview/agent-rag-current-state.md): retrieval implementation notes.
+- [gRPC, Kafka, and Elasticsearch Evolution](./interview/grpc-kafka-es-evolution.md): extracted boundaries and infra extensions.
+- [Worker Runtime](./interview/worker-runtime.md): embedded and standalone workers.
+- [API Surface](./interview/api-surface.md): route map for interview discussion.
+- [Performance Report](./interview/performance-report.md): benchmark evidence and limitations.
+- [Resume Bullets](./interview/resume-bullets.md): resume-ready descriptions.
 
-### 🎵 Alarm 功能
-- [Alarm 功能总结](./alarm/alarm-only-pr-guide.md) - Alarm 功能PR指南
-- [重置状态报告](./alarm/final-reset-status.md) - Git 分支重置记录
-- [Revert 状态报告](./alarm/revert-status.md) - 提交回滚记录
+## Backend / API / Data
 
-### ⚙️ 配置管理
-- [系统配置](./configuration/configuration.md) - 项目配置说明
-- [安全指南](./configuration/security-guidelines.md) - 项目安全规范
+- [API Documentation](./api/api-documentation.md): maintained API reference.
+- [Database Notes](./api/database.md): current model/table notes.
+- [Support Runbook: Meetings](./maintenance/support-runbook-meetings.md): operational support checks for rooms and recordings.
 
-### 📝 开发参考
-- [项目概览](./reference/CLAUDE.md) - 项目整体架构和说明
-- [AI 助手指南](./reference/AGENTS.md) - Claude AI 辅助开发指南
+## Runtime / Deployment
 
-### 📋 PR 和维护
-- [PR 创建指南](./pr/pr-creation-guide.md) - 如何创建PR
-- [PR 描述模板](./pr/pr-description-template.md) - PR描述模板
-- [文件整理计划](./maintenance/file-organization-plan.md) - 项目结构整理方案
-- [清理检查清单](./maintenance/cleanup-checklist.md) - 文件清理检查表
-- [整理快速总结](./maintenance/organization-quick-summary.md) - 整理方案快速参考
-- [归档总结](./maintenance/archive-summary.md) - 历史文档归档记录
+- [Deployment Guide](./deployment/deployment-guide.md): production-style deployment and environment setup.
+- [Recording Storage Deployment](./deployment/recording-storage-deployment.md): local and S3-compatible recording storage.
+- [Restricted Network Setup](./deployment/restricted-network-setup.md): mobile networking and TURN/restricted-network notes.
+- [Meeting Room State Protocol](./deployment/meeting-room-state-protocol.md): room state event contract.
+- [Web Auth Session](./deployment/web-auth-session.md): browser refresh-cookie session behavior.
+- [Security Guidelines](./configuration/security-guidelines.md): security and privacy rules.
 
-## 🎯 快速导航
+## Client / Development
 
-### 新开发者
-1. 阅读 [README](../README.md) - 项目概述
-2. 查看 [快速启动指南](./getting-started/quick-start.md) - 了解最快的启动方式
-3. 阅读 [安全指南](./configuration/security-guidelines.md) - 安全规范
+- [Mobile Docs](./mobile/README.md): current Expo mobile/Web status.
+- [Mobile Scripts](../mobile/scripts/README.md): app-side helper scripts.
+- [Web / Desktop Workflow](./development/web-desktop-workflow.md): Web export and Electron wrapper workflow.
+- [Web Smoke Test](./testing/web-smoke.md): browser smoke checklist.
 
-### 移动端开发者
-1. 阅读 [移动端文档中心](./mobile/README.md) - 完整的移动端开发文档
-2. 查看 [音频配置](./mobile/setup/audio-files-setup.md) - 了解音频功能
-3. 参考 [推送通知实现](./features/push-notifications/fcm-implementation-summary.md) - 了解推送功能
-4. 使用 [脚本工具](../mobile/scripts/README.md) - 运行验证脚本
+## Supporting Docs
 
-### DevOps 工程师
-1. 查看 [部署指南](./deployment/deployment-guide.md) - 完整部署步骤（含架构图和命令速查）
-2. 使用 [部署检查清单](./deployment/deployment-checklist.md)
-3. 参考 [生产环境和APK构建](./deployment/production-setup-and-apk-build.md)
+- [Firebase / FCM Push Notifications](./features/push-notifications/firebase-integration-guide.md): current push setup and verification guide.
+- [Privacy and Account Deletion Support](./deployment/privacy-and-account-deletion-support.md): app-store support material.
+- [Android Data Safety Mapping](./deployment/android-data-safety-mapping.md): Play Console data safety reference.
+- [PR Description Template](./pr/pr-description-template.md): optional PR template.
 
-### API 开发者
-1. 阅读 [API 文档](./api/api-documentation.md)
-2. 查看 [数据库文档](./api/database.md)
-3. 参考 [后端诊断修复](./api/backend-diagnosis-and-fix.md) - 解决常见问题
+## Current Runtime Summary
 
-## 📖 文档规范
+- Backend default: one API process with embedded workers.
+- Extracted processes: `user-service`, `agent-worker`, `outbox-worker`, `data-worker`, `search-worker`, `cleanup-worker`.
+- Optional infra profiles: Kafka-compatible broker and Elasticsearch.
+- Agent providers: `rules`, `mock`, and OpenAI-compatible provider paths.
+- Recording: local or S3-compatible storage.
+- Meeting transcription: optional recording-end transcription through `TRANSCRIPTION_ENABLED=true` and `TRANSCRIPTION_PROVIDER=mock`; v1 requires locally readable recording files.
+- Realtime translation: backend code remains, but mobile UI entry points are currently hidden.
+- Mobile/Web config: only `EXPO_PUBLIC_*`; `APP_ENV` is historical.
+- Push: `FCM_SERVICE_ACCOUNT_PATH` enables real Firebase Admin SDK delivery; missing config disables FCM safely.
+- Kubernetes: intentionally not implemented in this stage.
 
-- 所有文档使用 Markdown 格式
-- 文档应包含清晰的目录结构
-- 代码示例使用代码块标记
-- 重要信息使用警告框突出显示
+## Documentation Maintenance Rules
 
-## 🤝 贡献指南
-
-欢迎为项目文档做出贡献！请确保：
-1. 文档内容准确、清晰
-2. 使用统一的格式和风格
-3. 及时更新过期信息
-
-## 📞 联系我们
-
-如有问题或建议，请通过以下方式联系：
-- 提交 Issue
-- 发起 Pull Request
-- 联系项目维护者
-
----
-
-**最后更新**: 2025-12-16  
-**文档版本**: v2.0
+- Keep `README.md`, `backend/README.md`, `docs/README.md`, and `docs/interview/*` aligned with code first.
+- Do not describe `APP_ENV` as active mobile configuration.
+- Do not describe realtime translation as a primary current feature while its UI is hidden.
+- Do not describe meeting transcription as dependent on realtime translation.
+- Do not describe FCM as a placeholder; it is real when `FCM_SERVICE_ACCOUNT_PATH` is configured.
+- Do not claim Kafka/Elasticsearch live smoke has run unless the optional Compose profiles were actually started.
+- When adding backend entrypoints, update `backend/README.md`, `docs/interview/worker-runtime.md`, and `docs/interview/api-surface.md`.
+- When adding models, outbox events, or Agent context sources, update `docs/api/database.md`, `docs/interview/system-design.md`, and `docs/interview/ai-agent-design.md`.
