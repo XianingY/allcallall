@@ -116,7 +116,8 @@ func (s *Service) StopRecording(ctx context.Context, organizationID, userID, roo
 		return nil, err
 	}
 	var room models.CallRoom
-	if err := s.db.WithContext(ctx).Where("id = ? AND organization_id = ?", roomID, organizationID).Take(&room).Error; err == nil && room.ConversationID != nil {
+	roomLoaded := s.db.WithContext(ctx).Where("id = ? AND organization_id = ?", roomID, organizationID).Take(&room).Error == nil
+	if roomLoaded && room.ConversationID != nil {
 		view, viewErr := s.GetRecording(ctx, organizationID, userID, session.ID)
 		if viewErr == nil {
 			_ = s.createConversationSystemMessage(ctx, organizationID, userID, room.ConversationID, "meeting.recording.ready", "会议录音已生成，可下载查看。", map[string]any{
@@ -129,6 +130,11 @@ func (s *Service) StopRecording(ctx context.Context, organizationID, userID, roo
 			s.publishConversationPatchUpdate(ctx, organizationID, *room.ConversationID, map[string]any{
 				"latest_recording_id": session.ID,
 			})
+		}
+	}
+	if roomLoaded {
+		if err := s.requestRecordingTranscription(ctx, session, room); err != nil && s.metrics != nil {
+			s.metrics.Inc("recording_transcription_enqueue_fail_total")
 		}
 	}
 	recording, err := s.GetRecording(ctx, organizationID, userID, session.ID)
@@ -153,7 +159,8 @@ func (s *Service) ListRecordings(ctx context.Context, organizationID, userID uin
 	result := make([]RecordingView, 0, len(sessions))
 	for _, session := range sessions {
 		files, _ := s.loadRecordingFiles(ctx, session)
-		result = append(result, RecordingView{Session: session, Files: files})
+		transcription, _ := s.loadRecordingTranscriptionView(ctx, session.ID)
+		result = append(result, RecordingView{Session: session, Files: files, Transcription: transcription})
 	}
 	return result, nil
 }
@@ -170,7 +177,8 @@ func (s *Service) GetRecording(ctx context.Context, organizationID, userID, reco
 	if err != nil {
 		return nil, err
 	}
-	return &RecordingView{Session: session, Files: files}, nil
+	transcription, _ := s.loadRecordingTranscriptionView(ctx, session.ID)
+	return &RecordingView{Session: session, Files: files, Transcription: transcription}, nil
 }
 
 func (s *Service) GetRecordingFile(ctx context.Context, organizationID, userID, recordingID, fileID uint64) (*models.RecordingSession, *models.RecordingFile, error) {

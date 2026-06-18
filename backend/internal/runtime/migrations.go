@@ -46,6 +46,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.CallRoomEvent{},
 		&models.RecordingSession{},
 		&models.RecordingFile{},
+		&models.RecordingTranscription{},
+		&models.MeetingTranscriptSegment{},
 		&models.RecordingConsent{},
 		&models.RecordingExport{},
 		&models.RoomSettlement{},

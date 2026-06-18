@@ -295,6 +295,9 @@ func buildRulesOutput(input PlannerInput) (string, []string, string, []string) {
 	if input.MeetingContext.TranscriptSegmentCount > 0 {
 		summary += fmt.Sprintf(" 已加载最近会议 %d 条 final transcript。", input.MeetingContext.TranscriptSegmentCount)
 	}
+	if input.MeetingContext.MeetingTranscriptSegmentCount > 0 {
+		summary += fmt.Sprintf(" 已加载会议录音转写 %d 条。", input.MeetingContext.MeetingTranscriptSegmentCount)
+	}
 
 	actionItems := []string{"在线程中同步下一步负责人和截止时间"}
 	riskFlags := []string{}

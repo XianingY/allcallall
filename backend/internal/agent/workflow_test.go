@@ -30,6 +30,8 @@ func newWorkflowTestService(t *testing.T) (*Service, *gorm.DB) {
 		&models.CallRoom{},
 		&models.CallFollowup{},
 		&models.CallTranscriptSegment{},
+		&models.RecordingTranscription{},
+		&models.MeetingTranscriptSegment{},
 		&models.ContactProfile{},
 		&models.FollowUpTask{},
 		&models.AgentRun{},

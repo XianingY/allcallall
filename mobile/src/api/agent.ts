@@ -127,6 +127,8 @@ const citationTitle = (sourceType: string, sourceId: string) => {
       return `Contact profile #${sourceId}`;
     case "transcript":
       return `Transcript #${sourceId}`;
+    case "meeting_transcript":
+      return `Meeting transcript #${sourceId}`;
     default:
       return `${sourceType || "context"} #${sourceId}`;
   }

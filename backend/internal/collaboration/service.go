@@ -18,6 +18,7 @@ import (
 	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/storage"
+	"github.com/allcallall/backend/internal/transcription"
 	"github.com/allcallall/backend/internal/user"
 )
 
@@ -39,13 +40,14 @@ type counterRecorder interface {
 }
 
 type Service struct {
-	db        *gorm.DB
-	users     *user.Service
-	publisher EventPublisher
-	media     *media.Engine
-	storage   storage.RecordingStorage
-	metrics   counterRecorder
-	outbox    *events.Store
+	db          *gorm.DB
+	users       *user.Service
+	publisher   EventPublisher
+	media       *media.Engine
+	storage     storage.RecordingStorage
+	metrics     counterRecorder
+	outbox      *events.Store
+	transcriber transcription.Provider
 }
 
 func NewService(db *gorm.DB, users *user.Service) *Service {
@@ -69,6 +71,10 @@ func (s *Service) WithRecordingStorage(recordingStorage storage.RecordingStorage
 	if recordingStorage != nil {
 		s.storage = recordingStorage
 	}
+}
+
+func (s *Service) WithTranscriptionProvider(provider transcription.Provider) {
+	s.transcriber = provider
 }
 
 func (s *Service) WithMetrics(counters counterRecorder) {
@@ -150,16 +156,20 @@ type ConversationWorkspace struct {
 }
 
 type ConversationAgentContext struct {
-	LatestCallID           string     `json:"latest_call_id,omitempty"`
-	TranscriptSegmentCount int        `json:"transcript_segment_count"`
-	LatestTranscriptAt     *time.Time `json:"latest_transcript_at,omitempty"`
-	LatestMemoryKeys       []string   `json:"latest_memory_keys,omitempty"`
-	LastAgentRunAt         *time.Time `json:"last_agent_run_at,omitempty"`
-	LastAgentStatus        string     `json:"last_agent_status,omitempty"`
-	LastWorkflowID         *uint64    `json:"last_workflow_id,omitempty"`
-	LastWorkflowPreset     string     `json:"last_workflow_preset,omitempty"`
-	PendingApprovalCount   int64      `json:"pending_approval_count"`
-	KnowledgeSourceCount   int64      `json:"knowledge_source_count"`
+	LatestCallID                  string     `json:"latest_call_id,omitempty"`
+	TranscriptSegmentCount        int        `json:"transcript_segment_count"`
+	LatestTranscriptAt            *time.Time `json:"latest_transcript_at,omitempty"`
+	MeetingTranscriptionStatus    string     `json:"meeting_transcription_status,omitempty"`
+	MeetingTranscriptionError     string     `json:"meeting_transcription_error,omitempty"`
+	MeetingTranscriptSegmentCount int        `json:"meeting_transcript_segment_count"`
+	LatestMeetingTranscriptAt     *time.Time `json:"latest_meeting_transcript_at,omitempty"`
+	LatestMemoryKeys              []string   `json:"latest_memory_keys,omitempty"`
+	LastAgentRunAt                *time.Time `json:"last_agent_run_at,omitempty"`
+	LastAgentStatus               string     `json:"last_agent_status,omitempty"`
+	LastWorkflowID                *uint64    `json:"last_workflow_id,omitempty"`
+	LastWorkflowPreset            string     `json:"last_workflow_preset,omitempty"`
+	PendingApprovalCount          int64      `json:"pending_approval_count"`
+	KnowledgeSourceCount          int64      `json:"knowledge_source_count"`
 }
 
 type MeetingSummaryCard struct {
@@ -294,9 +304,22 @@ type RecordingFileView struct {
 	RecordingKind string `json:"recording_kind"`
 }
 
+type RecordingTranscriptionView struct {
+	ID           uint64     `json:"id"`
+	Status       string     `json:"status"`
+	Provider     string     `json:"provider,omitempty"`
+	SegmentCount int        `json:"segment_count"`
+	ErrorMessage string     `json:"error_message,omitempty"`
+	StartedAt    *time.Time `json:"started_at,omitempty"`
+	CompletedAt  *time.Time `json:"completed_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+}
+
 type RecordingView struct {
-	Session models.RecordingSession `json:"session"`
-	Files   []RecordingFileView     `json:"files"`
+	Session       models.RecordingSession     `json:"session"`
+	Files         []RecordingFileView         `json:"files"`
+	Transcription *RecordingTranscriptionView `json:"transcription,omitempty"`
 }
 
 type SupportRoomView struct {
@@ -738,6 +761,7 @@ func (s *Service) buildConversationAgentContext(ctx context.Context, organizatio
 		Where("status = ?", models.RAGSourceStatusReady).
 		Where("(dedupe_status IS NULL OR dedupe_status <> ?)", models.RAGSourceDedupeStatusConfirmedDuplicate).
 		Count(&result.KnowledgeSourceCount).Error
+	result.applyMeetingTranscriptionContext(s.loadLatestConversationTranscriptionContext(ctx, organizationID, conversationID))
 	return result
 }
 

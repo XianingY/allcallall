@@ -33,6 +33,14 @@ const (
 	RecordingStatusStopped    = "stopped"
 	RecordingStatusProcessing = "processing"
 
+	RecordingTranscriptionStatusPending    = "pending"
+	RecordingTranscriptionStatusProcessing = "processing"
+	RecordingTranscriptionStatusReady      = "ready"
+	RecordingTranscriptionStatusFailed     = "failed"
+	RecordingTranscriptionStatusSkipped    = "skipped"
+
+	MeetingTranscriptSourceRecording = "recording"
+
 	RoomStatusScheduled = "scheduled"
 	RoomStatusActive    = "active"
 	RoomStatusEnded     = "ended"
@@ -323,6 +331,49 @@ type RecordingFile struct {
 
 func (RecordingFile) TableName() string {
 	return "recording_files"
+}
+
+type RecordingTranscription struct {
+	ID                 uint64     `gorm:"primaryKey;autoIncrement"`
+	OrganizationID     uint64     `gorm:"not null;index"`
+	ConversationID     *uint64    `gorm:"index"`
+	RoomID             uint64     `gorm:"not null;index"`
+	RecordingSessionID uint64     `gorm:"not null;uniqueIndex"`
+	Status             string     `gorm:"size:32;not null;index"`
+	Provider           string     `gorm:"size:64"`
+	SegmentCount       int        `gorm:"not null;default:0"`
+	ErrorMessage       string     `gorm:"type:text"`
+	StartedAt          *time.Time `gorm:"index"`
+	CompletedAt        *time.Time `gorm:"index"`
+	CreatedAt          time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt          time.Time  `gorm:"autoUpdateTime"`
+}
+
+func (RecordingTranscription) TableName() string {
+	return "recording_transcriptions"
+}
+
+type MeetingTranscriptSegment struct {
+	ID                 uint64    `gorm:"primaryKey;autoIncrement"`
+	OrganizationID     uint64    `gorm:"not null;index"`
+	ConversationID     uint64    `gorm:"not null;index"`
+	RoomID             uint64    `gorm:"not null;index"`
+	RecordingSessionID uint64    `gorm:"not null;index"`
+	RecordingFileID    uint64    `gorm:"not null;index"`
+	SpeakerUserID      *uint64   `gorm:"index"`
+	TrackKey           string    `gorm:"size:160;index"`
+	Source             string    `gorm:"size:32;not null;index"`
+	Provider           string    `gorm:"size:64"`
+	Language           string    `gorm:"size:32"`
+	Text               string    `gorm:"type:text;not null"`
+	StartMS            int64     `gorm:"not null;default:0"`
+	EndMS              int64     `gorm:"not null;default:0"`
+	Confidence         float64   `gorm:"not null;default:0"`
+	CreatedAt          time.Time `gorm:"autoCreateTime;index"`
+}
+
+func (MeetingTranscriptSegment) TableName() string {
+	return "meeting_transcript_segments"
 }
 
 type RecordingConsent struct {

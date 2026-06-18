@@ -119,6 +119,34 @@ const workflowStatusLabel = (
   return status;
 };
 
+const meetingTranscriptStatusLabel = (
+  status: string | undefined,
+  meetingCount: number,
+  directCount: number,
+  error?: string,
+) => {
+  if (meetingCount > 0) {
+    return `${meetingCount} recording transcript segments ready`;
+  }
+  if (directCount > 0) {
+    return `${directCount} final transcript segments`;
+  }
+  switch (status) {
+    case "pending":
+      return "Recording transcription queued";
+    case "processing":
+      return "Recording transcription processing";
+    case "failed":
+      return error
+        ? `Recording transcription failed: ${error}`
+        : "Recording transcription failed";
+    case "skipped":
+      return "Recording transcription skipped";
+    default:
+      return "No transcript yet; using notes and messages";
+  }
+};
+
 const citationModeLabel = (mode?: string) => {
   switch (mode) {
     case "hybrid_rrf":
@@ -362,7 +390,23 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     [contacts, conversation.contact_id],
   );
   const agentContext = detail?.workspace.agent_context;
-  const transcriptReady = (agentContext?.transcript_segment_count ?? 0) > 0;
+  const directTranscriptCount = agentContext?.transcript_segment_count ?? 0;
+  const meetingTranscriptCount =
+    agentContext?.meeting_transcript_segment_count ??
+    detail?.workspace.latest_recording?.transcription?.segment_count ??
+    0;
+  const meetingTranscriptionStatus =
+    agentContext?.meeting_transcription_status ||
+    detail?.workspace.latest_recording?.transcription?.status;
+  const meetingTranscriptionError =
+    agentContext?.meeting_transcription_error ||
+    detail?.workspace.latest_recording?.transcription?.error_message;
+  const transcriptStatusText = meetingTranscriptStatusLabel(
+    meetingTranscriptionStatus,
+    meetingTranscriptCount,
+    directTranscriptCount,
+    meetingTranscriptionError,
+  );
   const pendingApprovals =
     activeWorkflow?.approvals?.filter((item) => item.status === "pending") ??
     [];
@@ -784,11 +828,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         <View style={styles.agentHeader}>
           <View>
             <Text style={styles.infoTitle}>Meeting Agent</Text>
-            <Text style={styles.infoMeta}>
-              {transcriptReady
-                ? `${agentContext?.transcript_segment_count ?? 0} final transcript segments`
-                : "No final transcript yet; using notes and messages"}
-            </Text>
+            <Text style={styles.infoMeta}>{transcriptStatusText}</Text>
           </View>
           <View style={styles.agentStatusBadge}>
             <Text style={styles.agentStatusText}>{agentStatusLabel}</Text>
@@ -1044,6 +1084,9 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
           {detail.workspace.latest_recording ? (
             <Text style={styles.infoMeta}>
               最近录音资产 #{detail.workspace.latest_recording.session.id}
+              {detail.workspace.latest_recording.transcription
+                ? ` · 转写 ${detail.workspace.latest_recording.transcription.status}`
+                : ""}
             </Text>
           ) : null}
           {detail.workspace.meeting_summary?.summary ? (

@@ -172,16 +172,20 @@ type conversationWorkspaceResponse struct {
 }
 
 type conversationAgentContextResponse struct {
-	LatestCallID           string     `json:"latest_call_id,omitempty"`
-	TranscriptSegmentCount int        `json:"transcript_segment_count"`
-	LatestTranscriptAt     *time.Time `json:"latest_transcript_at,omitempty"`
-	LatestMemoryKeys       []string   `json:"latest_memory_keys,omitempty"`
-	LastAgentRunAt         *time.Time `json:"last_agent_run_at,omitempty"`
-	LastAgentStatus        string     `json:"last_agent_status,omitempty"`
-	LastWorkflowID         *uint64    `json:"last_workflow_id,omitempty"`
-	LastWorkflowPreset     string     `json:"last_workflow_preset,omitempty"`
-	PendingApprovalCount   int64      `json:"pending_approval_count"`
-	KnowledgeSourceCount   int64      `json:"knowledge_source_count"`
+	LatestCallID                  string     `json:"latest_call_id,omitempty"`
+	TranscriptSegmentCount        int        `json:"transcript_segment_count"`
+	LatestTranscriptAt            *time.Time `json:"latest_transcript_at,omitempty"`
+	MeetingTranscriptionStatus    string     `json:"meeting_transcription_status,omitempty"`
+	MeetingTranscriptionError     string     `json:"meeting_transcription_error,omitempty"`
+	MeetingTranscriptSegmentCount int        `json:"meeting_transcript_segment_count"`
+	LatestMeetingTranscriptAt     *time.Time `json:"latest_meeting_transcript_at,omitempty"`
+	LatestMemoryKeys              []string   `json:"latest_memory_keys,omitempty"`
+	LastAgentRunAt                *time.Time `json:"last_agent_run_at,omitempty"`
+	LastAgentStatus               string     `json:"last_agent_status,omitempty"`
+	LastWorkflowID                *uint64    `json:"last_workflow_id,omitempty"`
+	LastWorkflowPreset            string     `json:"last_workflow_preset,omitempty"`
+	PendingApprovalCount          int64      `json:"pending_approval_count"`
+	KnowledgeSourceCount          int64      `json:"knowledge_source_count"`
 }
 
 type meetingSummaryCardResponse struct {
@@ -275,8 +279,21 @@ type recordingFileResponse struct {
 }
 
 type recordingResponse struct {
-	Session models.RecordingSession `json:"session"`
-	Files   []recordingFileResponse `json:"files"`
+	Session       models.RecordingSession               `json:"session"`
+	Files         []recordingFileResponse               `json:"files"`
+	Transcription *recordingTranscriptionStatusResponse `json:"transcription,omitempty"`
+}
+
+type recordingTranscriptionStatusResponse struct {
+	ID           uint64     `json:"id"`
+	Status       string     `json:"status"`
+	Provider     string     `json:"provider,omitempty"`
+	SegmentCount int        `json:"segment_count"`
+	ErrorMessage string     `json:"error_message,omitempty"`
+	StartedAt    *time.Time `json:"started_at,omitempty"`
+	CompletedAt  *time.Time `json:"completed_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
 type supportRoomResponse struct {
@@ -693,16 +710,20 @@ func toConversationDetailResponse(item collaboration.ConversationDetail) convers
 			Status:         item.Workspace.Status,
 			Priority:       item.Workspace.Priority,
 			AgentContext: conversationAgentContextResponse{
-				LatestCallID:           item.Workspace.AgentContext.LatestCallID,
-				TranscriptSegmentCount: item.Workspace.AgentContext.TranscriptSegmentCount,
-				LatestTranscriptAt:     item.Workspace.AgentContext.LatestTranscriptAt,
-				LatestMemoryKeys:       item.Workspace.AgentContext.LatestMemoryKeys,
-				LastAgentRunAt:         item.Workspace.AgentContext.LastAgentRunAt,
-				LastAgentStatus:        item.Workspace.AgentContext.LastAgentStatus,
-				LastWorkflowID:         item.Workspace.AgentContext.LastWorkflowID,
-				LastWorkflowPreset:     item.Workspace.AgentContext.LastWorkflowPreset,
-				PendingApprovalCount:   item.Workspace.AgentContext.PendingApprovalCount,
-				KnowledgeSourceCount:   item.Workspace.AgentContext.KnowledgeSourceCount,
+				LatestCallID:                  item.Workspace.AgentContext.LatestCallID,
+				TranscriptSegmentCount:        item.Workspace.AgentContext.TranscriptSegmentCount,
+				LatestTranscriptAt:            item.Workspace.AgentContext.LatestTranscriptAt,
+				MeetingTranscriptionStatus:    item.Workspace.AgentContext.MeetingTranscriptionStatus,
+				MeetingTranscriptionError:     item.Workspace.AgentContext.MeetingTranscriptionError,
+				MeetingTranscriptSegmentCount: item.Workspace.AgentContext.MeetingTranscriptSegmentCount,
+				LatestMeetingTranscriptAt:     item.Workspace.AgentContext.LatestMeetingTranscriptAt,
+				LatestMemoryKeys:              item.Workspace.AgentContext.LatestMemoryKeys,
+				LastAgentRunAt:                item.Workspace.AgentContext.LastAgentRunAt,
+				LastAgentStatus:               item.Workspace.AgentContext.LastAgentStatus,
+				LastWorkflowID:                item.Workspace.AgentContext.LastWorkflowID,
+				LastWorkflowPreset:            item.Workspace.AgentContext.LastWorkflowPreset,
+				PendingApprovalCount:          item.Workspace.AgentContext.PendingApprovalCount,
+				KnowledgeSourceCount:          item.Workspace.AgentContext.KnowledgeSourceCount,
 			},
 		},
 	}
@@ -799,10 +820,24 @@ func toRecordingResponse(item collaboration.RecordingView) recordingResponse {
 			RecordingKind:      file.RecordingKind,
 		})
 	}
-	return recordingResponse{
+	response := recordingResponse{
 		Session: item.Session,
 		Files:   files,
 	}
+	if item.Transcription != nil {
+		response.Transcription = &recordingTranscriptionStatusResponse{
+			ID:           item.Transcription.ID,
+			Status:       item.Transcription.Status,
+			Provider:     item.Transcription.Provider,
+			SegmentCount: item.Transcription.SegmentCount,
+			ErrorMessage: item.Transcription.ErrorMessage,
+			StartedAt:    item.Transcription.StartedAt,
+			CompletedAt:  item.Transcription.CompletedAt,
+			CreatedAt:    item.Transcription.CreatedAt,
+			UpdatedAt:    item.Transcription.UpdatedAt,
+		}
+	}
+	return response
 }
 
 func toRoomListItemResponse(item collaboration.RoomListItem) roomListItemResponse {

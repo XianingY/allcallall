@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/allcallall/backend/internal/media"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/storage"
+	"github.com/allcallall/backend/internal/transcription"
 	"github.com/allcallall/backend/internal/user"
 )
 
@@ -26,6 +28,14 @@ type failingDeleteStorage struct {
 
 func (s failingDeleteStorage) Delete(context.Context, storage.ObjectRef) error {
 	return errors.New("delete failed")
+}
+
+type unreadableRecordingStorage struct {
+	storage.RecordingStorage
+}
+
+func (s unreadableRecordingStorage) OpenLocal(storage.ObjectRef) (string, bool) {
+	return "", false
 }
 
 func newServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *user.Service) {
@@ -55,6 +65,8 @@ func newServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *user.Service) {
 		&models.CallRoomEvent{},
 		&models.RecordingSession{},
 		&models.RecordingFile{},
+		&models.RecordingTranscription{},
+		&models.MeetingTranscriptSegment{},
 		&models.RecordingConsent{},
 		&models.RecordingExport{},
 		&models.Pipeline{},
@@ -414,6 +426,217 @@ func TestServiceRoomOfferAndRecordingArtifacts(t *testing.T) {
 	}
 	if !foundRecordingReady {
 		t.Fatal("expected meeting.recording.ready system message")
+	}
+}
+
+func TestStopRecordingQueuesTranscriptionRequest(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	ctx := context.Background()
+	svc.WithTranscriptionProvider(transcription.NewMockProvider())
+
+	owner := createTestUser(t, db, "owner@example.com", "Owner")
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Workspace")
+	if err != nil {
+		t.Fatalf("create organization failed: %v", err)
+	}
+	if err := db.Model(&models.OrganizationPolicy{}).
+		Where("organization_id = ?", org.ID).
+		Update("recording_mode", models.RecordingModeAdminOptIn).Error; err != nil {
+		t.Fatalf("update organization policy failed: %v", err)
+	}
+	roomState, err := svc.CreateRoom(ctx, org.ID, owner.ID, CreateRoomInput{
+		Title: "Async transcription sync",
+	})
+	if err != nil {
+		t.Fatalf("create room failed: %v", err)
+	}
+	recording, err := svc.StartRecording(ctx, org.ID, owner.ID, roomState.Room.ID)
+	if err != nil {
+		t.Fatalf("start recording failed: %v", err)
+	}
+	recording, err = svc.StopRecording(ctx, org.ID, owner.ID, roomState.Room.ID)
+	if err != nil {
+		t.Fatalf("stop recording failed: %v", err)
+	}
+	if recording.Transcription == nil || recording.Transcription.Status != models.RecordingTranscriptionStatusPending {
+		t.Fatalf("expected pending transcription on recording response, got %+v", recording.Transcription)
+	}
+	var outbox models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_id = ?", EventRecordingTranscriptionRequested, recording.Session.ID).Take(&outbox).Error; err != nil {
+		t.Fatalf("expected transcription outbox event: %v", err)
+	}
+}
+
+func TestProcessRecordingTranscriptionWithMockProviderCreatesSegments(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	ctx := context.Background()
+	svc.WithTranscriptionProvider(transcription.NewMockProvider())
+
+	owner := createTestUser(t, db, "owner@example.com", "Owner")
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Workspace")
+	if err != nil {
+		t.Fatalf("create organization failed: %v", err)
+	}
+	roomState, err := svc.CreateRoom(ctx, org.ID, owner.ID, CreateRoomInput{
+		Title: "Recorded planning",
+	})
+	if err != nil {
+		t.Fatalf("create room failed: %v", err)
+	}
+	if roomState.ConversationID == nil {
+		t.Fatal("expected created room to be bound to a conversation")
+	}
+	now := time.Now()
+	session := models.RecordingSession{
+		OrganizationID: org.ID,
+		RoomID:         roomState.Room.ID,
+		StartedBy:      owner.ID,
+		Status:         models.RecordingStatusStopped,
+		StartedAt:      &now,
+		StoppedAt:      &now,
+	}
+	if err := db.Create(&session).Error; err != nil {
+		t.Fatalf("create recording session failed: %v", err)
+	}
+	audioPath := filepath.Join(t.TempDir(), "participant-audio.ogg")
+	if err := os.WriteFile(audioPath, []byte("mock-audio"), 0o644); err != nil {
+		t.Fatalf("write audio artifact failed: %v", err)
+	}
+	stored, err := svc.storage.SaveFile(ctx, audioPath, "org-1/room-1/session-1/participant-audio.ogg", "audio/ogg")
+	if err != nil {
+		t.Fatalf("save audio artifact failed: %v", err)
+	}
+	file := models.RecordingFile{
+		RecordingSessionID: session.ID,
+		StorageDriver:      string(stored.Driver),
+		StorageBucket:      stored.Bucket,
+		ObjectKey:          stored.Key,
+		ETag:               stored.ETag,
+		ContentType:        "audio/ogg",
+		DurationSeconds:    2,
+		MetadataJSON:       `{"track_key":"` + strconv.FormatUint(owner.ID, 10) + `:microphone"}`,
+	}
+	if err := db.Create(&file).Error; err != nil {
+		t.Fatalf("create recording file failed: %v", err)
+	}
+
+	if err := svc.ProcessRecordingTranscription(ctx, session.ID); err != nil {
+		t.Fatalf("process transcription failed: %v", err)
+	}
+	var job models.RecordingTranscription
+	if err := db.Where("recording_session_id = ?", session.ID).Take(&job).Error; err != nil {
+		t.Fatalf("load transcription job failed: %v", err)
+	}
+	if job.Status != models.RecordingTranscriptionStatusReady || job.SegmentCount != 1 {
+		t.Fatalf("expected ready job with one segment, got %+v", job)
+	}
+	var segment models.MeetingTranscriptSegment
+	if err := db.Where("recording_session_id = ?", session.ID).Take(&segment).Error; err != nil {
+		t.Fatalf("load transcript segment failed: %v", err)
+	}
+	if !strings.Contains(segment.Text, "Mock meeting transcript") {
+		t.Fatalf("unexpected transcript text: %s", segment.Text)
+	}
+	if segment.SpeakerUserID == nil || *segment.SpeakerUserID != owner.ID {
+		t.Fatalf("expected speaker user id %d, got %+v", owner.ID, segment.SpeakerUserID)
+	}
+	var message models.Message
+	if err := db.Where("conversation_id = ? AND metadata_json LIKE ?", *roomState.ConversationID, "%meeting.transcription.ready%").Take(&message).Error; err != nil {
+		t.Fatalf("expected transcription ready system message: %v", err)
+	}
+}
+
+func TestProcessRecordingTranscriptionSkipsRoomWithoutConversation(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	ctx := context.Background()
+	svc.WithTranscriptionProvider(transcription.NewMockProvider())
+
+	owner := createTestUser(t, db, "owner@example.com", "Owner")
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Workspace")
+	if err != nil {
+		t.Fatalf("create organization failed: %v", err)
+	}
+	room := models.CallRoom{
+		OrganizationID: org.ID,
+		Title:          "Standalone room",
+		Status:         models.RoomStatusEnded,
+		CreatedBy:      owner.ID,
+	}
+	if err := db.Create(&room).Error; err != nil {
+		t.Fatalf("create room failed: %v", err)
+	}
+	now := time.Now()
+	session := models.RecordingSession{
+		OrganizationID: org.ID,
+		RoomID:         room.ID,
+		StartedBy:      owner.ID,
+		Status:         models.RecordingStatusStopped,
+		StartedAt:      &now,
+		StoppedAt:      &now,
+	}
+	if err := db.Create(&session).Error; err != nil {
+		t.Fatalf("create recording session failed: %v", err)
+	}
+	if err := svc.ProcessRecordingTranscription(ctx, session.ID); err != nil {
+		t.Fatalf("process transcription failed: %v", err)
+	}
+	var job models.RecordingTranscription
+	if err := db.Where("recording_session_id = ?", session.ID).Take(&job).Error; err != nil {
+		t.Fatalf("load transcription job failed: %v", err)
+	}
+	if job.Status != models.RecordingTranscriptionStatusSkipped {
+		t.Fatalf("expected skipped job, got %s", job.Status)
+	}
+}
+
+func TestProcessRecordingTranscriptionMarksUnreadableStorageFailed(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	ctx := context.Background()
+	svc.WithTranscriptionProvider(transcription.NewMockProvider())
+
+	owner := createTestUser(t, db, "owner@example.com", "Owner")
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Workspace")
+	if err != nil {
+		t.Fatalf("create organization failed: %v", err)
+	}
+	roomState, err := svc.CreateRoom(ctx, org.ID, owner.ID, CreateRoomInput{
+		Title: "Unreadable storage room",
+	})
+	if err != nil {
+		t.Fatalf("create room failed: %v", err)
+	}
+	now := time.Now()
+	session := models.RecordingSession{
+		OrganizationID: org.ID,
+		RoomID:         roomState.Room.ID,
+		StartedBy:      owner.ID,
+		Status:         models.RecordingStatusStopped,
+		StartedAt:      &now,
+		StoppedAt:      &now,
+	}
+	if err := db.Create(&session).Error; err != nil {
+		t.Fatalf("create recording session failed: %v", err)
+	}
+	if err := db.Create(&models.RecordingFile{
+		RecordingSessionID: session.ID,
+		StorageDriver:      string(storage.DriverS3),
+		StorageBucket:      "bucket",
+		ObjectKey:          "recordings/audio.ogg",
+		ContentType:        "audio/ogg",
+		DurationSeconds:    2,
+	}).Error; err != nil {
+		t.Fatalf("create recording file failed: %v", err)
+	}
+	svc.WithRecordingStorage(unreadableRecordingStorage{RecordingStorage: svc.storage})
+	if err := svc.ProcessRecordingTranscription(ctx, session.ID); err != nil {
+		t.Fatalf("process transcription failed: %v", err)
+	}
+	var job models.RecordingTranscription
+	if err := db.Where("recording_session_id = ?", session.ID).Take(&job).Error; err != nil {
+		t.Fatalf("load transcription job failed: %v", err)
+	}
+	if job.Status != models.RecordingTranscriptionStatusFailed || !strings.Contains(job.ErrorMessage, "locally readable") {
+		t.Fatalf("expected failed job for unreadable storage, got %+v", job)
 	}
 }
 

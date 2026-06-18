@@ -140,6 +140,14 @@ func main() {
 		appLogger.Fatal().Err(err).Msg("failed to initialize recording storage")
 	}
 	collaborationSvc.WithRecordingStorage(recordingStorage)
+	transcriptionProvider, transcriptionEnabled, err := appruntime.TranscriptionProviderFromEnv()
+	if err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to initialize transcription provider")
+	}
+	if transcriptionEnabled {
+		collaborationSvc.WithTranscriptionProvider(transcriptionProvider)
+		appLogger.Info().Str("provider", transcriptionProvider.Name()).Msg("recording transcription enabled")
+	}
 	searchSvc, searchDriver, err := appruntime.SearchServiceFromEnv()
 	if err != nil {
 		appLogger.Fatal().Err(err).Msg("failed to initialize search service")
@@ -318,6 +326,7 @@ func main() {
 			appruntime.EventSearchMessageIndex,
 			appruntime.EventRAGSourceIngest,
 			appruntime.EventRAGChunkIndex,
+			appruntime.EventRecordingTranscriptionRequested,
 		}
 		if settlementKafkaEnabled {
 			outboxEvents = append(outboxEvents, appruntime.EventSettlementRoomEnd)

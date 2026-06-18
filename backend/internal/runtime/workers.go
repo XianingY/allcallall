@@ -23,14 +23,15 @@ import (
 )
 
 const (
-	EventAgentRunRequested  = "agent.run.requested"
-	EventWorkflowRequested  = agent.EventWorkflowRunRequested
-	EventAgentRunCompleted  = "agent.run.completed"
-	EventMessageCreated     = "message.created"
-	EventSearchMessageIndex = "search.message.index_requested"
-	EventRAGSourceIngest    = knowledge.EventSourceIngestRequested
-	EventRAGChunkIndex      = knowledge.EventChunkIndexRequested
-	EventSettlementRoomEnd  = "settlement.room.ended"
+	EventAgentRunRequested               = "agent.run.requested"
+	EventWorkflowRequested               = agent.EventWorkflowRunRequested
+	EventAgentRunCompleted               = "agent.run.completed"
+	EventMessageCreated                  = "message.created"
+	EventSearchMessageIndex              = "search.message.index_requested"
+	EventRAGSourceIngest                 = knowledge.EventSourceIngestRequested
+	EventRAGChunkIndex                   = knowledge.EventChunkIndexRequested
+	EventSettlementRoomEnd               = "settlement.room.ended"
+	EventRecordingTranscriptionRequested = collaboration.EventRecordingTranscriptionRequested
 )
 
 func EmbeddedWorkersEnabledFromEnv() bool {
@@ -224,6 +225,29 @@ func RegisterCollaborationOutboxHandlers(processor *events.Processor, collaborat
 			Msg("outbox message realtime delivered")
 		return nil
 	})
+	processor.Register(EventRecordingTranscriptionRequested, func(ctx context.Context, event models.EventOutbox) error {
+		recordingID := event.AggregateID
+		if recordingID == 0 {
+			var payload collaboration.RecordingTranscriptionRequestedPayload
+			if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+				return err
+			}
+			recordingID = payload.RecordingID
+		}
+		if recordingID == 0 {
+			return fmt.Errorf("recording id missing in transcription payload")
+		}
+		if err := collaborationSvc.ProcessRecordingTranscription(ctx, recordingID); err != nil {
+			return err
+		}
+		log.Info().
+			Str("request_id", trace.RequestID(ctx)).
+			Uint64("outbox_id", event.ID).
+			Uint64("recording_id", recordingID).
+			Str("event", event.Event).
+			Msg("outbox recording transcription processed")
+		return nil
+	})
 }
 
 func ConfigureOutboxProcessorFromEnv(processor *events.Processor, workerID string, eventFilter ...string) {
@@ -257,7 +281,7 @@ func StartAgentWorker(ctx context.Context, log zerolog.Logger, processor *events
 }
 
 func StartCollaborationOutboxWorker(ctx context.Context, log zerolog.Logger, processor *events.Processor) {
-	ConfigureOutboxProcessorFromEnv(processor, workerIDFromEnv("outbox-worker"), EventAgentRunCompleted, EventMessageCreated)
+	ConfigureOutboxProcessorFromEnv(processor, workerIDFromEnv("outbox-worker"), EventAgentRunCompleted, EventMessageCreated, EventRecordingTranscriptionRequested)
 	StartOutboxWorker(ctx, log.With().Str("worker", "outbox").Logger(), processor)
 }
 

@@ -74,24 +74,28 @@ type RunResult struct {
 }
 
 type conversationContext struct {
-	Conversation       models.Conversation
-	Notes              []models.ConversationNote
-	Messages           []models.Message
-	Rooms              []models.CallRoom
-	Members            []models.ConversationMember
-	Memories           []models.AgentMemory
-	Followups          []models.CallFollowup
-	TranscriptSegments []models.CallTranscriptSegment
-	ContactProfile     *models.ContactProfile
-	ContextChunks      []RetrievedContextChunk
-	MeetingContext     meetingContextSummary
+	Conversation              models.Conversation
+	Notes                     []models.ConversationNote
+	Messages                  []models.Message
+	Rooms                     []models.CallRoom
+	Members                   []models.ConversationMember
+	Memories                  []models.AgentMemory
+	Followups                 []models.CallFollowup
+	TranscriptSegments        []models.CallTranscriptSegment
+	MeetingTranscriptSegments []models.MeetingTranscriptSegment
+	ContactProfile            *models.ContactProfile
+	ContextChunks             []RetrievedContextChunk
+	MeetingContext            meetingContextSummary
 }
 
 type meetingContextSummary struct {
-	LatestCallID           string
-	TranscriptSegmentCount int
-	LatestTranscriptAt     *time.Time
-	LatestFollowupPresent  bool
+	LatestCallID                  string
+	TranscriptSegmentCount        int
+	LatestTranscriptAt            *time.Time
+	LatestFollowupPresent         bool
+	MeetingTranscriptionStatus    string
+	MeetingTranscriptSegmentCount int
+	LatestMeetingTranscriptAt     *time.Time
 }
 
 type conversationMemoryInput struct {
@@ -563,6 +567,19 @@ func (s *Service) loadConversationContext(ctx context.Context, organizationID, u
 			return nil, err
 		}
 	}
+	var meetingTranscriptSegments []models.MeetingTranscriptSegment
+	if err := s.db.WithContext(ctx).
+		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
+		Order("recording_session_id DESC, start_ms ASC, created_at DESC").
+		Limit(80).
+		Find(&meetingTranscriptSegments).Error; err != nil {
+		return nil, err
+	}
+	var latestRecordingTranscription models.RecordingTranscription
+	_ = s.db.WithContext(ctx).
+		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
+		Order("recording_session_id DESC, updated_at DESC").
+		Take(&latestRecordingTranscription).Error
 	var contactProfile *models.ContactProfile
 	if conv.ContactID != nil && *conv.ContactID != 0 {
 		var profile models.ContactProfile
@@ -575,17 +592,18 @@ func (s *Service) loadConversationContext(ctx context.Context, organizationID, u
 		}
 	}
 	conversationCtx := &conversationContext{
-		Conversation:       conv,
-		Notes:              notes,
-		Messages:           messages,
-		Rooms:              rooms,
-		Members:            members,
-		Memories:           memories,
-		Followups:          followups,
-		TranscriptSegments: transcriptSegments,
-		ContactProfile:     contactProfile,
+		Conversation:              conv,
+		Notes:                     notes,
+		Messages:                  messages,
+		Rooms:                     rooms,
+		Members:                   members,
+		Memories:                  memories,
+		Followups:                 followups,
+		TranscriptSegments:        transcriptSegments,
+		MeetingTranscriptSegments: meetingTranscriptSegments,
+		ContactProfile:            contactProfile,
 	}
-	conversationCtx.MeetingContext = buildMeetingContextSummary(conversationCtx.TranscriptSegments, conversationCtx.Followups)
+	conversationCtx.MeetingContext = buildMeetingContextSummary(conversationCtx.TranscriptSegments, conversationCtx.Followups, conversationCtx.MeetingTranscriptSegments, latestRecordingTranscription)
 	prioritizeMeetingConversationArtifacts(conversationCtx)
 	if err := s.refreshConversationContextChunks(ctx, conversationCtx); err != nil {
 		return nil, err
@@ -598,7 +616,7 @@ func (s *Service) loadConversationContext(ctx context.Context, organizationID, u
 	return conversationCtx, nil
 }
 
-func buildMeetingContextSummary(segments []models.CallTranscriptSegment, followups []models.CallFollowup) meetingContextSummary {
+func buildMeetingContextSummary(segments []models.CallTranscriptSegment, followups []models.CallFollowup, meetingSegments []models.MeetingTranscriptSegment, transcription models.RecordingTranscription) meetingContextSummary {
 	summary := meetingContextSummary{}
 	if len(segments) > 0 {
 		summary.LatestCallID = strings.TrimSpace(segments[0].CallID)
@@ -630,34 +648,56 @@ func buildMeetingContextSummary(segments []models.CallTranscriptSegment, followu
 			}
 		}
 	}
+	summary.MeetingTranscriptionStatus = strings.TrimSpace(transcription.Status)
+	summary.MeetingTranscriptSegmentCount = len(meetingSegments)
+	for _, segment := range meetingSegments {
+		if segment.CreatedAt.IsZero() {
+			continue
+		}
+		at := segment.CreatedAt.UTC()
+		if summary.LatestMeetingTranscriptAt == nil || at.After(*summary.LatestMeetingTranscriptAt) {
+			summary.LatestMeetingTranscriptAt = &at
+		}
+	}
 	return summary
 }
 
 func prioritizeMeetingConversationArtifacts(conversationCtx *conversationContext) {
-	if conversationCtx == nil || strings.TrimSpace(conversationCtx.MeetingContext.LatestCallID) == "" {
+	if conversationCtx == nil {
 		return
 	}
 	latestCallID := conversationCtx.MeetingContext.LatestCallID
-	sort.SliceStable(conversationCtx.TranscriptSegments, func(i, j int) bool {
-		left := strings.TrimSpace(conversationCtx.TranscriptSegments[i].CallID) == latestCallID
-		right := strings.TrimSpace(conversationCtx.TranscriptSegments[j].CallID) == latestCallID
-		if left != right {
-			return left
+	if strings.TrimSpace(latestCallID) != "" {
+		sort.SliceStable(conversationCtx.TranscriptSegments, func(i, j int) bool {
+			left := strings.TrimSpace(conversationCtx.TranscriptSegments[i].CallID) == latestCallID
+			right := strings.TrimSpace(conversationCtx.TranscriptSegments[j].CallID) == latestCallID
+			if left != right {
+				return left
+			}
+			if conversationCtx.TranscriptSegments[i].TimestampMS != conversationCtx.TranscriptSegments[j].TimestampMS {
+				return conversationCtx.TranscriptSegments[i].TimestampMS > conversationCtx.TranscriptSegments[j].TimestampMS
+			}
+			return conversationCtx.TranscriptSegments[i].CreatedAt.After(conversationCtx.TranscriptSegments[j].CreatedAt)
+		})
+		sort.SliceStable(conversationCtx.Followups, func(i, j int) bool {
+			left := strings.TrimSpace(conversationCtx.Followups[i].CallID) == latestCallID
+			right := strings.TrimSpace(conversationCtx.Followups[j].CallID) == latestCallID
+			if left != right {
+				return left
+			}
+			leftAt := latestFollowupTimestamp(conversationCtx.Followups[i])
+			rightAt := latestFollowupTimestamp(conversationCtx.Followups[j])
+			return leftAt.After(rightAt)
+		})
+	}
+	sort.SliceStable(conversationCtx.MeetingTranscriptSegments, func(i, j int) bool {
+		if conversationCtx.MeetingTranscriptSegments[i].RecordingSessionID != conversationCtx.MeetingTranscriptSegments[j].RecordingSessionID {
+			return conversationCtx.MeetingTranscriptSegments[i].RecordingSessionID > conversationCtx.MeetingTranscriptSegments[j].RecordingSessionID
 		}
-		if conversationCtx.TranscriptSegments[i].TimestampMS != conversationCtx.TranscriptSegments[j].TimestampMS {
-			return conversationCtx.TranscriptSegments[i].TimestampMS > conversationCtx.TranscriptSegments[j].TimestampMS
+		if conversationCtx.MeetingTranscriptSegments[i].StartMS != conversationCtx.MeetingTranscriptSegments[j].StartMS {
+			return conversationCtx.MeetingTranscriptSegments[i].StartMS < conversationCtx.MeetingTranscriptSegments[j].StartMS
 		}
-		return conversationCtx.TranscriptSegments[i].CreatedAt.After(conversationCtx.TranscriptSegments[j].CreatedAt)
-	})
-	sort.SliceStable(conversationCtx.Followups, func(i, j int) bool {
-		left := strings.TrimSpace(conversationCtx.Followups[i].CallID) == latestCallID
-		right := strings.TrimSpace(conversationCtx.Followups[j].CallID) == latestCallID
-		if left != right {
-			return left
-		}
-		leftAt := latestFollowupTimestamp(conversationCtx.Followups[i])
-		rightAt := latestFollowupTimestamp(conversationCtx.Followups[j])
-		return leftAt.After(rightAt)
+		return conversationCtx.MeetingTranscriptSegments[i].CreatedAt.After(conversationCtx.MeetingTranscriptSegments[j].CreatedAt)
 	})
 	sort.SliceStable(conversationCtx.Memories, func(i, j int) bool {
 		return meetingMemorySortWeight(conversationCtx.Memories[i].Key) > meetingMemorySortWeight(conversationCtx.Memories[j].Key)

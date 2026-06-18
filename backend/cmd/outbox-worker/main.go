@@ -41,6 +41,20 @@ func main() {
 	collaborationSvc.WithMetrics(counterStore)
 
 	outboxStore := events.NewStore(db)
+	collaborationSvc.WithOutbox(outboxStore)
+	recordingStorage, err := appruntime.RecordingStorageFromEnv()
+	if err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to initialize recording storage")
+	}
+	collaborationSvc.WithRecordingStorage(recordingStorage)
+	transcriptionProvider, transcriptionEnabled, err := appruntime.TranscriptionProviderFromEnv()
+	if err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to initialize transcription provider")
+	}
+	if transcriptionEnabled {
+		collaborationSvc.WithTranscriptionProvider(transcriptionProvider)
+		appLogger.Info().Str("provider", transcriptionProvider.Name()).Msg("recording transcription enabled")
+	}
 	knowledgeSvc := knowledge.NewService(db).WithOutbox(outboxStore)
 	planner, err := agent.NewPlanner(os.Getenv("AGENT_PROVIDER"))
 	if err != nil {
@@ -68,6 +82,9 @@ func main() {
 		appruntime.EventMessageCreated,
 		appruntime.EventRAGSourceIngest,
 		appruntime.EventRAGChunkIndex,
+	}
+	if transcriptionEnabled {
+		eventFilter = append(eventFilter, appruntime.EventRecordingTranscriptionRequested)
 	}
 	settlementProducer, settlementKafkaEnabled, err := appruntime.KafkaProducerFromEnv()
 	if err != nil {

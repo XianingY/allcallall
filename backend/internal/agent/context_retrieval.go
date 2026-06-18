@@ -16,13 +16,14 @@ import (
 )
 
 const (
-	contextChunkSourceNote           = "note"
-	contextChunkSourceMessage        = "message"
-	contextChunkSourceMemory         = "memory"
-	contextChunkSourceFollowup       = "followup"
-	contextChunkSourceContactProfile = "contact_profile"
-	contextChunkSourceTranscript     = "transcript"
-	defaultContextChunkLimit         = 8
+	contextChunkSourceNote              = "note"
+	contextChunkSourceMessage           = "message"
+	contextChunkSourceMemory            = "memory"
+	contextChunkSourceFollowup          = "followup"
+	contextChunkSourceContactProfile    = "contact_profile"
+	contextChunkSourceTranscript        = "transcript"
+	contextChunkSourceMeetingTranscript = "meeting_transcript"
+	defaultContextChunkLimit            = 8
 )
 
 type RetrievedContextChunk struct {
@@ -78,6 +79,11 @@ func (s *Service) refreshConversationContextChunks(ctx context.Context, conversa
 	}
 	for _, segment := range conversationCtx.TranscriptSegments {
 		if err := s.upsertContextChunk(ctx, organizationID, conversationID, contextChunkSourceTranscript, segment.ID, buildTranscriptContextContent(segment), 0); err != nil {
+			return err
+		}
+	}
+	for _, segment := range conversationCtx.MeetingTranscriptSegments {
+		if err := s.upsertContextChunk(ctx, organizationID, conversationID, contextChunkSourceMeetingTranscript, segment.ID, buildMeetingTranscriptContextContent(segment), 0); err != nil {
 			return err
 		}
 	}
@@ -187,6 +193,7 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, convers
 			OrganizationID: conv.OrganizationID,
 			ConversationID: conv.ID,
 			SourceTypes: []string{
+				contextChunkSourceMeetingTranscript,
 				contextChunkSourceTranscript,
 				contextChunkSourceFollowup,
 				contextChunkSourceMemory,
@@ -368,6 +375,8 @@ func hybridConversationChunkScore(result search.ContextChunkSearchResult) int {
 
 func conversationSourcePriority(item RetrievedContextChunk) int {
 	switch retrievedChunkSourceType(item) {
+	case contextChunkSourceMeetingTranscript:
+		return 7
 	case contextChunkSourceTranscript:
 		return 6
 	case contextChunkSourceFollowup:
@@ -411,6 +420,14 @@ func ensureMeetingAwareContext(conversationCtx *conversationContext, scored []Re
 	if len(conversationCtx.Followups) > 0 {
 		appendIfMissing(followupToRetrievedContextChunk(conversationCtx.Followups[0]))
 	}
+	addedMeetingTranscript := 0
+	for _, segment := range conversationCtx.MeetingTranscriptSegments {
+		appendIfMissing(meetingTranscriptToRetrievedContextChunk(segment))
+		addedMeetingTranscript++
+		if addedMeetingTranscript >= 2 {
+			break
+		}
+	}
 	addedTranscript := 0
 	for _, segment := range conversationCtx.TranscriptSegments {
 		appendIfMissing(transcriptToRetrievedContextChunk(segment))
@@ -434,6 +451,23 @@ func ensureMeetingAwareContext(conversationCtx *conversationContext, scored []Re
 		return out[:limit]
 	}
 	return out
+}
+
+func meetingTranscriptToRetrievedContextChunk(segment models.MeetingTranscriptSegment) RetrievedContextChunk {
+	return RetrievedContextChunk{
+		Chunk: models.AgentContextChunk{
+			OrganizationID: segment.OrganizationID,
+			ConversationID: segment.ConversationID,
+			SourceType:     contextChunkSourceMeetingTranscript,
+			SourceID:       segment.ID,
+			Content:        buildMeetingTranscriptContextContent(segment),
+			CreatedAt:      segment.CreatedAt,
+			UpdatedAt:      segment.CreatedAt,
+		},
+		Score:          999,
+		RetrievalMode:  models.RAGRetrievalModeSQLFallback,
+		FallbackReason: "meeting_recording_transcript_boost",
+	}
 }
 
 func memoryToRetrievedContextChunk(memory models.AgentMemory) RetrievedContextChunk {
@@ -516,6 +550,8 @@ func contextChunkTitle(chunk models.AgentContextChunk) string {
 		return fmt.Sprintf("Contact profile #%d", chunk.SourceID)
 	case contextChunkSourceTranscript:
 		return fmt.Sprintf("Transcript segment #%d", chunk.SourceID)
+	case contextChunkSourceMeetingTranscript:
+		return fmt.Sprintf("Meeting transcript segment #%d", chunk.SourceID)
 	default:
 		return fmt.Sprintf("%s #%d", chunk.SourceType, chunk.SourceID)
 	}
@@ -607,6 +643,9 @@ func scoreContextChunk(tokens []string, chunk models.AgentContextChunk) int {
 	}
 	if chunk.SourceType == contextChunkSourceFollowup && score > 0 {
 		score += 2
+	}
+	if chunk.SourceType == contextChunkSourceMeetingTranscript && score > 0 {
+		score += 3
 	}
 	if chunk.SourceType == contextChunkSourceContactProfile && score > 0 {
 		score++
@@ -723,6 +762,24 @@ func buildTranscriptContextContent(segment models.CallTranscriptSegment) string 
 		"translated: "+segment.TranslatedText,
 		"source_lang: "+segment.SourceLang,
 		"target_lang: "+segment.TargetLang,
+	)
+}
+
+func buildMeetingTranscriptContextContent(segment models.MeetingTranscriptSegment) string {
+	speaker := ""
+	if segment.SpeakerUserID != nil {
+		speaker = fmt.Sprintf("%d", *segment.SpeakerUserID)
+	}
+	return compactContextContent(
+		"Meeting recording transcript segment",
+		fmt.Sprintf("recording_id: %d", segment.RecordingSessionID),
+		fmt.Sprintf("recording_file_id: %d", segment.RecordingFileID),
+		"speaker_user_id: "+speaker,
+		"track_key: "+segment.TrackKey,
+		"text: "+segment.Text,
+		"language: "+segment.Language,
+		fmt.Sprintf("time_ms: %d-%d", segment.StartMS, segment.EndMS),
+		"provider: "+segment.Provider,
 	)
 }
 

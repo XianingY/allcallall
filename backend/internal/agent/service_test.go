@@ -43,6 +43,8 @@ func newAgentServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *metrics.CounterS
 		&models.CallRoom{},
 		&models.CallFollowup{},
 		&models.CallTranscriptSegment{},
+		&models.RecordingTranscription{},
+		&models.MeetingTranscriptSegment{},
 		&models.ContactProfile{},
 		&models.EventOutbox{},
 		&models.ChatEvent{},
@@ -338,6 +340,32 @@ func TestConversationRAGIndexesBusinessSourcesAndReturnsCitations(t *testing.T) 
 	}).Error; err != nil {
 		t.Fatalf("create transcript failed: %v", err)
 	}
+	if err := db.Create(&models.RecordingTranscription{
+		OrganizationID:     conversation.OrganizationID,
+		ConversationID:     &conversation.ID,
+		RoomID:             101,
+		RecordingSessionID: 202,
+		Status:             models.RecordingTranscriptionStatusReady,
+		Provider:           "mock",
+		SegmentCount:       1,
+	}).Error; err != nil {
+		t.Fatalf("create recording transcription failed: %v", err)
+	}
+	if err := db.Create(&models.MeetingTranscriptSegment{
+		OrganizationID:     conversation.OrganizationID,
+		ConversationID:     conversation.ID,
+		RoomID:             101,
+		RecordingSessionID: 202,
+		RecordingFileID:    303,
+		Source:             models.MeetingTranscriptSourceRecording,
+		Provider:           "mock",
+		Language:           "zh",
+		Text:               "会议录音确认客户要求本周补充安全说明和数据留存材料。",
+		StartMS:            0,
+		EndMS:              1800,
+	}).Error; err != nil {
+		t.Fatalf("create meeting transcript failed: %v", err)
+	}
 
 	queued, err := svc.RunConversationAssistant(context.Background(), conversation.OrganizationID, 7, RunInput{
 		ConversationID: conversation.ID,
@@ -358,7 +386,7 @@ func TestConversationRAGIndexesBusinessSourcesAndReturnsCitations(t *testing.T) 
 			t.Fatalf("citation missing title/snippet: %+v", citation)
 		}
 	}
-	for _, sourceType := range []string{contextChunkSourceFollowup, contextChunkSourceContactProfile, contextChunkSourceTranscript} {
+	for _, sourceType := range []string{contextChunkSourceMeetingTranscript, contextChunkSourceFollowup, contextChunkSourceContactProfile, contextChunkSourceTranscript} {
 		if !sourceTypes[sourceType] {
 			t.Fatalf("missing citation source %s in %+v", sourceType, result.Citations)
 		}
@@ -372,7 +400,7 @@ func TestConversationRAGIndexesBusinessSourcesAndReturnsCitations(t *testing.T) 
 	for _, chunk := range chunks {
 		indexed[chunk.SourceType] = true
 	}
-	for _, sourceType := range []string{contextChunkSourceMessage, contextChunkSourceNote, contextChunkSourceFollowup, contextChunkSourceContactProfile, contextChunkSourceTranscript} {
+	for _, sourceType := range []string{contextChunkSourceMessage, contextChunkSourceNote, contextChunkSourceFollowup, contextChunkSourceContactProfile, contextChunkSourceTranscript, contextChunkSourceMeetingTranscript} {
 		if !indexed[sourceType] {
 			t.Fatalf("missing indexed source %s in %+v", sourceType, indexed)
 		}

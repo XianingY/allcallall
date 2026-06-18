@@ -43,6 +43,8 @@ func newAgentHandlerTestEnv(t *testing.T) (*AgentHandler, *gorm.DB, models.Conve
 		&models.CallRoom{},
 		&models.CallFollowup{},
 		&models.CallTranscriptSegment{},
+		&models.RecordingTranscription{},
+		&models.MeetingTranscriptSegment{},
 		&models.ContactProfile{},
 		&models.WorkflowRun{},
 		&models.WorkflowTask{},

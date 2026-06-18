@@ -78,6 +78,10 @@ export interface ConversationWorkspaceRecord {
     latest_call_id?: string;
     transcript_segment_count: number;
     latest_transcript_at?: string | null;
+    meeting_transcription_status?: string;
+    meeting_transcription_error?: string;
+    meeting_transcript_segment_count?: number;
+    latest_meeting_transcript_at?: string | null;
     latest_memory_keys?: string[];
     last_agent_run_at?: string | null;
     last_agent_status?: string;
@@ -170,9 +174,22 @@ export interface RecordingFileRecord {
   recording_kind: string;
 }
 
+export interface RecordingTranscriptionRecord {
+  id: number;
+  status: string;
+  provider?: string;
+  segment_count: number;
+  error_message?: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RecordingRecord {
   session: RecordingSessionRecord;
   files: RecordingFileRecord[];
+  transcription?: RecordingTranscriptionRecord | null;
 }
 
 export interface RoomRecord {

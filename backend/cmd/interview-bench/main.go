@@ -138,6 +138,8 @@ func migrateBenchTables(db *gorm.DB) error {
 		&models.ConversationNote{},
 		&models.Message{},
 		&models.CallRoom{},
+		&models.RecordingTranscription{},
+		&models.MeetingTranscriptSegment{},
 		&models.ContactProfile{},
 		&models.FollowUpTask{},
 		&models.AgentRun{},
