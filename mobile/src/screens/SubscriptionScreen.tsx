@@ -18,18 +18,16 @@ import { RootStackParamList } from "../navigation/AppNavigator";
 import type { BillingOffering as PurchasesOffering } from "../platform/billingAdapter";
 import AnalyticsService from "../services/AnalyticsService";
 import BillingService from "../services/BillingService";
-import { findTranslationUsage, formatTranslationUsageSummary } from "../utils/usage";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Subscription">;
 
 const SubscriptionScreen: React.FC<Props> = () => {
   const { user } = useAuthContext();
-  const { tier, entitlements, usage, refreshCommercialState } = useCommercial();
+  const { tier, entitlements, refreshCommercialState } = useCommercial();
   const [offering, setOffering] = useState<PurchasesOffering | null>(null);
   const [loading, setLoading] = useState(false);
 
   const config = getRevenueCatConfig();
-  const usageSummary = useMemo(() => findTranslationUsage(usage), [usage]);
   const monthlyPackage = useMemo(
     () => BillingService.findProductForConfiguredSku(offering, config?.monthlyProductId ?? "premium_monthly"),
     [config?.monthlyProductId, offering]
@@ -123,14 +121,16 @@ const SubscriptionScreen: React.FC<Props> = () => {
       <View style={styles.hero}>
         <Text style={styles.title}>Premium 订阅</Text>
         <Text style={styles.subtitle}>
-          翻译是商用化主轴。基础通话永久免费，Premium 解锁无限实时翻译与更长历史保留。
+          基础通话永久免费，Premium 解锁更长历史保留、高清画质档位和更多协作能力。
         </Text>
       </View>
 
       <View style={styles.statusCard}>
         <Text style={styles.statusLabel}>当前权益</Text>
         <Text style={styles.statusValue}>{tier === "premium" ? "Premium" : "Free"}</Text>
-        <Text style={styles.statusMeta}>{formatTranslationUsageSummary(usageSummary)}</Text>
+        <Text style={styles.statusMeta}>
+          {tier === "premium" ? "365 天通话历史与高级通话能力" : "基础通话与最近 30 天历史"}
+        </Text>
       </View>
 
       {!billingSupported ? (
@@ -145,15 +145,15 @@ const SubscriptionScreen: React.FC<Props> = () => {
       <View style={styles.planCard}>
         <Text style={styles.planTitle}>Free</Text>
         <Text style={styles.planBullet}>无限基础 1:1 音视频和联系人</Text>
-        <Text style={styles.planBullet}>每月 30 分钟实时翻译</Text>
+        <Text style={styles.planBullet}>基础会议协作能力</Text>
         <Text style={styles.planBullet}>最近通话保留 30 天</Text>
       </View>
 
       <View style={[styles.planCard, styles.planPremium]}>
         <Text style={styles.planTitle}>Premium</Text>
-        <Text style={styles.planBullet}>无限实时翻译</Text>
+        <Text style={styles.planBullet}>365 天通话历史</Text>
         <Text style={styles.planBullet}>高清画质档位</Text>
-        <Text style={styles.planBullet}>最近通话保留 365 天</Text>
+        <Text style={styles.planBullet}>更多协作与管理能力</Text>
       </View>
 
       {billingSupported && storefrontReady ? (

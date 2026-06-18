@@ -173,7 +173,7 @@ const CallHistoryScreen: React.FC<Props> = ({ navigation }) => {
           onPress={() => navigation.navigate("Subscription")}
         >
           <Text style={styles.upgradeTitle}>升级 Premium</Text>
-          <Text style={styles.upgradeText}>解锁 365 天通话记录和无限实时翻译。</Text>
+          <Text style={styles.upgradeText}>解锁 365 天通话记录、高清画质档位和更多协作能力。</Text>
         </TouchableOpacity>
       ) : null}
     </View>
