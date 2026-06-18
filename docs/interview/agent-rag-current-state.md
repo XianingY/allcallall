@@ -6,27 +6,32 @@
 
 ## 结论先行
 
-当前项目最适合展示的方向是：**Web 端可调试的会话 AI Agent + ES dense_vector RAG**。
+当前项目最适合展示的方向是：**Web Agent Lab + ES vector RAG + Workflow 控制的多 Agent 协作**。
 
-它已经不是只有后端概念的半成品。现在 Web 端可以进入 `Agent RAG Demo`，创建演示会话，写入消息和内部备注，提交 Agent run，并看到 Agent 输出、执行状态、trace timeline 和 RAG citation。后端已经具备 run/outbox/worker/step/tool_call/memory/RAG chunk/ES vector/SSE 的完整链路。
+它已经不是只有后端概念的半成品。现在 Web 端登录后默认进入 `Agent Lab`，可以上传/粘贴/抓取知识源，查看 ingestion/index 状态和 dead-letter，启动固定 Workflow Agent run，观察任务图、并行角色、agent message、tool approval，并在审批后把结果写回会话。
 
-但它也还不是生产级 Agent 平台。真实 LLM 接入和 ES vector RAG 已经能跑通，仍缺少更强的工具 schema、审批 UI、可观测的向量命中解释、索引重试、评测集和多用户演示种子数据。多智能体目前是同步 `delegate_task` 子 run，不是独立长期运行的多 Agent 系统。
+但它也还不是生产级 Agent 平台。当前重点是本地 demo 和工程化闭环：Workflow 是内置固定 DAG，不是 Temporal；RAG ingestion 支持轻量文件/URL/manual text，不做 Notion/GitHub/站点批量 crawler；ES 继续作为 vector 检索引擎，但 eval 使用 fake vector indexer 保证本地可跑。
 
 一句话定位：
 
-> 这是一个可以本地演示和调试的 Agent 工程化项目，核心亮点是把会话系统里的消息、内部备注、会议 follow-up、联系人资料、转写片段和 Agent memory 做成可检索上下文，并通过 OpenAI-compatible planner + ES vector 检索生成有引用的协作建议。
+> 这是一个可以本地演示和调试的 Agent 工程化项目，核心亮点是把 organization/conversation 知识库、会话上下文、ES vector RAG、Workflow 任务图、并行 Agent、人工审批和 eval 回归串成一个可见产品。
 
 ## 当前可演示能力
 
 | 模块 | 当前状态 | 真实能力 | 主要边界 |
 | --- | --- | --- | --- |
-| Web Agent Demo | 可演示 | 登录后默认进入 `AgentDemo`，可创建演示线程、查看上下文、Ask AI、展示 trace/citations | 需要登录态和当前 organization，不是免登录公开 demo |
+| Web Agent Lab | 可演示 | 登录后默认进入 `AgentDemo` 路由里的 Agent Lab；含 Knowledge/Run/Graph/Approvals/Eval tabs | 需要登录态和当前 organization，不是免登录公开 demo |
 | Agent run 生命周期 | 基本完整 | 创建 run、幂等键、pending/running/ready/failed/requires_action、lease、attempt、outbox worker 执行 | worker 可靠性和失败重放还偏本地开发级 |
-| Agent 编排 | 可用 | `rules/mock_llm/openai_compatible` 三种 planner；OpenAI-compatible 走 ReAct 循环和工具调用 | ReAct 最多 5 轮；复杂恢复、长期任务、并发 agent 未实现 |
-| 工具调用 | 可用骨架 | 8 个后端托管工具，含读上下文、写消息、创建 follow-up、写 memory、delegate task | tool schema 较粗；写工具默认无需人工审批 |
-| RAG | 已可用 | 将消息、备注、memory、follow-up、联系人、转写片段写入 SQL chunk，并同步到 ES dense_vector | ingestion 是 run 时刷新；ES 写入异步 best-effort，无重试队列 |
-| ES vector | 已接入 | `allcallall_context_chunks` 使用 `dense_vector`、`index=true`、`cosine`，查询用 `cosineSimilarity` | 不是 Milvus/Pinecone 这类专用向量库，但在本项目中承担向量数据库角色 |
-| 引用/citation | 可展示 | 后端返回 `citations`，前端展示 evidence snippet 和 score | citation 还不能跳回原始消息/备注详情页 |
+| Workflow+Agent 编排 | 可演示 | 固定 DAG：`collect_context -> decompose -> parallel_agents -> merge -> propose_tools -> approval -> commit_result` | DAG 目前固定，不支持用户自定义 workflow |
+| 并行多 Agent | 可演示 | `searcher/summarizer/risk_analyst` 三个 workflow task 并行执行，并通过 `agent_messages` 持久化交换结果 | 当前 role agent 主要复用 planner/rules 输出，还不是长期自治 agent |
+| 工具调用 | 已收紧 | 8 个后端托管工具；工具 schema 已改为严格 JSON Schema；模型参数执行前校验 | ReAct 老 run 仍保留，主 demo 推荐走 Workflow |
+| 人工审批 | 已接入 | 写工具 `write_conversation_message/create_follow_up_task/upsert_agent_memory/delegate_task` 默认需要审批；owner/admin 可审批 | 审批策略首版按 org role + tool policy，UI 只做 approve/reject |
+| RAG 知识库 | 已可用 | 新增 `rag_sources/rag_source_versions/rag_chunks`；支持 manual text、URL、txt/md/html/pdf file ingestion | 文件 5MB、URL 2MB/10s；PDF 用 Go 依赖解析 |
+| RAG 分段/版本/去重 | 已实现 | 归一化后约 900 字符 chunk、120 overlap；source 原文 hash 不变跳过；同 version content hash 去重 | 分段策略固定，尚无 UI 配置 |
+| Index retry/dead-letter | 已实现 | `rag.source.ingest_requested` 和 `rag.chunk.index_requested` 走 event_outbox；failed 即 dead-letter，可 Web 重试 | 依赖 outbox worker 或 API embedded worker |
+| ES vector | 已接入 | `allcallall_context_chunks` 使用 `dense_vector`、`index=true`、`cosine`，查询用 `cosineSimilarity` | ES 在本项目中承担向量数据库角色，不另引 Milvus/Pinecone |
+| 引用/citation | 可点击 | citation 返回 chunk/source/origin/conversation/version/retrieval_mode/score/snippet；Web 可打开知识源 preview 或 URL | 消息/备注回源目前先回到 conversation 维度，细粒度滚动定位未做 |
+| Eval | 本地可跑 | `cmd/agent-eval` 支持 planner fixture 和 workflow fixture；`cmd/rag-eval` 支持 vector/fallback/citation fixture | 尚未接入 CI，也没有在线 Eval API |
 | SSE/trace | 可展示 | 前端通过 SSE 看 run/step/tool 事件，结果页也可从持久化 trace 回放 | token 级流式在当前 tool-calling 模式下基本不会触发 |
 
 ## 运行架构
@@ -66,22 +71,22 @@ flowchart LR
 
 ## Web 端使用入口
 
-当前 Web 端已经被临时调整成 Agent 展示优先：
+当前 Web 端已经被临时调整成 Agent Lab 展示优先：
 
 - `mobile/src/navigation/AppNavigator.tsx` 中，登录后如果是 Web 平台，初始页是 `AgentDemo`。
-- `mobile/src/screens/AgentDemoScreen.tsx` 提供演示工作台：
+- `mobile/src/screens/AgentDemoScreen.tsx` 现在是 Agent Lab：
+  - `Knowledge` tab：manual text、URL、txt/md/html/pdf 文件上传，查看 source/version/chunk/index 状态，查看和重试 RAG dead-letter。
+  - `Run` tab：选择 conversation + goal，创建 Workflow Agent run，并可手动推进本地 demo。
+  - `Graph` tab：展示 workflow task graph、并行 agent task 状态和 `agent_messages`。
+  - `Approvals` tab：展示 `tool_approvals`，支持 approve/reject。
+  - `Eval` tab：展示 eval 入口和最近 workflows。
+- 侧栏仍保留演示会话能力：
   - 列出 open conversations。
-  - 创建 `Agent RAG Demo` 演示线程。
+  - 创建 `Agent Lab` 演示线程。
   - 自动写入两条客户消息和两条内部备注。
-  - 输入 goal 并调用 `createAgentRun`。
-  - 渲染 `AgentMessageBubble`。
+  - 作为 Workflow Agent run 的 conversation 输入。
 - `mobile/src/screens/ConversationDetailScreen.tsx` 也有 `Ask AI`，可以在普通会话详情里直接提交 Agent run。
-- `mobile/src/components/AgentMessageBubble.tsx` 展示：
-  - run status。
-  - timeline/trace。
-  - summary 或 token buffer。
-  - next step。
-  - citations/evidence。
+- `mobile/src/components/AgentMessageBubble.tsx` 仍保留旧 Agent run 展示，用于会话页 Ask AI。
 
 Web API 客户端在 `mobile/src/api/agent.ts`：
 
@@ -89,6 +94,20 @@ Web API 客户端在 `mobile/src/api/agent.ts`：
 - `GET /api/v1/agent/runs/:id` 获取 run、steps、tool_calls、trace、citations。
 - `GET /api/v1/agent/runs/:id/events` 获取持久化推导事件。
 - `GET /api/v1/agent/runs/:id/events/stream` 订阅 SSE。
+- `POST /api/v1/agent/workflows` 创建 Workflow Agent run。
+- `GET /api/v1/agent/workflows/:id` 获取 workflow/task/message/approval/citation。
+- `POST /api/v1/agent/workflows/:id/process` 手动推进本地 demo。
+- `GET /api/v1/agent/approvals` 查看审批。
+- `POST /api/v1/agent/approvals/:id/decision` 提交 approve/reject。
+
+知识库 API 客户端在 `mobile/src/api/knowledge.ts`：
+
+- `POST /api/v1/knowledge/sources` 创建 manual/url/file source。
+- `GET /api/v1/knowledge/sources` 列 source。
+- `GET /api/v1/knowledge/sources/:id` 查看 source/version/chunk。
+- `POST /api/v1/knowledge/sources/:id/reingest` 重新入队。
+- `GET /api/v1/knowledge/dead-letters` 查看 failed RAG outbox events。
+- `POST /api/v1/knowledge/dead-letters/:id/retry` 重试 dead-letter。
 
 注意：所有 Agent API 都是 protected route，需要 JWT，并且需要 `X-Organization-ID`。所以当前 demo 是“登录后的内部产品页”，不是公开 landing page。
 
@@ -102,13 +121,24 @@ Agent 相关核心表定义在 `backend/internal/models/commercial.go`：
 - `agent_memories`：会话级 Agent memory，目前主要写 `last_agent_summary`。
 - `agent_context_chunks`：RAG 的 SQL 侧 chunk 存储，按 org/conversation/source_type/source_id 唯一。
 
+RAG 知识库和 Workflow 模型定义在 `backend/internal/models/rag_workflow.go`：
+
+- `rag_sources`：organization-scoped knowledge source，可选绑定 conversation。
+- `rag_source_versions`：source 原文 hash、版本号、active/superseded 状态和 raw text。
+- `rag_chunks`：chunk_index、offset、content_hash、index_status、indexed_at、last_error。
+- `workflow_runs`：一次 Workflow+Agent 执行，关联 backing `agent_run_id`。
+- `workflow_tasks`：固定 DAG 节点，记录 role/status/dependencies/input/output/lease。
+- `agent_messages`：agent 间 JSON envelope，字段包括 from_role/to_role/message_type/content/correlation_id。
+- `tool_policies`：按 organization role + tool name 控制 allow/approval_required/deny。
+- `tool_approvals`：人工审批记录，保存 tool_call_id/tool_name/input/output/decision/status。
+
 `agent_runs.status` 当前使用：
 
 - `pending`：已创建，等待 worker。
 - `running`：已被 worker lease。
 - `ready`：成功完成。
 - `failed`：执行失败。
-- `requires_action`：工具调用等待人工处理。后端路径存在，但当前工具默认不要求审批。
+- `requires_action`：工具调用等待人工处理。Workflow 路径中写工具默认会进入这个状态。
 
 ## Agent run 生命周期
 
@@ -403,6 +433,8 @@ JWT_SECRET=...
 
 ```bash
 cd backend && go test ./internal/agent ./internal/search ./internal/handlers
+cd backend && go run ./cmd/agent-eval -fixture ./internal/agent/testdata/workflow_eval_cases.json
+cd backend && go run ./cmd/rag-eval -fixture ./internal/agent/testdata/rag_eval_cases.json
 cd mobile && npx tsc --noEmit
 ```
 
@@ -415,28 +447,34 @@ curl http://127.0.0.1:9200/allcallall_context_chunks/_mapping
 
 ## 当前能力边界
 
-### 1. RAG 是可用的，但还不是成熟知识库系统
+### 1. RAG 已经是可演示知识库系统，但还不是完整外部知识平台
 
 已经实现：
 
 - 多业务源 chunk 化。
 - SQL chunk 主记录。
+- `rag_sources/rag_source_versions/rag_chunks` 通用知识库。
+- manual text、URL、txt/md/html/pdf ingestion。
+- 900 字符 chunk、120 overlap、source version hash、content hash 去重。
+- outbox indexing retry 和 dead-letter。
 - embedding 生成。
 - ES dense_vector index。
 - vector-first retrieval。
 - SQL keyword fallback。
+- `retrieval_mode` 和 `fallback_reason`。
 - citation 输出。
+- Web citation 回源到 knowledge source preview 或 URL。
+- RAG eval fixture 和 `cmd/rag-eval`。
 
 尚未实现：
 
-- 文件/网页/外部知识库 ingestion。
-- chunk 分段策略、去重策略、版本策略的系统化设计。
-- chunk indexing retry/dead-letter。
-- 检索结果中标明 vector/fallback 来源。
-- citation 点击回源。
-- RAG 质量评测集。
+- Notion/GitHub/站点批量 crawler。
+- 分段策略 UI 配置和多策略实验。
+- ES 之外的 Milvus/Pinecone 适配。
+- citation 精确滚动到原始消息/备注/转写行。
+- CI 中自动跑 RAG eval。
 
-### 2. Agent 编排能展示 ReAct，但不是完整自治 Agent 平台
+### 2. Agent 编排已经从纯 ReAct 升级为 Workflow+Agent，但不是完整自治平台
 
 已经实现：
 
@@ -447,37 +485,43 @@ curl http://127.0.0.1:9200/allcallall_context_chunks/_mapping
 - delegate sub-run。
 - run/step/tool trace。
 - requires_action 后端状态和 submit API。
+- 固定 Workflow DAG。
+- 并行 `searcher/summarizer/risk_analyst` tasks。
+- `agent_messages` 持久化协议。
+- 写工具默认人工审批。
+- owner/admin 审批，member 发起。
+- `tool_policies` 支持 role + tool deny/allow/approval_required。
+- 严格 JSON Schema tool schema 和执行前参数校验。
+- workflow eval fixture 和 `cmd/agent-eval` workflow 模式。
 
 尚未实现：
 
-- 并行多 Agent。
-- 长任务调度和任务图。
-- agent 间消息协议。
-- 人工审批前端。
-- 工具权限的细粒度策略。
-- tool schema 的严格 JSON Schema。
-- planner 行为 eval 和回归数据集。
+- 用户自定义 Workflow/DAG。
+- Workflow task 独立 worker 池和跨进程 task claim。
+- 更复杂的 planner arbitration、冲突合并和长期记忆策略。
+- 审批备注、批量审批、策略管理 UI。
+- 真实多模型/多供应商 agent role 配置。
 
-### 3. Web demo 已经能给人调试，但不是产品化控制台
+### 3. Web Agent Lab 已经能给人调试，但不是产品化控制台
 
 已经实现：
 
-- Web 默认进入 AgentDemo。
+- Web 默认进入 Agent Lab。
+- Knowledge/Run/Graph/Approvals/Eval tabs。
 - 一键创建演示线程。
-- Ask AI。
-- 结果展示。
-- timeline 展示。
-- evidence 展示。
+- 创建和推进 Workflow Agent。
+- 任务图、agent messages、approval 操作。
+- 知识源 preview、chunk/index 状态、dead-letter retry。
+- citation 打开知识源 preview 或 URL。
 
 尚未实现：
 
 - 免登录 demo。
 - demo seed account/seed org 自动化。
-- trace inspector 详情页。
-- tool input/output 展开查看。
-- requires_action 审批 UI。
-- citation 回源跳转。
-- 失败 run 的重试按钮。
+- Eval API 触发和结果持久化。
+- citation 对 message/note/transcript 的精确定位。
+- tool policy 管理 UI。
+- 更完整的空状态、错误恢复和 demo seed 数据。
 
 ### 4. 生产可靠性还需要补
 
@@ -492,7 +536,7 @@ curl http://127.0.0.1:9200/allcallall_context_chunks/_mapping
 
 尚未实现：
 
-- chunk ES 写入失败的重试。
+- Workflow task 独立 worker 池。
 - 更完整的 worker dashboard。
 - provider timeout/retry/backoff 策略。
 - LLM 成本统计。
@@ -503,25 +547,25 @@ curl http://127.0.0.1:9200/allcallall_context_chunks/_mapping
 
 为了贴合 “AI Agent 工程化 + RAG + 开发工具链/研发平台实践” 方向，建议按下面顺序继续：
 
-1. **把 RAG 可观测性补齐**
-   - 在 `query_context_chunks` 输出里增加 `retrieval_mode=vector|sql_fallback`。
-   - 展示 embedding dims、ES score、SQL fallback reason。
-   - Web evidence 区支持展开原始 chunk metadata。
+1. **把 RAG 连接器和回源做深**
+   - 增加 GitHub/Notion/站点 crawler connector。
+   - citation 精确跳到 message/note/transcript 行。
+   - Web evidence 区支持展开完整 chunk metadata 和版本 diff。
 
-2. **把 Web demo 调试能力做完整**
-   - AgentMessageBubble 展开 tool input/output。
-   - citation 点击跳到消息/备注/联系人/转写详情。
+2. **把 Web Agent Lab 做成调试控制台**
+   - tool input/output JSON 展开和复制。
    - 失败 run 支持 retry。
    - 做一个 demo seed 脚本，一键创建用户、组织、会话、备注、联系人资料。
+   - Eval tab 接后端 API，保存历史结果。
 
-3. **补强 ReAct tool schema 和审批**
-   - 将工具 schema 改成更严格的 JSON Schema。
-   - 对写工具开启 `RequiresApproval` 的可配置开关。
-   - Web 增加 approve/reject UI。
+3. **把 Workflow 从固定 DAG 升级为可配置 DAG**
+   - task claim/lease 独立 worker 池。
+   - 用户可选 workflow template。
+   - 更细的 tool policy 管理 UI。
 
-4. **补 RAG/Agent 测试故事**
+4. **把 eval 纳入持续回归**
    - fake OpenAI-compatible server 覆盖 tool_call、delegate_task、max iteration、fallback。
-   - RAG 检索测试覆盖 vector hit、embedding failure fallback、ES empty fallback。
+   - RAG 检索测试覆盖 embedding failure fallback、ES empty fallback、跨组织隔离。
    - 保留一组固定业务样本，用于面试时展示“如何防止 prompt/工具改动退化”。
 
 5. **把项目叙述收束成一句主线**
@@ -533,5 +577,4 @@ curl http://127.0.0.1:9200/allcallall_context_chunks/_mapping
 
 可以这样描述项目：
 
-> 我在 AllCallAll 中把协作会话系统升级成了一个可调试的 Web Agent Demo。后端实现了 Agent run 生命周期、outbox worker、ReAct tool calling、Agent memory、trace timeline 和 SSE；RAG 部分把消息、内部备注、会议 follow-up、联系人画像、转写片段统一成 context chunks，使用 OpenAI-compatible embedding 写入 Elasticsearch dense_vector，查询时优先向量检索，失败时退回 SQL keyword matching，并在前端展示 citations。当前多 Agent 是通过 delegate_task 创建子 run 的同步编排，已经能展示角色分工，但还没有做到并发自治 Agent。下一步我会补 RAG 可观测性、审批 UI、严格工具 schema 和 eval 测试集。
-
+> 我在 AllCallAll 中把协作会话系统升级成了一个可调试的 Web Agent Lab。后端实现了 organization/conversation 级知识库 ingestion、chunk/version/dedup、ES vector RAG、SQL fallback、citation 回源、outbox retry/dead-letter，以及 Workflow+Agent 编排。Workflow 使用固定 DAG 控制 `collect_context -> decompose -> parallel_agents -> merge -> propose_tools -> approval -> commit_result`，其中 `searcher/summarizer/risk_analyst` 并行执行，agent 间通过持久化 JSON message envelope 通信。写工具默认需要人工审批，工具参数使用严格 JSON Schema 校验，并配有 planner/workflow/RAG eval fixtures，方便每次改 prompt、工具或检索策略时做回归。

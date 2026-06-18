@@ -1,0 +1,50 @@
+[
+  {
+    "name": "vector_hit_security_budget",
+    "query": "security approval budget risk",
+    "use_vector": true,
+    "sources": [
+      {
+        "title": "Security rollout note",
+        "text": "Security approval is the main risk. The customer needs a data retention answer before the budget window closes."
+      },
+      {
+        "title": "Training plan",
+        "text": "Training should cover agent handoff, translation quality review, and support escalation."
+      }
+    ],
+    "expected_source_titles": [
+      "Security rollout note"
+    ],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": [
+      "Security approval",
+      "budget window"
+    ]
+  },
+  {
+    "name": "sql_fallback_pricing_latency",
+    "query": "pricing latency translation",
+    "use_vector": false,
+    "sources": [
+      {
+        "title": "Pricing latency note",
+        "text": "Pricing depends on the pilot seat count. Latency and translation quality are the key acceptance criteria."
+      },
+      {
+        "title": "Unrelated onboarding",
+        "text": "The onboarding calendar includes training owners and regional enablement sessions."
+      }
+    ],
+    "expected_source_titles": [
+      "Pricing latency note"
+    ],
+    "expected_retrieval_mode": "sql_fallback",
+    "require_citation": true,
+    "required_snippets": [
+      "Pricing depends",
+      "Latency and translation"
+    ]
+  }
+]
