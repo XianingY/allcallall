@@ -355,6 +355,32 @@ func (s *Service) ProcessWorkflowRun(ctx context.Context, workflowRunID uint64) 
 	return s.buildWorkflowResult(ctx, updated)
 }
 
+func (s *Service) ProcessDueWorkflowTimers(ctx context.Context, limit int) ([]uint64, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	now := time.Now().UTC()
+	var timers []models.WorkflowTimer
+	if err := s.db.WithContext(ctx).
+		Where("status = ? AND fire_at <= ?", models.WorkflowTimerStatusPending, now).
+		Order("id ASC").
+		Limit(limit).
+		Find(&timers).Error; err != nil {
+		return nil, err
+	}
+	processed := make([]uint64, 0, len(timers))
+	for _, timer := range timers {
+		runID, err := s.processWorkflowTimer(ctx, timer, now)
+		if err != nil {
+			return processed, err
+		}
+		if runID != 0 {
+			processed = append(processed, runID)
+		}
+	}
+	return processed, nil
+}
+
 func (s *Service) executeCollectContextTask(ctx context.Context, run models.WorkflowRun, conversationCtx *conversationContext) error {
 	return s.executeWorkflowTask(ctx, run.ID, models.WorkflowTaskCollectContext, map[string]any{
 		"goal":            run.Goal,
@@ -1187,6 +1213,79 @@ func (s *Service) cancelWorkflowTimer(ctx context.Context, run models.WorkflowRu
 	return s.db.WithContext(ctx).Model(&models.WorkflowTimer{}).
 		Where("workflow_run_id = ? AND timer_name = ? AND status = ?", run.ID, name, models.WorkflowTimerStatusPending).
 		Updates(map[string]any{"status": models.WorkflowTimerStatusCanceled, "updated_at": time.Now().UTC()}).Error
+}
+
+func (s *Service) processWorkflowTimer(ctx context.Context, timer models.WorkflowTimer, now time.Time) (uint64, error) {
+	var runID uint64
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var fresh models.WorkflowTimer
+		if err := tx.Where("id = ?", timer.ID).Take(&fresh).Error; err != nil {
+			return err
+		}
+		if fresh.Status != models.WorkflowTimerStatusPending || fresh.FireAt.After(now) {
+			return nil
+		}
+		if err := tx.Model(&models.WorkflowTimer{}).Where("id = ? AND status = ?", fresh.ID, models.WorkflowTimerStatusPending).Updates(map[string]any{
+			"status":     models.WorkflowTimerStatusFired,
+			"fired_at":   now,
+			"updated_at": now,
+		}).Error; err != nil {
+			return err
+		}
+		var run models.WorkflowRun
+		if err := tx.Where("id = ?", fresh.WorkflowRunID).Take(&run).Error; err != nil {
+			return err
+		}
+		runID = run.ID
+		if err := s.appendWorkflowHistoryTx(ctx, tx, run, models.WorkflowHistoryEventTimerFired, "workflow_timer", &fresh.ID, map[string]any{
+			"name":    fresh.TimerName,
+			"fire_at": fresh.FireAt,
+		}); err != nil {
+			return err
+		}
+		switch fresh.TimerName {
+		case "approval_timeout":
+			if err := tx.Model(&models.WorkflowTask{}).
+				Where("workflow_run_id = ? AND name = ? AND status = ?", run.ID, models.WorkflowTaskApproval, models.WorkflowTaskStatusRequiresAction).
+				Updates(map[string]any{
+					"status":        models.WorkflowTaskStatusFailed,
+					"error_message": "approval timeout",
+					"lease_until":   nil,
+					"completed_at":  now,
+					"updated_at":    now,
+				}).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
+				"status":        models.WorkflowRunStatusFailed,
+				"state_json":    mustJSONString(map[string]any{"phase": "timed_out", "timer": fresh.TimerName}),
+				"error_message": "workflow approval timed out",
+				"completed_at":  now,
+				"lease_until":   nil,
+				"updated_at":    now,
+			}).Error; err != nil {
+				return err
+			}
+			if run.AgentRunID != nil {
+				if err := tx.Model(&models.AgentRun{}).Where("id = ?", *run.AgentRunID).Updates(map[string]any{
+					"status":        models.AgentRunStatusFailed,
+					"error_message": "workflow approval timed out",
+					"completed_at":  now,
+					"lease_until":   nil,
+					"updated_at":    now,
+				}).Error; err != nil {
+					return err
+				}
+			}
+			return s.appendWorkflowHistoryTx(ctx, tx, run, models.WorkflowHistoryEventWorkflowFailed, "workflow_run", &run.ID, map[string]any{
+				"error": "workflow approval timed out",
+				"timer": fresh.TimerName,
+			})
+		default:
+			return nil
+		}
+	})
+	return runID, err
 }
 
 func (s *Service) createWorkflowSignal(ctx context.Context, run models.WorkflowRun, signalName string, receivedBy *uint64, payload any) error {

@@ -207,6 +207,99 @@ func TestWorkflowAgentPausesForApprovalAndCommitsApprovedTools(t *testing.T) {
 	}
 }
 
+func TestWorkflowAgentReclaimsExpiredLease(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	conversation := seedWorkflowConversation(t, db)
+
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Goal:           "Recover the workflow after an interrupted worker.",
+	})
+	if err != nil {
+		t.Fatalf("start workflow failed: %v", err)
+	}
+
+	staleLease := time.Now().UTC().Add(-2 * time.Minute)
+	if err := db.Model(&models.WorkflowRun{}).Where("id = ?", created.Run.ID).Updates(map[string]any{
+		"status":      models.WorkflowRunStatusRunning,
+		"lease_until": staleLease,
+		"started_at":  staleLease.Add(-1 * time.Minute),
+	}).Error; err != nil {
+		t.Fatalf("seed stale workflow lease failed: %v", err)
+	}
+
+	resumed, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatalf("reclaim workflow failed: %v", err)
+	}
+	if resumed.Run.Status != models.WorkflowRunStatusRequiresAction {
+		t.Fatalf("expected reclaimed workflow to resume and pause for approval, got %s", resumed.Run.Status)
+	}
+	if resumed.Run.Attempts < 1 {
+		t.Fatalf("expected attempts to increase after lease reclaim, got %+v", resumed.Run)
+	}
+}
+
+func TestWorkflowApprovalTimeoutMarksRunFailed(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	conversation := seedWorkflowConversation(t, db)
+
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Goal:           "Pause and wait for approval.",
+	})
+	if err != nil {
+		t.Fatalf("start workflow failed: %v", err)
+	}
+
+	paused, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatalf("process workflow failed: %v", err)
+	}
+	if paused.Run.Status != models.WorkflowRunStatusRequiresAction {
+		t.Fatalf("expected workflow to wait for approval, got %s", paused.Run.Status)
+	}
+	if err := db.Model(&models.WorkflowTimer{}).
+		Where("workflow_run_id = ? AND timer_name = ?", paused.Run.ID, "approval_timeout").
+		Updates(map[string]any{"fire_at": time.Now().UTC().Add(-1 * time.Minute)}).Error; err != nil {
+		t.Fatalf("move approval timer into the past failed: %v", err)
+	}
+
+	processed, err := svc.ProcessDueWorkflowTimers(ctx, 10)
+	if err != nil {
+		t.Fatalf("process due timers failed: %v", err)
+	}
+	if len(processed) != 1 || processed[0] != paused.Run.ID {
+		t.Fatalf("expected timer processor to handle workflow %d, got %+v", paused.Run.ID, processed)
+	}
+
+	failed, err := svc.GetWorkflowRun(ctx, conversation.OrganizationID, 7, paused.Run.ID)
+	if err != nil {
+		t.Fatalf("reload failed workflow failed: %v", err)
+	}
+	if failed.Run.Status != models.WorkflowRunStatusFailed {
+		t.Fatalf("expected workflow failed after timeout, got %s", failed.Run.Status)
+	}
+	if failed.Run.ErrorMessage == "" {
+		t.Fatalf("expected workflow timeout error message, got %+v", failed.Run)
+	}
+	foundTimerFired := false
+	for _, event := range failed.History {
+		if event.EventType == models.WorkflowHistoryEventTimerFired {
+			foundTimerFired = true
+			break
+		}
+	}
+	if !foundTimerFired {
+		t.Fatalf("expected timer_fired history event, got %+v", failed.History)
+	}
+	if len(failed.Timers) == 0 || failed.Timers[0].Status != models.WorkflowTimerStatusFired {
+		t.Fatalf("expected fired timer record, got %+v", failed.Timers)
+	}
+}
+
 func workflowTaskReady(tasks []models.WorkflowTask, name string) bool {
 	for _, task := range tasks {
 		if task.Name == name {

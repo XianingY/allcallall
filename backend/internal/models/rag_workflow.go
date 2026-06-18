@@ -68,6 +68,7 @@ const (
 	WorkflowHistoryEventTaskCompleted     = "task_completed"
 	WorkflowHistoryEventTaskFailed        = "task_failed"
 	WorkflowHistoryEventTimerScheduled    = "timer_scheduled"
+	WorkflowHistoryEventTimerFired        = "timer_fired"
 	WorkflowHistoryEventSignalReceived    = "signal_received"
 	WorkflowHistoryEventApprovalRequested = "approval_requested"
 	WorkflowHistoryEventWorkflowCompleted = "workflow_completed"
