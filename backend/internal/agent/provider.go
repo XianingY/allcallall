@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
-	"time"
 
 	"github.com/allcallall/backend/internal/models"
 )
@@ -36,29 +34,41 @@ type PromptingPlanner interface {
 	BuildPrompt(input PlannerInput) (PlannerPrompt, error)
 }
 
+type EmbeddingProvider interface {
+	CreateEmbedding(ctx context.Context, text string) ([]float32, error)
+}
+
 type PlannerInput struct {
-	Goal          string
-	Conversation  models.Conversation
-	Notes         []models.ConversationNote
-	Messages      []models.Message
-	Rooms         []models.CallRoom
-	Members       []models.ConversationMember
-	Memories      []models.AgentMemory
-	ContextChunks []RetrievedContextChunk
+	Role           string
+	Goal           string
+	Conversation   models.Conversation
+	Notes          []models.ConversationNote
+	Messages       []models.Message
+	Rooms          []models.CallRoom
+	Members        []models.ConversationMember
+	Memories       []models.AgentMemory
+	ContextChunks  []RetrievedContextChunk
+	MessageHistory []map[string]any
+	OnToken        func(ctx context.Context, token string) `json:"-"`
 }
 
 type PlannerOutput struct {
-	Summary     string   `json:"summary"`
-	ActionItems []string `json:"action_items"`
-	NextStep    string   `json:"next_step"`
-	RiskFlags   []string `json:"risk_flags"`
+	Summary      string                 `json:"summary"`
+	ActionItems  []string               `json:"action_items"`
+	NextStep     string                 `json:"next_step"`
+	RiskFlags    []string               `json:"risk_flags"`
+	HasToolCalls bool                   `json:"has_tool_calls"`
+	ToolCalls    []models.AgentToolCall `json:"tool_calls"`
 }
 
 type PlannerPrompt struct {
-	System          string            `json:"system"`
-	User            string            `json:"user"`
-	OutputSchema    map[string]string `json:"output_schema"`
-	EstimatedTokens int               `json:"estimated_tokens"`
+	System          string                                  `json:"system"`
+	User            string                                  `json:"user"`
+	OutputSchema    map[string]string                       `json:"output_schema"`
+	Tools           []map[string]any                        `json:"tools,omitempty"`
+	MessageHistory  []map[string]any                        `json:"message_history,omitempty"`
+	OnToken         func(ctx context.Context, token string) `json:"-"`
+	EstimatedTokens int                                     `json:"estimated_tokens"`
 }
 
 type RulesPlanner struct{}
@@ -115,40 +125,37 @@ func (MockLLMPlanner) Plan(ctx context.Context, input PlannerInput) (PlannerOutp
 	return output, nil
 }
 
-type OpenAICompatiblePlanner struct {
-	baseURL   string
-	apiKey    string
-	model     string
-	timeout   time.Duration
-	maxTokens int
-	client    *http.Client
-}
-
-func (OpenAICompatiblePlanner) Name() string {
-	return models.AgentRunSourceOpenAICompatible
-}
-
-func (OpenAICompatiblePlanner) BuildPrompt(input PlannerInput) (PlannerPrompt, error) {
-	return BuildPlannerPrompt(input)
-}
-
 func BuildPlannerPrompt(input PlannerInput) (PlannerPrompt, error) {
 	contextJSON, err := buildPromptContextJSON(input)
 	if err != nil {
 		return PlannerPrompt{}, err
 	}
-	system := "You are AllCallAll's backend-owned collaboration Agent. Return only valid JSON that matches the output schema. Do not execute tools directly; propose bounded next actions for the backend service."
+
+	var system string
+	switch input.Role {
+	case "translator":
+		system = "You are an expert translation agent. Your task is to accurately translate the given context and summarize the results."
+	case "searcher":
+		system = "You are a research agent. Your task is to search the knowledge base using context tools and answer the queries."
+	case "summarizer":
+		system = "You are an expert summarization agent. Your task is to synthesize large contexts into concise reports."
+	default:
+		system = "You are AllCallAll's primary orchestrator Agent. Delegate tasks to specialized sub-agents ('translator', 'searcher', 'summarizer') using the delegate_task tool for complex requests, or handle simple requests directly."
+	}
+
 	user := fmt.Sprintf("Goal: %s\n\nContext:\n%s", strings.TrimSpace(input.Goal), contextJSON)
 	schema := map[string]string{
-		"summary":      "string: concise bilingual-friendly thread summary",
+		"summary":      "string: concise bilingual-friendly thread summary or task result",
 		"action_items": "array<string>: concrete follow-up tasks",
-		"next_step":    "string: next recommended backend-controlled action",
+		"next_step":    "string: next recommended action",
 		"risk_flags":   "array<string>: stable machine-readable risks",
 	}
 	return PlannerPrompt{
 		System:          system,
 		User:            user,
 		OutputSchema:    schema,
+		MessageHistory:  input.MessageHistory,
+		OnToken:         input.OnToken,
 		EstimatedTokens: estimatePromptTokens(system, user, mustJSONString(schema)),
 	}, nil
 }
@@ -182,6 +189,7 @@ func buildPromptContextJSON(input PlannerInput) (string, error) {
 		contextChunks = append(contextChunks, map[string]any{
 			"source_type": item.Chunk.SourceType,
 			"source_id":   item.Chunk.SourceID,
+			"title":       contextChunkTitle(item.Chunk),
 			"score":       item.Score,
 			"content":     compactSnippet(item.Chunk.Content, 220),
 		})

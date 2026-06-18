@@ -4,8 +4,8 @@ import "testing"
 
 func TestRegisteredToolsDocumentsAgentBoundary(t *testing.T) {
 	tools := RegisteredTools()
-	if len(tools) != 7 {
-		t.Fatalf("unexpected tool count: got=%d want=7", len(tools))
+	if len(tools) != 8 {
+		t.Fatalf("unexpected tool count: got=%d want=8", len(tools))
 	}
 
 	seen := map[string]ToolDescriptor{}
@@ -27,6 +27,7 @@ func TestRegisteredToolsDocumentsAgentBoundary(t *testing.T) {
 		ToolWriteConversationMessage,
 		ToolCreateFollowUpTask,
 		ToolUpsertConversationMemory,
+		ToolDelegateTask,
 	} {
 		if _, ok := seen[name]; !ok {
 			t.Fatalf("missing tool descriptor %q", name)
@@ -36,7 +37,7 @@ func TestRegisteredToolsDocumentsAgentBoundary(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{ToolWriteConversationMessage, ToolCreateFollowUpTask, ToolUpsertConversationMemory} {
+	for _, name := range []string{ToolWriteConversationMessage, ToolCreateFollowUpTask, ToolUpsertConversationMemory, ToolDelegateTask} {
 		tool := seen[name]
 		if tool.Kind != ToolKindSideEffect {
 			t.Fatalf("expected %s to be side-effect tool, got %s", name, tool.Kind)

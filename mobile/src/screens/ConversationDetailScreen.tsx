@@ -27,6 +27,8 @@ import PrimaryButton from "../components/PrimaryButton";
 import TextField from "../components/TextField";
 import fileDownloadAdapter from "../platform/fileDownload";
 import ChatRealtimeService from "../services/ChatRealtimeService";
+import { createAgentRun } from "../api/agent";
+import AgentMessageBubble from "../components/AgentMessageBubble";
 import {
   applyConversationDetailPatch,
   type ConversationUpdatedPayload,
@@ -50,6 +52,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const [draft, setDraft] = useState("");
   const [noteDraft, setNoteDraft] = useState("");
   const [loading, setLoading] = useState(false);
+  const [activeAgentRunId, setActiveAgentRunId] = useState<number | null>(null);
   const conversationId = route.params.conversationId ?? route.params.conversation?.id ?? 0;
 
   const conversation = detail?.conversation ?? route.params.conversation ?? {
@@ -141,19 +144,32 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     Alert.alert("已复制", "线程 Web 链接已复制到剪贴板。");
   };
 
-  const handleSend = async () => {
-    if (!token || !draft.trim()) {
-      return;
-    }
+  const handleSend = useCallback(async () => {
+    if (!token || !draft.trim()) return;
     try {
       await createMessage(token, conversationId, { body: draft.trim() });
       setDraft("");
-      await loadData();
-    } catch (error) {
-      console.error("[ConversationDetailScreen] Failed to send message:", error);
-      Alert.alert("发送失败", "无法发送消息。");
+      void loadData();
+    } catch (e) {
+      console.error(e);
+      Alert.alert("发送失败");
     }
-  };
+  }, [token, draft, conversationId, loadData]);
+
+  const handleAskAgent = useCallback(async () => {
+    if (!token) return;
+    try {
+      const run = await createAgentRun(token, {
+        conversation_id: conversationId,
+        goal: draft.trim() || undefined,
+      });
+      setDraft("");
+      setActiveAgentRunId(run.run.id);
+    } catch (e) {
+      console.error("Ask Agent failed", e);
+      Alert.alert("Agent 调用失败");
+    }
+  }, [token, draft, conversationId]);
 
   const handleAddNote = async () => {
     if (!token || !noteDraft.trim()) {
@@ -477,13 +493,27 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         );
       }}
       ListFooterComponent={
-        <View style={styles.composer}>
-          <TextField
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="输入线程消息"
-          />
-          <PrimaryButton title="发送消息" onPress={handleSend} disabled={!draft.trim()} />
+        <View>
+          {activeAgentRunId ? (
+            <AgentMessageBubble
+              runId={activeAgentRunId}
+              onComplete={() => {
+                void loadData(); // Reload messages after agent finishes
+                setActiveAgentRunId(null);
+              }}
+            />
+          ) : null}
+          <View style={styles.composer}>
+            <TextField
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="输入线程消息，或输入指令召唤 Agent"
+            />
+            <View style={styles.buttonRow}>
+              <PrimaryButton title="发送消息" onPress={handleSend} disabled={!draft.trim()} style={styles.button} />
+              <PrimaryButton title="Ask AI" onPress={handleAskAgent} style={styles.buttonSecondary} />
+            </View>
+          </View>
         </View>
       }
     />

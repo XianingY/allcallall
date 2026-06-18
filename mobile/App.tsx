@@ -27,6 +27,7 @@ const linking: LinkingOptions<RootStackParamList> = {
   prefixes: ["allcallall://"],
   config: {
     screens: {
+      AgentDemo: "agent-demo",
       Rooms: "meetings",
       PreJoin: {
         path: "rooms/:roomId",

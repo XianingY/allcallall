@@ -12,6 +12,7 @@ import (
 
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/search"
 	"github.com/allcallall/backend/internal/trace"
 )
 
@@ -30,16 +31,28 @@ type counterRecorder interface {
 	Add(name string, delta int64)
 }
 
+type ChunkIndexer interface {
+	IndexChunk(ctx context.Context, doc search.ContextChunkDocument) error
+	SearchChunks(ctx context.Context, query search.ContextChunkSearchQuery) ([]search.ContextChunkSearchResult, error)
+}
+
+type StreamPublisher interface {
+	PublishToken(ctx context.Context, runID uint64, token string) error
+}
+
 type Service struct {
-	db      *gorm.DB
-	metrics counterRecorder
-	planner Planner
-	outbox  *events.Store
+	db              *gorm.DB
+	metrics         counterRecorder
+	planner         Planner
+	outbox          *events.Store
+	indexer         ChunkIndexer
+	streamPublisher StreamPublisher
 }
 
 type RunInput struct {
 	ConversationID uint64
 	Goal           string
+	Role           string
 	IdempotencyKey string
 }
 
@@ -48,18 +61,22 @@ type RunResult struct {
 	Steps       []models.AgentStep     `json:"steps"`
 	ToolCalls   []models.AgentToolCall `json:"tool_calls"`
 	Trace       []TraceEvent           `json:"trace"`
+	Citations   []Citation             `json:"citations"`
 	ActionItems []string               `json:"action_items"`
 	RiskFlags   []string               `json:"risk_flags"`
 }
 
 type conversationContext struct {
-	Conversation  models.Conversation
-	Notes         []models.ConversationNote
-	Messages      []models.Message
-	Rooms         []models.CallRoom
-	Members       []models.ConversationMember
-	Memories      []models.AgentMemory
-	ContextChunks []RetrievedContextChunk
+	Conversation       models.Conversation
+	Notes              []models.ConversationNote
+	Messages           []models.Message
+	Rooms              []models.CallRoom
+	Members            []models.ConversationMember
+	Memories           []models.AgentMemory
+	Followups          []models.CallFollowup
+	TranscriptSegments []models.CallTranscriptSegment
+	ContactProfile     *models.ContactProfile
+	ContextChunks      []RetrievedContextChunk
 }
 
 func NewService(db *gorm.DB, counters ...counterRecorder) *Service {
@@ -75,10 +92,14 @@ func NewService(db *gorm.DB, counters ...counterRecorder) *Service {
 	}
 }
 
-func (s *Service) WithPlanner(planner Planner) {
-	if planner != nil {
-		s.planner = planner
-	}
+func (s *Service) WithPlanner(p Planner) *Service {
+	s.planner = p
+	return s
+}
+
+func (s *Service) WithChunkIndexer(i ChunkIndexer) *Service {
+	s.indexer = i
+	return s
 }
 
 func (s *Service) WithOutbox(outbox *events.Store) {
@@ -87,10 +108,19 @@ func (s *Service) WithOutbox(outbox *events.Store) {
 	}
 }
 
+func (s *Service) WithStreamPublisher(p StreamPublisher) *Service {
+	s.streamPublisher = p
+	return s
+}
+
 func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, userID uint64, in RunInput) (*RunResult, error) {
 	goal := strings.TrimSpace(in.Goal)
 	if goal == "" {
 		goal = "summarize_conversation_next_steps"
+	}
+	role := strings.TrimSpace(in.Role)
+	if role == "" {
+		role = "primary"
 	}
 	idempotencyKey := strings.TrimSpace(in.IdempotencyKey)
 	if in.ConversationID == 0 {
@@ -114,6 +144,7 @@ func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, 
 		IdempotencyKey: idempotencyKey,
 		RequestID:      trace.RequestID(ctx),
 		Source:         s.planner.Name(),
+		Role:           role,
 		Status:         models.AgentRunStatusPending,
 		Goal:           goal,
 	}
@@ -249,7 +280,13 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (*RunResult, err
 	if goal == "" {
 		goal = "summarize_conversation_next_steps"
 	}
-	result, err := s.executeRulesRun(ctx, run, goal)
+	var result *RunResult
+	var err error
+	if s.planner.Name() == models.AgentRunSourceOpenAICompatible {
+		result, err = s.executeReActRun(ctx, run, goal)
+	} else {
+		result, err = s.executeRulesRun(ctx, run, goal)
+	}
 	if err != nil {
 		failedAt := time.Now().UTC()
 		// Persist terminal state even when the execution context timed out or was canceled.
@@ -275,7 +312,7 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (*RunResult, err
 }
 
 func (s *Service) executeRulesRun(ctx context.Context, run models.AgentRun, goal string) (*RunResult, error) {
-	conversationCtx, err := s.loadConversationContext(ctx, run.OrganizationID, run.ConversationID, goal)
+	conversationCtx, err := s.loadConversationContext(ctx, run.OrganizationID, run.UserID, run.ConversationID, goal)
 	if err != nil {
 		return nil, err
 	}
@@ -344,6 +381,7 @@ func (s *Service) executeRulesRun(ctx context.Context, run models.AgentRun, goal
 		ActionItems: actionItems,
 		NextStep:    nextStep,
 		RiskFlags:   riskFlags,
+		Citations:   buildCitationsFromContextChunks(conversationCtx.ContextChunks),
 	}); err != nil {
 		return nil, err
 	}
@@ -423,7 +461,7 @@ func (s *Service) ensureConversationMember(ctx context.Context, organizationID, 
 	return nil
 }
 
-func (s *Service) loadConversationContext(ctx context.Context, organizationID, conversationID uint64, goal string) (*conversationContext, error) {
+func (s *Service) loadConversationContext(ctx context.Context, organizationID, userID, conversationID uint64, goal string) (*conversationContext, error) {
 	var conv models.Conversation
 	if err := s.db.WithContext(ctx).Where("organization_id = ? AND id = ?", organizationID, conversationID).Take(&conv).Error; err != nil {
 		return nil, err
@@ -432,7 +470,7 @@ func (s *Service) loadConversationContext(ctx context.Context, organizationID, c
 	if err := s.db.WithContext(ctx).
 		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
 		Order("created_at DESC").
-		Limit(3).
+		Limit(20).
 		Find(&notes).Error; err != nil {
 		return nil, err
 	}
@@ -440,7 +478,7 @@ func (s *Service) loadConversationContext(ctx context.Context, organizationID, c
 	if err := s.db.WithContext(ctx).
 		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
 		Order("created_at DESC").
-		Limit(8).
+		Limit(50).
 		Find(&messages).Error; err != nil {
 		return nil, err
 	}
@@ -456,7 +494,7 @@ func (s *Service) loadConversationContext(ctx context.Context, organizationID, c
 	if err := s.db.WithContext(ctx).
 		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
 		Order("updated_at DESC").
-		Limit(5).
+		Limit(10).
 		Find(&memories).Error; err != nil {
 		return nil, err
 	}
@@ -467,14 +505,58 @@ func (s *Service) loadConversationContext(ctx context.Context, organizationID, c
 		Find(&members).Error; err != nil {
 		return nil, err
 	}
-	if err := s.refreshConversationContextChunks(ctx, organizationID, conversationID, notes, messages, memories); err != nil {
+	callIDs := extractCallIDsFromMessages(messages)
+	var followups []models.CallFollowup
+	if len(callIDs) > 0 {
+		if err := s.db.WithContext(ctx).
+			Where("call_id IN ? AND (organization_id = ? OR organization_id = 0)", callIDs, organizationID).
+			Order("generated_at DESC, updated_at DESC").
+			Limit(10).
+			Find(&followups).Error; err != nil {
+			return nil, err
+		}
+	}
+	var transcriptSegments []models.CallTranscriptSegment
+	if len(callIDs) > 0 {
+		if err := s.db.WithContext(ctx).
+			Where("call_id IN ?", callIDs).
+			Order("timestamp_ms DESC, created_at DESC").
+			Limit(40).
+			Find(&transcriptSegments).Error; err != nil {
+			return nil, err
+		}
+	}
+	var contactProfile *models.ContactProfile
+	if conv.ContactID != nil && *conv.ContactID != 0 {
+		var profile models.ContactProfile
+		if err := s.db.WithContext(ctx).
+			Where("organization_id = ? AND owner_id = ? AND contact_user_id = ?", organizationID, userID, *conv.ContactID).
+			Take(&profile).Error; err == nil {
+			contactProfile = &profile
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+	}
+	conversationCtx := &conversationContext{
+		Conversation:       conv,
+		Notes:              notes,
+		Messages:           messages,
+		Rooms:              rooms,
+		Members:            members,
+		Memories:           memories,
+		Followups:          followups,
+		TranscriptSegments: transcriptSegments,
+		ContactProfile:     contactProfile,
+	}
+	if err := s.refreshConversationContextChunks(ctx, conversationCtx); err != nil {
 		return nil, err
 	}
 	contextChunks, err := s.retrieveConversationContextChunks(ctx, conv, goal, defaultContextChunkLimit)
 	if err != nil {
 		return nil, err
 	}
-	return &conversationContext{Conversation: conv, Notes: notes, Messages: messages, Rooms: rooms, Members: members, Memories: memories, ContextChunks: contextChunks}, nil
+	conversationCtx.ContextChunks = contextChunks
+	return conversationCtx, nil
 }
 
 func (s *Service) createStep(ctx context.Context, runID uint64, name string, input, output any) (models.AgentStep, error) {
@@ -570,8 +652,10 @@ func (s *Service) recordContextToolCalls(ctx context.Context, run models.AgentRu
 			"chunk_id":    item.Chunk.ID,
 			"source_type": item.Chunk.SourceType,
 			"source_id":   item.Chunk.SourceID,
+			"title":       contextChunkTitle(item.Chunk),
 			"score":       item.Score,
 			"snippet":     compactSnippet(item.Chunk.Content, 180),
+			"created_at":  item.Chunk.UpdatedAt.Format(time.RFC3339),
 		})
 	}
 	if err := s.recordToolCall(ctx, models.AgentToolCall{
@@ -597,7 +681,7 @@ func (s *Service) recordToolCall(ctx context.Context, toolCall models.AgentToolC
 	return s.db.WithContext(ctx).Create(&toolCall).Error
 }
 
-func (s *Service) writeConversationMessage(ctx context.Context, run models.AgentRun, summary string, actionItems []string, nextStep string, riskFlags []string) (models.AgentToolCall, error) {
+func (s *Service) writeConversationMessage(ctx context.Context, run models.AgentRun, summary string, actionItems []string, nextStep string, riskFlags []string, citations []Citation) (models.AgentToolCall, error) {
 	input := map[string]any{
 		"conversation_id": run.ConversationID,
 		"event_type":      "agent.run.completed",
@@ -616,6 +700,7 @@ func (s *Service) writeConversationMessage(ctx context.Context, run models.Agent
 			"action_items": actionItems,
 			"next_step":    nextStep,
 			"risk_flags":   riskFlags,
+			"citations":    citations,
 		}),
 	}
 	now := time.Now().UTC()
@@ -789,6 +874,7 @@ func (s *Service) buildRunResult(ctx context.Context, run models.AgentRun) (*Run
 		Steps:       steps,
 		ToolCalls:   toolCalls,
 		Trace:       buildTraceTimeline(run, steps, toolCalls),
+		Citations:   buildCitationsFromToolCalls(toolCalls),
 		ActionItems: decodeStringSlice(run.ActionItemsJSON),
 		RiskFlags:   decodeStringSlice(run.RiskFlagsJSON),
 	}, nil
@@ -846,6 +932,31 @@ func decodeStringSlice(raw string) []string {
 	var out []string
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
 		return []string{}
+	}
+	return out
+}
+
+func extractCallIDsFromMessages(messages []models.Message) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0)
+	for _, message := range messages {
+		if message.Type != models.MessageTypeCallEvent || strings.TrimSpace(message.MetadataJSON) == "" {
+			continue
+		}
+		var metadata map[string]any
+		if err := json.Unmarshal([]byte(message.MetadataJSON), &metadata); err != nil {
+			continue
+		}
+		callID, _ := metadata["call_id"].(string)
+		callID = strings.TrimSpace(callID)
+		if callID == "" {
+			continue
+		}
+		if _, ok := seen[callID]; ok {
+			continue
+		}
+		seen[callID] = struct{}{}
+		out = append(out, callID)
 	}
 	return out
 }

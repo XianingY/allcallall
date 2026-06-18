@@ -39,6 +39,8 @@ func newAgentServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *metrics.CounterS
 		&models.AgentContextChunk{},
 		&models.FollowUpTask{},
 		&models.CallRoom{},
+		&models.CallFollowup{},
+		&models.CallTranscriptSegment{},
 		&models.ContactProfile{},
 		&models.EventOutbox{},
 		&models.ChatEvent{},
@@ -264,6 +266,130 @@ func TestCompactSnippetKeepsUTF8Valid(t *testing.T) {
 	}
 	if len([]rune(got)) > 8 {
 		t.Fatalf("snippet exceeds rune limit: %q", got)
+	}
+}
+
+func TestConversationRAGIndexesBusinessSourcesAndReturnsCitations(t *testing.T) {
+	svc, db, _ := newAgentServiceTestEnv(t)
+	conversation := seedAgentConversation(t, db)
+	contactID := uint64(8)
+	callID := "call-rag-usable-1"
+
+	if err := db.FirstOrCreate(&models.User{}, models.User{
+		ID:           contactID,
+		Email:        "buyer@example.com",
+		PasswordHash: "hash",
+		DisplayName:  "Buyer",
+		Status:       "active",
+	}).Error; err != nil {
+		t.Fatalf("create buyer failed: %v", err)
+	}
+	if err := db.Model(&models.Conversation{}).Where("id = ?", conversation.ID).Update("contact_id", contactID).Error; err != nil {
+		t.Fatalf("bind contact failed: %v", err)
+	}
+	if err := db.Create(&models.ContactProfile{
+		OrganizationID:     conversation.OrganizationID,
+		OwnerID:            7,
+		ContactUserID:      contactID,
+		Company:            "Globex APAC",
+		Role:               "Security approver",
+		RelationshipStatus: "evaluating",
+		Note:               "客户重点关注安全、数据留存、法务审批节奏和月底预算窗口。",
+	}).Error; err != nil {
+		t.Fatalf("create contact profile failed: %v", err)
+	}
+	if err := db.Create(&models.Message{
+		OrganizationID: conversation.OrganizationID,
+		ConversationID: conversation.ID,
+		SenderID:       7,
+		Type:           models.MessageTypeCallEvent,
+		Body:           "Call completed with security and legal follow-up.",
+		MetadataJSON:   mustJSONString(map[string]any{"call_id": callID, "event_type": "call.ended"}),
+	}).Error; err != nil {
+		t.Fatalf("create call event failed: %v", err)
+	}
+	if err := db.Create(&models.CallFollowup{
+		CallID:          callID,
+		OrganizationID:  conversation.OrganizationID,
+		UserID:          7,
+		PeerUserID:      contactID,
+		Status:          models.FollowupStatusReady,
+		Source:          "test",
+		SummaryCN:       "客户要求补充安全说明、数据留存策略，并在月底预算窗口前完成法务审批。",
+		ActionItemsJSON: mustJSONString([]string{"发送一页式安全说明", "安排技术答疑"}),
+		NextStep:        "约技术答疑并同步法务审批材料。",
+		RiskFlagsJSON:   mustJSONString([]string{"legal_approval_delay", "budget_window"}),
+	}).Error; err != nil {
+		t.Fatalf("create followup failed: %v", err)
+	}
+	if err := db.Create(&models.CallTranscriptSegment{
+		CallID:         callID,
+		UserID:         7,
+		PeerUserID:     contactID,
+		FromEmail:      "buyer@example.com",
+		ToEmail:        "agent-owner@example.com",
+		OriginalText:   "We need a clear data retention explanation before legal approval.",
+		TranslatedText: "法务审批前需要清晰的数据留存说明。",
+		SourceLang:     "en",
+		TargetLang:     "zh",
+		TimestampMS:    1200,
+	}).Error; err != nil {
+		t.Fatalf("create transcript failed: %v", err)
+	}
+
+	queued, err := svc.RunConversationAssistant(context.Background(), conversation.OrganizationID, 7, RunInput{
+		ConversationID: conversation.ID,
+		Goal:           "客户的数据留存、安全和法务审批风险应该怎么推进？",
+	})
+	if err != nil {
+		t.Fatalf("queue RAG run failed: %v", err)
+	}
+	result, err := svc.ExecuteRun(context.Background(), queued.Run.ID)
+	if err != nil {
+		t.Fatalf("execute RAG run failed: %v", err)
+	}
+
+	sourceTypes := map[string]bool{}
+	for _, citation := range result.Citations {
+		sourceTypes[citation.SourceType] = true
+		if citation.Title == "" || citation.Snippet == "" {
+			t.Fatalf("citation missing title/snippet: %+v", citation)
+		}
+	}
+	for _, sourceType := range []string{contextChunkSourceFollowup, contextChunkSourceContactProfile, contextChunkSourceTranscript} {
+		if !sourceTypes[sourceType] {
+			t.Fatalf("missing citation source %s in %+v", sourceType, result.Citations)
+		}
+	}
+
+	var chunks []models.AgentContextChunk
+	if err := db.Where("conversation_id = ?", conversation.ID).Find(&chunks).Error; err != nil {
+		t.Fatalf("load chunks failed: %v", err)
+	}
+	indexed := map[string]bool{}
+	for _, chunk := range chunks {
+		indexed[chunk.SourceType] = true
+	}
+	for _, sourceType := range []string{contextChunkSourceMessage, contextChunkSourceNote, contextChunkSourceFollowup, contextChunkSourceContactProfile, contextChunkSourceTranscript} {
+		if !indexed[sourceType] {
+			t.Fatalf("missing indexed source %s in %+v", sourceType, indexed)
+		}
+	}
+
+	var ragToolCall models.AgentToolCall
+	if err := db.Where("run_id = ? AND tool_name = ?", result.Run.ID, ToolQueryContextChunks).Take(&ragToolCall).Error; err != nil {
+		t.Fatalf("load RAG tool call failed: %v", err)
+	}
+	if !strings.Contains(ragToolCall.OutputJSON, `"title"`) || !strings.Contains(ragToolCall.OutputJSON, `"created_at"`) {
+		t.Fatalf("RAG tool output should include citation fields: %s", ragToolCall.OutputJSON)
+	}
+
+	var systemMessage models.Message
+	if err := db.Where("conversation_id = ? AND type = ?", conversation.ID, models.MessageTypeSystem).Order("id DESC").Take(&systemMessage).Error; err != nil {
+		t.Fatalf("load system message failed: %v", err)
+	}
+	if !strings.Contains(systemMessage.MetadataJSON, `"citations"`) || !strings.Contains(systemMessage.MetadataJSON, contextChunkSourceFollowup) {
+		t.Fatalf("system message metadata missing citations: %s", systemMessage.MetadataJSON)
 	}
 }
 

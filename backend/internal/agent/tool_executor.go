@@ -13,6 +13,7 @@ type sideEffectToolInput struct {
 	ActionItems []string
 	NextStep    string
 	RiskFlags   []string
+	Citations   []Citation
 }
 
 func (s *Service) executeSideEffectTools(ctx context.Context, run models.AgentRun, input sideEffectToolInput) (int, error) {
@@ -21,7 +22,7 @@ func (s *Service) executeSideEffectTools(ctx context.Context, run models.AgentRu
 		"conversation_id": strconv.FormatUint(run.ConversationID, 10),
 	})
 	executed := 0
-	if _, err := s.writeConversationMessage(ctx, run, input.Summary, input.ActionItems, input.NextStep, input.RiskFlags); err != nil {
+	if _, err := s.writeConversationMessage(ctx, run, input.Summary, input.ActionItems, input.NextStep, input.RiskFlags, input.Citations); err != nil {
 		span.End(err)
 		return executed, err
 	}

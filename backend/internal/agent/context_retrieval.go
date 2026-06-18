@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -10,13 +12,17 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/search"
 )
 
 const (
-	contextChunkSourceNote    = "note"
-	contextChunkSourceMessage = "message"
-	contextChunkSourceMemory  = "memory"
-	defaultContextChunkLimit  = 5
+	contextChunkSourceNote           = "note"
+	contextChunkSourceMessage        = "message"
+	contextChunkSourceMemory         = "memory"
+	contextChunkSourceFollowup       = "followup"
+	contextChunkSourceContactProfile = "contact_profile"
+	contextChunkSourceTranscript     = "transcript"
+	defaultContextChunkLimit         = 8
 )
 
 type RetrievedContextChunk struct {
@@ -24,19 +30,36 @@ type RetrievedContextChunk struct {
 	Score int
 }
 
-func (s *Service) refreshConversationContextChunks(ctx context.Context, organizationID, conversationID uint64, notes []models.ConversationNote, messages []models.Message, memories []models.AgentMemory) error {
-	for _, note := range notes {
+func (s *Service) refreshConversationContextChunks(ctx context.Context, conversationCtx *conversationContext) error {
+	organizationID := conversationCtx.Conversation.OrganizationID
+	conversationID := conversationCtx.Conversation.ID
+	for _, note := range conversationCtx.Notes {
 		if err := s.upsertContextChunk(ctx, organizationID, conversationID, contextChunkSourceNote, note.ID, note.Body, 0); err != nil {
 			return err
 		}
 	}
-	for _, message := range messages {
+	for _, message := range conversationCtx.Messages {
 		if err := s.upsertContextChunk(ctx, organizationID, conversationID, contextChunkSourceMessage, message.ID, message.Body, 0); err != nil {
 			return err
 		}
 	}
-	for _, memory := range memories {
+	for _, memory := range conversationCtx.Memories {
 		if err := s.upsertContextChunk(ctx, organizationID, conversationID, contextChunkSourceMemory, memory.ID, memory.ValueJSON, memory.LastRunID); err != nil {
+			return err
+		}
+	}
+	for _, followup := range conversationCtx.Followups {
+		if err := s.upsertContextChunk(ctx, organizationID, conversationID, contextChunkSourceFollowup, followup.ID, buildFollowupContextContent(followup), 0); err != nil {
+			return err
+		}
+	}
+	if conversationCtx.ContactProfile != nil {
+		if err := s.upsertContextChunk(ctx, organizationID, conversationID, contextChunkSourceContactProfile, conversationCtx.ContactProfile.ID, buildContactProfileContextContent(*conversationCtx.ContactProfile), 0); err != nil {
+			return err
+		}
+	}
+	for _, segment := range conversationCtx.TranscriptSegments {
+		if err := s.upsertContextChunk(ctx, organizationID, conversationID, contextChunkSourceTranscript, segment.ID, buildTranscriptContextContent(segment), 0); err != nil {
 			return err
 		}
 	}
@@ -50,7 +73,19 @@ func (s *Service) upsertContextChunk(ctx context.Context, organizationID, conver
 	}
 	now := time.Now().UTC()
 	keywords := strings.Join(extractContextKeywords(content), " ")
-	return s.db.WithContext(ctx).
+
+	// Generate Embedding if possible
+	var contentVector []float32
+	if ep, ok := s.planner.(EmbeddingProvider); ok {
+		// Log errors but do not fail the whole operation if embedding fails
+		if vec, err := ep.CreateEmbedding(ctx, content); err == nil {
+			contentVector = vec
+		}
+	}
+
+	docID := fmt.Sprintf("%s:%d", sourceType, sourceID)
+
+	err := s.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{
 				{Name: "organization_id"},
@@ -76,6 +111,32 @@ func (s *Service) upsertContextChunk(ctx context.Context, organizationID, conver
 			CreatedAt:      now,
 			UpdatedAt:      now,
 		}).Error
+	if err != nil {
+		return err
+	}
+
+	// Index to Elasticsearch
+	if s.indexer != nil {
+		go func() {
+			// Best effort async indexing to prevent blocking
+			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_ = s.indexer.IndexChunk(bgCtx, search.ContextChunkDocument{
+				ID:             docID,
+				OrganizationID: organizationID,
+				ConversationID: conversationID,
+				SourceType:     sourceType,
+				SourceID:       sourceID,
+				Content:        content,
+				Keywords:       keywords,
+				ContentVector:  contentVector,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			})
+		}()
+	}
+
+	return nil
 }
 
 func (s *Service) retrieveConversationContextChunks(ctx context.Context, conv models.Conversation, goal string, limit int) ([]RetrievedContextChunk, error) {
@@ -96,6 +157,41 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, conv mo
 		conv.Status,
 		conv.Priority,
 	}, " ")
+
+	// Attempt Vector Search first if indexer and embedding provider are available
+	if s.indexer != nil {
+		if ep, ok := s.planner.(EmbeddingProvider); ok {
+			if vec, err := ep.CreateEmbedding(ctx, query); err == nil && len(vec) > 0 {
+				searchRes, searchErr := s.indexer.SearchChunks(ctx, search.ContextChunkSearchQuery{
+					OrganizationID: conv.OrganizationID,
+					ConversationID: conv.ID,
+					QueryVector:    vec,
+					Limit:          limit,
+				})
+				if searchErr == nil && len(searchRes) > 0 {
+					var scored []RetrievedContextChunk
+					for _, res := range searchRes {
+						scored = append(scored, RetrievedContextChunk{
+							Chunk: models.AgentContextChunk{
+								OrganizationID: res.OrganizationID,
+								ConversationID: res.ConversationID,
+								SourceType:     res.SourceType,
+								SourceID:       res.SourceID,
+								Content:        res.Content,
+								Keywords:       res.Keywords,
+								UpdatedAt:      res.UpdatedAt,
+							},
+							Score: int(res.Score * 100), // convert float score to int for compatibility
+						})
+					}
+					return scored, nil
+				}
+				// If searchErr != nil or len == 0, fallback to SQL keyword matching
+			}
+		}
+	}
+
+	// Fallback: SQL Keyword Matching
 	tokens := extractContextKeywords(query)
 	scored := make([]RetrievedContextChunk, 0, len(chunks))
 	for _, chunk := range chunks {
@@ -128,6 +224,25 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, conv mo
 	return scored, nil
 }
 
+func contextChunkTitle(chunk models.AgentContextChunk) string {
+	switch chunk.SourceType {
+	case contextChunkSourceNote:
+		return fmt.Sprintf("Internal note #%d", chunk.SourceID)
+	case contextChunkSourceMessage:
+		return fmt.Sprintf("Conversation message #%d", chunk.SourceID)
+	case contextChunkSourceMemory:
+		return fmt.Sprintf("Agent memory #%d", chunk.SourceID)
+	case contextChunkSourceFollowup:
+		return fmt.Sprintf("Call follow-up #%d", chunk.SourceID)
+	case contextChunkSourceContactProfile:
+		return fmt.Sprintf("Contact profile #%d", chunk.SourceID)
+	case contextChunkSourceTranscript:
+		return fmt.Sprintf("Transcript segment #%d", chunk.SourceID)
+	default:
+		return fmt.Sprintf("%s #%d", chunk.SourceType, chunk.SourceID)
+	}
+}
+
 func scoreContextChunk(tokens []string, chunk models.AgentContextChunk) int {
 	if len(tokens) == 0 {
 		return 0
@@ -149,6 +264,12 @@ func scoreContextChunk(tokens []string, chunk models.AgentContextChunk) int {
 	if chunk.SourceType == contextChunkSourceMemory && score > 0 {
 		score++
 	}
+	if chunk.SourceType == contextChunkSourceFollowup && score > 0 {
+		score += 2
+	}
+	if chunk.SourceType == contextChunkSourceContactProfile && score > 0 {
+		score++
+	}
 	return score
 }
 
@@ -160,23 +281,146 @@ func extractContextKeywords(input string) []string {
 	}
 	seen := map[string]bool{}
 	var out []string
-	var b strings.Builder
-	flush := func() {
-		token := strings.ToLower(strings.TrimSpace(b.String()))
-		b.Reset()
+	addToken := func(token string) {
+		token = strings.ToLower(strings.TrimSpace(token))
 		if len([]rune(token)) < 2 || stopWords[token] || seen[token] {
 			return
 		}
 		seen[token] = true
 		out = append(out, token)
 	}
+	var word strings.Builder
+	var cjk []rune
+	flushWord := func() {
+		addToken(word.String())
+		word.Reset()
+	}
+	flushCJK := func() {
+		if len(cjk) == 0 {
+			return
+		}
+		for size := 2; size <= 4; size++ {
+			if len(cjk) < size {
+				continue
+			}
+			for i := 0; i+size <= len(cjk); i++ {
+				addToken(string(cjk[i : i+size]))
+			}
+		}
+		cjk = cjk[:0]
+	}
 	for _, r := range input {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(unicode.ToLower(r))
+		if isCJKRune(r) {
+			flushWord()
+			cjk = append(cjk, r)
 			continue
 		}
-		flush()
+		flushCJK()
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			word.WriteRune(unicode.ToLower(r))
+			continue
+		}
+		flushWord()
 	}
-	flush()
+	flushWord()
+	flushCJK()
+	return out
+}
+
+func isCJKRune(r rune) bool {
+	return (r >= 0x3400 && r <= 0x4DBF) ||
+		(r >= 0x4E00 && r <= 0x9FFF) ||
+		(r >= 0xF900 && r <= 0xFAFF)
+}
+
+func buildFollowupContextContent(followup models.CallFollowup) string {
+	parts := []string{
+		"Call follow-up",
+		"call_id: " + followup.CallID,
+		"summary_cn: " + followup.SummaryCN,
+		"summary_en: " + followup.SummaryEN,
+		"next_step: " + followup.NextStep,
+		"followup_draft_cn: " + followup.FollowupDraftCN,
+		"followup_draft_en: " + followup.FollowupDraftEN,
+	}
+	if items := decodeJSONStrings(followup.KeyPointsJSON); len(items) > 0 {
+		parts = append(parts, "key_points: "+strings.Join(items, "; "))
+	}
+	if items := decodeJSONStrings(followup.ActionItemsJSON); len(items) > 0 {
+		parts = append(parts, "action_items: "+strings.Join(items, "; "))
+	}
+	if items := decodeJSONStrings(followup.RiskFlagsJSON); len(items) > 0 {
+		parts = append(parts, "risk_flags: "+strings.Join(items, "; "))
+	}
+	return compactContextContent(parts...)
+}
+
+func buildContactProfileContextContent(profile models.ContactProfile) string {
+	return compactContextContent(
+		"Contact profile",
+		"company: "+profile.Company,
+		"role: "+profile.Role,
+		"timezone: "+profile.Timezone,
+		"default_source_lang: "+profile.DefaultSourceLang,
+		"default_target_lang: "+profile.DefaultTargetLang,
+		"relationship_status: "+profile.RelationshipStatus,
+		"preferred_contact_start: "+profile.PreferredContactStart,
+		"preferred_contact_end: "+profile.PreferredContactEnd,
+		"preferred_contact_days: "+profile.PreferredContactDays,
+		"last_followup_state: "+profile.LastFollowupState,
+		"note: "+profile.Note,
+	)
+}
+
+func buildTranscriptContextContent(segment models.CallTranscriptSegment) string {
+	return compactContextContent(
+		"Transcript segment",
+		"call_id: "+segment.CallID,
+		"from: "+segment.FromEmail,
+		"to: "+segment.ToEmail,
+		"original: "+segment.OriginalText,
+		"translated: "+segment.TranslatedText,
+		"source_lang: "+segment.SourceLang,
+		"target_lang: "+segment.TargetLang,
+	)
+}
+
+func compactContextContent(parts ...string) string {
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" && !strings.HasSuffix(part, ":") {
+			out = append(out, part)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+func decodeJSONStrings(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var direct []string
+	if err := json.Unmarshal([]byte(raw), &direct); err == nil {
+		return direct
+	}
+	var values []any
+	if err := json.Unmarshal([]byte(raw), &values); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		switch item := value.(type) {
+		case string:
+			out = append(out, item)
+		case map[string]any:
+			if title, ok := item["title"].(string); ok && strings.TrimSpace(title) != "" {
+				out = append(out, title)
+			} else if body, ok := item["body"].(string); ok && strings.TrimSpace(body) != "" {
+				out = append(out, body)
+			}
+		}
+	}
 	return out
 }

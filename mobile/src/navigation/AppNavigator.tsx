@@ -1,6 +1,6 @@
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Platform, View } from "react-native";
 
 import { useAuthContext } from "../context/AuthContext";
 import LoginScreen from "../screens/LoginScreen";
@@ -23,6 +23,7 @@ import FollowUpsScreen from "../screens/FollowUpsScreen";
 import OrganizationsScreen from "../screens/OrganizationsScreen";
 import ConversationsScreen from "../screens/ConversationsScreen";
 import ConversationDetailScreen from "../screens/ConversationDetailScreen";
+import AgentDemoScreen from "../screens/AgentDemoScreen";
 import DealsScreen from "../screens/DealsScreen";
 import DealDetailScreen from "../screens/DealDetailScreen";
 import RoomsScreen from "../screens/RoomsScreen";
@@ -51,6 +52,7 @@ export type RootStackParamList = {
   Organizations: undefined;
   Conversations: undefined;
   ConversationDetail: { conversation?: ConversationRecord; conversationId?: number };
+  AgentDemo: undefined;
   Deals: undefined;
   DealDetail: { deal: DealRecord };
   Recordings: undefined;
@@ -85,9 +87,14 @@ const AppNavigator: React.FC = () => {
   }
 
   return (
-    <Stack.Navigator initialRouteName={token ? "Rooms" : "Login"}>
+    <Stack.Navigator initialRouteName={token ? (Platform.OS === "web" ? "AgentDemo" : "Rooms") : "Login"}>
       {token ? (
         <>
+          <Stack.Screen
+            name="AgentDemo"
+            component={AgentDemoScreen}
+            options={{ title: "Agent RAG Demo" }}
+          />
           <Stack.Screen
             name="Rooms"
             component={RoomsScreen}

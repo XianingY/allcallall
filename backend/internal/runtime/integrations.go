@@ -26,6 +26,22 @@ func SearchServiceFromEnv() (*search.Service, string, error) {
 	return search.NewService(search.NewMemoryIndexer()), "memory", nil
 }
 
+func ChunkIndexerFromEnv() (*search.ElasticsearchIndexer, string, error) {
+	if raw := strings.TrimSpace(os.Getenv("ELASTICSEARCH_URL")); raw != "" {
+		indexer, err := search.NewElasticsearchIndexer(search.ElasticsearchConfig{
+			URL:      raw,
+			Index:    os.Getenv("ELASTICSEARCH_INDEX"),
+			Username: os.Getenv("ELASTICSEARCH_USERNAME"),
+			Password: os.Getenv("ELASTICSEARCH_PASSWORD"),
+		})
+		if err != nil {
+			return nil, "", err
+		}
+		return indexer, "elasticsearch", nil
+	}
+	return nil, "none", nil
+}
+
 func KafkaProducerFromEnv() (mq.Producer, bool, error) {
 	brokers := mq.ParseBrokers(os.Getenv("KAFKA_BROKERS"))
 	if len(brokers) == 0 {

@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
 	"github.com/allcallall/backend/internal/agent"
@@ -17,6 +19,7 @@ import (
 type AgentHandler struct {
 	logger  zerolog.Logger
 	service *agent.Service
+	redis   *redis.Client
 }
 
 func NewAgentHandler(log zerolog.Logger, service *agent.Service) *AgentHandler {
@@ -26,11 +29,17 @@ func NewAgentHandler(log zerolog.Logger, service *agent.Service) *AgentHandler {
 	}
 }
 
+func (h *AgentHandler) WithRedis(client *redis.Client) *AgentHandler {
+	h.redis = client
+	return h
+}
+
 func (h *AgentHandler) RegisterProtectedRoutes(protected *gin.RouterGroup) {
 	protected.POST("/agent/runs", h.handleCreateRun)
 	protected.GET("/agent/runs/:id/events/stream", h.handleStreamRunEvents)
 	protected.GET("/agent/runs/:id/events", h.handleGetRunEvents)
 	protected.GET("/agent/runs/:id", h.handleGetRun)
+	protected.POST("/agent/runs/:id/submit-tool-outputs", h.handleSubmitToolOutputs)
 }
 
 type createAgentRunRequest struct {
@@ -179,6 +188,51 @@ func (h *AgentHandler) handleGetRunEvents(c *gin.Context) {
 	})
 }
 
+type submitToolOutputsRequest struct {
+	Outputs []struct {
+		ToolCallID string `json:"tool_call_id" binding:"required"`
+		Action     string `json:"action" binding:"required"` // "approve" or "reject"
+	} `json:"outputs" binding:"required"`
+}
+
+func (h *AgentHandler) handleSubmitToolOutputs(c *gin.Context) {
+	claims, organizationID, ok := h.requireAgentContext(c)
+	if !ok {
+		return
+	}
+	userID := claims.UserID
+	runIDRaw := c.Param("id")
+	runID, err := strconv.ParseUint(runIDRaw, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid run id"})
+		return
+	}
+
+	var req submitToolOutputsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	outputs := make(map[string]string)
+	for _, out := range req.Outputs {
+		outputs[out.ToolCallID] = out.Action
+	}
+
+	err = h.service.SubmitToolOutputs(c.Request.Context(), organizationID, userID, runID, outputs)
+	if err != nil {
+		if errors.Is(err, agent.ErrAgentRunNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "agent run not found"})
+			return
+		}
+		h.logger.Error().Err(err).Msg("failed to submit tool outputs")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "success"})
+}
+
 func (h *AgentHandler) handleStreamRunEvents(c *gin.Context) {
 	if h.service == nil {
 		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_SERVICE_UNAVAILABLE", "agent service unavailable")
@@ -208,6 +262,13 @@ func (h *AgentHandler) handleStreamRunEvents(c *gin.Context) {
 	defer ticker.Stop()
 	timeout := time.NewTimer(parseAgentEventStreamTimeout(c.Query("timeout_ms")))
 	defer timeout.Stop()
+
+	var redisCh <-chan *redis.Message
+	if h.redis != nil {
+		sub := h.redis.Subscribe(c.Request.Context(), fmt.Sprintf("agent_run:%d:stream", runID))
+		defer sub.Close()
+		redisCh = sub.Channel()
+	}
 
 	for {
 		events, err := h.service.GetRunEvents(c.Request.Context(), organizationID, claims.UserID, runID)
@@ -244,6 +305,9 @@ func (h *AgentHandler) handleStreamRunEvents(c *gin.Context) {
 			c.SSEvent("stream_timeout", gin.H{"run_id": runID})
 			c.Writer.Flush()
 			return
+		case msg := <-redisCh:
+			c.SSEvent("token", msg.Payload)
+			c.Writer.Flush()
 		case <-ticker.C:
 		}
 	}
@@ -307,6 +371,7 @@ func toAgentRunResultResponse(result *agent.RunResult) gin.H {
 		"steps":      toAgentStepResponses(result.Steps),
 		"tool_calls": toAgentToolCallResponses(result.ToolCalls),
 		"trace":      toAgentTraceEventResponses(result.Trace),
+		"citations":  result.Citations,
 	}
 }
 

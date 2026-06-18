@@ -29,10 +29,15 @@ const (
 	FollowupTaskStatusSnoozed   = "snoozed"
 	FollowupTaskStatusCancelled = "cancelled"
 
-	AgentRunStatusPending = "pending"
-	AgentRunStatusRunning = "running"
-	AgentRunStatusReady   = "ready"
-	AgentRunStatusFailed  = "failed"
+	AgentRunStatusPending        = "pending"
+	AgentRunStatusRunning        = "running"
+	AgentRunStatusReady          = "ready"
+	AgentRunStatusFailed         = "failed"
+	AgentRunStatusRequiresAction = "requires_action"
+
+	ToolCallStatusPending = "pending"
+	ToolCallStatusSuccess = "success"
+	ToolCallStatusFailed  = "failed"
 
 	AgentRunSourceRules            = "rules"
 	AgentRunSourceMockLLM          = "mock_llm"
@@ -275,6 +280,7 @@ type AgentRun struct {
 	IdempotencyKey  string     `gorm:"size:128;index"`
 	RequestID       string     `gorm:"size:96;index"`
 	Source          string     `gorm:"size:32;not null;index"`
+	Role            string     `gorm:"size:32;not null;default:'primary';index"`
 	Status          string     `gorm:"size:32;not null;index"`
 	Goal            string     `gorm:"type:text"`
 	Summary         string     `gorm:"type:text"`
@@ -316,6 +322,7 @@ type AgentToolCall struct {
 	ID           uint64    `gorm:"primaryKey;autoIncrement"`
 	RunID        uint64    `gorm:"not null;index"`
 	StepID       *uint64   `gorm:"index"`
+	CallID       string    `gorm:"size:64;index" json:"call_id"`
 	ToolName     string    `gorm:"size:120;not null;index"`
 	Status       string    `gorm:"size:32;not null;index"`
 	InputJSON    string    `gorm:"type:longtext"`

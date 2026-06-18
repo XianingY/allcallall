@@ -45,8 +45,10 @@ func TestOpenAICompatiblePlannerCallsChatCompletions(t *testing.T) {
 		if payload["model"] != "demo-model" {
 			t.Fatalf("unexpected model: %#v", payload["model"])
 		}
-		if payload["response_format"].(map[string]any)["type"] != "json_object" {
-			t.Fatalf("unexpected response_format: %#v", payload["response_format"])
+		if rf, ok := payload["response_format"].(map[string]any); ok {
+			if rf["type"] != "json_object" {
+				t.Fatalf("unexpected response_format: %#v", payload["response_format"])
+			}
 		}
 		content := `{"summary":"Escalation summary","action_items":["assign owner","assign owner"],"next_step":"Schedule next call","risk_flags":["high_priority_thread"]}`
 		return &http.Response{

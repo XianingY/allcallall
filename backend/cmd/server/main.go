@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 
 	"github.com/allcallall/backend/internal/agent"
 	"github.com/allcallall/backend/internal/auth"
@@ -41,6 +42,8 @@ import (
 // main 入口
 // main entry point
 func main() {
+	_ = godotenv.Load() // 自动尝试加载项目根目录下的 .env 文件
+
 	cfg, err := config.Load()
 	if err != nil {
 		panic(fmt.Sprintf("failed to load config: %v", err))
@@ -102,6 +105,23 @@ func main() {
 	}
 	agentSvc.WithPlanner(agentPlanner)
 	appLogger.Info().Str("provider", agentPlanner.Name()).Msg("agent planner enabled")
+
+	if chunkIndexer, driver, err := appruntime.ChunkIndexerFromEnv(); err == nil && chunkIndexer != nil {
+		appLogger.Info().Str("driver", driver).Msg("initialized chunk indexer for api server")
+		agentSvc.WithChunkIndexer(chunkIndexer)
+		initCtx, initCancel := context.WithTimeout(rootCtx, 10*time.Second)
+		if err := chunkIndexer.InitChunkIndex(initCtx); err != nil {
+			initCancel()
+			appLogger.Fatal().Err(err).Msg("failed to initialize agent context chunk vector index")
+		}
+		initCancel()
+		appLogger.Info().Str("driver", driver).Msg("agent context chunk vector index ready")
+	}
+
+	if redisClient != nil {
+		agentSvc.WithStreamPublisher(appruntime.NewRedisStreamPublisher(redisClient))
+	}
+
 	outboxProcessor := events.NewProcessor(outboxStore, counterStore)
 	appruntime.RegisterAgentOutboxHandlers(outboxProcessor, agentSvc, appLogger)
 	appruntime.RegisterCollaborationOutboxHandlers(outboxProcessor, collaborationSvc, appLogger)
@@ -201,7 +221,7 @@ func main() {
 	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, mailSvc, rateLimitSvc, counterStore)
 	collaborationHandler := handlers.NewCollaborationHandler(appLogger, collaborationSvc, userSvc, chatHub)
 	collaborationHandler.WithSearchService(searchSvc)
-	agentHandler := handlers.NewAgentHandler(appLogger, agentSvc)
+	agentHandler := handlers.NewAgentHandler(appLogger, agentSvc).WithRedis(redisClient)
 	invitationHandler := handlers.NewInvitationHandler(appLogger, invitationSvc, contactSvc, userSvc)
 	webrtcHandler := handlers.NewWebRTCHandler(appLogger, cfg.WebRTC)
 	signalingHub := signaling.NewHub(redisClient, appLogger, presenceManager)
