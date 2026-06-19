@@ -9,6 +9,8 @@ Use these as separate interview talking points:
 - `Reproducible metrics`: planner / RAG / workflow / task-eval fixture sets and local SQLite benchmark.
 - `Manual pilot UX evaluation`: a lightweight human scoring pass over realistic tasks.
 
+For a more detailed task-case catalog, metric definitions, and resume/interview wording, see [Agent Task Eval Cases](agent-task-eval-cases.md).
+
 The reproducible layer answers "does the engineered path still work?" The manual layer answers "would a user feel this was useful?"
 
 ## Reproducible Black-box Task Eval

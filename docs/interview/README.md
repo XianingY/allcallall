@@ -22,6 +22,7 @@ AllCallAll is positioned as an AI-powered realtime collaboration backend project
 - [Agent Demo Eval Report](agent-demo-report.md): one-command planner, RAG, and workflow eval report.
 - [Resume Eval](resume-eval.md): resume-ready KPI summary and deterministic evidence path.
 - [Agent UX Eval](agent-ux-eval.md): black-box task eval and manual pilot UX rubric.
+- [Agent Task Eval Cases](agent-task-eval-cases.md): recommended black-box task set, scoring dimensions, and interview phrasing.
 - [Agent Trace Example](agent-trace-example.md): run/step/tool timeline and tool registry explanation.
 - [API Surface](api-surface.md): APIs worth demoing in interviews.
 - [Performance Report](performance-report.md): load-test template and metrics checklist.
