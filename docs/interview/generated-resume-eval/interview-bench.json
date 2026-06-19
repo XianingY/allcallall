@@ -1,0 +1,42 @@
+{
+  "started_at": "2026-06-19T12:34:50.503067Z",
+  "provider": "rules",
+  "conversations": 25,
+  "queued_runs": 25,
+  "ready_runs": 25,
+  "failed_runs": 0,
+  "processed_events": 75,
+  "pending_outbox_events": 0,
+  "failed_outbox_events": 0,
+  "agent_steps": 50,
+  "agent_tool_calls": 175,
+  "system_messages": 25,
+  "follow_up_tasks": 25,
+  "agent_memories": 25,
+  "agent_context_chunks": 75,
+  "total_duration_ms": 295,
+  "queue_latency": {
+    "count": 25,
+    "min_ms": 0,
+    "p50_ms": 0,
+    "p95_ms": 1,
+    "max_ms": 1
+  },
+  "execute_run_latency": {
+    "count": 25,
+    "min_ms": 5,
+    "p50_ms": 5,
+    "p95_ms": 5,
+    "max_ms": 6
+  },
+  "counters": {
+    "agent_memory_write_total": 25,
+    "agent_planner_latency_ms_total": 0,
+    "agent_planner_token_estimate_total": 9525,
+    "agent_run_queued_total": 25,
+    "agent_run_started_total": 25,
+    "agent_run_total": 25,
+    "agent_tool_call_total": 175,
+    "outbox_publish_total": 75
+  }
+}

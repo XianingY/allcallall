@@ -4,13 +4,13 @@ This document records repeatable interview-oriented load checks. These are not p
 
 ## Latest Local Suite
 
-- Date: June 9, 2026
-- Command: `make interview-load-suite`
+- Date: June 19, 2026
+- Command: `make resume-eval`
 - Provider: `rules`
 - Environment: local macOS, temporary SQLite/in-process HTTP where applicable
-- Report directory: `/tmp/allcallall-interview-suite-20260609-114005`
+- Report directory: `docs/interview/generated-resume-eval`
 
-### Agent Eval
+### Planner Eval
 
 | Metric | Value |
 | --- | ---: |
@@ -24,6 +24,39 @@ The eval fixture validates:
 - High-priority thread emits `high_priority_thread`.
 - Sparse unassigned thread emits `unassigned_conversation` and `insufficient_context`.
 - Both cases produce non-empty `summary` and `next_step`.
+
+### RAG Eval
+
+| Metric | Value |
+| --- | ---: |
+| cases | 2 |
+| passed | 2 |
+| failed | 0 |
+| avg_latency_ms | 33.0 |
+| citation_hit_rate | 100% |
+| vector_case_rate | 50% |
+| sql_fallback_case_rate | 50% |
+
+Interpretation:
+
+- The deterministic fixture proves both vector retrieval and SQL fallback retrieval remain regression-testable.
+- All current RAG cases return at least one cited supporting chunk.
+
+### Workflow Eval
+
+| Metric | Value |
+| --- | ---: |
+| cases | 3 |
+| passed | 3 |
+| failed | 0 |
+| ready_case_rate | 66.7% |
+| approval_interception_rate | 66.7% |
+| meeting_transcript_coverage | 100% |
+
+Interpretation:
+
+- The workflow harness exercises the fixed DAG, bounded role-level ReAct, approval interception, and transcript-backed meeting recap.
+- One case intentionally ends in a policy-driven `failed` status, so pass/fail here reflects expected guardrail behavior rather than only `ready` terminal states.
 
 ### Agent / Outbox Benchmark
 
@@ -41,16 +74,16 @@ The eval fixture validates:
 | system_messages | 25 |
 | follow_up_tasks | 25 |
 | agent_memories | 25 |
-| agent_context_chunks | 50 |
-| total_duration_ms | 725 |
-| queue_latency_p95_ms | 2 |
-| execute_run_latency_p95_ms | 26 |
+| agent_context_chunks | 75 |
+| total_duration_ms | 295 |
+| queue_latency_p95_ms | 1 |
+| execute_run_latency_p95_ms | 5 |
 | outbox_publish_total | 75 |
 
 Interpretation:
 
 - Each run records two steps and seven tool calls: recent meetings, members, contact profile, RAG-lite context chunks, message write-back, follow-up task, and scoped memory upsert.
-- Notes and messages are indexed into `agent_context_chunks`, then retrieved as Top-K context for the planner.
+- Notes, messages, and meeting-aware context are indexed into `agent_context_chunks`, then retrieved as Top-K context for the planner.
 - Each completed run writes one system message, one follow-up task, and one memory row.
 - Outbox write amplification is visible and drains cleanly in the local processor.
 

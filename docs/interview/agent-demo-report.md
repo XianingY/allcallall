@@ -2,6 +2,8 @@
 
 This page is the stable entry point for the AllCallAll Agent demo eval. The generated snapshot lives in [`generated-agent-report/agent-demo-report.md`](generated-agent-report/agent-demo-report.md).
 
+For resume-friendly KPI rollups that combine eval quality and local benchmark data, use [`resume-eval.md`](resume-eval.md).
+
 ## Regenerate
 
 Run from the repository root:

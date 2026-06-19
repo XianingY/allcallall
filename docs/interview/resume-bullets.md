@@ -15,6 +15,7 @@ Use these as raw material. Pick 2-3 bullets and tune them for the target role.
 - Implemented an asynchronous explainable AI Agent run queue with persisted pending/running/ready/failed states, outbox-triggered worker execution, intermediate steps, tool-call records, scoped memory, idempotency keys, and backend-controlled tool execution.
 - Added Agent execution recovery with attempt counters and `lease_until`, allowing transient planner failures to retry and stale `running` runs to recover after worker crashes.
 - Added `AGENT_PROVIDER` selection with deterministic rules, mock structured-output, and configurable OpenAI-compatible planners, preserving stable tests while supporting LLM-backed planning with fallback metrics.
+- Built a deterministic planner/RAG/workflow eval harness and resume-eval aggregator; the latest local rules snapshot passed planner `2/2`, RAG `2/2`, and workflow `3/3`, with `100%` citation hit rate and `100%` meeting-transcript coverage on transcript-required workflow cases.
 - Integrated Agent tools for writing collaboration messages, creating follow-up tasks, upserting memory, and persisting outbox events for durable async delivery.
 - Extended Agent context retrieval to include meeting transcript segments separately from 1:1 call transcript segments, improving source attribution for meeting summaries and follow-up reasoning.
 
@@ -31,7 +32,7 @@ Use these as raw material. Pick 2-3 bullets and tune them for the target role.
 
 ## Performance Evidence
 
-- Captured local Agent/outbox benchmark evidence: 25 queued runs, 25 ready runs, 0 failures, 75 processed outbox events, 175 tool calls, 50 RAG context chunks, and 26 ms execute-run p95 on temporary SQLite.
+- Captured deterministic local Agent/outbox benchmark evidence: 25 queued runs, 25 ready runs, 0 failures, 75 processed outbox events, 175 tool calls, 75 indexed context chunks, 7.0 tool calls per run, and 5 ms execute-run p95 on temporary SQLite.
 - Captured realtime replay benchmark evidence: 2000 persisted events, 100 replayed events, scoped replay correctness, monotonic IDs/sequences, and 3 ms write p95 on temporary SQLite.
 - Captured authenticated WebSocket replay evidence: 5 clients, 500 total replayed events, 0 upgrade/client errors, 0 duplicates, and 9 ms connect-to-last p95 against the real `/api/v1/chat/ws` path.
 

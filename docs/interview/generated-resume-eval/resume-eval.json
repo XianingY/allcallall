@@ -1,0 +1,210 @@
+{
+  "generated_at": "2026-06-19T12:34:50Z",
+  "provider": "rules",
+  "summary": {
+    "planner": {
+      "cases": 2,
+      "pass_rate": 1,
+      "avg_prompt_tokens": 337.5
+    },
+    "rag": {
+      "cases": 2,
+      "pass_rate": 1,
+      "avg_latency_ms": 33,
+      "avg_hits_per_case": 1.5,
+      "citation_hit_rate": 1,
+      "vector_case_rate": 0.5,
+      "sql_fallback_case_rate": 0.5
+    },
+    "workflow": {
+      "cases": 3,
+      "pass_rate": 1,
+      "ready_case_rate": 0.6666666666666666,
+      "approval_interception_rate": 0.6666666666666666,
+      "avg_approvals_per_case": 2,
+      "meeting_transcript_coverage": 1
+    },
+    "benchmark": {
+      "conversations": 25,
+      "ready_run_rate": 1,
+      "failed_run_rate": 0,
+      "execute_run_p95_ms": 5,
+      "queue_p95_ms": 1,
+      "tool_calls_per_run": 7,
+      "context_chunks_per_run": 3
+    }
+  },
+  "eval": {
+    "generated_at": "2026-06-19T12:34:50Z",
+    "provider": "rules",
+    "planner": {
+      "provider": "rules",
+      "cases": 2,
+      "passed": 2,
+      "failed": 0,
+      "results": [
+        {
+          "name": "high_priority_handoff",
+          "passed": true,
+          "output": {
+            "summary": "APAC onboarding escalation 当前状态为 open，优先级为 high。 最近内部备注：Customer asked to schedule next call tomorrow and confirm owner.",
+            "action_items": [
+              "在线程中同步下一步负责人和截止时间",
+              "优先处理高优先级协作线程",
+              "复核上一轮 Agent 记忆，确认是否仍然有效"
+            ],
+            "next_step": "安排下一次会议或回访，并在线程内同步时间。",
+            "risk_flags": [
+              "high_priority_thread"
+            ],
+            "has_tool_calls": false,
+            "tool_calls": null
+          },
+          "estimated_prompt_tokens": 371
+        },
+        {
+          "name": "thin_unassigned_context",
+          "passed": true,
+          "output": {
+            "summary": "New LATAM support thread 当前状态为 open，优先级为 normal。",
+            "action_items": [
+              "在线程中同步下一步负责人和截止时间",
+              "明确当前协作线程负责人",
+              "补充会议结论或客户上下文"
+            ],
+            "next_step": "在当前线程确认 action owner，并安排下一次跟进。",
+            "risk_flags": [
+              "unassigned_conversation",
+              "insufficient_context"
+            ],
+            "has_tool_calls": false,
+            "tool_calls": null
+          },
+          "estimated_prompt_tokens": 304
+        }
+      ]
+    },
+    "rag": {
+      "cases": 2,
+      "passed": 2,
+      "failed": 0,
+      "results": [
+        {
+          "name": "vector_hit_security_budget",
+          "passed": true,
+          "hits": [
+            {
+              "chunk_id": 1,
+              "source_title": "Security rollout note",
+              "retrieval_mode": "vector",
+              "score": 100,
+              "snippet": "Security approval is the main risk. The customer needs a data retention answer before the budget window closes."
+            },
+            {
+              "chunk_id": 2,
+              "source_title": "Training plan",
+              "retrieval_mode": "vector",
+              "score": 0,
+              "snippet": "Training should cover agent handoff, translation quality review, and support escalation."
+            }
+          ],
+          "mode": "vector",
+          "elapsed": "35.484084ms",
+          "elapsed_ms": 35
+        },
+        {
+          "name": "sql_fallback_pricing_latency",
+          "passed": true,
+          "hits": [
+            {
+              "chunk_id": 1,
+              "source_title": "Pricing latency note",
+              "retrieval_mode": "sql_fallback",
+              "score": 21,
+              "snippet": "Pricing depends on the pilot seat count. Latency and translation quality are the key acceptance criteria."
+            }
+          ],
+          "mode": "sql_fallback",
+          "fallback_reason": "indexer_unavailable",
+          "elapsed": "31.535209ms",
+          "elapsed_ms": 31
+        }
+      ]
+    },
+    "workflow": {
+      "mode": "workflow",
+      "cases": 3,
+      "passed": 3,
+      "failed": 0,
+      "results": [
+        {
+          "name": "approval_parallel_merge_tool_commit",
+          "passed": true,
+          "status": "ready",
+          "tasks": 9,
+          "messages": 20,
+          "approvals": 3
+        },
+        {
+          "name": "tool_policy_denies_write",
+          "passed": true,
+          "status": "failed",
+          "tasks": 9,
+          "messages": 14,
+          "approvals": 0
+        },
+        {
+          "name": "meeting_brief_bounded_react_transcript",
+          "passed": true,
+          "status": "ready",
+          "tasks": 9,
+          "messages": 18,
+          "approvals": 3
+        }
+      ]
+    },
+    "failed": 0
+  },
+  "benchmark": {
+    "started_at": "2026-06-19T12:34:50.503067Z",
+    "provider": "rules",
+    "conversations": 25,
+    "queued_runs": 25,
+    "ready_runs": 25,
+    "failed_runs": 0,
+    "processed_events": 75,
+    "pending_outbox_events": 0,
+    "failed_outbox_events": 0,
+    "agent_steps": 50,
+    "agent_tool_calls": 175,
+    "system_messages": 25,
+    "follow_up_tasks": 25,
+    "agent_memories": 25,
+    "agent_context_chunks": 75,
+    "total_duration_ms": 295,
+    "queue_latency": {
+      "count": 25,
+      "min_ms": 0,
+      "p50_ms": 0,
+      "p95_ms": 1,
+      "max_ms": 1
+    },
+    "execute_run_latency": {
+      "count": 25,
+      "min_ms": 5,
+      "p50_ms": 5,
+      "p95_ms": 5,
+      "max_ms": 6
+    },
+    "counters": {
+      "agent_memory_write_total": 25,
+      "agent_planner_latency_ms_total": 0,
+      "agent_planner_token_estimate_total": 9525,
+      "agent_run_queued_total": 25,
+      "agent_run_started_total": 25,
+      "agent_run_total": 25,
+      "agent_tool_call_total": 175,
+      "outbox_publish_total": 75
+    }
+  }
+}

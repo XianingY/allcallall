@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/allcallall/backend/internal/agent"
+	"github.com/allcallall/backend/internal/resumeeval"
 )
 
 func main() {
@@ -21,6 +22,8 @@ func main() {
 	switch os.Args[1] {
 	case "eval":
 		err = runEval(os.Args[2:])
+	case "resume-eval":
+		err = runResumeEval(os.Args[2:])
 	case "mcp-config":
 		err = runMCPConfig(os.Args[2:])
 	case "skill":
@@ -34,6 +37,40 @@ func main() {
 		fmt.Fprintf(os.Stderr, "allcallallctl: %v\n", err)
 		os.Exit(2)
 	}
+}
+
+func runResumeEval(args []string) error {
+	fs := flag.NewFlagSet("resume-eval", flag.ContinueOnError)
+	provider := fs.String("provider", defaultProvider(), "planner provider: rules, mock_llm, openai_compatible")
+	outDir := fs.String("out", "../docs/interview/generated-resume-eval", "directory for resume-oriented eval artifacts")
+	plannerFixture := fs.String("planner-fixture", agent.DefaultPlannerEvalFixture, "planner eval fixture")
+	ragFixture := fs.String("rag-fixture", agent.DefaultRAGEvalFixture, "RAG eval fixture")
+	workflowFixture := fs.String("workflow-fixture", agent.DefaultWorkflowEvalFixture, "workflow eval fixture")
+	benchConversations := fs.Int("bench-conversations", 25, "number of interview bench conversations")
+	benchBatchSize := fs.Int("bench-batch-size", 50, "interview bench outbox batch size")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	report, err := resumeeval.Run(context.Background(), resumeeval.Options{
+		Provider:           *provider,
+		PlannerFixture:     *plannerFixture,
+		RAGFixture:         *ragFixture,
+		WorkflowFixture:    *workflowFixture,
+		BenchConversations: *benchConversations,
+		BenchBatchSize:     *benchBatchSize,
+	})
+	if err != nil {
+		return err
+	}
+	if err := resumeeval.WriteArtifacts(*outDir, report); err != nil {
+		return err
+	}
+	fmt.Printf("wrote resume eval report to %s\n", *outDir)
+	fmt.Printf("planner pass rate: %.1f%%\n", report.Summary.Planner.PassRate*100)
+	fmt.Printf("rag avg latency: %.1f ms\n", report.Summary.RAG.AvgLatencyMs)
+	fmt.Printf("workflow pass rate: %.1f%%\n", report.Summary.Workflow.PassRate*100)
+	fmt.Printf("benchmark ready rate: %.1f%%\n", report.Summary.Benchmark.ReadyRunRate*100)
+	return nil
 }
 
 func runEval(args []string) error {
@@ -145,6 +182,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Commands:")
 	fmt.Fprintln(os.Stderr, "  eval        Run planner, RAG, and workflow evals and write a demo report")
+	fmt.Fprintln(os.Stderr, "  resume-eval Run planner, RAG, workflow evals plus benchmark and write resume KPI artifacts")
 	fmt.Fprintln(os.Stderr, "  mcp-config  Print an MCP client config for the read-only tool server")
 	fmt.Fprintln(os.Stderr, "  skill       Print or write the AllCallAll Agent Skill Markdown")
 }

@@ -1,0 +1,32 @@
+{
+  "mode": "workflow",
+  "cases": 3,
+  "passed": 3,
+  "failed": 0,
+  "results": [
+    {
+      "name": "approval_parallel_merge_tool_commit",
+      "passed": true,
+      "status": "ready",
+      "tasks": 9,
+      "messages": 20,
+      "approvals": 3
+    },
+    {
+      "name": "tool_policy_denies_write",
+      "passed": true,
+      "status": "failed",
+      "tasks": 9,
+      "messages": 14,
+      "approvals": 0
+    },
+    {
+      "name": "meeting_brief_bounded_react_transcript",
+      "passed": true,
+      "status": "ready",
+      "tasks": 9,
+      "messages": 18,
+      "approvals": 3
+    }
+  ]
+}

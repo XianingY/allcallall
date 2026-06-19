@@ -131,7 +131,7 @@ System metrics:
 
 | Scenario | Concurrency | Duration | p95 Latency | Error Rate | Notes |
 | --- | ---: | ---: | ---: | ---: | --- |
-| Local Agent/outbox benchmark | 1 process | 336 ms | 8 ms execute-run | 0% | commit `6809bab`, temporary SQLite |
+| Local Agent/outbox benchmark | 1 process | 295 ms | 5 ms execute-run | 0% | June 19, 2026 deterministic `rules` run, temporary SQLite |
 | Agent run creation | TBD | TBD | TBD | TBD | New idempotency key per request; expect `202 pending` |
 | Agent idempotency replay | TBD | TBD | TBD | TBD | Same key should not duplicate tool side effects |
 | Agent run backlog | TBD | TBD | TBD | TBD | Count `pending`/`running`/`failed` rows before and after worker drain |
@@ -148,7 +148,7 @@ System metrics:
 
 ## Latest Local Agent Benchmark Snapshot
 
-Measured locally on June 9, 2026 (Asia/Shanghai) with temporary SQLite. Treat this as a functional benchmark and interview demo baseline, not a production load-test result.
+Measured locally on June 19, 2026 (Asia/Shanghai) with temporary SQLite. Treat this as a functional benchmark and interview demo baseline, not a production load-test result.
 
 Command:
 
@@ -168,17 +168,38 @@ Result summary:
 | pending_outbox_events | 0 |
 | failed_outbox_events | 0 |
 | agent_tool_calls | 175 |
-| agent_context_chunks | 50 |
-| total_duration_ms | 725 |
-| queue_latency_p95_ms | 2 |
-| execute_run_latency_p95_ms | 26 |
+| agent_context_chunks | 75 |
+| total_duration_ms | 295 |
+| queue_latency_p95_ms | 1 |
+| execute_run_latency_p95_ms | 5 |
 | outbox_publish_total | 75 |
 
 Notes:
 
 - Each completed run records seven auditable tool calls: three structured context tools, one RAG-lite context retrieval tool, and three mutating side-effect tools.
-- The RAG-lite path indexes notes/messages into `agent_context_chunks` and retrieves bounded Top-K snippets before planning.
+- The RAG-lite path indexes notes, messages, and meeting-aware context into `agent_context_chunks` and retrieves bounded Top-K snippets before planning.
 - Mutating tool orchestration is now isolated in `backend/internal/agent/tool_executor.go`, so this benchmark covers the extracted executor boundary as well as the async run queue and outbox path.
+
+## Latest Deterministic Resume Eval Snapshot
+
+Measured locally on June 19, 2026 (Asia/Shanghai) through `make resume-eval`. This snapshot combines quality eval and pipeline benchmark data under one deterministic `rules` path.
+
+| Metric | Value |
+| --- | ---: |
+| planner_pass_rate | 100% |
+| planner_avg_prompt_tokens | 337.5 |
+| rag_pass_rate | 100% |
+| rag_avg_latency_ms | 33.0 |
+| rag_citation_hit_rate | 100% |
+| workflow_pass_rate | 100% |
+| workflow_approval_interception_rate | 66.7% |
+| workflow_meeting_transcript_coverage | 100% |
+| benchmark_ready_run_rate | 100% |
+| benchmark_execute_run_p95_ms | 5 |
+| benchmark_tool_calls_per_run | 7.0 |
+| benchmark_context_chunks_per_run | 3.0 |
+
+Use this section for resume and interview claims about Agent quality and safety gates. Use the benchmark-only section above for pipeline and latency claims.
 
 ## Latest Local Realtime Replay Snapshot
 

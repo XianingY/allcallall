@@ -47,13 +47,14 @@ type RAGEvalHit struct {
 }
 
 type RAGEvalResult struct {
-	Name    string       `json:"name"`
-	Passed  bool         `json:"passed"`
-	Errors  []string     `json:"errors,omitempty"`
-	Hits    []RAGEvalHit `json:"hits"`
-	Mode    string       `json:"mode"`
-	Reason  string       `json:"fallback_reason,omitempty"`
-	Elapsed string       `json:"elapsed"`
+	Name      string       `json:"name"`
+	Passed    bool         `json:"passed"`
+	Errors    []string     `json:"errors,omitempty"`
+	Hits      []RAGEvalHit `json:"hits"`
+	Mode      string       `json:"mode"`
+	Reason    string       `json:"fallback_reason,omitempty"`
+	Elapsed   string       `json:"elapsed"`
+	ElapsedMs int64        `json:"elapsed_ms"`
 }
 
 type RAGEvalReport struct {
@@ -83,7 +84,9 @@ func RunRAGEval(ctx context.Context, cases []RAGEvalCase) (RAGEvalReport, error)
 		if err != nil {
 			result = RAGEvalResult{Name: item.Name, Errors: []string{err.Error()}}
 		}
-		result.Elapsed = time.Since(started).String()
+		elapsed := time.Since(started)
+		result.Elapsed = elapsed.String()
+		result.ElapsedMs = elapsed.Milliseconds()
 		result.Passed = len(result.Errors) == 0
 		if result.Passed {
 			report.Passed++

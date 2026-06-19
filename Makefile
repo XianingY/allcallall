@@ -1,7 +1,7 @@
 # AllCallAll Project Makefile
 # Common commands for development
 
-.PHONY: help setup build-android build-ios clean test run-api run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench interview-microservice-demo agent-eval rag-eval workflow-eval agent-demo-report mcp-tool-server realtime-replay-bench chat-ws-replay-bench
+.PHONY: help setup build-android build-ios clean test run-api run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench interview-microservice-demo agent-eval rag-eval workflow-eval agent-demo-report resume-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench
 
 # Default target
 help:
@@ -33,6 +33,7 @@ help:
 	@echo "  make rag-eval         - Run deterministic RAG retrieval eval harness"
 	@echo "  make workflow-eval    - Run deterministic Workflow multi-agent eval harness"
 	@echo "  make agent-demo-report - Generate combined Agent/RAG/Workflow demo report"
+	@echo "  make resume-eval      - Generate resume-oriented Agent KPI artifacts"
 	@echo "  make mcp-tool-server  - Start MCP-compatible read-only tool server"
 	@echo "  make interview-bench  - Run local Agent/outbox benchmark"
 	@echo "  make realtime-replay-bench - Run local realtime replay benchmark"
@@ -174,6 +175,11 @@ agent-demo-report:
 	@echo "Generating combined Agent demo report..."
 	@mkdir -p /tmp/allcallall-go-cache
 	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/allcallallctl eval -provider $${AGENT_PROVIDER:-rules} -out ../docs/interview/generated-agent-report
+
+resume-eval:
+	@echo "Generating resume-oriented Agent KPI report..."
+	@mkdir -p /tmp/allcallall-go-cache
+	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/allcallallctl resume-eval -provider $${AGENT_PROVIDER:-rules} -out ../docs/interview/generated-resume-eval
 
 mcp-tool-server:
 	@echo "Starting MCP-compatible read-only tool server..."

@@ -1,0 +1,47 @@
+{
+  "provider": "rules",
+  "cases": 2,
+  "passed": 2,
+  "failed": 0,
+  "results": [
+    {
+      "name": "high_priority_handoff",
+      "passed": true,
+      "output": {
+        "summary": "APAC onboarding escalation 当前状态为 open，优先级为 high。 最近内部备注：Customer asked to schedule next call tomorrow and confirm owner.",
+        "action_items": [
+          "在线程中同步下一步负责人和截止时间",
+          "优先处理高优先级协作线程",
+          "复核上一轮 Agent 记忆，确认是否仍然有效"
+        ],
+        "next_step": "安排下一次会议或回访，并在线程内同步时间。",
+        "risk_flags": [
+          "high_priority_thread"
+        ],
+        "has_tool_calls": false,
+        "tool_calls": null
+      },
+      "estimated_prompt_tokens": 371
+    },
+    {
+      "name": "thin_unassigned_context",
+      "passed": true,
+      "output": {
+        "summary": "New LATAM support thread 当前状态为 open，优先级为 normal。",
+        "action_items": [
+          "在线程中同步下一步负责人和截止时间",
+          "明确当前协作线程负责人",
+          "补充会议结论或客户上下文"
+        ],
+        "next_step": "在当前线程确认 action owner，并安排下一次跟进。",
+        "risk_flags": [
+          "unassigned_conversation",
+          "insufficient_context"
+        ],
+        "has_tool_calls": false,
+        "tool_calls": null
+      },
+      "estimated_prompt_tokens": 304
+    }
+  ]
+}

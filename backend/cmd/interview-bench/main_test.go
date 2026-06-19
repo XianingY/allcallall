@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/allcallall/backend/internal/interviewbench"
 	"github.com/allcallall/backend/internal/models"
 )
 
 func TestInterviewBenchProducesAgentPipelineEvidence(t *testing.T) {
 	var buffer bytes.Buffer
-	err := run(context.Background(), benchConfig{
+	err := run(context.Background(), interviewbench.Config{
 		Conversations: 3,
 		BatchSize:     10,
 		Provider:      models.AgentRunSourceRules,
@@ -20,7 +21,7 @@ func TestInterviewBenchProducesAgentPipelineEvidence(t *testing.T) {
 		t.Fatalf("run interview bench failed: %v", err)
 	}
 
-	var output benchOutput
+	var output interviewbench.Output
 	if err := json.Unmarshal(buffer.Bytes(), &output); err != nil {
 		t.Fatalf("decode bench output failed: %v\n%s", err, buffer.String())
 	}
