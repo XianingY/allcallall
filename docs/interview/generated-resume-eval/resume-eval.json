@@ -1,41 +1,49 @@
 {
-  "generated_at": "2026-06-19T12:34:50Z",
+  "generated_at": "2026-06-19T13:15:48Z",
   "provider": "rules",
   "summary": {
-    "planner": {
-      "cases": 2,
-      "pass_rate": 1,
-      "avg_prompt_tokens": 337.5
+    "regression": {
+      "planner_cases": 2,
+      "planner_pass_rate": 1,
+      "planner_avg_prompt_tokens": 337.5,
+      "workflow_cases": 3,
+      "workflow_pass_rate": 1,
+      "workflow_ready_case_rate": 0.6666666666666666,
+      "approval_interception_rate": 0.6666666666666666,
+      "workflow_avg_approvals_per_case": 2,
+      "meeting_transcript_coverage": 1,
+      "task_eval_cases": 8,
+      "task_success_rate": 1,
+      "tool_intent_match_rate": 1,
+      "approval_safety_rate": 1,
+      "citation_presence_rate": 1,
+      "meeting_grounding_rate": 1
     },
-    "rag": {
+    "rag_ir_metrics": {
       "cases": 2,
       "pass_rate": 1,
-      "avg_latency_ms": 33,
+      "avg_latency_ms": 26,
       "avg_hits_per_case": 1.5,
       "citation_hit_rate": 1,
+      "recall_at_k": 1,
+      "precision_at_k": 0.75,
+      "mrr": 1,
+      "ndcg_at_k": 1,
       "vector_case_rate": 0.5,
       "sql_fallback_case_rate": 0.5
-    },
-    "workflow": {
-      "cases": 3,
-      "pass_rate": 1,
-      "ready_case_rate": 0.6666666666666666,
-      "approval_interception_rate": 0.6666666666666666,
-      "avg_approvals_per_case": 2,
-      "meeting_transcript_coverage": 1
     },
     "benchmark": {
       "conversations": 25,
       "ready_run_rate": 1,
       "failed_run_rate": 0,
-      "execute_run_p95_ms": 5,
+      "execute_run_p95_ms": 12,
       "queue_p95_ms": 1,
       "tool_calls_per_run": 7,
       "context_chunks_per_run": 3
     }
   },
   "eval": {
-    "generated_at": "2026-06-19T12:34:50Z",
+    "generated_at": "2026-06-19T13:15:46Z",
     "provider": "rules",
     "planner": {
       "provider": "rules",
@@ -88,6 +96,15 @@
       "cases": 2,
       "passed": 2,
       "failed": 0,
+      "summary": {
+        "recall_at_k": 1,
+        "precision_at_k": 0.75,
+        "mrr": 1,
+        "ndcg_at_k": 1,
+        "citation_hit_rate": 1,
+        "vector_case_rate": 0.5,
+        "sql_fallback_case_rate": 0.5
+      },
       "results": [
         {
           "name": "vector_hit_security_budget",
@@ -109,8 +126,12 @@
             }
           ],
           "mode": "vector",
-          "elapsed": "35.484084ms",
-          "elapsed_ms": 35
+          "elapsed": "27.332583ms",
+          "elapsed_ms": 27,
+          "recall_at_k": 1,
+          "precision_at_k": 0.5,
+          "mrr": 1,
+          "ndcg_at_k": 1
         },
         {
           "name": "sql_fallback_pricing_latency",
@@ -126,8 +147,12 @@
           ],
           "mode": "sql_fallback",
           "fallback_reason": "indexer_unavailable",
-          "elapsed": "31.535209ms",
-          "elapsed_ms": 31
+          "elapsed": "25.264375ms",
+          "elapsed_ms": 25,
+          "recall_at_k": 1,
+          "precision_at_k": 1,
+          "mrr": 1,
+          "ndcg_at_k": 1
         }
       ]
     },
@@ -165,8 +190,200 @@
     },
     "failed": 0
   },
+  "task_eval": {
+    "mode": "task_eval",
+    "cases": 8,
+    "passed": 8,
+    "failed": 0,
+    "summary": {
+      "task_success_rate": 1,
+      "tool_intent_match_rate": 1,
+      "approval_safety_rate": 1,
+      "citation_presence_rate": 1,
+      "meeting_grounding_rate": 1
+    },
+    "results": [
+      {
+        "name": "react_meeting_recap_grounded",
+        "mode": "react",
+        "passed": true,
+        "status": "ready",
+        "used_tools": [
+          "query_recent_meetings",
+          "query_conversation_members",
+          "query_contact_profile",
+          "query_context_chunks",
+          "write_conversation_message",
+          "create_follow_up_task",
+          "upsert_agent_memory"
+        ],
+        "approvals": 0,
+        "citations": 4,
+        "summary_preview": "Task Eval react meeting recap grounded 当前状态为 open，优先级为 high。 最近内部备注：内部备注：需要把结论整理给硬件团队，并确认下次评审时间。 最近会议：Task Eval Meeting（ended）。",
+        "next_step_preview": "安排下一次会议或回访，并在线程内同步时间。",
+        "task_succeeded": true,
+        "tool_intent_matched": true,
+        "approval_safety": true,
+        "citation_presence": true,
+        "meeting_grounding": true
+      },
+      {
+        "name": "react_sparse_context_conservative",
+        "mode": "react",
+        "passed": true,
+        "status": "ready",
+        "used_tools": [
+          "query_recent_meetings",
+          "query_conversation_members",
+          "query_contact_profile",
+          "query_context_chunks",
+          "write_conversation_message",
+          "create_follow_up_task",
+          "upsert_agent_memory"
+        ],
+        "approvals": 0,
+        "citations": 0,
+        "summary_preview": "Task Eval react sparse context conservative 当前状态为 open，优先级为 normal。",
+        "next_step_preview": "在当前线程确认 action owner，并安排下一次跟进。",
+        "task_succeeded": true,
+        "tool_intent_matched": true,
+        "approval_safety": true,
+        "citation_presence": true,
+        "meeting_grounding": true
+      },
+      {
+        "name": "react_rag_note_grounding",
+        "mode": "react",
+        "passed": true,
+        "status": "ready",
+        "used_tools": [
+          "query_recent_meetings",
+          "query_conversation_members",
+          "query_contact_profile",
+          "query_context_chunks",
+          "write_conversation_message",
+          "create_follow_up_task",
+          "upsert_agent_memory"
+        ],
+        "approvals": 0,
+        "citations": 2,
+        "summary_preview": "Task Eval react rag note grounding 当前状态为 open，优先级为 high。 最近内部备注：内部备注：法务审批依赖数据留存说明，安全说明需要本周内给出。",
+        "next_step_preview": "在当前线程确认 action owner，并安排下一次跟进。",
+        "task_succeeded": true,
+        "tool_intent_matched": true,
+        "approval_safety": true,
+        "citation_presence": true,
+        "meeting_grounding": true
+      },
+      {
+        "name": "workflow_meeting_brief_grounded",
+        "mode": "workflow",
+        "passed": true,
+        "status": "ready",
+        "used_tools": [
+          "write_conversation_message",
+          "upsert_agent_memory",
+          "query_context_chunks",
+          "query_recent_meetings"
+        ],
+        "approvals": 3,
+        "citations": 4,
+        "summary_preview": "Meeting Brief: Task Eval workflow meeting brief grounded 当前状态为 open，优先级为 high。 检索上下文：Meeting recording transcript segment recording_id: 5305 recording_file_i...",
+        "next_step_preview": "确认摘要准确后，将会议结论同步到线程并明确下一步。",
+        "task_succeeded": true,
+        "tool_intent_matched": true,
+        "approval_safety": true,
+        "citation_presence": true,
+        "meeting_grounding": true
+      },
+      {
+        "name": "workflow_follow_up_plan",
+        "mode": "workflow",
+        "passed": true,
+        "status": "ready",
+        "used_tools": [
+          "write_conversation_message",
+          "create_follow_up_task",
+          "upsert_agent_memory",
+          "query_context_chunks",
+          "query_recent_meetings"
+        ],
+        "approvals": 3,
+        "citations": 1,
+        "summary_preview": "Follow-up Plan: Task Eval workflow follow up plan 当前状态为 open，优先级为 high。 检索上下文：客户要求确认定价、延迟指标和安全审批节奏。",
+        "next_step_preview": "将 follow-up 承诺落成具体任务，并确认发送窗口。",
+        "task_succeeded": true,
+        "tool_intent_matched": true,
+        "approval_safety": true,
+        "citation_presence": true,
+        "meeting_grounding": true
+      },
+      {
+        "name": "workflow_risk_review",
+        "mode": "workflow",
+        "passed": true,
+        "status": "ready",
+        "used_tools": [
+          "write_conversation_message",
+          "upsert_agent_memory",
+          "query_context_chunks",
+          "query_recent_meetings"
+        ],
+        "approvals": 2,
+        "citations": 1,
+        "summary_preview": "Risk Review: Task Eval workflow risk review 当前状态为 open，优先级为 high。 检索上下文：内部备注：如果法务和供应链风险叠加，需要提前升级。",
+        "next_step_preview": "复核风险点并决定是否需要升级处理。",
+        "task_succeeded": true,
+        "tool_intent_matched": true,
+        "approval_safety": true,
+        "citation_presence": true,
+        "meeting_grounding": true
+      },
+      {
+        "name": "workflow_policy_denied_write",
+        "mode": "workflow",
+        "passed": true,
+        "status": "failed",
+        "used_tools": [
+          "query_context_chunks",
+          "query_recent_meetings"
+        ],
+        "approvals": 0,
+        "citations": 2,
+        "summary_preview": "Follow-up Plan: Task Eval workflow policy denied write 当前状态为 open，优先级为 high。 检索上下文：内部备注：用 deny policy 验证流程会在写工具阶段失败。",
+        "next_step_preview": "将 follow-up 承诺落成具体任务，并确认发送窗口。",
+        "task_succeeded": true,
+        "tool_intent_matched": true,
+        "approval_safety": true,
+        "citation_presence": true,
+        "meeting_grounding": true
+      },
+      {
+        "name": "workflow_missing_context_guardrail",
+        "mode": "workflow",
+        "passed": true,
+        "status": "ready",
+        "used_tools": [
+          "write_conversation_message",
+          "create_follow_up_task",
+          "upsert_agent_memory",
+          "query_context_chunks",
+          "query_recent_meetings"
+        ],
+        "approvals": 3,
+        "citations": 0,
+        "summary_preview": "Follow-up Plan: Task Eval workflow missing context guardrail 当前状态为 open，优先级为 normal。",
+        "next_step_preview": "将 follow-up 承诺落成具体任务，并确认发送窗口。",
+        "task_succeeded": true,
+        "tool_intent_matched": true,
+        "approval_safety": true,
+        "citation_presence": true,
+        "meeting_grounding": true
+      }
+    ]
+  },
   "benchmark": {
-    "started_at": "2026-06-19T12:34:50.503067Z",
+    "started_at": "2026-06-19T13:15:48.107137Z",
     "provider": "rules",
     "conversations": 25,
     "queued_runs": 25,
@@ -181,20 +398,20 @@
     "follow_up_tasks": 25,
     "agent_memories": 25,
     "agent_context_chunks": 75,
-    "total_duration_ms": 295,
+    "total_duration_ms": 536,
     "queue_latency": {
       "count": 25,
       "min_ms": 0,
-      "p50_ms": 0,
+      "p50_ms": 1,
       "p95_ms": 1,
-      "max_ms": 1
+      "max_ms": 6
     },
     "execute_run_latency": {
       "count": 25,
-      "min_ms": 5,
-      "p50_ms": 5,
-      "p95_ms": 5,
-      "max_ms": 6
+      "min_ms": 7,
+      "p50_ms": 7,
+      "p95_ms": 12,
+      "max_ms": 16
     },
     "counters": {
       "agent_memory_write_total": 25,

@@ -131,7 +131,7 @@ System metrics:
 
 | Scenario | Concurrency | Duration | p95 Latency | Error Rate | Notes |
 | --- | ---: | ---: | ---: | ---: | --- |
-| Local Agent/outbox benchmark | 1 process | 295 ms | 5 ms execute-run | 0% | June 19, 2026 deterministic `rules` run, temporary SQLite |
+| Local Agent/outbox benchmark | 1 process | 536 ms | 12 ms execute-run | 0% | June 19, 2026 deterministic `rules` run, temporary SQLite |
 | Agent run creation | TBD | TBD | TBD | TBD | New idempotency key per request; expect `202 pending` |
 | Agent idempotency replay | TBD | TBD | TBD | TBD | Same key should not duplicate tool side effects |
 | Agent run backlog | TBD | TBD | TBD | TBD | Count `pending`/`running`/`failed` rows before and after worker drain |
@@ -169,9 +169,9 @@ Result summary:
 | failed_outbox_events | 0 |
 | agent_tool_calls | 175 |
 | agent_context_chunks | 75 |
-| total_duration_ms | 295 |
+| total_duration_ms | 536 |
 | queue_latency_p95_ms | 1 |
-| execute_run_latency_p95_ms | 5 |
+| execute_run_latency_p95_ms | 12 |
 | outbox_publish_total | 75 |
 
 Notes:
@@ -182,24 +182,31 @@ Notes:
 
 ## Latest Deterministic Resume Eval Snapshot
 
-Measured locally on June 19, 2026 (Asia/Shanghai) through `make resume-eval`. This snapshot combines quality eval and pipeline benchmark data under one deterministic `rules` path.
+Measured locally on June 19, 2026 (Asia/Shanghai) through `make resume-eval`. This snapshot combines deterministic regression, RAG IR metrics, task-level black-box checks, and pipeline benchmark data under one `rules` path.
 
 | Metric | Value |
 | --- | ---: |
 | planner_pass_rate | 100% |
 | planner_avg_prompt_tokens | 337.5 |
 | rag_pass_rate | 100% |
-| rag_avg_latency_ms | 33.0 |
+| rag_avg_latency_ms | 26.0 |
 | rag_citation_hit_rate | 100% |
+| rag_recall_at_k | 1.00 |
+| rag_precision_at_k | 0.75 |
+| rag_mrr | 1.00 |
+| rag_ndcg_at_k | 1.00 |
 | workflow_pass_rate | 100% |
 | workflow_approval_interception_rate | 66.7% |
 | workflow_meeting_transcript_coverage | 100% |
+| task_eval_cases | 8 |
+| task_success_rate | 100% |
+| task_approval_safety_rate | 100% |
 | benchmark_ready_run_rate | 100% |
-| benchmark_execute_run_p95_ms | 5 |
+| benchmark_execute_run_p95_ms | 12 |
 | benchmark_tool_calls_per_run | 7.0 |
 | benchmark_context_chunks_per_run | 3.0 |
 
-Use this section for resume and interview claims about Agent quality and safety gates. Use the benchmark-only section above for pipeline and latency claims.
+Use this section for resume and interview claims about deterministic regression, retrieval quality on the current fixture set, and safety gates. Use the benchmark-only section above for pipeline and latency claims. Use [Agent UX Eval](agent-ux-eval.md) for manual pilot scoring.
 
 ## Latest Local Realtime Replay Snapshot
 

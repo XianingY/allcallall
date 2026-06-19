@@ -18,48 +18,56 @@ type Options struct {
 	PlannerFixture     string
 	RAGFixture         string
 	WorkflowFixture    string
+	TaskFixture        string
 	BenchConversations int
 	BenchBatchSize     int
 }
 
 type Report struct {
-	GeneratedAt string                `json:"generated_at"`
-	Provider    string                `json:"provider"`
-	Summary     Summary               `json:"summary"`
-	Eval        agent.DemoEvalReport  `json:"eval"`
-	Benchmark   interviewbench.Output `json:"benchmark"`
+	GeneratedAt string                    `json:"generated_at"`
+	Provider    string                    `json:"provider"`
+	Summary     Summary                   `json:"summary"`
+	Eval        agent.DemoEvalReport      `json:"eval"`
+	TaskEval    agent.AgentTaskEvalReport `json:"task_eval"`
+	Benchmark   interviewbench.Output     `json:"benchmark"`
 }
 
 type Summary struct {
-	Planner   PlannerSummary   `json:"planner"`
-	RAG       RAGSummary       `json:"rag"`
-	Workflow  WorkflowSummary  `json:"workflow"`
-	Benchmark BenchmarkSummary `json:"benchmark"`
+	Regression   RegressionSummary `json:"regression"`
+	RAGIRMetrics RAGIRSummary      `json:"rag_ir_metrics"`
+	Benchmark    BenchmarkSummary  `json:"benchmark"`
 }
 
-type PlannerSummary struct {
-	Cases           int     `json:"cases"`
-	PassRate        float64 `json:"pass_rate"`
-	AvgPromptTokens float64 `json:"avg_prompt_tokens"`
+type RegressionSummary struct {
+	PlannerCases                int     `json:"planner_cases"`
+	PlannerPassRate             float64 `json:"planner_pass_rate"`
+	PlannerAvgPromptTokens      float64 `json:"planner_avg_prompt_tokens"`
+	WorkflowCases               int     `json:"workflow_cases"`
+	WorkflowPassRate            float64 `json:"workflow_pass_rate"`
+	WorkflowReadyCaseRate       float64 `json:"workflow_ready_case_rate"`
+	ApprovalInterceptionRate    float64 `json:"approval_interception_rate"`
+	WorkflowAvgApprovalsPerCase float64 `json:"workflow_avg_approvals_per_case"`
+	MeetingTranscriptCoverage   float64 `json:"meeting_transcript_coverage"`
+	TaskEvalCases               int     `json:"task_eval_cases"`
+	TaskSuccessRate             float64 `json:"task_success_rate"`
+	ToolIntentMatchRate         float64 `json:"tool_intent_match_rate"`
+	ApprovalSafetyRate          float64 `json:"approval_safety_rate"`
+	CitationPresenceRate        float64 `json:"citation_presence_rate"`
+	MeetingGroundingRate        float64 `json:"meeting_grounding_rate"`
 }
 
-type RAGSummary struct {
+type RAGIRSummary struct {
 	Cases               int     `json:"cases"`
 	PassRate            float64 `json:"pass_rate"`
 	AvgLatencyMs        float64 `json:"avg_latency_ms"`
 	AvgHitsPerCase      float64 `json:"avg_hits_per_case"`
 	CitationHitRate     float64 `json:"citation_hit_rate"`
+	RecallAtK           float64 `json:"recall_at_k"`
+	PrecisionAtK        float64 `json:"precision_at_k"`
+	MRR                 float64 `json:"mrr"`
+	NDCGAtK             float64 `json:"ndcg_at_k"`
 	VectorCaseRate      float64 `json:"vector_case_rate"`
 	SQLFallbackCaseRate float64 `json:"sql_fallback_case_rate"`
-}
-
-type WorkflowSummary struct {
-	Cases                     int     `json:"cases"`
-	PassRate                  float64 `json:"pass_rate"`
-	ReadyCaseRate             float64 `json:"ready_case_rate"`
-	ApprovalInterceptionRate  float64 `json:"approval_interception_rate"`
-	AvgApprovalsPerCase       float64 `json:"avg_approvals_per_case"`
-	MeetingTranscriptCoverage float64 `json:"meeting_transcript_coverage"`
 }
 
 type BenchmarkSummary struct {
@@ -83,6 +91,14 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
+	taskCases, err := agent.LoadAgentTaskEvalCases(opts.TaskFixture)
+	if err != nil {
+		return Report{}, err
+	}
+	taskReport, err := agent.RunAgentTaskEval(ctx, taskCases)
+	if err != nil {
+		return Report{}, err
+	}
 	benchOutput, err := interviewbench.Run(ctx, interviewbench.Config{
 		Conversations: opts.BenchConversations,
 		BatchSize:     opts.BenchBatchSize,
@@ -98,8 +114,9 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	report := Report{
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Provider:    evalReport.Provider,
-		Summary:     buildSummary(evalReport, *benchOutput, workflowCases),
+		Summary:     buildSummary(evalReport, taskReport, *benchOutput, workflowCases),
 		Eval:        evalReport,
+		TaskEval:    taskReport,
 		Benchmark:   *benchOutput,
 	}
 	return report, nil
@@ -113,6 +130,12 @@ func WriteArtifacts(outDir string, report Report) error {
 		return err
 	}
 	if err := agent.WriteDemoEvalArtifacts(outDir, report.Eval); err != nil {
+		return err
+	}
+	if err := writeJSON(filepath.Join(outDir, "task-eval.json"), report.TaskEval); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(outDir, "task-eval.md"), []byte(agent.FormatAgentTaskEvalMarkdown(report.TaskEval)), 0o644); err != nil {
 		return err
 	}
 	if err := writeJSON(filepath.Join(outDir, "interview-bench.json"), report.Benchmark); err != nil {
@@ -129,61 +152,73 @@ func FormatMarkdown(report Report) string {
 	b.WriteString("# AllCallAll Resume Eval Summary\n\n")
 	b.WriteString(fmt.Sprintf("- Generated at: `%s`\n", report.GeneratedAt))
 	b.WriteString(fmt.Sprintf("- Provider: `%s`\n", report.Provider))
-	b.WriteString("- Recommended resume-safe scope: `local deterministic rules + SQLite functional benchmark`\n\n")
+	b.WriteString("- Recommended resume-safe scope: `current deterministic fixture set + local SQLite functional benchmark`\n")
+	b.WriteString("- Interpretation note: `these metrics validate regression stability and safety boundaries, not open-ended user satisfaction`\n\n")
 
 	b.WriteString("## KPI Summary\n\n")
 	b.WriteString("| Area | Metric | Value |\n")
 	b.WriteString("| --- | --- | --- |\n")
-	b.WriteString(fmt.Sprintf("| Planner | pass rate | %.1f%% |\n", pct(report.Summary.Planner.PassRate)))
-	b.WriteString(fmt.Sprintf("| Planner | avg prompt tokens | %.1f |\n", report.Summary.Planner.AvgPromptTokens))
-	b.WriteString(fmt.Sprintf("| RAG | pass rate | %.1f%% |\n", pct(report.Summary.RAG.PassRate)))
-	b.WriteString(fmt.Sprintf("| RAG | avg latency | %.1f ms |\n", report.Summary.RAG.AvgLatencyMs))
-	b.WriteString(fmt.Sprintf("| RAG | citation hit rate | %.1f%% |\n", pct(report.Summary.RAG.CitationHitRate)))
-	b.WriteString(fmt.Sprintf("| Workflow | pass rate | %.1f%% |\n", pct(report.Summary.Workflow.PassRate)))
-	b.WriteString(fmt.Sprintf("| Workflow | approval interception rate | %.1f%% |\n", pct(report.Summary.Workflow.ApprovalInterceptionRate)))
-	b.WriteString(fmt.Sprintf("| Workflow | meeting transcript coverage | %.1f%% |\n", pct(report.Summary.Workflow.MeetingTranscriptCoverage)))
+	b.WriteString(fmt.Sprintf("| Regression | planner pass rate | %.1f%% |\n", pct(report.Summary.Regression.PlannerPassRate)))
+	b.WriteString(fmt.Sprintf("| Regression | workflow pass rate | %.1f%% |\n", pct(report.Summary.Regression.WorkflowPassRate)))
+	b.WriteString(fmt.Sprintf("| Regression | task success rate | %.1f%% |\n", pct(report.Summary.Regression.TaskSuccessRate)))
+	b.WriteString(fmt.Sprintf("| Regression | approval safety rate | %.1f%% |\n", pct(report.Summary.Regression.ApprovalSafetyRate)))
+	b.WriteString(fmt.Sprintf("| RAG IR | citation hit rate | %.1f%% |\n", pct(report.Summary.RAGIRMetrics.CitationHitRate)))
+	b.WriteString(fmt.Sprintf("| RAG IR | Recall@K | %.2f |\n", report.Summary.RAGIRMetrics.RecallAtK))
+	b.WriteString(fmt.Sprintf("| RAG IR | Precision@K | %.2f |\n", report.Summary.RAGIRMetrics.PrecisionAtK))
+	b.WriteString(fmt.Sprintf("| RAG IR | MRR | %.2f |\n", report.Summary.RAGIRMetrics.MRR))
+	b.WriteString(fmt.Sprintf("| RAG IR | NDCG@K | %.2f |\n", report.Summary.RAGIRMetrics.NDCGAtK))
 	b.WriteString(fmt.Sprintf("| Benchmark | ready run rate | %.1f%% |\n", pct(report.Summary.Benchmark.ReadyRunRate)))
 	b.WriteString(fmt.Sprintf("| Benchmark | execute-run p95 | %d ms |\n", report.Summary.Benchmark.ExecuteRunP95Ms))
 	b.WriteString(fmt.Sprintf("| Benchmark | tool calls per run | %.1f |\n", report.Summary.Benchmark.ToolCallsPerRun))
 	b.WriteString(fmt.Sprintf("| Benchmark | context chunks per run | %.1f |\n\n", report.Summary.Benchmark.ContextChunksPerRun))
 
 	b.WriteString("## Resume-Ready Lines\n\n")
-	b.WriteString(fmt.Sprintf("- Deterministic planner/RAG/workflow eval all passed: planner `%d/%d`, RAG `%d/%d`, workflow `%d/%d`.\n",
+	b.WriteString(fmt.Sprintf("- On the current deterministic fixture set, planner/RAG/workflow regression cases all passed: planner `%d/%d`, RAG `%d/%d`, workflow `%d/%d`.\n",
 		report.Eval.Planner.Passed, report.Eval.Planner.Cases,
 		report.Eval.RAG.Passed, report.Eval.RAG.Cases,
 		report.Eval.Workflow.Passed, report.Eval.Workflow.Cases))
-	b.WriteString(fmt.Sprintf("- RAG eval averaged `%.1f ms` per case with `%.1f%%` citation hit rate across vector and SQL fallback retrieval.\n",
-		report.Summary.RAG.AvgLatencyMs, pct(report.Summary.RAG.CitationHitRate)))
-	b.WriteString(fmt.Sprintf("- Workflow eval achieved `%.1f%%` pass rate; `%.1f%%` of cases triggered approval interception and meeting-transcript coverage was `%.1f%%` on transcript-required cases.\n",
-		pct(report.Summary.Workflow.PassRate), pct(report.Summary.Workflow.ApprovalInterceptionRate), pct(report.Summary.Workflow.MeetingTranscriptCoverage)))
+	b.WriteString(fmt.Sprintf("- RAG retrieval on the current fixture set achieved `Recall@K=%.2f`, `MRR=%.2f`, and `%.1f%%` citation hit rate across vector and SQL fallback paths.\n",
+		report.Summary.RAGIRMetrics.RecallAtK, report.Summary.RAGIRMetrics.MRR, pct(report.Summary.RAGIRMetrics.CitationHitRate)))
+	b.WriteString(fmt.Sprintf("- Workflow regression achieved `%.1f%%` pass rate; `%.1f%%` of cases triggered approval interception and meeting-transcript coverage was `%.1f%%` on transcript-required cases.\n",
+		pct(report.Summary.Regression.WorkflowPassRate), pct(report.Summary.Regression.ApprovalInterceptionRate), pct(report.Summary.Regression.MeetingTranscriptCoverage)))
+	b.WriteString(fmt.Sprintf("- A deterministic black-box task eval fixture set now checks natural-language task completion, tool selection, approval safety, and grounding; current task success rate is `%.1f%%` on `%d` cases.\n",
+		pct(report.Summary.Regression.TaskSuccessRate), report.TaskEval.Cases))
 	b.WriteString(fmt.Sprintf("- Local Agent/outbox benchmark completed `%d/%d` ready runs with `0` failures, `p95=%d ms` execute-run latency, and `%.1f` tool calls per run.\n",
 		report.Benchmark.ReadyRuns, report.Benchmark.QueuedRuns, report.Summary.Benchmark.ExecuteRunP95Ms, report.Summary.Benchmark.ToolCallsPerRun))
 	return b.String()
 }
 
-func buildSummary(eval agent.DemoEvalReport, bench interviewbench.Output, workflowCases []agent.WorkflowEvalCase) Summary {
+func buildSummary(eval agent.DemoEvalReport, taskEval agent.AgentTaskEvalReport, bench interviewbench.Output, workflowCases []agent.WorkflowEvalCase) Summary {
 	return Summary{
-		Planner: PlannerSummary{
-			Cases:           eval.Planner.Cases,
-			PassRate:        ratio(eval.Planner.Passed, eval.Planner.Cases),
-			AvgPromptTokens: avgPlannerTokens(eval.Planner.Results),
+		Regression: RegressionSummary{
+			PlannerCases:                eval.Planner.Cases,
+			PlannerPassRate:             ratio(eval.Planner.Passed, eval.Planner.Cases),
+			PlannerAvgPromptTokens:      avgPlannerTokens(eval.Planner.Results),
+			WorkflowCases:               eval.Workflow.Cases,
+			WorkflowPassRate:            ratio(eval.Workflow.Passed, eval.Workflow.Cases),
+			WorkflowReadyCaseRate:       workflowReadyRate(eval.Workflow.Results),
+			ApprovalInterceptionRate:    workflowApprovalRate(eval.Workflow.Results),
+			WorkflowAvgApprovalsPerCase: workflowAvgApprovals(eval.Workflow.Results),
+			MeetingTranscriptCoverage:   workflowMeetingTranscriptCoverage(eval.Workflow.Results, workflowCases),
+			TaskEvalCases:               taskEval.Cases,
+			TaskSuccessRate:             taskEval.Summary.TaskSuccessRate,
+			ToolIntentMatchRate:         taskEval.Summary.ToolIntentMatchRate,
+			ApprovalSafetyRate:          taskEval.Summary.ApprovalSafetyRate,
+			CitationPresenceRate:        taskEval.Summary.CitationPresenceRate,
+			MeetingGroundingRate:        taskEval.Summary.MeetingGroundingRate,
 		},
-		RAG: RAGSummary{
+		RAGIRMetrics: RAGIRSummary{
 			Cases:               eval.RAG.Cases,
 			PassRate:            ratio(eval.RAG.Passed, eval.RAG.Cases),
 			AvgLatencyMs:        avgRAGLatency(eval.RAG.Results),
 			AvgHitsPerCase:      avgRAGHits(eval.RAG.Results),
-			CitationHitRate:     citationHitRate(eval.RAG.Results),
-			VectorCaseRate:      ragModeRate(eval.RAG.Results, "vector"),
-			SQLFallbackCaseRate: ragModeRate(eval.RAG.Results, "sql_fallback"),
-		},
-		Workflow: WorkflowSummary{
-			Cases:                     eval.Workflow.Cases,
-			PassRate:                  ratio(eval.Workflow.Passed, eval.Workflow.Cases),
-			ReadyCaseRate:             workflowReadyRate(eval.Workflow.Results),
-			ApprovalInterceptionRate:  workflowApprovalRate(eval.Workflow.Results),
-			AvgApprovalsPerCase:       workflowAvgApprovals(eval.Workflow.Results),
-			MeetingTranscriptCoverage: workflowMeetingTranscriptCoverage(eval.Workflow.Results, workflowCases),
+			CitationHitRate:     eval.RAG.Summary.CitationHitRate,
+			RecallAtK:           eval.RAG.Summary.RecallAtK,
+			PrecisionAtK:        eval.RAG.Summary.PrecisionAtK,
+			MRR:                 eval.RAG.Summary.MRR,
+			NDCGAtK:             eval.RAG.Summary.NDCGAtK,
+			VectorCaseRate:      eval.RAG.Summary.VectorCaseRate,
+			SQLFallbackCaseRate: eval.RAG.Summary.SQLFallbackCaseRate,
 		},
 		Benchmark: BenchmarkSummary{
 			Conversations:       bench.Conversations,
@@ -228,33 +263,6 @@ func avgRAGHits(results []agent.RAGEvalResult) float64 {
 		total += len(result.Hits)
 	}
 	return float64(total) / float64(len(results))
-}
-
-func citationHitRate(results []agent.RAGEvalResult) float64 {
-	totalHits := 0
-	citedHits := 0
-	for _, result := range results {
-		for _, hit := range result.Hits {
-			totalHits++
-			if strings.TrimSpace(hit.SourceTitle) != "" && strings.TrimSpace(hit.Snippet) != "" {
-				citedHits++
-			}
-		}
-	}
-	return ratio(citedHits, totalHits)
-}
-
-func ragModeRate(results []agent.RAGEvalResult, mode string) float64 {
-	if len(results) == 0 {
-		return 0
-	}
-	count := 0
-	for _, result := range results {
-		if result.Mode == mode {
-			count++
-		}
-	}
-	return float64(count) / float64(len(results))
 }
 
 func workflowReadyRate(results []agent.WorkflowEvalResult) float64 {
@@ -357,6 +365,9 @@ func (opts Options) withDefaults() Options {
 	}
 	if strings.TrimSpace(opts.WorkflowFixture) == "" {
 		opts.WorkflowFixture = agent.DefaultWorkflowEvalFixture
+	}
+	if strings.TrimSpace(opts.TaskFixture) == "" {
+		opts.TaskFixture = agent.DefaultTaskEvalFixture
 	}
 	if opts.BenchConversations <= 0 {
 		opts.BenchConversations = 25

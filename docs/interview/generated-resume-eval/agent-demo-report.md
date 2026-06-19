@@ -1,6 +1,6 @@
 # AllCallAll Agent Demo Eval Report
 
-- Generated at: `2026-06-19T12:34:50Z`
+- Generated at: `2026-06-19T13:15:46Z`
 - Planner provider: `rules`
 - Overall status: `pass`
 

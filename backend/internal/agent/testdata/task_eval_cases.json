@@ -1,0 +1,238 @@
+[
+  {
+    "name": "react_meeting_recap_grounded",
+    "mode": "react",
+    "prompt": "请复盘刚才会议，指出风险并安排下次会议。",
+    "seed_messages": [
+      "请基于刚才的会议内容给出总结和下一步。"
+    ],
+    "seed_notes": [
+      "内部备注：需要把结论整理给硬件团队，并确认下次评审时间。"
+    ],
+    "seed_meeting_transcripts": [
+      "会议录音转写：硬件评审确认供应链存在两周延迟风险，测试团队需要在周五前补充回归结果。",
+      "会议录音转写：项目负责人要求明确 owner，并安排下一次评审会议。"
+    ],
+    "expected_status": "ready",
+    "required_tools": [
+      "query_context_chunks",
+      "write_conversation_message"
+    ],
+    "forbidden_tools": [],
+    "required_output_substrings": [
+      "下次评审时间"
+    ],
+    "required_citation_source_types": [
+      "meeting_transcript"
+    ],
+    "expected_approval_tools": [],
+    "task_success_criteria": [
+      "输出中体现会议录音转写已进入上下文",
+      "下一步建议体现安排后续会议"
+    ]
+  },
+  {
+    "name": "react_sparse_context_conservative",
+    "mode": "react",
+    "prompt": "帮我总结当前线程并给出下一步建议。",
+    "seed_messages": [],
+    "seed_notes": [],
+    "seed_meeting_transcripts": [],
+    "expected_status": "ready",
+    "required_tools": [
+      "query_context_chunks"
+    ],
+    "forbidden_tools": [],
+    "required_output_substrings": [
+      "补充会议结论或客户上下文",
+      "确认 action owner"
+    ],
+    "required_citation_source_types": [],
+    "expected_approval_tools": [],
+    "task_success_criteria": [
+      "上下文不足时给出保守建议",
+      "不伪造具体会议结论"
+    ]
+  },
+  {
+    "name": "react_rag_note_grounding",
+    "mode": "react",
+    "prompt": "客户的数据留存和安全审批风险应该怎么推进？",
+    "seed_messages": [
+      "客户希望在预算窗口关闭前得到明确的安全和数据留存答复。"
+    ],
+    "seed_notes": [
+      "内部备注：法务审批依赖数据留存说明，安全说明需要本周内给出。"
+    ],
+    "seed_meeting_transcripts": [],
+    "expected_status": "ready",
+    "required_tools": [
+      "query_context_chunks"
+    ],
+    "forbidden_tools": [],
+    "required_output_substrings": [
+      "法务审批"
+    ],
+    "required_citation_source_types": [],
+    "expected_approval_tools": [],
+    "task_success_criteria": [
+      "总结应利用已有 note/message 上下文",
+      "风险描述与安全审批主题一致"
+    ]
+  },
+  {
+    "name": "workflow_meeting_brief_grounded",
+    "mode": "workflow",
+    "preset": "meeting_brief",
+    "prompt": "请生成会议复盘，突出风险和行动项。",
+    "seed_messages": [
+      "团队希望把无人车硬件评审会的结论整理成可执行复盘。"
+    ],
+    "seed_notes": [
+      "内部备注：复盘必须引用录音转写，不能只靠聊天消息。"
+    ],
+    "seed_meeting_transcripts": [
+      "会议录音转写：供应链确认传感器交付存在两周延期风险，测试团队需要在周五前完成回归。",
+      "会议录音转写：负责人要求整理行动项并在下次会议前提交缓解方案。"
+    ],
+    "expected_status": "ready",
+    "required_tools": [
+      "query_context_chunks",
+      "query_recent_meetings"
+    ],
+    "forbidden_tools": [],
+    "required_output_substrings": [
+      "Meeting Brief:"
+    ],
+    "required_citation_source_types": [
+      "meeting_transcript"
+    ],
+    "expected_approval_tools": [
+      "write_conversation_message",
+      "upsert_agent_memory"
+    ],
+    "task_success_criteria": [
+      "复盘摘要来自会议录音转写",
+      "写操作通过审批后才提交"
+    ],
+    "auto_approve": true
+  },
+  {
+    "name": "workflow_follow_up_plan",
+    "mode": "workflow",
+    "preset": "follow_up",
+    "prompt": "请为客户准备 follow-up 计划，并同步后续动作。",
+    "seed_messages": [
+      "客户要求确认定价、延迟指标和安全审批节奏。"
+    ],
+    "seed_notes": [
+      "内部备注：预算窗口本月关闭，需要明确 owner 和下一次沟通时间。"
+    ],
+    "seed_meeting_transcripts": [],
+    "expected_status": "ready",
+    "required_tools": [
+      "query_context_chunks"
+    ],
+    "forbidden_tools": [],
+    "required_output_substrings": [
+      "Follow-up Plan:"
+    ],
+    "required_citation_source_types": [],
+    "expected_approval_tools": [
+      "write_conversation_message",
+      "create_follow_up_task",
+      "upsert_agent_memory"
+    ],
+    "task_success_criteria": [
+      "输出 follow-up 风格总结与下一步",
+      "需要创建 follow-up task 并写回会话"
+    ],
+    "auto_approve": true
+  },
+  {
+    "name": "workflow_risk_review",
+    "mode": "workflow",
+    "preset": "risk_review",
+    "prompt": "请复核风险点并判断是否需要升级处理。",
+    "seed_messages": [
+      "客户关注安全审批、交付时间和预算窗口。"
+    ],
+    "seed_notes": [
+      "内部备注：如果法务和供应链风险叠加，需要提前升级。"
+    ],
+    "seed_meeting_transcripts": [],
+    "expected_status": "ready",
+    "required_tools": [
+      "query_context_chunks"
+    ],
+    "forbidden_tools": [],
+    "required_output_substrings": [
+      "Risk Review:"
+    ],
+    "required_citation_source_types": [],
+    "expected_approval_tools": [
+      "write_conversation_message",
+      "upsert_agent_memory"
+    ],
+    "task_success_criteria": [
+      "输出应体现风险复核语境",
+      "审批通过后完成写回"
+    ],
+    "auto_approve": true
+  },
+  {
+    "name": "workflow_policy_denied_write",
+    "mode": "workflow",
+    "preset": "follow_up",
+    "prompt": "请提交结论到线程，但策略应该阻止写回。",
+    "seed_messages": [
+      "客户需要下一步建议，但当前策略不允许直接写回。"
+    ],
+    "seed_notes": [
+      "内部备注：用 deny policy 验证流程会在写工具阶段失败。"
+    ],
+    "seed_meeting_transcripts": [],
+    "expected_status": "failed",
+    "required_tools": [
+      "query_context_chunks"
+    ],
+    "forbidden_tools": [],
+    "denied_tools": [
+      "write_conversation_message"
+    ],
+    "required_output_substrings": [],
+    "required_citation_source_types": [],
+    "expected_approval_tools": [],
+    "task_success_criteria": [
+      "失败应来自策略拒绝，而不是系统异常"
+    ],
+    "expected_error_contains": "denied by policy"
+  },
+  {
+    "name": "workflow_missing_context_guardrail",
+    "mode": "workflow",
+    "preset": "follow_up",
+    "prompt": "请总结当前线程并判断下一步。",
+    "seed_messages": [],
+    "seed_notes": [],
+    "seed_meeting_transcripts": [],
+    "expected_status": "ready",
+    "required_tools": [
+      "query_context_chunks"
+    ],
+    "forbidden_tools": [],
+    "required_output_substrings": [
+      "补充会议结论或客户上下文"
+    ],
+    "required_citation_source_types": [],
+    "expected_approval_tools": [
+      "write_conversation_message",
+      "create_follow_up_task",
+      "upsert_agent_memory"
+    ],
+    "task_success_criteria": [
+      "上下文不足时给出保守 follow-up 建议"
+    ],
+    "auto_approve": true
+  }
+]

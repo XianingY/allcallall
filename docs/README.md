@@ -22,6 +22,7 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 - [Agent RAG Current State](./interview/agent-rag-current-state.md): retrieval implementation notes.
 - [Agent Demo Eval Report](./interview/agent-demo-report.md): reproducible planner, RAG, and workflow eval report.
 - [Resume Eval](./interview/resume-eval.md): resume-safe KPI summary and generation command.
+- [Agent UX Eval](./interview/agent-ux-eval.md): black-box task eval and manual pilot UX rubric.
 - [MCP Tool Server](./interview/mcp-tool-server.md): read-only MCP tools and repo-native AI Skill demo.
 - [gRPC, Kafka, and Elasticsearch Evolution](./interview/grpc-kafka-es-evolution.md): extracted boundaries and infra extensions.
 - [Worker Runtime](./interview/worker-runtime.md): embedded and standalone workers.

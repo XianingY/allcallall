@@ -14,6 +14,7 @@ const (
 	DefaultPlannerEvalFixture  = "./internal/agent/testdata/eval_cases.json"
 	DefaultRAGEvalFixture      = "./internal/agent/testdata/rag_eval_cases.json"
 	DefaultWorkflowEvalFixture = "./internal/agent/testdata/workflow_eval_cases.json"
+	DefaultTaskEvalFixture     = "./internal/agent/testdata/task_eval_cases.json"
 )
 
 type DemoEvalOptions struct {

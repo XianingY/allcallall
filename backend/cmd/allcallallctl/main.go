@@ -22,6 +22,8 @@ func main() {
 	switch os.Args[1] {
 	case "eval":
 		err = runEval(os.Args[2:])
+	case "task-eval":
+		err = runTaskEval(os.Args[2:])
 	case "resume-eval":
 		err = runResumeEval(os.Args[2:])
 	case "mcp-config":
@@ -46,6 +48,7 @@ func runResumeEval(args []string) error {
 	plannerFixture := fs.String("planner-fixture", agent.DefaultPlannerEvalFixture, "planner eval fixture")
 	ragFixture := fs.String("rag-fixture", agent.DefaultRAGEvalFixture, "RAG eval fixture")
 	workflowFixture := fs.String("workflow-fixture", agent.DefaultWorkflowEvalFixture, "workflow eval fixture")
+	taskFixture := fs.String("task-fixture", agent.DefaultTaskEvalFixture, "task eval fixture")
 	benchConversations := fs.Int("bench-conversations", 25, "number of interview bench conversations")
 	benchBatchSize := fs.Int("bench-batch-size", 50, "interview bench outbox batch size")
 	if err := fs.Parse(args); err != nil {
@@ -56,6 +59,7 @@ func runResumeEval(args []string) error {
 		PlannerFixture:     *plannerFixture,
 		RAGFixture:         *ragFixture,
 		WorkflowFixture:    *workflowFixture,
+		TaskFixture:        *taskFixture,
 		BenchConversations: *benchConversations,
 		BenchBatchSize:     *benchBatchSize,
 	})
@@ -66,10 +70,50 @@ func runResumeEval(args []string) error {
 		return err
 	}
 	fmt.Printf("wrote resume eval report to %s\n", *outDir)
-	fmt.Printf("planner pass rate: %.1f%%\n", report.Summary.Planner.PassRate*100)
-	fmt.Printf("rag avg latency: %.1f ms\n", report.Summary.RAG.AvgLatencyMs)
-	fmt.Printf("workflow pass rate: %.1f%%\n", report.Summary.Workflow.PassRate*100)
+	fmt.Printf("planner pass rate: %.1f%%\n", report.Summary.Regression.PlannerPassRate*100)
+	fmt.Printf("rag recall@k: %.2f\n", report.Summary.RAGIRMetrics.RecallAtK)
+	fmt.Printf("workflow pass rate: %.1f%%\n", report.Summary.Regression.WorkflowPassRate*100)
+	fmt.Printf("task success rate: %.1f%%\n", report.Summary.Regression.TaskSuccessRate*100)
 	fmt.Printf("benchmark ready rate: %.1f%%\n", report.Summary.Benchmark.ReadyRunRate*100)
+	return nil
+}
+
+func runTaskEval(args []string) error {
+	fs := flag.NewFlagSet("task-eval", flag.ContinueOnError)
+	fixturePath := fs.String("fixture", agent.DefaultTaskEvalFixture, "task eval fixture")
+	outDir := fs.String("out", "", "optional directory for task eval artifacts")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cases, err := agent.LoadAgentTaskEvalCases(*fixturePath)
+	if err != nil {
+		return err
+	}
+	report, err := agent.RunAgentTaskEval(context.Background(), cases)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(*outDir) != "" {
+		if err := os.MkdirAll(*outDir, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(*outDir, "task-eval.md"), []byte(agent.FormatAgentTaskEvalMarkdown(report)), 0o644); err != nil {
+			return err
+		}
+		raw, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(*outDir, "task-eval.json"), append(raw, '\n'), 0o644); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("task eval: %d/%d passed\n", report.Passed, report.Cases)
+	fmt.Printf("task success rate: %.1f%%\n", report.Summary.TaskSuccessRate*100)
+	fmt.Printf("approval safety rate: %.1f%%\n", report.Summary.ApprovalSafetyRate*100)
+	if report.Failed > 0 {
+		return fmt.Errorf("task eval failed with %d failing cases", report.Failed)
+	}
 	return nil
 }
 
@@ -182,6 +226,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Commands:")
 	fmt.Fprintln(os.Stderr, "  eval        Run planner, RAG, and workflow evals and write a demo report")
+	fmt.Fprintln(os.Stderr, "  task-eval   Run deterministic black-box task eval cases")
 	fmt.Fprintln(os.Stderr, "  resume-eval Run planner, RAG, workflow evals plus benchmark and write resume KPI artifacts")
 	fmt.Fprintln(os.Stderr, "  mcp-config  Print an MCP client config for the read-only tool server")
 	fmt.Fprintln(os.Stderr, "  skill       Print or write the AllCallAll Agent Skill Markdown")

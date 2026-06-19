@@ -33,6 +33,8 @@ type RAGEvalCase struct {
 	UseVector             bool            `json:"use_vector"`
 	Sources               []RAGEvalSource `json:"sources"`
 	ExpectedSourceTitles  []string        `json:"expected_source_titles"`
+	RelevantSourceTitles  []string        `json:"relevant_source_titles,omitempty"`
+	GradedRelevance       map[string]int  `json:"graded_relevance,omitempty"`
 	ExpectedRetrievalMode string          `json:"expected_retrieval_mode"`
 	RequireCitation       bool            `json:"require_citation"`
 	RequiredSnippets      []string        `json:"required_snippets"`
@@ -47,20 +49,35 @@ type RAGEvalHit struct {
 }
 
 type RAGEvalResult struct {
-	Name      string       `json:"name"`
-	Passed    bool         `json:"passed"`
-	Errors    []string     `json:"errors,omitempty"`
-	Hits      []RAGEvalHit `json:"hits"`
-	Mode      string       `json:"mode"`
-	Reason    string       `json:"fallback_reason,omitempty"`
-	Elapsed   string       `json:"elapsed"`
-	ElapsedMs int64        `json:"elapsed_ms"`
+	Name         string       `json:"name"`
+	Passed       bool         `json:"passed"`
+	Errors       []string     `json:"errors,omitempty"`
+	Hits         []RAGEvalHit `json:"hits"`
+	Mode         string       `json:"mode"`
+	Reason       string       `json:"fallback_reason,omitempty"`
+	Elapsed      string       `json:"elapsed"`
+	ElapsedMs    int64        `json:"elapsed_ms"`
+	RecallAtK    float64      `json:"recall_at_k"`
+	PrecisionAtK float64      `json:"precision_at_k"`
+	MRR          float64      `json:"mrr"`
+	NDCGAtK      float64      `json:"ndcg_at_k"`
+}
+
+type RAGEvalSummary struct {
+	RecallAtK           float64 `json:"recall_at_k"`
+	PrecisionAtK        float64 `json:"precision_at_k"`
+	MRR                 float64 `json:"mrr"`
+	NDCGAtK             float64 `json:"ndcg_at_k"`
+	CitationHitRate     float64 `json:"citation_hit_rate"`
+	VectorCaseRate      float64 `json:"vector_case_rate"`
+	SQLFallbackCaseRate float64 `json:"sql_fallback_case_rate"`
 }
 
 type RAGEvalReport struct {
 	Cases   int             `json:"cases"`
 	Passed  int             `json:"passed"`
 	Failed  int             `json:"failed"`
+	Summary RAGEvalSummary  `json:"summary"`
 	Results []RAGEvalResult `json:"results"`
 }
 
@@ -87,6 +104,10 @@ func RunRAGEval(ctx context.Context, cases []RAGEvalCase) (RAGEvalReport, error)
 		elapsed := time.Since(started)
 		result.Elapsed = elapsed.String()
 		result.ElapsedMs = elapsed.Milliseconds()
+		result.RecallAtK = ragRecallAtK(item, result.Hits)
+		result.PrecisionAtK = ragPrecisionAtK(item, result.Hits)
+		result.MRR = ragMRR(item, result.Hits)
+		result.NDCGAtK = ragNDCGAtK(item, result.Hits)
 		result.Passed = len(result.Errors) == 0
 		if result.Passed {
 			report.Passed++
@@ -95,6 +116,7 @@ func RunRAGEval(ctx context.Context, cases []RAGEvalCase) (RAGEvalReport, error)
 		}
 		report.Results = append(report.Results, result)
 	}
+	report.Summary = buildRAGEvalSummary(report.Results)
 	return report, nil
 }
 
@@ -177,6 +199,159 @@ func runRAGEvalCase(ctx context.Context, index int, item RAGEvalCase) (RAGEvalRe
 		}
 	}
 	return eval, nil
+}
+
+func buildRAGEvalSummary(results []RAGEvalResult) RAGEvalSummary {
+	if len(results) == 0 {
+		return RAGEvalSummary{}
+	}
+	var recallTotal float64
+	var precisionTotal float64
+	var mrrTotal float64
+	var ndcgTotal float64
+	vectorCount := 0
+	sqlFallbackCount := 0
+	citationHits := 0
+	for _, result := range results {
+		recallTotal += result.RecallAtK
+		precisionTotal += result.PrecisionAtK
+		mrrTotal += result.MRR
+		ndcgTotal += result.NDCGAtK
+		if len(result.Hits) > 0 {
+			citationHits++
+		}
+		switch result.Mode {
+		case "vector":
+			vectorCount++
+		case "sql_fallback":
+			sqlFallbackCount++
+		}
+	}
+	count := float64(len(results))
+	return RAGEvalSummary{
+		RecallAtK:           recallTotal / count,
+		PrecisionAtK:        precisionTotal / count,
+		MRR:                 mrrTotal / count,
+		NDCGAtK:             ndcgTotal / count,
+		CitationHitRate:     float64(citationHits) / count,
+		VectorCaseRate:      float64(vectorCount) / count,
+		SQLFallbackCaseRate: float64(sqlFallbackCount) / count,
+	}
+}
+
+func ragRelevantTitles(item RAGEvalCase) map[string]int {
+	relevance := make(map[string]int, len(item.GradedRelevance)+len(item.RelevantSourceTitles)+len(item.ExpectedSourceTitles))
+	for title, score := range item.GradedRelevance {
+		trimmed := strings.TrimSpace(title)
+		if trimmed == "" {
+			continue
+		}
+		relevance[trimmed] = max(score, 0)
+	}
+	for _, title := range item.RelevantSourceTitles {
+		trimmed := strings.TrimSpace(title)
+		if trimmed == "" {
+			continue
+		}
+		if relevance[trimmed] == 0 {
+			relevance[trimmed] = 1
+		}
+	}
+	if len(relevance) == 0 {
+		for _, title := range item.ExpectedSourceTitles {
+			trimmed := strings.TrimSpace(title)
+			if trimmed == "" {
+				continue
+			}
+			relevance[trimmed] = 1
+		}
+	}
+	return relevance
+}
+
+func ragRecallAtK(item RAGEvalCase, hits []RAGEvalHit) float64 {
+	relevance := ragRelevantTitles(item)
+	if len(relevance) == 0 {
+		return 0
+	}
+	retrieved := 0
+	seen := make(map[string]struct{}, len(hits))
+	for _, hit := range hits {
+		if _, ok := relevance[hit.SourceTitle]; !ok {
+			continue
+		}
+		if _, ok := seen[hit.SourceTitle]; ok {
+			continue
+		}
+		seen[hit.SourceTitle] = struct{}{}
+		retrieved++
+	}
+	return float64(retrieved) / float64(len(relevance))
+}
+
+func ragPrecisionAtK(item RAGEvalCase, hits []RAGEvalHit) float64 {
+	if len(hits) == 0 {
+		return 0
+	}
+	relevance := ragRelevantTitles(item)
+	if len(relevance) == 0 {
+		return 0
+	}
+	relevantHits := 0
+	for _, hit := range hits {
+		if _, ok := relevance[hit.SourceTitle]; ok {
+			relevantHits++
+		}
+	}
+	return float64(relevantHits) / float64(len(hits))
+}
+
+func ragMRR(item RAGEvalCase, hits []RAGEvalHit) float64 {
+	relevance := ragRelevantTitles(item)
+	if len(relevance) == 0 {
+		return 0
+	}
+	for idx, hit := range hits {
+		if _, ok := relevance[hit.SourceTitle]; ok {
+			return 1 / float64(idx+1)
+		}
+	}
+	return 0
+}
+
+func ragNDCGAtK(item RAGEvalCase, hits []RAGEvalHit) float64 {
+	relevance := ragRelevantTitles(item)
+	if len(relevance) == 0 || len(hits) == 0 {
+		return 0
+	}
+	dcg := 0.0
+	for idx, hit := range hits {
+		score := relevance[hit.SourceTitle]
+		if score <= 0 {
+			continue
+		}
+		dcg += float64(score) / math.Log2(float64(idx+2))
+	}
+	idealScores := make([]int, 0, len(relevance))
+	for _, score := range relevance {
+		if score > 0 {
+			idealScores = append(idealScores, score)
+		}
+	}
+	sort.Slice(idealScores, func(i, j int) bool {
+		return idealScores[i] > idealScores[j]
+	})
+	idcg := 0.0
+	for idx, score := range idealScores {
+		if idx >= len(hits) {
+			break
+		}
+		idcg += float64(score) / math.Log2(float64(idx+2))
+	}
+	if idcg == 0 {
+		return 0
+	}
+	return dcg / idcg
 }
 
 func openRAGEvalDB(index int) (*gorm.DB, error) {

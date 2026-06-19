@@ -21,6 +21,7 @@ AllCallAll is positioned as an AI-powered realtime collaboration backend project
 - [Demo Script](demo-script.md): 5-minute interview demo flow and live backend variant.
 - [Agent Demo Eval Report](agent-demo-report.md): one-command planner, RAG, and workflow eval report.
 - [Resume Eval](resume-eval.md): resume-ready KPI summary and deterministic evidence path.
+- [Agent UX Eval](agent-ux-eval.md): black-box task eval and manual pilot UX rubric.
 - [Agent Trace Example](agent-trace-example.md): run/step/tool timeline and tool registry explanation.
 - [API Surface](api-surface.md): APIs worth demoing in interviews.
 - [Performance Report](performance-report.md): load-test template and metrics checklist.
@@ -96,6 +97,7 @@ Run deterministic Agent evals directly:
 make agent-eval
 make rag-eval
 make workflow-eval
+make task-eval
 make agent-demo-report
 make resume-eval
 ```
@@ -136,4 +138,4 @@ make interview-load-suite
 - Add live LLM token streaming behind the existing OpenAI-compatible planner if a demo needs model-output streaming in addition to backend tool-event streaming.
 - Extend benchmark/load tests to authenticated WebSocket replay and meeting room event throughput.
 - Replace the current observed outbox handler with production publishers when the deployment target is clear.
-- Capture measured baseline numbers in [Performance Report](performance-report.md) and resume-facing KPI summaries in [Resume Eval](resume-eval.md).
+- Capture measured baseline numbers in [Performance Report](performance-report.md), reproducible KPI summaries in [Resume Eval](resume-eval.md), and user-facing scoring notes in [Agent UX Eval](agent-ux-eval.md).

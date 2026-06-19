@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-19T12:34:50Z",
+  "generated_at": "2026-06-19T13:15:46Z",
   "provider": "rules",
   "planner": {
     "provider": "rules",
@@ -52,6 +52,15 @@
     "cases": 2,
     "passed": 2,
     "failed": 0,
+    "summary": {
+      "recall_at_k": 1,
+      "precision_at_k": 0.75,
+      "mrr": 1,
+      "ndcg_at_k": 1,
+      "citation_hit_rate": 1,
+      "vector_case_rate": 0.5,
+      "sql_fallback_case_rate": 0.5
+    },
     "results": [
       {
         "name": "vector_hit_security_budget",
@@ -73,8 +82,12 @@
           }
         ],
         "mode": "vector",
-        "elapsed": "35.484084ms",
-        "elapsed_ms": 35
+        "elapsed": "27.332583ms",
+        "elapsed_ms": 27,
+        "recall_at_k": 1,
+        "precision_at_k": 0.5,
+        "mrr": 1,
+        "ndcg_at_k": 1
       },
       {
         "name": "sql_fallback_pricing_latency",
@@ -90,8 +103,12 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "31.535209ms",
-        "elapsed_ms": 31
+        "elapsed": "25.264375ms",
+        "elapsed_ms": 25,
+        "recall_at_k": 1,
+        "precision_at_k": 1,
+        "mrr": 1,
+        "ndcg_at_k": 1
       }
     ]
   },

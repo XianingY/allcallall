@@ -13,6 +13,12 @@
         "text": "Training should cover agent handoff, translation quality review, and support escalation."
       }
     ],
+    "relevant_source_titles": [
+      "Security rollout note"
+    ],
+    "graded_relevance": {
+      "Security rollout note": 3
+    },
     "expected_source_titles": [
       "Security rollout note"
     ],
@@ -37,6 +43,12 @@
         "text": "The onboarding calendar includes training owners and regional enablement sessions."
       }
     ],
+    "relevant_source_titles": [
+      "Pricing latency note"
+    ],
+    "graded_relevance": {
+      "Pricing latency note": 3
+    },
     "expected_source_titles": [
       "Pricing latency note"
     ],

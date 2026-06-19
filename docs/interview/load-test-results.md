@@ -32,8 +32,12 @@ The eval fixture validates:
 | cases | 2 |
 | passed | 2 |
 | failed | 0 |
-| avg_latency_ms | 33.0 |
+| avg_latency_ms | 26.0 |
 | citation_hit_rate | 100% |
+| recall_at_k | 1.00 |
+| precision_at_k | 0.75 |
+| mrr | 1.00 |
+| ndcg_at_k | 1.00 |
 | vector_case_rate | 50% |
 | sql_fallback_case_rate | 50% |
 
@@ -41,6 +45,24 @@ Interpretation:
 
 - The deterministic fixture proves both vector retrieval and SQL fallback retrieval remain regression-testable.
 - All current RAG cases return at least one cited supporting chunk.
+
+### Task Eval
+
+| Metric | Value |
+| --- | ---: |
+| cases | 8 |
+| passed | 8 |
+| failed | 0 |
+| task_success_rate | 100% |
+| tool_intent_match_rate | 100% |
+| approval_safety_rate | 100% |
+| citation_presence_rate | 100% |
+| meeting_grounding_rate | 100% |
+
+Interpretation:
+
+- This layer is a deterministic black-box task fixture set, not a user satisfaction survey.
+- It verifies whether natural-language tasks complete, whether the chosen tools are reasonable, and whether approval / grounding behavior remains stable.
 
 ### Workflow Eval
 
@@ -75,9 +97,9 @@ Interpretation:
 | follow_up_tasks | 25 |
 | agent_memories | 25 |
 | agent_context_chunks | 75 |
-| total_duration_ms | 295 |
+| total_duration_ms | 536 |
 | queue_latency_p95_ms | 1 |
-| execute_run_latency_p95_ms | 5 |
+| execute_run_latency_p95_ms | 12 |
 | outbox_publish_total | 75 |
 
 Interpretation:
