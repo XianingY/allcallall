@@ -121,6 +121,7 @@ func (s *Service) ExecuteReadOnlyTool(ctx context.Context, organizationID, userI
 			if item.RRFScore > 0 {
 				chunk["rrf_score"] = item.RRFScore
 			}
+			applyMeetingTranscriptChunkMetadata(chunk, item)
 			chunks = append(chunks, chunk)
 		}
 		return mustJSONString(map[string]any{"chunks": chunks, "count": len(chunks)}), nil

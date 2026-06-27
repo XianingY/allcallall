@@ -407,6 +407,8 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     directTranscriptCount,
     meetingTranscriptionError,
   );
+  const meetingTranscriptReady =
+    meetingTranscriptionStatus === "ready" && meetingTranscriptCount > 0;
   const pendingApprovals =
     activeWorkflow?.approvals?.filter((item) => item.status === "pending") ??
     [];
@@ -457,6 +459,13 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       goal?: string;
     }) => {
       if (!token) return;
+      if ((input.preset ?? "meeting_brief") === "meeting_brief" && !meetingTranscriptReady) {
+        Alert.alert(
+          "会议转写尚未就绪",
+          "会议复盘必须基于已完成的录音转写。请等待转写完成后重试。",
+        );
+        return;
+      }
       try {
         setWorkflowLoading(true);
         const created = await createWorkflowRun(token, {
@@ -486,7 +495,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         setWorkflowLoading(false);
       }
     },
-    [conversationId, loadData, token],
+    [conversationId, loadData, meetingTranscriptReady, token],
   );
 
   const handleAskAgent = useCallback(async () => {
@@ -543,6 +552,14 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
           Alert.alert("加载失败", "无法打开知识源预览。");
           return;
         }
+      }
+      if (citation.source_type === "meeting_transcript" && citation.recording_session_id) {
+        navigation.navigate("RecordingTranscript", {
+          recordingId: citation.recording_session_id,
+          segmentId: citation.transcript_segment_id,
+          startMs: citation.start_ms,
+        });
+        return;
       }
       if (citation.origin_url) {
         try {
@@ -883,7 +900,10 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
               key={preset.key}
               title={preset.label}
               onPress={() => void runMeetingAgent({ preset: preset.key })}
-              disabled={workflowLoading}
+              disabled={
+                workflowLoading ||
+                (preset.key === "meeting_brief" && !meetingTranscriptReady)
+              }
               style={styles.option}
             />
           ))}
@@ -903,7 +923,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         </View>
         {activeWorkflow?.workflow?.summary ? (
           <View style={styles.agentResultBox}>
-            <Text style={styles.citationTitle}>Result</Text>
+            <Text style={styles.citationTitle}>会议摘要</Text>
             <Text style={styles.infoBody}>{activeWorkflow.workflow.summary}</Text>
           </View>
         ) : (
@@ -914,12 +934,17 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         )}
         {activeWorkflow?.workflow?.next_step ? (
           <Text style={styles.infoMeta}>
-            Next step {activeWorkflow.workflow.next_step}
+            下一步 {activeWorkflow.workflow.next_step}
           </Text>
         ) : null}
         {activeWorkflow?.workflow?.action_items?.length ? (
           <Text style={styles.infoMeta}>
-            Action items {activeWorkflow.workflow.action_items.join(" / ")}
+            行动项 {activeWorkflow.workflow.action_items.join(" / ")}
+          </Text>
+        ) : null}
+        {activeWorkflow?.workflow?.risk_flags?.length ? (
+          <Text style={styles.infoMeta}>
+            风险点 {activeWorkflow.workflow.risk_flags.join(" / ")}
           </Text>
         ) : null}
         {activeWorkflow?.citations?.length ? (

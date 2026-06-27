@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -102,6 +103,45 @@ func seedWorkflowConversation(t *testing.T, db *gorm.DB) models.Conversation {
 		t.Fatalf("create message failed: %v", err)
 	}
 	return conversation
+}
+
+func seedReadyMeetingTranscript(t *testing.T, db *gorm.DB, conversation models.Conversation, sessionID uint64) models.MeetingTranscriptSegment {
+	t.Helper()
+	conversationID := conversation.ID
+	now := time.Now().UTC()
+	job := models.RecordingTranscription{
+		OrganizationID:     conversation.OrganizationID,
+		ConversationID:     &conversationID,
+		RoomID:             77,
+		RecordingSessionID: sessionID,
+		Status:             models.RecordingTranscriptionStatusReady,
+		Provider:           "test",
+		SegmentCount:       1,
+		StartedAt:          &now,
+		CompletedAt:        &now,
+	}
+	if err := db.Create(&job).Error; err != nil {
+		t.Fatalf("create ready transcription: %v", err)
+	}
+	segment := models.MeetingTranscriptSegment{
+		OrganizationID:     conversation.OrganizationID,
+		ConversationID:     conversation.ID,
+		RoomID:             77,
+		RecordingSessionID: sessionID,
+		RecordingFileID:    99,
+		TrackKey:           "mixed-audio",
+		Source:             models.MeetingTranscriptSourceRecording,
+		Provider:           "test",
+		Language:           "zh",
+		Text:               "会议录音转写：供应链交付存在两周风险，质量团队需要在周五前完成回归测试。",
+		StartMS:            0,
+		EndMS:              12000,
+		Confidence:         0.98,
+	}
+	if err := db.Create(&segment).Error; err != nil {
+		t.Fatalf("create meeting transcript: %v", err)
+	}
+	return segment
 }
 
 func TestWorkflowAgentPausesForApprovalAndCommitsApprovedTools(t *testing.T) {
@@ -248,6 +288,7 @@ func TestMeetingBriefWorkflowWritesMeetingMemoriesWithoutFollowupTask(t *testing
 	svc, db := newWorkflowTestService(t)
 	svc.WithOutbox(events.NewStore(db))
 	conversation := seedWorkflowConversation(t, db)
+	seedReadyMeetingTranscript(t, db, conversation, 88)
 
 	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
 		ConversationID: conversation.ID,
@@ -320,23 +361,7 @@ func TestWorkflowRoleBoundedReActUsesReadToolsAndMeetingTranscript(t *testing.T)
 	}).Error; err != nil {
 		t.Fatalf("create call room failed: %v", err)
 	}
-	if err := db.Create(&models.MeetingTranscriptSegment{
-		OrganizationID:     conversation.OrganizationID,
-		ConversationID:     conversation.ID,
-		RoomID:             77,
-		RecordingSessionID: 88,
-		RecordingFileID:    99,
-		TrackKey:           "mixed-audio",
-		Source:             models.MeetingTranscriptSourceRecording,
-		Provider:           "test",
-		Language:           "zh",
-		Text:               "会议录音转写：供应链交付存在两周风险，质量团队需要在周五前完成回归测试。",
-		StartMS:            0,
-		EndMS:              12000,
-		Confidence:         0.98,
-	}).Error; err != nil {
-		t.Fatalf("create meeting transcript failed: %v", err)
-	}
+	seedReadyMeetingTranscript(t, db, conversation, 88)
 
 	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
 		ConversationID: conversation.ID,
@@ -380,6 +405,18 @@ func TestWorkflowRoleBoundedReActUsesReadToolsAndMeetingTranscript(t *testing.T)
 		if approval.ToolName == ToolQueryContextChunks || approval.ToolName == ToolQueryRecentMeetings {
 			t.Fatalf("read tool should not create approval: %+v", approval)
 		}
+	}
+}
+
+func TestMeetingBriefRequiresReadyTranscript(t *testing.T) {
+	svc, db := newWorkflowTestService(t)
+	conversation := seedWorkflowConversation(t, db)
+	_, err := svc.StartWorkflowAgent(context.Background(), conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Preset:         WorkflowPresetMeetingBrief,
+	})
+	if !errors.Is(err, ErrMeetingTranscriptNotReady) {
+		t.Fatalf("expected transcript readiness error, got %v", err)
 	}
 }
 

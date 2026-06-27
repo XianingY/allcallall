@@ -54,6 +54,7 @@ type Service struct {
 	indexer            ChunkIndexer
 	knowledgeRetriever KnowledgeRetriever
 	streamPublisher    StreamPublisher
+	strictProvider     bool
 }
 
 type RunInput struct {
@@ -116,11 +117,17 @@ func NewService(db *gorm.DB, counters ...counterRecorder) *Service {
 		metrics = counters[0]
 	}
 	return &Service{
-		db:      db,
-		metrics: metrics,
-		planner: RulesPlanner{},
-		outbox:  events.NewStore(db),
+		db:             db,
+		metrics:        metrics,
+		planner:        RulesPlanner{},
+		outbox:         events.NewStore(db),
+		strictProvider: AgentProviderStrictFromEnv(),
 	}
+}
+
+func (s *Service) WithStrictProvider(strict bool) *Service {
+	s.strictProvider = strict
+	return s
 }
 
 func (s *Service) WithPlanner(p Planner) *Service {
@@ -468,7 +475,7 @@ func (s *Service) planWithFallback(ctx context.Context, input PlannerInput) (Pla
 		span.End(nil)
 		return output, source, "", nil
 	}
-	if errors.Is(err, ErrPlannerUnavailable) && source != models.AgentRunSourceRules {
+	if errors.Is(err, ErrPlannerUnavailable) && source != models.AgentRunSourceRules && !s.strictProvider {
 		if s.metrics != nil {
 			s.metrics.Inc("agent_planner_fallback_total")
 		}
@@ -858,6 +865,7 @@ func (s *Service) recordContextToolCalls(ctx context.Context, run models.AgentRu
 		if item.KnowledgeChunk != nil && item.KnowledgeChunk.ConversationID != nil {
 			chunk["conversation_id"] = *item.KnowledgeChunk.ConversationID
 		}
+		applyMeetingTranscriptChunkMetadata(chunk, item)
 		chunks = append(chunks, chunk)
 	}
 	if err := s.recordToolCall(ctx, models.AgentToolCall{

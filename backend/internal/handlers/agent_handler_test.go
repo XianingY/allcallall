@@ -199,7 +199,30 @@ func TestAgentHandlerGetRunEvents(t *testing.T) {
 }
 
 func TestAgentHandlerCreateWorkflowWithPreset(t *testing.T) {
-	handler, _, conversation := newAgentHandlerTestEnv(t)
+	handler, db, conversation := newAgentHandlerTestEnv(t)
+	conversationID := conversation.ID
+	if err := db.Create(&models.RecordingTranscription{
+		OrganizationID:     conversation.OrganizationID,
+		ConversationID:     &conversationID,
+		RoomID:             44,
+		RecordingSessionID: 55,
+		Status:             models.RecordingTranscriptionStatusReady,
+		Provider:           "handler-test",
+		SegmentCount:       1,
+	}).Error; err != nil {
+		t.Fatalf("create ready transcription: %v", err)
+	}
+	if err := db.Create(&models.MeetingTranscriptSegment{
+		OrganizationID:     conversation.OrganizationID,
+		ConversationID:     conversation.ID,
+		RoomID:             44,
+		RecordingSessionID: 55,
+		RecordingFileID:    66,
+		Source:             models.MeetingTranscriptSourceRecording,
+		Text:               "meeting transcript",
+	}).Error; err != nil {
+		t.Fatalf("create transcript segment: %v", err)
+	}
 	router := newRouterWithClaims(&auth.Claims{UserID: 7, Email: "owner@example.com"}, handler.RegisterProtectedRoutes)
 
 	reqBody, _ := json.Marshal(map[string]any{

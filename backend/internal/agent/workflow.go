@@ -110,6 +110,11 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 	if err := s.ensureConversationMember(ctx, organizationID, userID, in.ConversationID); err != nil {
 		return nil, err
 	}
+	if preset == WorkflowPresetMeetingBrief {
+		if err := s.ensureReadyMeetingTranscript(ctx, organizationID, in.ConversationID); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.ensureWorkflowMetadataRegistered(ctx); err != nil {
 		return nil, err
 	}

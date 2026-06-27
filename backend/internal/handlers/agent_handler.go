@@ -511,6 +511,8 @@ func (h *AgentHandler) writeAgentError(c *gin.Context, err error) {
 		JSONErrorWithCode(c, http.StatusForbidden, "TOOL_APPROVAL_FORBIDDEN", "tool approval forbidden")
 	case errors.Is(err, agent.ErrPlannerUnavailable):
 		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_PLANNER_UNAVAILABLE", "agent planner unavailable")
+	case errors.Is(err, agent.ErrMeetingTranscriptNotReady):
+		JSONErrorWithCode(c, http.StatusConflict, "MEETING_TRANSCRIPT_NOT_READY", "meeting transcript is not ready")
 	default:
 		h.logger.Error().Err(err).Msg("agent request failed")
 		JSONErrorWithCode(c, http.StatusInternalServerError, "AGENT_RUN_FAILED", "agent request failed")

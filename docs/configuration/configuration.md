@@ -64,6 +64,7 @@ Realtime translation remains configurable in YAML, but its mobile UI entry point
 | Variable | Purpose |
 | --- | --- |
 | `AGENT_PROVIDER` | `rules`, `mock_llm`, or `openai_compatible`; empty defaults to `rules`. |
+| `AGENT_PROVIDER_STRICT` | When true, `openai_compatible` must be configured and provider failures are returned instead of falling back to `rules`. Enable this in Beta/production. |
 | `AGENT_OPENAI_BASE_URL` | Chat Completions-compatible base URL. |
 | `AGENT_OPENAI_MODEL` | Model name for `openai_compatible`. |
 | `AGENT_OPENAI_API_KEY` | API key for `openai_compatible`. |

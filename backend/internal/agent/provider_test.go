@@ -10,6 +10,7 @@ import (
 )
 
 func TestNewPlannerSelectsProvider(t *testing.T) {
+	t.Setenv("AGENT_PROVIDER_STRICT", "false")
 	t.Setenv("AGENT_OPENAI_BASE_URL", "")
 	t.Setenv("AGENT_OPENAI_API_KEY", "")
 	t.Setenv("AGENT_OPENAI_MODEL", "")
@@ -71,5 +72,14 @@ func TestNewPlannerSelectsProvider(t *testing.T) {
 
 	if _, err := NewPlanner("bogus"); err == nil {
 		t.Fatal("expected unknown planner error")
+	}
+}
+
+func TestNewPlannerStrictModeRejectsMissingOpenAIConfiguration(t *testing.T) {
+	t.Setenv("AGENT_PROVIDER_STRICT", "true")
+	t.Setenv("AGENT_OPENAI_BASE_URL", "")
+	t.Setenv("AGENT_OPENAI_MODEL", "")
+	if _, err := NewPlanner(models.AgentRunSourceOpenAICompatible); !errors.Is(err, ErrPlannerUnavailable) {
+		t.Fatalf("expected strict provider configuration error, got %v", err)
 	}
 }

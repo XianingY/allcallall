@@ -95,6 +95,11 @@ export interface AgentCitation {
   vector_score?: number;
   score: number;
   created_at?: string;
+  recording_session_id?: number;
+  recording_file_id?: number;
+  transcript_segment_id?: number;
+  start_ms?: number;
+  end_ms?: number;
 }
 
 export interface AgentRunResult {

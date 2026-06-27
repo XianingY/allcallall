@@ -69,6 +69,7 @@ Core variables:
 - `MAIL_PASSWORD`
 - `WEBRTC_ICE_SERVERS_JSON`
 - `AGENT_PROVIDER=rules|mock_llm|openai_compatible`
+- `AGENT_PROVIDER_STRICT=true` for Beta/production; prevents a configured real provider from silently falling back to `rules`
 - `EMBEDDED_WORKERS=0|1`
 
 Recording and transcription:

@@ -78,7 +78,7 @@ sequenceDiagram
 - `meeting_transcript_segments` from recording-end meeting transcription.
 - RAG context chunks from conversation artifacts and knowledge sources.
 
-Meeting transcript segments are separate from call transcript segments. Retrieved references use `meeting_transcript` so citations can distinguish "meeting recording transcription" from older "call subtitles".
+Meeting transcript segments are separate from call transcript segments. Retrieved references use `meeting_transcript` so citations can distinguish "meeting recording transcription" from older "call subtitles". Each meeting citation carries the recording session, recording file, transcript segment, and start/end offsets, allowing the client to open the transcript at the cited passage.
 
 ## Recording Transcription Integration
 
@@ -86,17 +86,17 @@ Recording stop can enqueue `recording.transcription.requested` when:
 
 ```bash
 TRANSCRIPTION_ENABLED=true
-TRANSCRIPTION_PROVIDER=mock
+TRANSCRIPTION_PROVIDER=openai_compatible
 ```
 
-The outbox worker calls the provider for locally readable audio files and writes `meeting_transcript_segments`. The Agent prioritizes the latest recording session so it can answer questions such as "what did we just discuss in the meeting?" after the recording is processed.
+The outbox worker materializes local or S3 audio, calls the configured provider, and writes `meeting_transcript_segments`. The Agent prioritizes the latest recording session so it can answer questions such as "what did we just discuss in the meeting?" after the recording is processed.
 
 Failure behavior:
 
 - No conversation binding: transcription job is `skipped`.
 - No audio file: `skipped`.
-- S3-only/unreadable storage in v1: `failed`.
-- Provider error: `failed`.
+- Storage and permanent provider errors: `failed` with an explicit reason.
+- Retryable provider and network errors: returned to the outbox lease/attempt mechanism.
 - Recording persistence still succeeds even if transcription later fails.
 
 ## Tools
@@ -174,12 +174,15 @@ Run events:
 AGENT_PROVIDER=rules
 AGENT_PROVIDER=mock_llm
 AGENT_PROVIDER=openai_compatible
+AGENT_PROVIDER_STRICT=true
 AGENT_OPENAI_BASE_URL=https://api.example.com/v1
 AGENT_OPENAI_MODEL=example-model
 AGENT_OPENAI_API_KEY=...
 ```
 
-`openai_compatible` falls back to `rules` when unavailable and records fallback metrics. Tool execution remains backend-mediated; the model never mutates application state directly.
+Development may leave strict mode disabled and record a fallback to `rules`. Beta/production sets `AGENT_PROVIDER_STRICT=true`: missing provider configuration fails startup and request failures remain visible rather than being presented as model output. Tool execution remains backend-mediated; the model never mutates application state directly.
+
+The `meeting_brief` workflow has an additional grounding gate: it starts only when the conversation has a `ready` recording transcription with persisted segments. Read-only tools execute automatically, while conversation writes, follow-up creation, and memory updates remain in the approval path.
 
 ## RAG And Knowledge
 

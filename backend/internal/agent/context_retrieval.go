@@ -27,18 +27,19 @@ const (
 )
 
 type RetrievedContextChunk struct {
-	Chunk            models.AgentContextChunk
-	KnowledgeChunk   *models.RAGChunk
-	KnowledgeSource  *models.RAGSource
-	KnowledgeVersion *models.RAGSourceVersion
-	Score            int
-	RetrievalMode    string
-	FallbackReason   string
-	BM25Rank         int
-	VectorRank       int
-	RRFScore         float64
-	BM25Score        float64
-	VectorScore      float64
+	Chunk             models.AgentContextChunk
+	KnowledgeChunk    *models.RAGChunk
+	KnowledgeSource   *models.RAGSource
+	KnowledgeVersion  *models.RAGSourceVersion
+	MeetingTranscript *models.MeetingTranscriptSegment
+	Score             int
+	RetrievalMode     string
+	FallbackReason    string
+	BM25Rank          int
+	VectorRank        int
+	RRFScore          float64
+	BM25Score         float64
+	VectorScore       float64
 }
 
 type bm25ChunkSearcher interface {
@@ -338,6 +339,7 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, convers
 	}
 
 	scored = dedupeRetrievedContextChunks(scored)
+	hydrateMeetingTranscriptChunks(scored, conversationCtx.MeetingTranscriptSegments)
 	sort.SliceStable(scored, func(i, j int) bool {
 		leftWeight := conversationSourcePriority(scored[i])
 		rightWeight := conversationSourcePriority(scored[j])
@@ -464,9 +466,24 @@ func meetingTranscriptToRetrievedContextChunk(segment models.MeetingTranscriptSe
 			CreatedAt:      segment.CreatedAt,
 			UpdatedAt:      segment.CreatedAt,
 		},
-		Score:          999,
-		RetrievalMode:  models.RAGRetrievalModeSQLFallback,
-		FallbackReason: "meeting_recording_transcript_boost",
+		MeetingTranscript: &segment,
+		Score:             999,
+		RetrievalMode:     models.RAGRetrievalModeSQLFallback,
+		FallbackReason:    "meeting_recording_transcript_boost",
+	}
+}
+
+func hydrateMeetingTranscriptChunks(chunks []RetrievedContextChunk, segments []models.MeetingTranscriptSegment) {
+	byID := make(map[uint64]*models.MeetingTranscriptSegment, len(segments))
+	for index := range segments {
+		segment := &segments[index]
+		byID[segment.ID] = segment
+	}
+	for index := range chunks {
+		if chunks[index].MeetingTranscript != nil || retrievedChunkSourceType(chunks[index]) != contextChunkSourceMeetingTranscript {
+			continue
+		}
+		chunks[index].MeetingTranscript = byID[retrievedChunkSourceID(chunks[index])]
 	}
 }
 

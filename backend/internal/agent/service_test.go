@@ -385,6 +385,11 @@ func TestConversationRAGIndexesBusinessSourcesAndReturnsCitations(t *testing.T) 
 		if citation.Title == "" || citation.Snippet == "" {
 			t.Fatalf("citation missing title/snippet: %+v", citation)
 		}
+		if citation.SourceType == contextChunkSourceMeetingTranscript {
+			if citation.RecordingSessionID == nil || *citation.RecordingSessionID != 202 || citation.TranscriptSegmentID == nil || citation.StartMS == nil || citation.EndMS == nil {
+				t.Fatalf("meeting transcript citation missing deep-link metadata: %+v", citation)
+			}
+		}
 	}
 	for _, sourceType := range []string{contextChunkSourceMeetingTranscript, contextChunkSourceFollowup, contextChunkSourceContactProfile, contextChunkSourceTranscript} {
 		if !sourceTypes[sourceType] {
@@ -410,7 +415,7 @@ func TestConversationRAGIndexesBusinessSourcesAndReturnsCitations(t *testing.T) 
 	if err := db.Where("run_id = ? AND tool_name = ?", result.Run.ID, ToolQueryContextChunks).Take(&ragToolCall).Error; err != nil {
 		t.Fatalf("load RAG tool call failed: %v", err)
 	}
-	if !strings.Contains(ragToolCall.OutputJSON, `"title"`) || !strings.Contains(ragToolCall.OutputJSON, `"created_at"`) {
+	if !strings.Contains(ragToolCall.OutputJSON, `"title"`) || !strings.Contains(ragToolCall.OutputJSON, `"created_at"`) || !strings.Contains(ragToolCall.OutputJSON, `"recording_session_id":202`) {
 		t.Fatalf("RAG tool output should include citation fields: %s", ragToolCall.OutputJSON)
 	}
 
@@ -696,6 +701,27 @@ func TestExecuteRunFallsBackWhenPlannerUnavailable(t *testing.T) {
 	snapshot := counters.Snapshot()
 	if snapshot["agent_planner_fallback_total"] != 1 {
 		t.Fatalf("agent_planner_fallback_total mismatch: %v", snapshot)
+	}
+}
+
+func TestExecuteRunStrictProviderDoesNotFallback(t *testing.T) {
+	t.Setenv("AGENT_PROVIDER_STRICT", "false")
+	svc, db, counters := newAgentServiceTestEnv(t)
+	conversation := seedAgentConversation(t, db)
+	planner, err := NewPlanner(models.AgentRunSourceOpenAICompatible)
+	if err != nil {
+		t.Fatalf("new planner failed: %v", err)
+	}
+	svc.WithPlanner(planner).WithStrictProvider(true)
+	queued, err := svc.RunConversationAssistant(context.Background(), conversation.OrganizationID, 7, RunInput{ConversationID: conversation.ID})
+	if err != nil {
+		t.Fatalf("queue run failed: %v", err)
+	}
+	if _, err := svc.ExecuteRun(context.Background(), queued.Run.ID); !errors.Is(err, ErrPlannerUnavailable) {
+		t.Fatalf("expected strict planner error, got %v", err)
+	}
+	if counters.Snapshot()["agent_planner_fallback_total"] != 0 {
+		t.Fatalf("strict mode must not increment fallback metrics: %v", counters.Snapshot())
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/allcallall/backend/internal/models"
@@ -19,9 +20,22 @@ func NewPlanner(name string) (Planner, error) {
 	case models.AgentRunSourceMockLLM:
 		return MockLLMPlanner{}, nil
 	case models.AgentRunSourceOpenAICompatible:
-		return NewOpenAICompatiblePlannerFromEnv(), nil
+		planner := NewOpenAICompatiblePlannerFromEnv()
+		if AgentProviderStrictFromEnv() && !planner.Configured() {
+			return nil, fmt.Errorf("%w: AGENT_OPENAI_BASE_URL and AGENT_OPENAI_MODEL are required in strict mode", ErrPlannerUnavailable)
+		}
+		return planner, nil
 	default:
 		return nil, fmt.Errorf("unknown agent planner provider: %s", name)
+	}
+}
+
+func AgentProviderStrictFromEnv() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENT_PROVIDER_STRICT"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
 	}
 }
 

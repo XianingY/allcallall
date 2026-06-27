@@ -64,6 +64,10 @@ type OpenAICompatiblePlanner struct {
 	client           *http.Client
 }
 
+func (p OpenAICompatiblePlanner) Configured() bool {
+	return p.baseURL != "" && p.model != ""
+}
+
 func (OpenAICompatiblePlanner) Name() string {
 	return models.AgentRunSourceOpenAICompatible
 }
