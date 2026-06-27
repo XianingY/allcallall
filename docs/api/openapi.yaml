@@ -126,6 +126,70 @@ paths:
     post:
       operationId: deleteAccount
       responses: { '200': { $ref: '#/components/responses/Success' } }
+  /push/devices:
+    get:
+      operationId: listPushDevices
+      responses:
+        '200':
+          description: Registered push devices for the current user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [devices]
+                properties:
+                  devices: { type: array, items: { $ref: '#/components/schemas/PushDevice' } }
+    post:
+      operationId: registerPushDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterPushDeviceRequest' }
+      responses:
+        '201':
+          description: Push device registered.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [device]
+                properties:
+                  message: { type: string }
+                  device: { $ref: '#/components/schemas/PushDevice' }
+  /push/devices/{deviceId}:
+    delete:
+      operationId: deletePushDevice
+      parameters:
+        - { name: deviceId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /entitlements/me:
+    get:
+      operationId: getMyEntitlements
+      responses:
+        '200':
+          description: Backend-authoritative subscription entitlements.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tier, entitlements]
+                properties:
+                  tier: { type: string, enum: [free, premium] }
+                  entitlements: { type: array, items: { $ref: '#/components/schemas/UserEntitlement' } }
+  /usage/me:
+    get:
+      operationId: getMyUsage
+      responses:
+        '200':
+          description: Current feature usage ledgers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [usage]
+                properties:
+                  usage: { type: array, items: { $ref: '#/components/schemas/UsageSnapshot' } }
   /legal/current:
     get:
       security: []
@@ -325,6 +389,49 @@ components:
         blocked_user_status: { type: string }
         blocked_user_deleted_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
+    RegisterPushDeviceRequest:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }
+        provider: { type: string, default: fcm }
+        platform: { type: string, enum: [web, android, ios] }
+        device_name: { type: string }
+        app_version: { type: string }
+    PushDevice:
+      type: object
+      required: [id, provider, platform, device_name, app_version, last_registered, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        provider: { type: string }
+        platform: { type: string }
+        device_name: { type: string }
+        app_version: { type: string }
+        last_registered: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    UserEntitlement:
+      type: object
+      required: [id, entitlement, tier, status, source]
+      properties:
+        id: { type: integer, format: int64 }
+        entitlement: { type: string }
+        tier: { type: string }
+        product_id: { type: string }
+        status: { type: string }
+        expires_at: { type: [string, 'null'], format: date-time }
+        source: { type: string }
+    UsageSnapshot:
+      type: object
+      required: [feature, period_key, unit, used_units, limit_units, unlimited, remaining_units]
+      properties:
+        feature: { type: string }
+        period_key: { type: string }
+        unit: { type: string }
+        used_units: { type: integer, format: int64 }
+        limit_units: { type: integer, format: int64 }
+        unlimited: { type: boolean }
+        remaining_units: { type: integer, format: int64 }
     Conversation:
       type: object
       required: [id, organization_id, type, title, status, priority, unread_count]

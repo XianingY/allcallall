@@ -8,7 +8,7 @@ import { LoginPage } from "@/pages/auth/LoginPage";
 import { RegisterPage } from "@/pages/auth/RegisterPage";
 import { VerifyEmailPage } from "@/pages/auth/VerifyEmailPage";
 import { SettingsLayout } from "@/pages/settings/SettingsLayout";
-import { BlockedSettingsPage, DangerSettingsPage, LegalSettingsPage, PasswordSettingsPage, ProfileSettingsPage, SessionsSettingsPage } from "@/pages/settings/SettingsPages";
+import { BillingSettingsPage, BlockedSettingsPage, DangerSettingsPage, LegalSettingsPage, NotificationSettingsPage, PasswordSettingsPage, PreferencesSettingsPage, ProfileSettingsPage, SessionsSettingsPage } from "@/pages/settings/SettingsPages";
 import { CallHistoryPage } from "@/pages/collaboration/CallHistoryPage";
 import { ContactsPage } from "@/pages/collaboration/ContactsPage";
 import { DealDetailPage } from "@/pages/collaboration/DealDetailPage";
@@ -53,6 +53,9 @@ export function App() {
           <Route path="password" element={<PasswordSettingsPage />} />
           <Route path="sessions" element={<SessionsSettingsPage />} />
           <Route path="blocked" element={<BlockedSettingsPage />} />
+          <Route path="notifications" element={<NotificationSettingsPage />} />
+          <Route path="billing" element={<BillingSettingsPage />} />
+          <Route path="preferences" element={<PreferencesSettingsPage />} />
           <Route path="legal" element={<LegalSettingsPage />} />
           <Route path="danger" element={<DangerSettingsPage />} />
         </Route>

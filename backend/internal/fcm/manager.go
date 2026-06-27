@@ -178,3 +178,8 @@ func (m *Manager) DisabledReason() error {
 	}
 	return errors.New(m.disabled)
 }
+
+// IsInvalidTokenError reports provider errors that mean a stored registration token is no longer usable.
+func IsInvalidTokenError(err error) bool {
+	return messaging.IsUnregistered(err) || messaging.IsInvalidArgument(err)
+}

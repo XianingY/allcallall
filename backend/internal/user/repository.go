@@ -126,6 +126,45 @@ func (r *Repository) SavePushDevice(ctx context.Context, device *models.PushDevi
 		Create(device).Error
 }
 
+// ListPushDevices returns push registrations owned by one user.
+func (r *Repository) ListPushDevices(ctx context.Context, userID uint64) ([]models.PushDevice, error) {
+	var devices []models.PushDevice
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Order("last_registered DESC").
+		Find(&devices).Error; err != nil {
+		return nil, err
+	}
+	return devices, nil
+}
+
+// FindPushDeviceByToken returns one registration owned by the user.
+func (r *Repository) FindPushDeviceByToken(ctx context.Context, userID uint64, token string) (*models.PushDevice, error) {
+	var device models.PushDevice
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ? AND token = ?", userID, strings.TrimSpace(token)).
+		Take(&device).Error; err != nil {
+		return nil, err
+	}
+	return &device, nil
+}
+
+// DeletePushDevice removes one push registration by id for the owning user.
+func (r *Repository) DeletePushDevice(ctx context.Context, userID uint64, deviceID uint64) (int64, error) {
+	result := r.db.WithContext(ctx).
+		Where("user_id = ? AND id = ?", userID, deviceID).
+		Delete(&models.PushDevice{})
+	return result.RowsAffected, result.Error
+}
+
+// DeletePushDeviceByToken removes one push registration by token for the owning user.
+func (r *Repository) DeletePushDeviceByToken(ctx context.Context, userID uint64, token string) (int64, error) {
+	result := r.db.WithContext(ctx).
+		Where("user_id = ? AND token = ?", userID, strings.TrimSpace(token)).
+		Delete(&models.PushDevice{})
+	return result.RowsAffected, result.Error
+}
+
 // UpdateAccountStatus updates user lifecycle status and deleted timestamp.
 func (r *Repository) UpdateAccountStatus(ctx context.Context, userID uint64, status string, deletedAt *time.Time) error {
 	updates := map[string]any{

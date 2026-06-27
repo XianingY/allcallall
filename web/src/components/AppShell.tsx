@@ -7,6 +7,7 @@ import { useAuth } from "@/auth/AuthProvider";
 import { useOrganization } from "@/organizations/OrganizationProvider";
 import { CallOverlay } from "@/calls/CallOverlay";
 import { useChatConnected } from "@/realtime/ChatRealtimeProvider";
+import { PushNotificationBridge } from "@/platform/PushNotificationBridge";
 
 const nav = [
   ["/inbox", "nav.inbox", Inbox], ["/meetings", "nav.meetings", CalendarDays],
@@ -44,6 +45,7 @@ export function AppShell() {
       </aside>
       <main className="min-h-screen pt-14 lg:ml-60 lg:pt-0"><Outlet /></main>
       <CallOverlay />
+      <PushNotificationBridge />
     </div>
   );
 }

@@ -612,11 +612,6 @@ func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmai
 			return
 		}
 
-		if toUser.FCMToken == "" {
-			h.logger.Debug().Str("email", toEmail).Msg("recipient has no fcm token")
-			return
-		}
-
 		// 获取勳者的用户信息
 		// Get initiator user info
 		fromUser, err := h.users.GetByEmail(notifCtx, fromEmail)
@@ -625,28 +620,55 @@ func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmai
 			return
 		}
 
-		// 发送推送通知
-		// Send the notification
-		err = h.fcmManager.SendCallNotification(
-			notifCtx,
-			toUser.FCMToken,
-			fromEmail,
-			fromUser.DisplayName,
-			callID,
-		)
+		tokens := make([]string, 0, 4)
+		seen := make(map[string]struct{})
+		devices, err := h.users.ListPushDevices(notifCtx, toUser.ID)
 		if err != nil {
-			h.logger.Error().Err(err).
-				Str("to", toEmail).
-				Str("from", fromEmail).
-				Str("call_id", callID).
-				Msg("failed to send call notification")
+			h.logger.Warn().Err(err).Str("email", toEmail).Msg("failed to list push devices")
+		}
+		for _, device := range devices {
+			if device.Token == "" {
+				continue
+			}
+			if _, ok := seen[device.Token]; ok {
+				continue
+			}
+			seen[device.Token] = struct{}{}
+			tokens = append(tokens, device.Token)
+		}
+		if toUser.FCMToken != "" {
+			if _, ok := seen[toUser.FCMToken]; !ok {
+				tokens = append(tokens, toUser.FCMToken)
+			}
+		}
+		if len(tokens) == 0 {
+			h.logger.Debug().Str("email", toEmail).Msg("recipient has no fcm token")
 			return
+		}
+
+		var sent int
+		for _, token := range tokens {
+			if err := h.fcmManager.SendCallNotification(notifCtx, token, fromEmail, fromUser.DisplayName, callID); err != nil {
+				if fcm.IsInvalidTokenError(err) {
+					if cleanupErr := h.users.DeletePushDeviceByToken(notifCtx, toUser.ID, token); cleanupErr != nil && !errors.Is(cleanupErr, user.ErrNotFound) {
+						h.logger.Warn().Err(cleanupErr).Uint64("user_id", toUser.ID).Msg("failed to delete invalid push device")
+					}
+				}
+				h.logger.Error().Err(err).
+					Str("to", toEmail).
+					Str("from", fromEmail).
+					Str("call_id", callID).
+					Msg("failed to send call notification")
+				continue
+			}
+			sent++
 		}
 
 		h.logger.Info().
 			Str("to", toEmail).
 			Str("from", fromEmail).
 			Str("call_id", callID).
+			Int("devices", sent).
 			Msg("call notification sent successfully")
 	}()
 }

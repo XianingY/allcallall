@@ -217,6 +217,58 @@ func (s *Service) SavePushRegistration(ctx context.Context, userID uint64, in Sa
 	})
 }
 
+// RegisterPushDevice saves a registration and returns the stored device row.
+func (s *Service) RegisterPushDevice(ctx context.Context, userID uint64, in SavePushRegistrationInput) (*models.PushDevice, error) {
+	token := strings.TrimSpace(in.Token)
+	if token == "" {
+		return nil, errors.New("fcm token cannot be empty")
+	}
+	if err := s.SavePushRegistration(ctx, userID, in); err != nil {
+		return nil, err
+	}
+	if !s.pushDevicesEnabled {
+		return &models.PushDevice{
+			UserID:         userID,
+			Provider:       defaultPushValue(in.Provider, "fcm"),
+			Platform:       defaultPushValue(in.Platform, "android"),
+			DeviceName:     strings.TrimSpace(in.DeviceName),
+			AppVersion:     strings.TrimSpace(in.AppVersion),
+			Token:          token,
+			LastRegistered: time.Now(),
+		}, nil
+	}
+	return s.repo.FindPushDeviceByToken(ctx, userID, token)
+}
+
+// ListPushDevices returns all currently registered push devices for the user.
+func (s *Service) ListPushDevices(ctx context.Context, userID uint64) ([]models.PushDevice, error) {
+	return s.repo.ListPushDevices(ctx, userID)
+}
+
+// DeletePushDevice removes one push device owned by the user.
+func (s *Service) DeletePushDevice(ctx context.Context, userID uint64, deviceID uint64) error {
+	rows, err := s.repo.DeletePushDevice(ctx, userID, deviceID)
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeletePushDeviceByToken removes one push registration after provider invalidation.
+func (s *Service) DeletePushDeviceByToken(ctx context.Context, userID uint64, token string) error {
+	rows, err := s.repo.DeletePushDeviceByToken(ctx, userID, token)
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func defaultPushValue(value string, fallback string) string {
 	trimmed := strings.TrimSpace(strings.ToLower(value))
 	if trimmed == "" {

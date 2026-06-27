@@ -18,6 +18,7 @@ type RouteDependencies struct {
 	AuthHandler        *handlers.AuthHandler
 	EmailHandler       *handlers.EmailHandler
 	UserHandler        *handlers.UserHandler
+	Push               *handlers.PushHandler
 	Commercial         *handlers.CommercialHandler
 	Collaboration      *handlers.CollaborationHandler
 	Agent              *handlers.AgentHandler
@@ -78,6 +79,9 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 
 		userGroup := protected.Group("/users")
 		deps.UserHandler.RegisterRoutes(userGroup)
+		if deps.Push != nil {
+			deps.Push.RegisterProtectedRoutes(protected)
+		}
 		if deps.Commercial != nil {
 			deps.Commercial.RegisterProtectedRoutes(protected)
 		}

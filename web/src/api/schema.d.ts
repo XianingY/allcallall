@@ -276,6 +276,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/push/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPushDevices"];
+        put?: never;
+        post: operations["registerPushDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/push/devices/{deviceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deletePushDevice"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/entitlements/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getMyEntitlements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/usage/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getMyUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/legal/current": {
         parameters: {
             query?: never;
@@ -490,6 +554,52 @@ export interface components {
             blocked_user_deleted_at?: string | null;
             /** Format: date-time */
             created_at: string;
+        };
+        RegisterPushDeviceRequest: {
+            token: string;
+            /** @default fcm */
+            provider: string;
+            /** @enum {string} */
+            platform?: "web" | "android" | "ios";
+            device_name?: string;
+            app_version?: string;
+        };
+        PushDevice: {
+            /** Format: int64 */
+            id: number;
+            provider: string;
+            platform: string;
+            device_name: string;
+            app_version: string;
+            /** Format: date-time */
+            last_registered: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        UserEntitlement: {
+            /** Format: int64 */
+            id: number;
+            entitlement: string;
+            tier: string;
+            product_id?: string;
+            status: string;
+            /** Format: date-time */
+            expires_at?: string | null;
+            source: string;
+        };
+        UsageSnapshot: {
+            feature: string;
+            period_key: string;
+            unit: string;
+            /** Format: int64 */
+            used_units: number;
+            /** Format: int64 */
+            limit_units: number;
+            unlimited: boolean;
+            /** Format: int64 */
+            remaining_units: number;
         };
         Conversation: {
             /** Format: int64 */
@@ -1534,6 +1644,115 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: components["responses"]["Success"];
+        };
+    };
+    listPushDevices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Registered push devices for the current user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        devices: components["schemas"]["PushDevice"][];
+                    };
+                };
+            };
+        };
+    };
+    registerPushDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterPushDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Push device registered. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message?: string;
+                        device: components["schemas"]["PushDevice"];
+                    };
+                };
+            };
+        };
+    };
+    deletePushDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["Success"];
+        };
+    };
+    getMyEntitlements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Backend-authoritative subscription entitlements. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        tier: "free" | "premium";
+                        entitlements: components["schemas"]["UserEntitlement"][];
+                    };
+                };
+            };
+        };
+    };
+    getMyUsage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current feature usage ledgers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        usage: components["schemas"]["UsageSnapshot"][];
+                    };
+                };
+            };
         };
     };
     getCurrentLegal: {

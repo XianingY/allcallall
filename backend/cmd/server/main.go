@@ -239,6 +239,7 @@ func main() {
 		Limits:   rateLimitSvc,
 		Metrics:  counterStore,
 	})
+	pushHandler := handlers.NewPushHandler(appLogger, userSvc)
 	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, mailSvc, rateLimitSvc, counterStore)
 	collaborationHandler := handlers.NewCollaborationHandler(appLogger, collaborationSvc, userSvc, chatHub)
 	collaborationHandler.WithSearchService(searchSvc)
@@ -311,6 +312,7 @@ func main() {
 		AuthHandler:        authHandler,
 		EmailHandler:       emailHandler,
 		UserHandler:        userHandler,
+		Push:               pushHandler,
 		Commercial:         commercialHandler,
 		Collaboration:      collaborationHandler,
 		Agent:              agentHandler,
