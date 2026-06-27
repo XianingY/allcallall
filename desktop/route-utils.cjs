@@ -1,5 +1,5 @@
 function normalizeBaseURL(value) {
-  return String(value || "http://localhost:8081").replace(/\/+$/, "");
+  return String(value || "http://localhost:5173").replace(/\/+$/, "");
 }
 
 function createRouteHelpers(baseURL) {
@@ -25,7 +25,7 @@ function createRouteHelpers(baseURL) {
       return null;
     }
     if (target.startsWith("allcallall://rooms/")) {
-      return routeURL(`/rooms/${target.replace("allcallall://rooms/", "").split(/[?#]/)[0]}`);
+      return routeURL(`/meetings/${target.replace("allcallall://rooms/", "").split(/[?#]/)[0]}`);
     }
     if (target.startsWith("allcallall://conversations/")) {
       return routeURL(`/conversations/${target.replace("allcallall://conversations/", "").split(/[?#]/)[0]}`);
@@ -33,7 +33,10 @@ function createRouteHelpers(baseURL) {
     if (target === "allcallall://meetings" || target.startsWith("allcallall://meetings?")) {
       return routeURL("/meetings");
     }
-    if (target.startsWith("/rooms/") || target.startsWith("/conversations/") || target === "/meetings") {
+    if (target.startsWith("/rooms/")) {
+      return routeURL(target.replace(/^\/rooms\//, "/meetings/"));
+    }
+    if (target.startsWith("/meetings/") || target.startsWith("/conversations/") || target === "/meetings") {
       return routeURL(target);
     }
     if (isInternalWebURL(target)) {

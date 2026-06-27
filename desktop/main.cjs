@@ -9,7 +9,7 @@ const {
   isInternalWebURL,
   normalizeRouteTarget,
   routeURL,
-} = createRouteHelpers(process.env.ALLCALLALL_WEB_URL || "http://localhost:8081");
+} = createRouteHelpers(process.env.ALLCALLALL_WEB_URL || "http://localhost:5173");
 const DOWNLOADS_DIR = process.env.ALLCALLALL_DOWNLOAD_DIR || path.join(os.homedir(), "Downloads", "AllCallAll");
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 
