@@ -23,6 +23,73 @@ jobs:
       - name: Vet
         working-directory: backend
         run: go vet ./...
+      - name: Race detector
+        working-directory: backend
+        run: go test -race ./internal/agent ./internal/collaboration ./internal/events
+
+  backend-integration:
+    name: Backend Dependencies
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: integration-root
+          MYSQL_DATABASE: allcallall_test
+          MYSQL_USER: allcallall
+          MYSQL_PASSWORD: integration-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -pintegration-root"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+      redis:
+        image: redis:7.2
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: -Xms512m -Xmx512m
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd="curl -f http://localhost:9200/_cluster/health"
+          --health-interval=10s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.24.x"
+          cache-dependency-path: backend/go.sum
+      - name: Start MinIO
+        run: |
+          docker run -d --name allcallall-minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=integration-access \
+            -e MINIO_ROOT_PASSWORD=integration-secret \
+            minio/minio:latest server /data
+          for attempt in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:9000/minio/health/live && exit 0
+            echo "waiting for MinIO ($attempt/30)"
+            sleep 2
+          done
+          docker logs allcallall-minio
+          exit 1
+      - name: Dependency integration tests
+        working-directory: backend
+        env:
+          INTEGRATION_MYSQL_DSN: allcallall:integration-password@tcp(127.0.0.1:3306)/allcallall_test?parseTime=true
+          INTEGRATION_REDIS_ADDR: 127.0.0.1:6379
+          INTEGRATION_MINIO_ENDPOINT: http://127.0.0.1:9000
+          INTEGRATION_MINIO_ACCESS_KEY: integration-access
+          INTEGRATION_MINIO_SECRET_KEY: integration-secret
+          INTEGRATION_ELASTICSEARCH_URL: http://127.0.0.1:9200
+        run: go test -tags=integration ./internal/integration
 
   mobile-web:
     name: Mobile / Web
@@ -56,6 +123,39 @@ jobs:
         working-directory: mobile
         env:
           WEB_SMOKE_EXPORT_DIR: /tmp/allcallall-web-export
+        run: npm run web:smoke
+
+  authenticated-web-e2e:
+    name: Authenticated Beta Web E2E
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    env:
+      WEB_SMOKE_BASE_URL: ${{ secrets.BETA_E2E_BASE_URL }}
+      WEB_SMOKE_EMAIL: ${{ secrets.BETA_E2E_USER_ONE }}
+      WEB_SMOKE_PASSWORD: ${{ secrets.BETA_E2E_PASSWORD_ONE }}
+      WEB_SMOKE_SECOND_EMAIL: ${{ secrets.BETA_E2E_USER_TWO }}
+      WEB_SMOKE_SECOND_PASSWORD: ${{ secrets.BETA_E2E_PASSWORD_TWO }}
+      WEB_SMOKE_ROOM_ID: ${{ secrets.BETA_E2E_ROOM_ID }}
+    steps:
+      - uses: actions/checkout@v5
+        if: ${{ env.WEB_SMOKE_BASE_URL != '' }}
+      - uses: actions/setup-node@v5
+        if: ${{ env.WEB_SMOKE_BASE_URL != '' }}
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install
+        if: ${{ env.WEB_SMOKE_BASE_URL != '' }}
+        working-directory: mobile
+        run: npm ci
+      - name: Install Playwright Chromium
+        if: ${{ env.WEB_SMOKE_BASE_URL != '' }}
+        working-directory: mobile
+        run: npx playwright install --with-deps chromium
+      - name: Two-user meeting smoke
+        if: ${{ env.WEB_SMOKE_BASE_URL != '' }}
+        working-directory: mobile
         run: npm run web:smoke
 
   desktop:

@@ -55,6 +55,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     PushNotificationService.setAuthToken(token);
     await BillingService.initialize(`user:${user.id}`);
 
+    // Web access tokens remain in React memory. Session recovery uses the
+    // HttpOnly refresh cookie issued by the backend.
+    if (Platform.OS === "web") {
+      return;
+    }
+
     // 存储到安全存储（支持生物识别）
     // Store to secure storage (with biometric protection)
     const secret = JSON.stringify({ token, user });
@@ -77,20 +83,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const bootstrap = useCallback(async () => {
     try {
+      if (Platform.OS === "web") {
+        // Remove sessions written by older builds before attempting cookie refresh.
+        await secureStorage.clear(KEYCHAIN_SERVICE);
+        try {
+          const refreshed = await authApi.refreshSession();
+          await persistState(refreshed.access_token, refreshed.user);
+        } catch {
+          setState((current) => ({ ...current, loading: false }));
+        }
+        return;
+      }
+
       // 从安全存储中读取 token 和 user 数据
       // Read token and user data from secure storage
       const credentials = await secureStorage.load(KEYCHAIN_SERVICE, authPromptTitle);
 
       if (!credentials) {
-        if (Platform.OS === "web") {
-          try {
-            const refreshed = await authApi.refreshSession();
-            await persistState(refreshed.access_token, refreshed.user);
-            return;
-          } catch {
-            // No HttpOnly refresh cookie is available; continue unauthenticated.
-          }
-        }
         setState((current) => ({ ...current, loading: false }));
         return;
       }

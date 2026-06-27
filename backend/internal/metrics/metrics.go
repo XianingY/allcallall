@@ -29,6 +29,15 @@ func (s *CounterStore) Add(name string, delta int64) {
 	s.counters[name] += delta
 }
 
+func (s *CounterStore) Set(name string, value int64) {
+	if strings.TrimSpace(name) == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.counters[name] = value
+}
+
 func (s *CounterStore) Snapshot() map[string]int64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -49,7 +58,11 @@ func (s *CounterStore) RenderPrometheus() string {
 
 	var builder strings.Builder
 	for _, key := range keys {
-		builder.WriteString(fmt.Sprintf("# TYPE %s counter\n", key))
+		metricType := "counter"
+		if strings.HasSuffix(key, "_backlog") {
+			metricType = "gauge"
+		}
+		builder.WriteString(fmt.Sprintf("# TYPE %s %s\n", key, metricType))
 		builder.WriteString(fmt.Sprintf("%s %d\n", key, snapshot[key]))
 	}
 	return builder.String()

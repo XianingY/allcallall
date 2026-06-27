@@ -68,6 +68,20 @@ func CORSMiddleware(cfg CORSConfig) gin.HandlerFunc {
 	}
 }
 
+func SecurityHeadersMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		headers := c.Writer.Header()
+		headers.Set("Content-Security-Policy", "default-src 'self'; connect-src 'self' https: wss:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		headers.Set("X-Content-Type-Options", "nosniff")
+		headers.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		headers.Set("X-Frame-Options", "DENY")
+		if c.Request.TLS != nil || strings.EqualFold(strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")), "https") {
+			headers.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		c.Next()
+	}
+}
+
 func requestLogger(log zerolog.Logger, counters *metrics.CounterStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestID := trace.EnsureRequestID(c.GetHeader(requestIDHeader))

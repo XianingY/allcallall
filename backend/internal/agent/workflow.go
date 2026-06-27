@@ -1105,6 +1105,10 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 		return s.buildWorkflowResult(ctx, run)
 	}
 	now := time.Now().UTC()
+	if s.metrics != nil {
+		s.metrics.Inc("agent_approval_wait_ms_count")
+		s.metrics.Add("agent_approval_wait_ms_sum", now.Sub(approval.CreatedAt).Milliseconds())
+	}
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		signal := models.WorkflowSignal{
 			WorkflowRunID:  run.ID,

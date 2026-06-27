@@ -122,6 +122,13 @@ func (s *Service) requestRecordingTranscription(ctx context.Context, session mod
 }
 
 func (s *Service) ProcessRecordingTranscription(ctx context.Context, recordingID uint64) error {
+	processingStarted := time.Now()
+	if s.metrics != nil {
+		defer func() {
+			s.metrics.Inc("recording_transcription_duration_ms_count")
+			s.metrics.Add("recording_transcription_duration_ms_sum", time.Since(processingStarted).Milliseconds())
+		}()
+	}
 	if recordingID == 0 {
 		return errors.New("recording id is required")
 	}
@@ -160,11 +167,20 @@ func (s *Service) ProcessRecordingTranscription(ctx context.Context, recordingID
 		_, err := s.setRecordingTranscriptionStatus(ctx, session, room, models.RecordingTranscriptionStatusSkipped, providerName, "no audio recording files found", 0)
 		return err
 	}
+	if s.metrics != nil {
+		s.metrics.Add("recording_transcription_audio_files_total", int64(len(files)))
+		for _, file := range files {
+			s.metrics.Add("recording_transcription_audio_seconds_total", file.DurationSeconds)
+		}
+	}
 
 	segments := make([]models.MeetingTranscriptSegment, 0, len(files))
 	for _, file := range files {
 		localPath, cleanup, err := s.materializeRecordingForTranscription(ctx, RecordingFileObjectRef(file), filepath.Ext(file.ObjectKey))
 		if err != nil {
+			if s.metrics != nil {
+				s.metrics.Inc("recording_transcription_storage_failure_total")
+			}
 			_, updateErr := s.setRecordingTranscriptionStatus(ctx, session, room, models.RecordingTranscriptionStatusFailed, providerName, err.Error(), 0)
 			if updateErr != nil {
 				return updateErr
@@ -187,6 +203,13 @@ func (s *Service) ProcessRecordingTranscription(ctx context.Context, recordingID
 		})
 		cleanup()
 		if err != nil {
+			if s.metrics != nil {
+				if transcription.IsRetryable(err) {
+					s.metrics.Inc("recording_transcription_provider_retryable_failure_total")
+				} else {
+					s.metrics.Inc("recording_transcription_provider_permanent_failure_total")
+				}
+			}
 			_, updateErr := s.setRecordingTranscriptionStatus(ctx, session, room, models.RecordingTranscriptionStatusFailed, providerName, err.Error(), 0)
 			if updateErr != nil {
 				return updateErr

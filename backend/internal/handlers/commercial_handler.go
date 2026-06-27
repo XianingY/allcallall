@@ -971,6 +971,9 @@ func (h *CommercialHandler) handleRevenueCatWebhook(c *gin.Context) {
 }
 
 func (h *CommercialHandler) requireSupportToken(c *gin.Context) bool {
+	if !requireSupportNetwork(c) {
+		return false
+	}
 	expected := strings.TrimSpace(os.Getenv("SUPPORT_API_TOKEN"))
 	if expected == "" {
 		JSONErrorWithCode(c, http.StatusServiceUnavailable, "SUPPORT_TOKEN_NOT_CONFIGURED", "support api token is not configured")

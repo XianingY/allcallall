@@ -58,6 +58,7 @@ Realtime translation remains configurable in YAML, but its mobile UI entry point
 | `CORS_ALLOWED_ORIGINS` | Comma-separated browser origins. |
 | `PUBLIC_WEB_BASE_URL` | Public base URL for legal/account links. |
 | `SUPPORT_EMAIL` | Public support contact. |
+| `SUPPORT_INTERNAL_ONLY` | Restricts support APIs to private/loopback clients. Production Compose sets this to `true`. |
 
 ## Agent And Knowledge
 
@@ -89,6 +90,8 @@ Realtime translation remains configurable in YAML, but its mobile UI entry point
 | --- | --- |
 | `APP_ENV` | `production` and `beta` disable automatic schema migration by default. |
 | `DB_AUTO_MIGRATE` | Explicitly enables/disables startup migration. Keep `0` in Beta/production and run `/app/migrate` first. |
+
+Authentication endpoints use Redis-backed IP and hashed-account rate limits when Redis is configured. Login allows 10 attempts per account per 15 minutes; registration and verification-send use stricter hourly limits.
 | `OUTBOX_WORKER_INTERVAL_SEC` | Outbox polling interval. |
 | `OUTBOX_WORKER_BATCH_SIZE` | Outbox claim batch size. |
 | `OUTBOX_WORKER_MAX_ATTEMPTS` | Retry budget before permanent failure. |

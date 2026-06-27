@@ -84,6 +84,28 @@ func TestDefaultCORSOriginsUsesExplicitEnvList(t *testing.T) {
 	}
 }
 
+func TestSecurityHeadersMiddleware(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(SecurityHeadersMiddleware())
+	router.GET("/ok", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	req := httptest.NewRequest(http.MethodGet, "/ok", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Header().Get("Content-Security-Policy") == "" {
+		t.Fatal("expected content security policy")
+	}
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("unexpected content type policy: %q", got)
+	}
+	if rec.Header().Get("Strict-Transport-Security") == "" {
+		t.Fatal("expected HSTS for HTTPS request")
+	}
+}
+
 func TestRequestLoggerPropagatesRequestIDToContextAndHeader(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

@@ -265,7 +265,7 @@ func (s *Service) GetRunEvents(ctx context.Context, organizationID, userID, runI
 	return BuildRunEvents(result), nil
 }
 
-func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (*RunResult, error) {
+func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (result *RunResult, resultErr error) {
 	var run models.AgentRun
 	if err := s.db.WithContext(ctx).Where("id = ?", runID).Take(&run).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -322,35 +322,41 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (*RunResult, err
 	}
 	if s.metrics != nil {
 		s.metrics.Inc("agent_run_started_total")
+		executionStarted := time.Now()
+		defer func() {
+			s.metrics.Inc("agent_run_duration_ms_count")
+			s.metrics.Add("agent_run_duration_ms_sum", time.Since(executionStarted).Milliseconds())
+			if resultErr != nil && s.planner.Name() == models.AgentRunSourceOpenAICompatible {
+				s.metrics.Inc("agent_provider_failure_total")
+			}
+		}()
 	}
 
 	goal := strings.TrimSpace(run.Goal)
 	if goal == "" {
 		goal = "summarize_conversation_next_steps"
 	}
-	var result *RunResult
-	var err error
 	if s.planner.Name() == models.AgentRunSourceOpenAICompatible {
-		result, err = s.executeReActRun(ctx, run, goal)
+		result, resultErr = s.executeReActRun(ctx, run, goal)
 	} else {
-		result, err = s.executeRulesRun(ctx, run, goal)
+		result, resultErr = s.executeRulesRun(ctx, run, goal)
 	}
-	if err != nil {
+	if resultErr != nil {
 		failedAt := time.Now().UTC()
 		// Persist terminal state even when the execution context timed out or was canceled.
 		_ = s.db.WithContext(context.WithoutCancel(ctx)).Model(&models.AgentRun{}).
 			Where("id = ?", run.ID).
 			Updates(map[string]any{
 				"status":        models.AgentRunStatusFailed,
-				"error_message": err.Error(),
+				"error_message": resultErr.Error(),
 				"completed_at":  failedAt,
 				"lease_until":   nil,
 			}).Error
 		if s.metrics != nil {
 			s.metrics.Inc("agent_run_failed_total")
 		}
-		span.End(err)
-		return nil, err
+		span.End(resultErr)
+		return nil, resultErr
 	}
 	if s.metrics != nil {
 		s.metrics.Inc("agent_run_total")

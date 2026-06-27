@@ -3,12 +3,14 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 
 	"github.com/allcallall/backend/internal/mail"
 	"github.com/allcallall/backend/internal/metrics"
+	"github.com/allcallall/backend/internal/ratelimit"
 )
 
 // EmailHandler 邮件处理器
@@ -17,10 +19,12 @@ type EmailHandler struct {
 	logger                  zerolog.Logger
 	verificationCodeService *mail.VerificationCodeService
 	metrics                 *metrics.CounterStore
+	rateLimits              *ratelimit.Service
 }
 
 type EmailHandlerOptions struct {
 	Metrics *metrics.CounterStore
+	Limits  *ratelimit.Service
 }
 
 // NewEmailHandler 创建邮件处理器
@@ -38,6 +42,7 @@ func NewEmailHandler(
 		logger:                  logger.With().Str("component", "email_handler").Logger(),
 		verificationCodeService: verificationCodeService,
 		metrics:                 opts.Metrics,
+		rateLimits:              opts.Limits,
 	}
 }
 
@@ -74,6 +79,9 @@ func (h *EmailHandler) handleSendVerificationCode(c *gin.Context) {
 		JSONError(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !allowRateLimitedRequest(c, h.rateLimits, h.metrics, "verification_send", req.Email, 5, time.Hour) {
+		return
+	}
 
 	if err := h.verificationCodeService.GenerateAndSendForPurpose(req.Email, req.Purpose); err != nil {
 		h.logger.Warn().Err(err).Str("email", req.Email).Msg("send verification code failed")
@@ -102,6 +110,9 @@ func (h *EmailHandler) handleVerifyCode(c *gin.Context) {
 	var req verifyCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !allowRateLimitedRequest(c, h.rateLimits, h.metrics, "verification_check", req.Email, 10, 15*time.Minute) {
 		return
 	}
 

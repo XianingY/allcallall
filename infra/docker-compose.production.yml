@@ -103,6 +103,7 @@ services:
       AGENT_OPENAI_BASE_URL: "${AGENT_OPENAI_BASE_URL:-}"
       AGENT_OPENAI_API_KEY: "${AGENT_OPENAI_API_KEY:-}"
       AGENT_OPENAI_MODEL: "${AGENT_OPENAI_MODEL:-}"
+      SUPPORT_INTERNAL_ONLY: "true"
     ports:
       - "127.0.0.1:8080:8080"
     volumes:

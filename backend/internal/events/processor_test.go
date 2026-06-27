@@ -63,6 +63,9 @@ func TestProcessorPublishesRegisteredEvent(t *testing.T) {
 	if counters.Snapshot()["outbox_publish_total"] != 1 {
 		t.Fatalf("expected publish metric, got %v", counters.Snapshot())
 	}
+	if counters.Snapshot()["outbox_backlog"] != 1 {
+		t.Fatalf("expected backlog sample before processing, got %v", counters.Snapshot())
+	}
 }
 
 func TestProcessorPropagatesTraceContextToHandler(t *testing.T) {

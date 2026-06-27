@@ -19,6 +19,7 @@ type Handler func(ctx context.Context, event models.EventOutbox) error
 
 type metricRecorder interface {
 	Inc(name string)
+	Set(name string, value int64)
 }
 
 type Processor struct {
@@ -94,7 +95,13 @@ func (p *Processor) ProcessOnce(ctx context.Context) (int, error) {
 	if p == nil || p.store == nil {
 		return 0, errors.New("outbox processor store is nil")
 	}
-	rows, err := p.store.ClaimPendingForEvents(ctx, p.batchSize, p.workerID, p.lease, p.eventFilter())
+	events := p.eventFilter()
+	if p.metrics != nil {
+		if backlog, countErr := p.store.CountPendingForEvents(ctx, events); countErr == nil {
+			p.metrics.Set("outbox_backlog", backlog)
+		}
+	}
+	rows, err := p.store.ClaimPendingForEvents(ctx, p.batchSize, p.workerID, p.lease, events)
 	if err != nil {
 		return 0, err
 	}

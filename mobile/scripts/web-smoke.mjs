@@ -9,6 +9,8 @@ const configuredExportDir = process.env.WEB_SMOKE_EXPORT_DIR;
 const exportDir = configuredExportDir || "dist";
 const email = process.env.WEB_SMOKE_EMAIL;
 const password = process.env.WEB_SMOKE_PASSWORD;
+const secondEmail = process.env.WEB_SMOKE_SECOND_EMAIL;
+const secondPassword = process.env.WEB_SMOKE_SECOND_PASSWORD;
 const roomId = process.env.WEB_SMOKE_ROOM_ID;
 const conversationId = process.env.WEB_SMOKE_CONVERSATION_ID;
 const shouldJoinMeeting = process.env.WEB_SMOKE_JOIN_MEETING === "1";
@@ -96,8 +98,8 @@ const clickFirstVisibleText = async (page, labels, timeout = 8_000) => {
   return false;
 };
 
-const loginIfConfigured = async (page) => {
-  if (!email || !password) {
+const loginIfConfigured = async (page, configuredEmail = email, configuredPassword = password) => {
+  if (!configuredEmail || !configuredPassword) {
     console.log("[web-smoke] WEB_SMOKE_EMAIL/PASSWORD not set; running anonymous route smoke only.");
     return false;
   }
@@ -108,8 +110,8 @@ const loginIfConfigured = async (page) => {
   }
 
   const inputs = page.locator("input");
-  await inputs.nth(0).fill(email);
-  await inputs.nth(1).fill(password);
+  await inputs.nth(0).fill(configuredEmail);
+  await inputs.nth(1).fill(configuredPassword);
   await page.getByText(/登录 \/ Login|Login/).click();
   await page.waitForTimeout(1200);
   const afterLogin = await waitForUsablePage(page, "post-login page");
@@ -183,6 +185,30 @@ const main = async () => {
       const suggestedName = download.suggestedFilename();
       if (!suggestedName) {
         throw new Error("recording download did not provide a filename");
+      }
+    }
+
+    if (loggedIn && secondEmail && secondPassword && roomId) {
+      const secondContext = await browser.newContext({
+        viewport: { width: 1280, height: 800 },
+      });
+      const secondPage = await secondContext.newPage();
+      try {
+        if (!await loginIfConfigured(secondPage, secondEmail, secondPassword)) {
+          throw new Error("second browser context could not authenticate");
+        }
+        await visit(page, `/rooms/${roomId}`, "first participant room");
+        await visit(secondPage, `/rooms/${roomId}`, "second participant room");
+        for (const [participantPage, label] of [[page, "first"], [secondPage, "second"]]) {
+          if (!await clickFirstVisibleText(participantPage, ["加入会议", "Join Meeting", "Join"])) {
+            throw new Error(`${label} participant did not expose a join action`);
+          }
+          const meetingText = await waitForUsablePage(participantPage, `${label} participant meeting`);
+          assertContainsAny(meetingText, `${label} participant meeting`, ["离开会议", "Leave", "Connected", "会议状态"]);
+        }
+        console.log("[web-smoke] two-context meeting join passed");
+      } finally {
+        await secondContext.close();
       }
     }
 

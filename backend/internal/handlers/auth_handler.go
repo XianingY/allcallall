@@ -14,7 +14,9 @@ import (
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/commerce"
 	"github.com/allcallall/backend/internal/mail"
+	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/ratelimit"
 	"github.com/allcallall/backend/internal/user"
 )
 
@@ -30,12 +32,16 @@ type AuthHandler struct {
 	verificationCodeStore *mail.VerificationCodeService
 	commerce              *commerce.Service
 	collaboration         *collaboration.Service
+	rateLimits            *ratelimit.Service
+	metrics               *metrics.CounterStore
 }
 
 type AuthHandlerOptions struct {
 	Commerce        *commerce.Service
 	Collaboration   *collaboration.Service
 	RefreshSessions *auth.RefreshSessionService
+	RateLimits      *ratelimit.Service
+	Metrics         *metrics.CounterStore
 }
 
 // NewAuthHandler 构造函数
@@ -59,6 +65,8 @@ func NewAuthHandler(
 		verificationCodeStore: verificationCodes,
 		commerce:              opts.Commerce,
 		collaboration:         opts.Collaboration,
+		rateLimits:            opts.RateLimits,
+		metrics:               opts.Metrics,
 	}
 }
 
@@ -112,6 +120,9 @@ func (h *AuthHandler) handleRegister(c *gin.Context) {
 	var req registerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !h.allowAuthRequest(c, "register", req.Email, 5, time.Hour) {
 		return
 	}
 	if h.commerce != nil && !req.AcceptCurrentLegal {
@@ -170,6 +181,9 @@ func (h *AuthHandler) handleLogin(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !h.allowAuthRequest(c, "login", req.Email, 10, 15*time.Minute) {
 		return
 	}
 

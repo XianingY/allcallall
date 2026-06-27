@@ -223,9 +223,12 @@ func main() {
 		Commerce:        commerceSvc,
 		Collaboration:   collaborationSvc,
 		RefreshSessions: refreshSessionSvc,
+		RateLimits:      rateLimitSvc,
+		Metrics:         counterStore,
 	})
 	emailHandler := handlers.NewEmailHandler(appLogger, verificationCodeSvc, handlers.EmailHandlerOptions{
 		Metrics: counterStore,
+		Limits:  rateLimitSvc,
 	})
 	presenceManager := presence.NewManager(redisClient, appLogger, userSvc)
 

@@ -16,6 +16,7 @@ func NewEngine(log zerolog.Logger, counters ...*metrics.CounterStore) *gin.Engin
 	}
 	engine := gin.New()
 	engine.Use(gin.Recovery())
+	engine.Use(SecurityHeadersMiddleware())
 	engine.Use(requestLogger(log.With().Str("component", "http").Logger(), counterStore))
 
 	return engine

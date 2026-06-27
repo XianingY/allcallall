@@ -1177,7 +1177,9 @@ func (s *Service) fetchURLText(ctx context.Context, rawURL string) (string, erro
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	resp, err := client.Do(req)
+	secureClient := *client
+	secureClient.CheckRedirect = secureRedirectPolicy(client.CheckRedirect)
+	resp, err := secureClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -1197,6 +1199,21 @@ func (s *Service) fetchURLText(ctx context.Context, rawURL string) (string, erro
 		return ExtractHTMLText(string(raw)), nil
 	}
 	return "", fmt.Errorf("unsupported url content type: %s", contentType)
+}
+
+func secureRedirectPolicy(next func(*http.Request, []*http.Request) error) func(*http.Request, []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("too many redirects")
+		}
+		if _, err := validateFetchURL(req.URL.String()); err != nil {
+			return fmt.Errorf("unsafe redirect target: %w", err)
+		}
+		if next != nil {
+			return next(req, via)
+		}
+		return nil
+	}
 }
 
 func ExtractFileText(fileName, contentType string, data []byte) (string, string, error) {

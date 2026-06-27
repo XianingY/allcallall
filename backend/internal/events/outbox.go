@@ -86,6 +86,18 @@ func (s *Store) ListPending(ctx context.Context, limit int) ([]models.EventOutbo
 	return s.ListPendingForEvents(ctx, limit, nil)
 }
 
+func (s *Store) CountPendingForEvents(ctx context.Context, events []string) (int64, error) {
+	if s == nil || s.db == nil {
+		return 0, errors.New("outbox store database is nil")
+	}
+	query := s.db.WithContext(ctx).Model(&models.EventOutbox{}).Where("status = ?", models.EventOutboxStatusPending)
+	if events = normalizeEventFilter(events); len(events) > 0 {
+		query = query.Where("event IN ?", events)
+	}
+	var count int64
+	return count, query.Count(&count).Error
+}
+
 func (s *Store) ListPendingForEvents(ctx context.Context, limit int, events []string) ([]models.EventOutbox, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
