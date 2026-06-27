@@ -315,6 +315,22 @@ func main() {
 		TranslationWS:    translationWSHandler,
 		AuthMiddleware:   authMiddleware,
 		Metrics:          counterStore,
+		ReadinessChecks: map[string]server.ReadinessCheck{
+			"mysql": func(ctx context.Context) error {
+				sqlDB, err := db.DB()
+				if err != nil {
+					return err
+				}
+				checkCtx, checkCancel := context.WithTimeout(ctx, 2*time.Second)
+				defer checkCancel()
+				return sqlDB.PingContext(checkCtx)
+			},
+			"redis": func(ctx context.Context) error {
+				checkCtx, checkCancel := context.WithTimeout(ctx, 2*time.Second)
+				defer checkCancel()
+				return redisClient.Ping(checkCtx).Err()
+			},
+		},
 	})
 
 	if appruntime.EmbeddedWorkersEnabledFromEnv() {

@@ -59,10 +59,14 @@ func (h *CollaborationHandler) handleJoinRoom(c *gin.Context) {
 	state, err := h.service.JoinRoom(c.Request.Context(), orgID, claims.UserID, roomID)
 	if err != nil {
 		code := ""
+		status := http.StatusBadRequest
 		if errors.Is(err, collaboration.ErrRoomAccessDenied) {
 			code = "ROOM_ACCESS_DENIED"
+		} else if errors.Is(err, collaboration.ErrRoomParticipantLimit) {
+			code = "ROOM_PARTICIPANT_LIMIT_REACHED"
+			status = http.StatusConflict
 		}
-		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
+		JSONErrorWithCode(c, status, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"room": toRoomStateResponse(*state)})

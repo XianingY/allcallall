@@ -30,4 +30,4 @@ cd "${SCRIPT_DIR}"
 docker compose -f docker-compose.production.yml up -d --build
 docker compose -f docker-compose.production.yml ps
 
-echo "已启动生产服务，健康检查: curl http://localhost/api/v1/health"
+echo "已启动 Beta 服务，存活检查: https://localhost/api/v1/health，就绪检查: https://localhost/api/v1/ready"

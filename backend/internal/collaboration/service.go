@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,6 +27,7 @@ var (
 	ErrOrganizationAccessDenied  = errors.New("organization access denied")
 	ErrConversationAccessDenied  = errors.New("conversation access denied")
 	ErrRoomAccessDenied          = errors.New("room access denied")
+	ErrRoomParticipantLimit      = errors.New("room participant limit reached")
 	ErrRecordingNotAllowed       = errors.New("recording not allowed")
 	ErrTranscriptionNotRetryable = errors.New("recording transcription is not retryable")
 	ErrInviteEmailMismatch       = errors.New("invite email mismatch")
@@ -41,23 +43,35 @@ type counterRecorder interface {
 }
 
 type Service struct {
-	db          *gorm.DB
-	users       *user.Service
-	publisher   EventPublisher
-	media       *media.Engine
-	storage     storage.RecordingStorage
-	metrics     counterRecorder
-	outbox      *events.Store
-	transcriber transcription.Provider
+	db                  *gorm.DB
+	users               *user.Service
+	publisher           EventPublisher
+	media               *media.Engine
+	storage             storage.RecordingStorage
+	metrics             counterRecorder
+	outbox              *events.Store
+	transcriber         transcription.Provider
+	maxRoomParticipants int
 }
 
 func NewService(db *gorm.DB, users *user.Service) *Service {
-	svc := &Service{db: db, users: users, outbox: events.NewStore(db)}
+	maxRoomParticipants := 6
+	if configured, err := strconv.Atoi(strings.TrimSpace(os.Getenv("ROOM_MAX_PARTICIPANTS"))); err == nil && configured > 0 {
+		maxRoomParticipants = configured
+	}
+	svc := &Service{db: db, users: users, outbox: events.NewStore(db), maxRoomParticipants: maxRoomParticipants}
 	svc.metrics = metrics.NewCounterStore()
 	if localStorage, err := storage.NewRecordingStorage(storage.Config{Driver: storage.DriverLocal}); err == nil {
 		svc.storage = localStorage
 	}
 	return svc
+}
+
+func (s *Service) WithMaxRoomParticipants(limit int) *Service {
+	if limit > 0 {
+		s.maxRoomParticipants = limit
+	}
+	return s
 }
 
 func (s *Service) WithPublisher(publisher EventPublisher) {

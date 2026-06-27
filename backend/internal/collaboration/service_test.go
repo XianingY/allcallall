@@ -132,6 +132,36 @@ func createTestUser(t *testing.T, db *gorm.DB, email, displayName string) models
 	return item
 }
 
+func TestJoinRoomEnforcesParticipantLimit(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	svc.WithMaxRoomParticipants(1)
+	ctx := context.Background()
+
+	owner := createTestUser(t, db, "room-owner@example.com", "Owner")
+	guest := createTestUser(t, db, "room-guest@example.com", "Guest")
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Limited Room Org")
+	if err != nil {
+		t.Fatalf("create organization failed: %v", err)
+	}
+	if err := db.Create(&models.OrganizationMember{
+		OrganizationID: org.ID,
+		UserID:         guest.ID,
+		Role:           models.OrganizationRoleMember,
+		JoinedAt:       time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("add guest failed: %v", err)
+	}
+	room, err := svc.CreateRoom(ctx, org.ID, owner.ID, CreateRoomInput{Title: "One seat"})
+	if err != nil {
+		t.Fatalf("create room failed: %v", err)
+	}
+
+	_, err = svc.JoinRoom(ctx, org.ID, guest.ID, room.Room.ID)
+	if !errors.Is(err, ErrRoomParticipantLimit) {
+		t.Fatalf("expected participant limit error, got %v", err)
+	}
+}
+
 func TestRealtimeEventsAreRecipientScopedAndReplayable(t *testing.T) {
 	svc, db, _ := newServiceTestEnv(t)
 	ctx := context.Background()

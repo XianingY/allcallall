@@ -1,10 +1,48 @@
 package runtime
 
 import (
+	"fmt"
+	"time"
+
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/models"
 )
+
+const baselineMigrationVersion = "000001"
+
+type schemaMigration struct {
+	Version   string    `gorm:"primaryKey;size:32"`
+	AppliedAt time.Time `gorm:"not null"`
+}
+
+func (schemaMigration) TableName() string { return "schema_migrations" }
+
+// RunMigrations applies the ordered schema migrations exactly once.
+func RunMigrations(db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("database is required")
+	}
+	if err := db.AutoMigrate(&schemaMigration{}); err != nil {
+		return fmt.Errorf("create schema migrations table: %w", err)
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&schemaMigration{}).Where("version = ?", baselineMigrationVersion).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return nil
+		}
+		if err := AutoMigrate(tx); err != nil {
+			return fmt.Errorf("apply migration %s: %w", baselineMigrationVersion, err)
+		}
+		if err := tx.Create(&schemaMigration{Version: baselineMigrationVersion, AppliedAt: time.Now()}).Error; err != nil {
+			return fmt.Errorf("record migration %s: %w", baselineMigrationVersion, err)
+		}
+		return nil
+	})
+}
 
 func AutoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(

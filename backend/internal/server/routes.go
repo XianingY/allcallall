@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -8,6 +9,8 @@ import (
 	"github.com/allcallall/backend/internal/handlers"
 	"github.com/allcallall/backend/internal/metrics"
 )
+
+type ReadinessCheck func(context.Context) error
 
 // RouteDependencies 路由所需依赖
 // RouteDependencies bundles handlers and middleware.
@@ -26,6 +29,7 @@ type RouteDependencies struct {
 	TranslationWS    *handlers.TranslationWSHandler
 	AuthMiddleware   gin.HandlerFunc
 	Metrics          *metrics.CounterStore
+	ReadinessChecks  map[string]ReadinessCheck
 }
 
 // RegisterRoutes 注册所有 HTTP 路由
@@ -39,16 +43,7 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 	}
 
 	api := router.Group("/api/v1")
-
-	// 健康检查
-	api.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-	if deps.Metrics != nil {
-		api.GET("/metrics", func(c *gin.Context) {
-			c.Data(http.StatusOK, "text/plain; version=0.0.4", []byte(deps.Metrics.RenderPrometheus()))
-		})
-	}
+	registerHealthRoutes(api, deps)
 
 	authGroup := api.Group("/auth")
 	deps.AuthHandler.RegisterRoutes(authGroup)
@@ -100,5 +95,34 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 		if deps.TranslationWS != nil {
 			protected.GET("/translation/ws", deps.TranslationWS.Handle)
 		}
+	}
+}
+
+func registerHealthRoutes(api *gin.RouterGroup, deps RouteDependencies) {
+
+	// 健康检查
+	api.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+	api.GET("/ready", func(c *gin.Context) {
+		failures := make(map[string]string)
+		for name, check := range deps.ReadinessChecks {
+			if check == nil {
+				continue
+			}
+			if err := check(c.Request.Context()); err != nil {
+				failures[name] = err.Error()
+			}
+		}
+		if len(failures) > 0 {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": failures})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ready"})
+	})
+	if deps.Metrics != nil {
+		api.GET("/metrics", func(c *gin.Context) {
+			c.Data(http.StatusOK, "text/plain; version=0.0.4", []byte(deps.Metrics.RenderPrometheus()))
+		})
 	}
 }

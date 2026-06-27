@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/media"
@@ -149,8 +150,22 @@ func (s *Service) JoinRoom(ctx context.Context, organizationID, userID, roomID u
 	s.metrics.Inc("meeting_join_total")
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var room models.CallRoom
-		if err := tx.Where("id = ? AND organization_id = ?", roomID, organizationID).Take(&room).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND organization_id = ?", roomID, organizationID).Take(&room).Error; err != nil {
 			return err
+		}
+		var existing models.CallRoomMember
+		existingErr := tx.Where("room_id = ? AND user_id = ? AND left_at IS NULL", roomID, userID).Take(&existing).Error
+		if existingErr != nil && !errors.Is(existingErr, gorm.ErrRecordNotFound) {
+			return existingErr
+		}
+		if errors.Is(existingErr, gorm.ErrRecordNotFound) {
+			var activeParticipants int64
+			if err := tx.Model(&models.CallRoomMember{}).Where("room_id = ? AND left_at IS NULL", roomID).Count(&activeParticipants).Error; err != nil {
+				return err
+			}
+			if activeParticipants >= int64(s.maxRoomParticipants) {
+				return ErrRoomParticipantLimit
+			}
 		}
 		member := models.CallRoomMember{
 			RoomID:   roomID,

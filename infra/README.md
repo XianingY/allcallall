@@ -11,6 +11,7 @@ Infrastructure assets for local development and interview/demo runtime profiles.
 ## Files
 
 - `docker-compose.yml`: local MySQL/Redis plus optional worker, Kafka-compatible, and Elasticsearch profiles.
+- `docker-compose.production.yml`: TLS Web/API, migration job, MySQL, Redis, persistent recordings, and Coturn Beta stack.
 
 Older production-specific Compose and tunnel notes were removed from the maintained docs because they were host-specific. Use the deployment guide as the current source of truth.
 
@@ -28,4 +29,7 @@ docker compose -f infra/docker-compose.yml \
   --profile microservices \
   --profile interview-infra \
   up api user-service outbox-worker data-worker search-worker kafka elasticsearch
+
+# Validate the Beta stack after creating .env and infra/ssl certificates
+docker compose --env-file .env -f infra/docker-compose.production.yml config
 ```

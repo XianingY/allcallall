@@ -70,6 +70,7 @@ Realtime translation remains configurable in YAML, but its mobile UI entry point
 | `AGENT_OPENAI_API_KEY` | API key for `openai_compatible`. |
 | `AGENT_OPENAI_TIMEOUT_MS` | Optional request timeout. |
 | `AGENT_OPENAI_MAX_TOKENS` | Optional response token cap. |
+| `ROOM_MAX_PARTICIPANTS` | Maximum active/invited members in a meeting room; defaults to `6`. |
 | `ELASTICSEARCH_URL` | Enables Elasticsearch search and chunk indexing. |
 | `ELASTICSEARCH_INDEX` | Message index name, default `allcallall_messages`. |
 | `ELASTICSEARCH_USERNAME` | Optional basic auth username. |
@@ -81,6 +82,13 @@ Realtime translation remains configurable in YAML, but its mobile UI entry point
 | --- | --- |
 | `EMBEDDED_WORKERS` | Default enabled. Set `0` to run API without embedded workers. |
 | `WORKER_ID` | Stable worker identity for outbox claims. |
+
+## Database Lifecycle
+
+| Variable | Purpose |
+| --- | --- |
+| `APP_ENV` | `production` and `beta` disable automatic schema migration by default. |
+| `DB_AUTO_MIGRATE` | Explicitly enables/disables startup migration. Keep `0` in Beta/production and run `/app/migrate` first. |
 | `OUTBOX_WORKER_INTERVAL_SEC` | Outbox polling interval. |
 | `OUTBOX_WORKER_BATCH_SIZE` | Outbox claim batch size. |
 | `OUTBOX_WORKER_MAX_ATTEMPTS` | Retry budget before permanent failure. |

@@ -1,0 +1,13 @@
+.git
+.github
+.playwright-cli
+backend
+desktop
+docs
+mobile/node_modules
+mobile/.expo
+mobile/dist
+mobile/android
+mobile/ios
+output
+scripts
