@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { Bot, Building2, CalendarDays, ContactRound, FileAudio, Inbox, Menu, Settings, Target, X, ListTodo, BookOpen } from "lucide-react";
+import { Bot, Building2, CalendarDays, ContactRound, FileAudio, Inbox, LogOut, Menu, Settings, Target, X, ListTodo, BookOpen } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import clsx from "clsx";
+import { useAuth } from "@/auth/AuthProvider";
+import { useOrganization } from "@/organizations/OrganizationProvider";
 
 const nav = [
   ["/inbox", "nav.inbox", Inbox], ["/meetings", "nav.meetings", CalendarDays],
@@ -15,6 +17,8 @@ const nav = [
 export function AppShell() {
   const [open, setOpen] = useState(false);
   const { t } = useTranslation();
+  const { user, logout } = useAuth();
+  const { organizations, activeOrganization, select } = useOrganization();
   return (
     <div className="min-h-screen bg-canvas text-ink">
       <header className="fixed inset-x-0 top-0 z-30 flex h-14 items-center border-b border-line bg-panel px-4 lg:hidden">
@@ -27,9 +31,13 @@ export function AppShell() {
           <div><div className="text-lg font-bold">AllCallAll</div><div className="text-xs text-muted">{t("brand.tagline")}</div></div>
           <button className="icon-button lg:hidden" aria-label="关闭导航" onClick={() => setOpen(false)}><X size={19} /></button>
         </div>
+        <div className="border-b border-line p-3">
+          <label className="workspace-picker"><span>当前组织</span><select aria-label="当前组织" value={activeOrganization?.id ?? ""} onChange={(event) => void select(Number(event.target.value))}>{organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        </div>
         <nav className="flex-1 space-y-1 overflow-y-auto p-3" aria-label="主导航">
           {nav.map(([to, label, Icon]) => <NavLink key={to} to={to} onClick={() => setOpen(false)} className={({ isActive }) => clsx("nav-link", isActive && "nav-link-active")}><Icon size={18} /><span>{label.startsWith("nav.") ? t(label) : label}</span></NavLink>)}
         </nav>
+        <div className="sidebar-account"><div className="account-avatar">{user?.display_name.slice(0, 1).toUpperCase()}</div><div className="min-w-0 flex-1"><strong>{user?.display_name}</strong><span>{user?.email}</span></div><button className="icon-button" title="退出" aria-label="退出" onClick={() => void logout()}><LogOut size={17} /></button></div>
       </aside>
       <main className="min-h-screen pt-14 lg:ml-60 lg:pt-0"><Outlet /></main>
     </div>

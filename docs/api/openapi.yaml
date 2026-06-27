@@ -12,99 +12,184 @@ paths:
     post:
       security: []
       operationId: login
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/LoginRequest' }
+      requestBody: { $ref: '#/components/requestBodies/Login' }
       responses:
-        '200':
-          description: Authenticated
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '200': { $ref: '#/components/responses/Auth' }
         '401': { $ref: '#/components/responses/Error' }
   /auth/register:
     post:
       security: []
       operationId: register
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      requestBody: { $ref: '#/components/requestBodies/Register' }
       responses:
-        '201':
-          description: Registered
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '201': { $ref: '#/components/responses/Auth' }
         '400': { $ref: '#/components/responses/Error' }
   /auth/refresh:
     post:
       security: []
       operationId: refreshSession
       responses:
-        '200':
-          description: Refreshed
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '200': { $ref: '#/components/responses/Auth' }
         '401': { $ref: '#/components/responses/Error' }
   /auth/logout:
     post:
       security: []
       operationId: logout
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/logout-all:
+    post:
+      operationId: logoutAll
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/sessions:
+    get:
+      operationId: listRefreshSessions
       responses:
-        '200': { $ref: '#/components/responses/Success' }
+        '200':
+          description: Active and historical browser sessions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessions]
+                properties:
+                  sessions: { type: array, items: { $ref: '#/components/schemas/RefreshSession' } }
+  /auth/sessions/{sessionId}:
+    delete:
+      operationId: revokeRefreshSession
+      parameters:
+        - { name: sessionId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/password-reset/send:
+    post:
+      security: []
+      operationId: sendPasswordReset
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [email], properties: { email: { type: string, format: email } } } } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /auth/password-reset/confirm:
+    post:
+      security: []
+      operationId: confirmPasswordReset
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PasswordResetRequest' } } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /email/send-verification-code:
+    post:
+      security: []
+      operationId: sendVerificationCode
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/VerificationCodeRequest' } } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /email/verify-code:
+    post:
+      security: []
+      operationId: verifyEmailCode
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/VerifyCodeRequest' } } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
   /users/me:
     get:
       operationId: getCurrentUser
       responses:
         '200':
-          description: Current user
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [user]
-                properties: { user: { $ref: '#/components/schemas/User' } }
+          description: Current user.
+          content: { application/json: { schema: { type: object, required: [user], properties: { user: { $ref: '#/components/schemas/User' } } } } }
+  /users/change-password:
+    post:
+      operationId: changePassword
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /users/blocks:
+    get:
+      operationId: listBlocks
+      responses:
+        '200':
+          description: Blocked users.
+          content: { application/json: { schema: { type: object, required: [blocks], properties: { blocks: { type: array, items: { $ref: '#/components/schemas/UserBlock' } } } } } }
+    post:
+      operationId: blockUser
+      responses: { '201': { $ref: '#/components/responses/Success' } }
+  /users/blocks/{blockedUserId}:
+    delete:
+      operationId: unblockUser
+      parameters:
+        - { name: blockedUserId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /users/reports:
+    post:
+      operationId: reportUser
+      responses: { '201': { $ref: '#/components/responses/Success' } }
+  /users/me/deletion:
+    post:
+      operationId: deleteAccount
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /legal/current:
+    get:
+      security: []
+      operationId: getCurrentLegal
+      responses:
+        '200':
+          description: Current legal document versions and links.
+          content: { application/json: { schema: { type: object, required: [legal], properties: { legal: { $ref: '#/components/schemas/LegalInfo' } } } } }
+  /legal/accept:
+    post:
+      operationId: acceptCurrentLegal
+      responses: { '200': { $ref: '#/components/responses/Success' } }
   /organizations:
     get:
       operationId: listOrganizations
       responses:
         '200':
-          description: Organizations
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [organizations]
-                properties:
-                  organizations:
-                    type: array
-                    items: { $ref: '#/components/schemas/Organization' }
+          description: Organizations.
+          content: { application/json: { schema: { type: object, required: [organizations], properties: { organizations: { type: array, items: { $ref: '#/components/schemas/Organization' } } } } } }
+    post:
+      operationId: createOrganization
+      responses:
+        '201':
+          description: Created organization.
+          content: { application/json: { schema: { type: object, required: [organization], properties: { organization: { $ref: '#/components/schemas/Organization' } } } } }
+  /organizations/{organizationId}/switch:
+    post:
+      operationId: switchOrganization
+      parameters:
+        - { name: organizationId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Selected organization.
+          content: { application/json: { schema: { type: object, required: [organization], properties: { organization: { $ref: '#/components/schemas/Organization' } } } } }
+  /organizations/invites/{code}/accept:
+    post:
+      operationId: acceptOrganizationInvite
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  requestBodies:
+    Login:
+      required: true
+      content: { application/json: { schema: { $ref: '#/components/schemas/LoginRequest' } } }
+    Register:
+      required: true
+      content: { application/json: { schema: { $ref: '#/components/schemas/RegisterRequest' } } }
   responses:
+    Auth:
+      description: Authenticated.
+      content: { application/json: { schema: { $ref: '#/components/schemas/AuthResponse' } } }
     Error:
-      description: Error
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/APIError' }
+      description: Error.
+      content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } }
     Success:
-      description: Success
-      content:
-        application/json:
-          schema:
-            type: object
-            required: [success]
-            properties: { success: { type: boolean } }
+      description: Success.
+      content: { application/json: { schema: { type: object, properties: { success: { type: boolean }, message: { type: string } } } } }
   schemas:
     APIError:
       type: object
-      required: [success, code, error]
+      required: [success, error]
       properties:
         success: { type: boolean, const: false }
         code: { type: string }
@@ -123,6 +208,8 @@ components:
       properties:
         id: { type: integer, format: int64 }
         name: { type: string }
+        slug: { type: string }
+        description: { type: string }
         role: { type: string, enum: [owner, admin, member] }
     AuthResponse:
       type: object
@@ -144,3 +231,60 @@ components:
         password: { type: string, minLength: 8 }
         display_name: { type: string }
         accept_current_legal: { type: boolean }
+    VerificationCodeRequest:
+      type: object
+      required: [email, purpose]
+      properties:
+        email: { type: string, format: email }
+        purpose: { type: string, enum: [register, password_reset, account_deletion] }
+    VerifyCodeRequest:
+      allOf:
+        - { $ref: '#/components/schemas/VerificationCodeRequest' }
+        - type: object
+          required: [code]
+          properties: { code: { type: string, pattern: '^[0-9]{6}$' } }
+    PasswordResetRequest:
+      type: object
+      required: [email, code, new_password, confirm_password]
+      properties:
+        email: { type: string, format: email }
+        code: { type: string }
+        new_password: { type: string, minLength: 8 }
+        confirm_password: { type: string, minLength: 8 }
+    LegalInfo:
+      type: object
+      required: [terms_version, privacy_version, terms_url, privacy_policy_url, support_email, account_deletion_url]
+      properties:
+        terms_version: { type: string }
+        privacy_version: { type: string }
+        terms_url: { type: string }
+        privacy_policy_url: { type: string }
+        support_email: { type: string, format: email }
+        account_deletion_url: { type: string }
+    RefreshSession:
+      type: object
+      required: [id, status, current, user_agent, ip_address, expires_at, invalid_use_count, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        status: { type: string }
+        current: { type: boolean }
+        user_agent: { type: string }
+        ip_address: { type: string }
+        expires_at: { type: string, format: date-time }
+        last_used_at: { type: [string, 'null'], format: date-time }
+        revoked_at: { type: [string, 'null'], format: date-time }
+        invalid_use_count: { type: integer }
+        last_invalid_use_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    UserBlock:
+      type: object
+      required: [id, blocked_user_id, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        blocked_user_id: { type: integer, format: int64 }
+        blocked_user_email: { type: string }
+        blocked_user_display_name: { type: string }
+        blocked_user_status: { type: string }
+        blocked_user_deleted_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }

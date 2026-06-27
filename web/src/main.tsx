@@ -4,7 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 
 import { App } from "@/app/App";
+import { AuthProvider } from "@/auth/AuthProvider";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
+import { OrganizationProvider } from "@/organizations/OrganizationProvider";
 import "@/i18n";
 import "@/styles.css";
 
@@ -19,9 +21,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <AppErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
+        <AuthProvider>
+          <OrganizationProvider>
+            <BrowserRouter>
+              <App />
+            </BrowserRouter>
+          </OrganizationProvider>
+        </AuthProvider>
       </QueryClientProvider>
     </AppErrorBoundary>
   </React.StrictMode>,
