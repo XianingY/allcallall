@@ -30,6 +30,7 @@ let refreshPromise: Promise<AuthPayload> | null = null;
 export const setAccessToken = (token: string | null) => { accessToken = token; };
 export const getAccessToken = () => accessToken;
 export const setOrganizationId = (id: number | null) => { organizationId = id; };
+export const getOrganizationId = () => organizationId;
 
 const parseResponse = async <T>(response: Response): Promise<T> => {
   if (response.status === 204) return undefined as T;

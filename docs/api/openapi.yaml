@@ -660,3 +660,263 @@ components:
         transcription: { oneOf: [{ $ref: '#/components/schemas/RecordingTranscription' }, { type: 'null' }] }
         segments: { type: array, items: { $ref: '#/components/schemas/MeetingTranscriptSegment' } }
         next_after_id: { type: [integer, 'null'], format: int64 }
+    AgentRun:
+      type: object
+      required: [id, organization_id, user_id, conversation_id, source, status, goal, summary, action_items, next_step, risk_flags, attempts, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        user_id: { type: integer, format: int64 }
+        conversation_id: { type: integer, format: int64 }
+        source: { type: string }
+        status: { type: string }
+        goal: { type: string }
+        summary: { type: string }
+        action_items: { type: array, items: { type: string } }
+        next_step: { type: string }
+        risk_flags: { type: array, items: { type: string } }
+        error_message: { type: string }
+        attempts: { type: integer }
+        started_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AgentStep:
+      type: object
+      required: [id, run_id, name, status, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        run_id: { type: integer, format: int64 }
+        name: { type: string }
+        status: { type: string }
+        input_json: { type: string }
+        output_json: { type: string }
+        error_message: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AgentToolCall:
+      type: object
+      required: [id, run_id, tool_name, status, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        run_id: { type: integer, format: int64 }
+        step_id: { type: [integer, 'null'], format: int64 }
+        tool_name: { type: string }
+        status: { type: string }
+        input_json: { type: string }
+        output_json: { type: string }
+        error_message: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AgentCitation:
+      type: object
+      required: [source_type, source_id, title, snippet, score]
+      properties:
+        chunk_id: { type: string }
+        source_type: { type: string }
+        source_id: { type: string }
+        source_title: { type: string }
+        title: { type: string }
+        snippet: { type: string }
+        origin_type: { type: string }
+        origin_url: { type: string }
+        conversation_id: { type: integer, format: int64 }
+        knowledge_source_id: { type: integer, format: int64 }
+        version: { type: integer }
+        retrieval_mode: { type: string }
+        score: { type: number }
+        recording_session_id: { type: integer, format: int64 }
+        recording_file_id: { type: integer, format: int64 }
+        transcript_segment_id: { type: integer, format: int64 }
+        start_ms: { type: integer, format: int64 }
+        end_ms: { type: integer, format: int64 }
+    AgentRunResult:
+      type: object
+      required: [run, steps, tool_calls, trace, citations]
+      properties:
+        run: { $ref: '#/components/schemas/AgentRun' }
+        steps: { type: array, items: { $ref: '#/components/schemas/AgentStep' } }
+        tool_calls: { type: array, items: { $ref: '#/components/schemas/AgentToolCall' } }
+        trace: { type: array, items: { type: object, additionalProperties: true } }
+        citations: { type: array, items: { $ref: '#/components/schemas/AgentCitation' } }
+    WorkflowRun:
+      type: object
+      required: [id, organization_id, user_id, conversation_id, status, goal, summary, action_items, next_step, risk_flags, attempts, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        user_id: { type: integer, format: int64 }
+        conversation_id: { type: integer, format: int64 }
+        agent_run_id: { type: [integer, 'null'], format: int64 }
+        status: { type: string }
+        workflow_type: { type: string }
+        workflow_version: { type: string }
+        preset: { type: string }
+        state_json: { type: string }
+        goal: { type: string }
+        summary: { type: string }
+        action_items: { type: array, items: { type: string } }
+        next_step: { type: string }
+        risk_flags: { type: array, items: { type: string } }
+        error_message: { type: string }
+        attempts: { type: integer }
+        started_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    WorkflowTask:
+      type: object
+      required: [id, workflow_run_id, organization_id, name, role, status, attempts, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        workflow_run_id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        name: { type: string }
+        role: { type: string }
+        status: { type: string }
+        depends_on_json: { type: string }
+        input_json: { type: string }
+        output_json: { type: string }
+        error_message: { type: string }
+        attempts: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ToolApproval:
+      type: object
+      required: [id, workflow_run_id, task_id, organization_id, tool_call_id, tool_name, status, requested_by, requested_at, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        workflow_run_id: { type: integer, format: int64 }
+        task_id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        tool_call_id: { type: string }
+        tool_name: { type: string }
+        status: { type: string }
+        input_json: { type: string }
+        output_json: { type: string }
+        error_message: { type: string }
+        requested_by: { type: integer, format: int64 }
+        decided_by: { type: [integer, 'null'], format: int64 }
+        decision: { type: string }
+        requested_at: { type: string, format: date-time }
+        decided_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    WorkflowResult:
+      type: object
+      required: [workflow, tasks, messages, approvals, history, signals, timers, citations]
+      properties:
+        workflow: { $ref: '#/components/schemas/WorkflowRun' }
+        tasks: { type: array, items: { $ref: '#/components/schemas/WorkflowTask' } }
+        messages: { type: array, items: { type: object, additionalProperties: true } }
+        approvals: { type: array, items: { $ref: '#/components/schemas/ToolApproval' } }
+        history: { type: array, items: { type: object, additionalProperties: true } }
+        signals: { type: array, items: { type: object, additionalProperties: true } }
+        timers: { type: array, items: { type: object, additionalProperties: true } }
+        citations: { type: array, items: { $ref: '#/components/schemas/AgentCitation' } }
+    KnowledgeSource:
+      type: object
+      required: [id, organization_id, created_by, kind, title, status, authority_score, dedupe_status, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        conversation_id: { type: [integer, 'null'], format: int64 }
+        created_by: { type: integer, format: int64 }
+        source_group_id: { type: [integer, 'null'], format: int64 }
+        canonical_source_id: { type: [integer, 'null'], format: int64 }
+        kind: { type: string }
+        title: { type: string }
+        uri: { type: string }
+        file_name: { type: string }
+        content_type: { type: string }
+        authority_score: { type: number }
+        authority_label: { type: string }
+        dedupe_status: { type: string }
+        status: { type: string }
+        active_version_id: { type: [integer, 'null'], format: int64 }
+        last_error: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    KnowledgeSourceVersion:
+      type: object
+      required: [id, source_id, version, content_hash, status, chunk_count, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        source_id: { type: integer, format: int64 }
+        version: { type: integer }
+        content_hash: { type: string }
+        normalized_hash: { type: string }
+        status: { type: string }
+        chunk_count: { type: integer }
+        last_error: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        activated_at: { type: [string, 'null'], format: date-time }
+    RAGChunk:
+      type: object
+      required: [id, source_id, source_version_id, chunk_index, start_offset, end_offset, content_hash, snippet, index_status, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        source_id: { type: integer, format: int64 }
+        source_version_id: { type: integer, format: int64 }
+        chunk_index: { type: integer }
+        start_offset: { type: integer }
+        end_offset: { type: integer }
+        content_hash: { type: string }
+        snippet: { type: string }
+        index_status: { type: string }
+        last_error: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    KnowledgeSourceDetail:
+      type: object
+      required: [source, versions, chunks]
+      properties:
+        source: { $ref: '#/components/schemas/KnowledgeSource' }
+        versions: { type: array, items: { $ref: '#/components/schemas/KnowledgeSourceVersion' } }
+        chunks: { type: array, items: { $ref: '#/components/schemas/RAGChunk' } }
+    SourceGroup:
+      type: object
+      required: [id, organization_id, title, status, authority_score, created_by, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        canonical_source_id: { type: [integer, 'null'], format: int64 }
+        title: { type: string }
+        status: { type: string }
+        authority_score: { type: number }
+        authority_label: { type: string }
+        created_by: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    DuplicateCandidate:
+      type: object
+      required: [id, organization_id, source_id, candidate_source_id, duplicate_kind, similarity, status, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        source_group_id: { type: [integer, 'null'], format: int64 }
+        source_id: { type: integer, format: int64 }
+        candidate_source_id: { type: integer, format: int64 }
+        duplicate_kind: { type: string }
+        similarity: { type: number }
+        status: { type: string }
+        decision: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    DeadLetter:
+      type: object
+      required: [id, aggregate_type, aggregate_id, event, payload_json, idempotency_key, status, attempts, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        aggregate_type: { type: string }
+        aggregate_id: { type: integer, format: int64 }
+        event: { type: string }
+        payload_json: { type: string }
+        idempotency_key: { type: string }
+        request_id: { type: string }
+        status: { type: string }
+        attempts: { type: integer }
+        last_error: { type: string }
+        available_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: string, format: date-time }

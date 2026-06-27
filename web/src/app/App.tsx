@@ -2,7 +2,6 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AnonymousRoute, ProtectedRoute } from "@/auth/ProtectedRoute";
 import { AppShell } from "@/components/AppShell";
 import { OrganizationsPage } from "@/pages/OrganizationsPage";
-import { PlaceholderPage } from "@/pages/PlaceholderPage";
 import { ForgotPasswordPage } from "@/pages/auth/ForgotPasswordPage";
 import { InvitePage } from "@/pages/auth/InvitePage";
 import { LoginPage } from "@/pages/auth/LoginPage";
@@ -21,10 +20,8 @@ import { MeetingPreflightPage } from "@/pages/meetings/MeetingPreflightPage";
 import { MeetingRoomPage } from "@/pages/meetings/MeetingRoomPage";
 import { RecordingsPage } from "@/pages/recordings/RecordingsPage";
 import { RecordingTranscriptPage } from "@/pages/recordings/RecordingTranscriptPage";
-
-const pages: Array<[string, string]> = [
-  ["agent-lab", "Agent Lab"], ["knowledge", "知识库"],
-];
+import { AgentLabPage } from "@/pages/agent/AgentLabPage";
+import { KnowledgePage } from "@/pages/knowledge/KnowledgePage";
 
 export function App() {
   return <Routes>
@@ -37,7 +34,8 @@ export function App() {
     <Route path="/invite/:code" element={<InvitePage />} />
     <Route element={<ProtectedRoute />}>
       <Route element={<AppShell />}>
-        {pages.map(([path, title]) => <Route key={path} path={`/${path}`} element={<PlaceholderPage title={title} />} />)}
+        <Route path="/agent-lab" element={<AgentLabPage />} />
+        <Route path="/knowledge" element={<KnowledgePage />} />
         <Route path="/inbox" element={<InboxPage />} />
         <Route path="/conversations/:conversationId" element={<InboxPage />} />
         <Route path="/contacts" element={<ContactsPage />} />

@@ -891,6 +891,328 @@ export interface components {
             /** Format: int64 */
             next_after_id?: number | null;
         };
+        AgentRun: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            user_id: number;
+            /** Format: int64 */
+            conversation_id: number;
+            source: string;
+            status: string;
+            goal: string;
+            summary: string;
+            action_items: string[];
+            next_step: string;
+            risk_flags: string[];
+            error_message?: string;
+            attempts: number;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        AgentStep: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            run_id: number;
+            name: string;
+            status: string;
+            input_json?: string;
+            output_json?: string;
+            error_message?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        AgentToolCall: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            run_id: number;
+            /** Format: int64 */
+            step_id?: number | null;
+            tool_name: string;
+            status: string;
+            input_json?: string;
+            output_json?: string;
+            error_message?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        AgentCitation: {
+            chunk_id?: string;
+            source_type: string;
+            source_id: string;
+            source_title?: string;
+            title: string;
+            snippet: string;
+            origin_type?: string;
+            origin_url?: string;
+            /** Format: int64 */
+            conversation_id?: number;
+            /** Format: int64 */
+            knowledge_source_id?: number;
+            version?: number;
+            retrieval_mode?: string;
+            score: number;
+            /** Format: int64 */
+            recording_session_id?: number;
+            /** Format: int64 */
+            recording_file_id?: number;
+            /** Format: int64 */
+            transcript_segment_id?: number;
+            /** Format: int64 */
+            start_ms?: number;
+            /** Format: int64 */
+            end_ms?: number;
+        };
+        AgentRunResult: {
+            run: components["schemas"]["AgentRun"];
+            steps: components["schemas"]["AgentStep"][];
+            tool_calls: components["schemas"]["AgentToolCall"][];
+            trace: {
+                [key: string]: unknown;
+            }[];
+            citations: components["schemas"]["AgentCitation"][];
+        };
+        WorkflowRun: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            user_id: number;
+            /** Format: int64 */
+            conversation_id: number;
+            /** Format: int64 */
+            agent_run_id?: number | null;
+            status: string;
+            workflow_type?: string;
+            workflow_version?: string;
+            preset?: string;
+            state_json?: string;
+            goal: string;
+            summary: string;
+            action_items: string[];
+            next_step: string;
+            risk_flags: string[];
+            error_message?: string;
+            attempts: number;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        WorkflowTask: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            workflow_run_id: number;
+            /** Format: int64 */
+            organization_id: number;
+            name: string;
+            role: string;
+            status: string;
+            depends_on_json?: string;
+            input_json?: string;
+            output_json?: string;
+            error_message?: string;
+            attempts: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ToolApproval: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            workflow_run_id: number;
+            /** Format: int64 */
+            task_id: number;
+            /** Format: int64 */
+            organization_id: number;
+            tool_call_id: string;
+            tool_name: string;
+            status: string;
+            input_json?: string;
+            output_json?: string;
+            error_message?: string;
+            /** Format: int64 */
+            requested_by: number;
+            /** Format: int64 */
+            decided_by?: number | null;
+            decision?: string;
+            /** Format: date-time */
+            requested_at: string;
+            /** Format: date-time */
+            decided_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        WorkflowResult: {
+            workflow: components["schemas"]["WorkflowRun"];
+            tasks: components["schemas"]["WorkflowTask"][];
+            messages: {
+                [key: string]: unknown;
+            }[];
+            approvals: components["schemas"]["ToolApproval"][];
+            history: {
+                [key: string]: unknown;
+            }[];
+            signals: {
+                [key: string]: unknown;
+            }[];
+            timers: {
+                [key: string]: unknown;
+            }[];
+            citations: components["schemas"]["AgentCitation"][];
+        };
+        KnowledgeSource: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            conversation_id?: number | null;
+            /** Format: int64 */
+            created_by: number;
+            /** Format: int64 */
+            source_group_id?: number | null;
+            /** Format: int64 */
+            canonical_source_id?: number | null;
+            kind: string;
+            title: string;
+            uri?: string;
+            file_name?: string;
+            content_type?: string;
+            authority_score: number;
+            authority_label?: string;
+            dedupe_status: string;
+            status: string;
+            /** Format: int64 */
+            active_version_id?: number | null;
+            last_error?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        KnowledgeSourceVersion: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            source_id: number;
+            version: number;
+            content_hash: string;
+            normalized_hash?: string;
+            status: string;
+            chunk_count: number;
+            last_error?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            activated_at?: string | null;
+        };
+        RAGChunk: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            source_id: number;
+            /** Format: int64 */
+            source_version_id: number;
+            chunk_index: number;
+            start_offset: number;
+            end_offset: number;
+            content_hash: string;
+            snippet: string;
+            index_status: string;
+            last_error?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        KnowledgeSourceDetail: {
+            source: components["schemas"]["KnowledgeSource"];
+            versions: components["schemas"]["KnowledgeSourceVersion"][];
+            chunks: components["schemas"]["RAGChunk"][];
+        };
+        SourceGroup: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            canonical_source_id?: number | null;
+            title: string;
+            status: string;
+            authority_score: number;
+            authority_label?: string;
+            /** Format: int64 */
+            created_by: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        DuplicateCandidate: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            source_group_id?: number | null;
+            /** Format: int64 */
+            source_id: number;
+            /** Format: int64 */
+            candidate_source_id: number;
+            duplicate_kind: string;
+            similarity: number;
+            status: string;
+            decision?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        DeadLetter: {
+            /** Format: int64 */
+            id: number;
+            aggregate_type: string;
+            /** Format: int64 */
+            aggregate_id: number;
+            event: string;
+            payload_json: string;
+            idempotency_key: string;
+            request_id?: string;
+            status: string;
+            attempts: number;
+            last_error?: string;
+            /** Format: date-time */
+            available_at?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
     };
     responses: {
         /** @description Authenticated. */
