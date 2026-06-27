@@ -3,6 +3,7 @@ package collaboration
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -34,8 +35,33 @@ type unreadableRecordingStorage struct {
 	storage.RecordingStorage
 }
 
+type remoteReadableRecordingStorage struct {
+	storage.RecordingStorage
+	content string
+}
+
+func (s remoteReadableRecordingStorage) OpenLocal(storage.ObjectRef) (string, bool) {
+	return "", false
+}
+
+func (s remoteReadableRecordingStorage) Open(context.Context, storage.ObjectRef) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader(s.content)), nil
+}
+
 func (s unreadableRecordingStorage) OpenLocal(storage.ObjectRef) (string, bool) {
 	return "", false
+}
+
+type retryableTranscriptionProvider struct{}
+
+func (retryableTranscriptionProvider) Name() string { return "retryable-test" }
+
+func (retryableTranscriptionProvider) TranscribeFile(context.Context, transcription.FileInput) ([]transcription.Segment, error) {
+	return nil, &transcription.ProviderError{
+		Operation: "request",
+		Retryable: true,
+		Err:       errors.New("temporary provider outage"),
+	}
 }
 
 func newServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *user.Service) {
@@ -635,8 +661,115 @@ func TestProcessRecordingTranscriptionMarksUnreadableStorageFailed(t *testing.T)
 	if err := db.Where("recording_session_id = ?", session.ID).Take(&job).Error; err != nil {
 		t.Fatalf("load transcription job failed: %v", err)
 	}
-	if job.Status != models.RecordingTranscriptionStatusFailed || !strings.Contains(job.ErrorMessage, "locally readable") {
+	if job.Status != models.RecordingTranscriptionStatusFailed || !strings.Contains(job.ErrorMessage, "transcription storage failed") {
 		t.Fatalf("expected failed job for unreadable storage, got %+v", job)
+	}
+}
+
+func TestProcessRecordingTranscriptionMaterializesRemoteStorage(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	ctx := context.Background()
+	svc.WithTranscriptionProvider(transcription.NewMockProvider())
+	svc.WithRecordingStorage(remoteReadableRecordingStorage{RecordingStorage: svc.storage, content: "remote-audio"})
+
+	owner := createTestUser(t, db, "owner-remote@example.com", "Owner")
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Remote Workspace")
+	if err != nil {
+		t.Fatalf("create organization failed: %v", err)
+	}
+	roomState, err := svc.CreateRoom(ctx, org.ID, owner.ID, CreateRoomInput{Title: "Remote recording"})
+	if err != nil {
+		t.Fatalf("create room failed: %v", err)
+	}
+	now := time.Now()
+	session := models.RecordingSession{
+		OrganizationID: org.ID,
+		RoomID:         roomState.Room.ID,
+		StartedBy:      owner.ID,
+		Status:         models.RecordingStatusStopped,
+		StartedAt:      &now,
+		StoppedAt:      &now,
+	}
+	if err := db.Create(&session).Error; err != nil {
+		t.Fatalf("create recording session failed: %v", err)
+	}
+	if err := db.Create(&models.RecordingFile{
+		RecordingSessionID: session.ID,
+		StorageDriver:      string(storage.DriverS3),
+		StorageBucket:      "recordings",
+		ObjectKey:          "meetings/remote.ogg",
+		ContentType:        "audio/ogg",
+		DurationSeconds:    1,
+	}).Error; err != nil {
+		t.Fatalf("create recording file failed: %v", err)
+	}
+
+	if err := svc.ProcessRecordingTranscription(ctx, session.ID); err != nil {
+		t.Fatalf("process remote transcription failed: %v", err)
+	}
+	var job models.RecordingTranscription
+	if err := db.Where("recording_session_id = ?", session.ID).Take(&job).Error; err != nil {
+		t.Fatalf("load transcription job failed: %v", err)
+	}
+	if job.Status != models.RecordingTranscriptionStatusReady || job.SegmentCount != 1 {
+		t.Fatalf("unexpected remote transcription job %+v", job)
+	}
+}
+
+func TestProcessRecordingTranscriptionReturnsRetryableProviderFailure(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	ctx := context.Background()
+	svc.WithTranscriptionProvider(retryableTranscriptionProvider{})
+
+	owner := createTestUser(t, db, "owner-retry@example.com", "Owner")
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Retry Workspace")
+	if err != nil {
+		t.Fatalf("create organization failed: %v", err)
+	}
+	roomState, err := svc.CreateRoom(ctx, org.ID, owner.ID, CreateRoomInput{Title: "Retry transcription"})
+	if err != nil {
+		t.Fatalf("create room failed: %v", err)
+	}
+	now := time.Now()
+	session := models.RecordingSession{
+		OrganizationID: org.ID,
+		RoomID:         roomState.Room.ID,
+		StartedBy:      owner.ID,
+		Status:         models.RecordingStatusStopped,
+		StartedAt:      &now,
+		StoppedAt:      &now,
+	}
+	if err := db.Create(&session).Error; err != nil {
+		t.Fatalf("create recording session failed: %v", err)
+	}
+	audioPath := filepath.Join(t.TempDir(), "retry.ogg")
+	if err := os.WriteFile(audioPath, []byte("audio"), 0o644); err != nil {
+		t.Fatalf("write audio failed: %v", err)
+	}
+	stored, err := svc.storage.SaveFile(ctx, audioPath, "retry/audio.ogg", "audio/ogg")
+	if err != nil {
+		t.Fatalf("save audio failed: %v", err)
+	}
+	if err := db.Create(&models.RecordingFile{
+		RecordingSessionID: session.ID,
+		StorageDriver:      string(stored.Driver),
+		ObjectKey:          stored.Key,
+		ContentType:        "audio/ogg",
+		DurationSeconds:    1,
+	}).Error; err != nil {
+		t.Fatalf("create recording file failed: %v", err)
+	}
+
+	err = svc.ProcessRecordingTranscription(ctx, session.ID)
+	if err == nil || !transcription.IsRetryable(err) {
+		t.Fatalf("expected retryable provider error, got %v", err)
+	}
+	var job models.RecordingTranscription
+	if err := db.Where("recording_session_id = ?", session.ID).Take(&job).Error; err != nil {
+		t.Fatalf("load transcription job failed: %v", err)
+	}
+	if job.Status != models.RecordingTranscriptionStatusFailed || !strings.Contains(job.ErrorMessage, "temporary provider outage") {
+		t.Fatalf("unexpected failed job %+v", job)
 	}
 }
 

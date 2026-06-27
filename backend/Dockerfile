@@ -34,7 +34,7 @@ FROM alpine:3.18
 
 RUN sed -i 's/https:\/\/dl-cdn.alpinelinux.org/https:\/\/mirrors.aliyun.com/g' \
     /etc/apk/repositories && \
-    apk add --no-cache ca-certificates
+    apk add --no-cache ca-certificates ffmpeg
 
 WORKDIR /app
 COPY --from=build /out/server ./server

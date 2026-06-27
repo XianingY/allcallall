@@ -103,9 +103,17 @@ Realtime translation remains configurable in YAML, but its mobile UI entry point
 | `RECORDING_S3_FORCE_PATH_STYLE` | `1` for MinIO/path-style services. |
 | `RECORDING_PUBLIC_BASE_URL` | Optional public base URL for object serving. |
 | `TRANSCRIPTION_ENABLED` | `1`, `true`, or `yes` enables recording-end transcription. |
-| `TRANSCRIPTION_PROVIDER` | Currently `mock`; empty defaults to `mock` when transcription is enabled. |
+| `TRANSCRIPTION_PROVIDER` | `mock` or `openai_compatible`; empty defaults to `mock` when transcription is enabled. |
+| `TRANSCRIPTION_OPENAI_BASE_URL` | Compatible API base URL; the worker calls `/audio/transcriptions`. |
+| `TRANSCRIPTION_OPENAI_API_KEY` | Optional bearer token for the compatible endpoint. |
+| `TRANSCRIPTION_OPENAI_MODEL` | Required model name for `openai_compatible`. |
+| `TRANSCRIPTION_OPENAI_LANGUAGE` | Optional source-language hint. |
+| `TRANSCRIPTION_OPENAI_TIMEOUT_SEC` | Per-request timeout, default 120 seconds. |
+| `TRANSCRIPTION_CHUNK_SECONDS` | FFmpeg chunk duration, default 600 seconds. |
+| `TRANSCRIPTION_MAX_UPLOAD_BYTES` | Maximum API upload per chunk, default 24 MiB. |
+| `TRANSCRIPTION_FFMPEG_PATH` | FFmpeg executable, default `ffmpeg`. |
 
-v1 transcription only processes locally readable recording files. S3 files are intentionally marked failed until Reader/download support is added.
+Long recordings are split into OGG chunks before upload. Local and S3-compatible recording storage are both supported; S3 objects are materialized into a bounded temporary file and removed after processing.
 
 ## gRPC, Kafka, FCM
 

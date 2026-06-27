@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,6 +14,7 @@ import (
 
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/storage"
 	"github.com/allcallall/backend/internal/transcription"
 )
 
@@ -159,10 +163,16 @@ func (s *Service) ProcessRecordingTranscription(ctx context.Context, recordingID
 
 	segments := make([]models.MeetingTranscriptSegment, 0, len(files))
 	for _, file := range files {
-		localPath, ok := s.ResolveLocalRecordingPath(RecordingFileObjectRef(file))
-		if !ok {
-			_, err := s.setRecordingTranscriptionStatus(ctx, session, room, models.RecordingTranscriptionStatusFailed, providerName, "recording storage is not locally readable", 0)
-			return err
+		localPath, cleanup, err := s.materializeRecordingForTranscription(ctx, RecordingFileObjectRef(file), filepath.Ext(file.ObjectKey))
+		if err != nil {
+			_, updateErr := s.setRecordingTranscriptionStatus(ctx, session, room, models.RecordingTranscriptionStatusFailed, providerName, err.Error(), 0)
+			if updateErr != nil {
+				return updateErr
+			}
+			if transcription.IsRetryable(err) {
+				return err
+			}
+			return nil
 		}
 		fileSegments, err := s.transcriber.TranscribeFile(ctx, transcription.FileInput{
 			OrganizationID:     session.OrganizationID,
@@ -175,9 +185,16 @@ func (s *Service) ProcessRecordingTranscription(ctx context.Context, recordingID
 			MetadataJSON:       file.MetadataJSON,
 			DurationSeconds:    file.DurationSeconds,
 		})
+		cleanup()
 		if err != nil {
 			_, updateErr := s.setRecordingTranscriptionStatus(ctx, session, room, models.RecordingTranscriptionStatusFailed, providerName, err.Error(), 0)
-			return updateErr
+			if updateErr != nil {
+				return updateErr
+			}
+			if transcription.IsRetryable(err) {
+				return err
+			}
+			return nil
 		}
 		for _, segment := range fileSegments {
 			text := strings.TrimSpace(segment.Text)
@@ -229,6 +246,49 @@ func (s *Service) ProcessRecordingTranscription(ctx context.Context, recordingID
 		s.publishRoomRecordingUpdated(ctx, session.OrganizationID, state, session.ID, "meeting.transcription.ready")
 	}
 	return nil
+}
+
+const maxTranscriptionSourceBytes = int64(512 * 1024 * 1024)
+
+func (s *Service) materializeRecordingForTranscription(ctx context.Context, objectRef storage.ObjectRef, extension string) (string, func(), error) {
+	if localPath, ok := s.ResolveLocalRecordingPath(objectRef); ok {
+		return localPath, func() {}, nil
+	}
+	if s.storage == nil {
+		return "", func() {}, &transcription.ProviderError{Operation: "storage", Err: errors.New("recording storage is not configured")}
+	}
+	reader, err := s.storage.Open(ctx, objectRef)
+	if err != nil {
+		return "", func() {}, &transcription.ProviderError{
+			Operation: "storage",
+			Retryable: !errors.Is(err, os.ErrNotExist),
+			Err:       err,
+		}
+	}
+	defer reader.Close()
+	if extension == "" || len(extension) > 10 {
+		extension = ".audio"
+	}
+	tempFile, err := os.CreateTemp("", "allcallall-recording-*"+extension)
+	if err != nil {
+		return "", func() {}, &transcription.ProviderError{Operation: "storage", Err: err}
+	}
+	cleanup := func() { _ = os.Remove(tempFile.Name()) }
+	written, copyErr := io.Copy(tempFile, io.LimitReader(reader, maxTranscriptionSourceBytes+1))
+	closeErr := tempFile.Close()
+	if copyErr != nil {
+		cleanup()
+		return "", func() {}, &transcription.ProviderError{Operation: "storage", Retryable: true, Err: copyErr}
+	}
+	if closeErr != nil {
+		cleanup()
+		return "", func() {}, &transcription.ProviderError{Operation: "storage", Err: closeErr}
+	}
+	if written > maxTranscriptionSourceBytes {
+		cleanup()
+		return "", func() {}, &transcription.ProviderError{Operation: "storage", Err: fmt.Errorf("recording exceeds %d bytes", maxTranscriptionSourceBytes)}
+	}
+	return tempFile.Name(), cleanup, nil
 }
 
 func (s *Service) markRecordingTranscriptionProcessing(ctx context.Context, session models.RecordingSession, room models.CallRoom, providerName string) error {

@@ -49,6 +49,7 @@ type ObjectRef struct {
 type RecordingStorage interface {
 	SaveFile(ctx context.Context, srcPath, objectKey, contentType string) (*ObjectRef, error)
 	SignedDownloadURL(ctx context.Context, objectRef ObjectRef, ttl time.Duration) (string, error)
+	Open(ctx context.Context, objectRef ObjectRef) (io.ReadCloser, error)
 	OpenLocal(objectRef ObjectRef) (string, bool)
 	Delete(ctx context.Context, objectRef ObjectRef) error
 }
@@ -113,6 +114,14 @@ func (s *localRecordingStorage) OpenLocal(objectRef ObjectRef) (string, bool) {
 		return "", false
 	}
 	return path, true
+}
+
+func (s *localRecordingStorage) Open(_ context.Context, objectRef ObjectRef) (io.ReadCloser, error) {
+	localPath, ok := s.OpenLocal(objectRef)
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	return os.Open(localPath)
 }
 
 func (s *localRecordingStorage) Delete(_ context.Context, objectRef ObjectRef) error {
@@ -274,6 +283,21 @@ func (s *s3RecordingStorage) SignedDownloadURL(ctx context.Context, objectRef Ob
 
 func (s *s3RecordingStorage) OpenLocal(_ ObjectRef) (string, bool) {
 	return "", false
+}
+
+func (s *s3RecordingStorage) Open(ctx context.Context, objectRef ObjectRef) (io.ReadCloser, error) {
+	bucket, key, err := s.resolveObjectRef(objectRef)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.Body, nil
 }
 
 func (s *s3RecordingStorage) Delete(ctx context.Context, objectRef ObjectRef) error {

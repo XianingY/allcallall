@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -48,6 +49,15 @@ func TestLocalRecordingStorageSaveAndResolve(t *testing.T) {
 	}
 	if downloadPath != ref.Key {
 		t.Fatalf("expected download path %s, got %s", ref.Key, downloadPath)
+	}
+	reader, err := store.Open(context.Background(), *ref)
+	if err != nil {
+		t.Fatalf("open saved file failed: %v", err)
+	}
+	opened, err := io.ReadAll(reader)
+	_ = reader.Close()
+	if err != nil || string(opened) != "hello" {
+		t.Fatalf("unexpected opened content=%q err=%v", string(opened), err)
 	}
 	if err := store.Delete(context.Background(), *ref); err != nil {
 		t.Fatalf("delete saved file failed: %v", err)
