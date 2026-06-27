@@ -458,6 +458,241 @@ export interface components {
             /** Format: date-time */
             created_at: string;
         };
+        Conversation: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            team_id?: number | null;
+            /** Format: int64 */
+            room_id?: number | null;
+            type: string;
+            title: string;
+            topic?: string;
+            status: string;
+            /** Format: int64 */
+            assignee_user_id?: number | null;
+            assignee_email?: string;
+            assignee_display_name?: string;
+            priority: string;
+            /** Format: int64 */
+            contact_id?: number | null;
+            /** Format: date-time */
+            last_internal_note_at?: string | null;
+            /** Format: date-time */
+            last_message_at?: string | null;
+            last_message_preview?: string;
+            last_message_type?: string;
+            unread_count: number;
+            /** Format: int64 */
+            active_room_id?: number | null;
+            active_room_title?: string;
+            /** Format: int64 */
+            latest_room_id?: number | null;
+            latest_room_title?: string;
+            /** Format: int64 */
+            latest_recording_id?: number | null;
+        };
+        Message: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            conversation_id: number;
+            /** Format: int64 */
+            sender_id: number;
+            sender_email: string;
+            sender_display_name: string;
+            type: string;
+            body: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at: string;
+        };
+        ConversationNote: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            conversation_id: number;
+            /** Format: int64 */
+            author_id: number;
+            author_email: string;
+            author_display_name: string;
+            body: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        ConversationDetail: {
+            conversation: components["schemas"]["Conversation"];
+            latest_note?: components["schemas"]["ConversationNote"] | null;
+            latest_followup?: {
+                [key: string]: unknown;
+            } | null;
+            workspace: {
+                latest_recording?: {
+                    [key: string]: unknown;
+                } | null;
+                meeting_summary?: {
+                    [key: string]: unknown;
+                } | null;
+                latest_note?: components["schemas"]["ConversationNote"] | null;
+                agent_context: {
+                    transcript_segment_count: number;
+                    meeting_transcription_status?: string;
+                    meeting_transcription_error?: string;
+                    meeting_transcript_segment_count?: number;
+                    /** Format: date-time */
+                    latest_meeting_transcript_at?: string | null;
+                    /** Format: date-time */
+                    last_agent_run_at?: string | null;
+                    last_agent_status?: string;
+                    pending_approval_count?: number;
+                    knowledge_source_count?: number;
+                    latest_memory_keys?: string[];
+                };
+                /** Format: int64 */
+                assignee_user_id?: number | null;
+                assignee_label?: string;
+                status: string;
+                priority: string;
+            };
+        };
+        ContactProfile: {
+            company?: string;
+            role?: string;
+            timezone?: string;
+            default_source_lang?: string;
+            default_target_lang?: string;
+            relationship_status?: string;
+            preferred_contact_start?: string;
+            preferred_contact_end?: string;
+            preferred_contact_days?: string;
+            last_followup_state?: string;
+            note?: string;
+        };
+        Contact: components["schemas"]["User"] & {
+            status?: string;
+            /** Format: date-time */
+            deleted_at?: string | null;
+            profile?: components["schemas"]["ContactProfile"];
+        };
+        FollowUpTask: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            user_id: number;
+            /** Format: int64 */
+            peer_user_id: number;
+            call_id?: string;
+            type: string;
+            status: string;
+            title: string;
+            description?: string;
+            /** Format: date-time */
+            due_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+            reminder_mode?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        FollowUpItem: {
+            task: components["schemas"]["FollowUpTask"];
+            peer?: components["schemas"]["User"] | null;
+            contact?: components["schemas"]["ContactProfile"] | null;
+            is_overdue: boolean;
+        };
+        PipelineStage: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            pipeline_id: number;
+            name: string;
+            position: number;
+            is_closed: boolean;
+        };
+        Pipeline: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            name: string;
+            is_default: boolean;
+            stages: components["schemas"]["PipelineStage"][];
+        };
+        Deal: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            pipeline_id: number;
+            /** Format: int64 */
+            stage_id?: number | null;
+            stage_name?: string;
+            /** Format: int64 */
+            owner_id: number;
+            title: string;
+            description?: string;
+            status: string;
+            /** Format: int64 */
+            value_cents: number;
+            currency: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        DealActivity: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            deal_id: number;
+            type: string;
+            reference_type: string;
+            reference_id: string;
+            summary: string;
+            metadata_json?: string;
+            /** Format: int64 */
+            created_by: number;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CallHistory: {
+            /** Format: int64 */
+            id: number;
+            call_id: string;
+            /** Format: int64 */
+            caller_id: number;
+            /** Format: int64 */
+            callee_id: number;
+            caller_email: string;
+            callee_email: string;
+            caller_display_name: string;
+            callee_display_name: string;
+            status: string;
+            end_reason: string;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            answered_at?: string | null;
+            /** Format: date-time */
+            ended_at?: string | null;
+            followup_status?: string;
+            /** Format: date-time */
+            next_task_due_at?: string | null;
+            is_overdue?: boolean;
+        };
     };
     responses: {
         /** @description Authenticated. */

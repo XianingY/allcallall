@@ -12,7 +12,7 @@ test("renders the authenticated responsive workspace shell", async ({ page }) =>
   await page.route("**/api/v1/auth/refresh", (route) => route.fulfill({ json: { access_token: "test-token", user: { id: 1, email: "demo@example.com", display_name: "演示用户" } } }));
   await page.route("**/api/v1/organizations", (route) => route.fulfill({ json: { organizations: [{ id: 7, name: "演示组织", slug: "demo", role: "owner" }] } }));
   await page.goto("/inbox");
-  await expect(page.getByRole("heading", { name: /协作 Inbox/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
   if (await page.getByLabel("打开导航").isVisible()) await page.getByLabel("打开导航").click();
   await expect(page.getByLabel("当前组织")).toHaveValue("7");
 });

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bot, Building2, CalendarDays, ContactRound, FileAudio, Inbox, LogOut, Menu, Settings, Target, X, ListTodo, BookOpen } from "lucide-react";
+import { Bot, Building2, CalendarDays, ContactRound, FileAudio, Inbox, LogOut, Menu, PhoneCall, Settings, Target, X, ListTodo, BookOpen } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import clsx from "clsx";
@@ -10,7 +10,7 @@ const nav = [
   ["/inbox", "nav.inbox", Inbox], ["/meetings", "nav.meetings", CalendarDays],
   ["/agent-lab", "nav.agent", Bot], ["/knowledge", "nav.knowledge", BookOpen],
   ["/contacts", "nav.contacts", ContactRound], ["/deals", "nav.deals", Target],
-  ["/recordings", "nav.recordings", FileAudio], ["/follow-ups", "nav.followups", ListTodo],
+  ["/recordings", "nav.recordings", FileAudio], ["/follow-ups", "nav.followups", ListTodo], ["/calls", "通话历史", PhoneCall],
   ["/organizations", "组织", Building2], ["/settings", "nav.settings", Settings],
 ] as const;
 

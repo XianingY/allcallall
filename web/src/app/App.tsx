@@ -10,11 +10,15 @@ import { RegisterPage } from "@/pages/auth/RegisterPage";
 import { VerifyEmailPage } from "@/pages/auth/VerifyEmailPage";
 import { SettingsLayout } from "@/pages/settings/SettingsLayout";
 import { BlockedSettingsPage, DangerSettingsPage, LegalSettingsPage, PasswordSettingsPage, ProfileSettingsPage, SessionsSettingsPage } from "@/pages/settings/SettingsPages";
+import { CallHistoryPage } from "@/pages/collaboration/CallHistoryPage";
+import { ContactsPage } from "@/pages/collaboration/ContactsPage";
+import { DealDetailPage } from "@/pages/collaboration/DealDetailPage";
+import { DealsPage } from "@/pages/collaboration/DealsPage";
+import { FollowUpsPage } from "@/pages/collaboration/FollowUpsPage";
+import { InboxPage } from "@/pages/collaboration/InboxPage";
 
 const pages: Array<[string, string]> = [
-  ["inbox", "协作 Inbox"], ["meetings", "会议"], ["agent-lab", "Agent Lab"],
-  ["knowledge", "知识库"], ["contacts", "联系人"], ["deals", "商机"],
-  ["recordings", "录音转写"], ["follow-ups", "跟进"],
+  ["meetings", "会议"], ["agent-lab", "Agent Lab"], ["knowledge", "知识库"], ["recordings", "录音转写"],
 ];
 
 export function App() {
@@ -29,6 +33,13 @@ export function App() {
     <Route element={<ProtectedRoute />}>
       <Route element={<AppShell />}>
         {pages.map(([path, title]) => <Route key={path} path={`/${path}`} element={<PlaceholderPage title={title} />} />)}
+        <Route path="/inbox" element={<InboxPage />} />
+        <Route path="/conversations/:conversationId" element={<InboxPage />} />
+        <Route path="/contacts" element={<ContactsPage />} />
+        <Route path="/follow-ups" element={<FollowUpsPage />} />
+        <Route path="/calls" element={<CallHistoryPage />} />
+        <Route path="/deals" element={<DealsPage />} />
+        <Route path="/deals/:dealId" element={<DealDetailPage />} />
         <Route path="/organizations" element={<OrganizationsPage />} />
         <Route path="/settings" element={<SettingsLayout />}>
           <Route index element={<Navigate to="profile" replace />} />

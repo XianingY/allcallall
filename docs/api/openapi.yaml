@@ -288,3 +288,204 @@ components:
         blocked_user_status: { type: string }
         blocked_user_deleted_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
+    Conversation:
+      type: object
+      required: [id, organization_id, type, title, status, priority, unread_count]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        team_id: { type: [integer, 'null'], format: int64 }
+        room_id: { type: [integer, 'null'], format: int64 }
+        type: { type: string }
+        title: { type: string }
+        topic: { type: string }
+        status: { type: string }
+        assignee_user_id: { type: [integer, 'null'], format: int64 }
+        assignee_email: { type: string }
+        assignee_display_name: { type: string }
+        priority: { type: string }
+        contact_id: { type: [integer, 'null'], format: int64 }
+        last_internal_note_at: { type: [string, 'null'], format: date-time }
+        last_message_at: { type: [string, 'null'], format: date-time }
+        last_message_preview: { type: string }
+        last_message_type: { type: string }
+        unread_count: { type: integer }
+        active_room_id: { type: [integer, 'null'], format: int64 }
+        active_room_title: { type: string }
+        latest_room_id: { type: [integer, 'null'], format: int64 }
+        latest_room_title: { type: string }
+        latest_recording_id: { type: [integer, 'null'], format: int64 }
+    Message:
+      type: object
+      required: [id, organization_id, conversation_id, sender_id, sender_email, sender_display_name, type, body, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        conversation_id: { type: integer, format: int64 }
+        sender_id: { type: integer, format: int64 }
+        sender_email: { type: string }
+        sender_display_name: { type: string }
+        type: { type: string }
+        body: { type: string }
+        metadata: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+    ConversationNote:
+      type: object
+      required: [id, organization_id, conversation_id, author_id, author_email, author_display_name, body, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        conversation_id: { type: integer, format: int64 }
+        author_id: { type: integer, format: int64 }
+        author_email: { type: string }
+        author_display_name: { type: string }
+        body: { type: string }
+        created_at: { type: string, format: date-time }
+    ConversationDetail:
+      type: object
+      required: [conversation, workspace]
+      properties:
+        conversation: { $ref: '#/components/schemas/Conversation' }
+        latest_note: { oneOf: [{ $ref: '#/components/schemas/ConversationNote' }, { type: 'null' }] }
+        latest_followup: { type: [object, 'null'], additionalProperties: true }
+        workspace:
+          type: object
+          required: [agent_context, status, priority]
+          properties:
+            latest_recording: { type: [object, 'null'], additionalProperties: true }
+            meeting_summary: { type: [object, 'null'], additionalProperties: true }
+            latest_note: { oneOf: [{ $ref: '#/components/schemas/ConversationNote' }, { type: 'null' }] }
+            agent_context:
+              type: object
+              required: [transcript_segment_count]
+              properties:
+                transcript_segment_count: { type: integer }
+                meeting_transcription_status: { type: string }
+                meeting_transcription_error: { type: string }
+                meeting_transcript_segment_count: { type: integer }
+                latest_meeting_transcript_at: { type: [string, 'null'], format: date-time }
+                last_agent_run_at: { type: [string, 'null'], format: date-time }
+                last_agent_status: { type: string }
+                pending_approval_count: { type: integer }
+                knowledge_source_count: { type: integer }
+                latest_memory_keys: { type: array, items: { type: string } }
+            assignee_user_id: { type: [integer, 'null'], format: int64 }
+            assignee_label: { type: string }
+            status: { type: string }
+            priority: { type: string }
+    ContactProfile:
+      type: object
+      properties:
+        company: { type: string }
+        role: { type: string }
+        timezone: { type: string }
+        default_source_lang: { type: string }
+        default_target_lang: { type: string }
+        relationship_status: { type: string }
+        preferred_contact_start: { type: string }
+        preferred_contact_end: { type: string }
+        preferred_contact_days: { type: string }
+        last_followup_state: { type: string }
+        note: { type: string }
+    Contact:
+      allOf:
+        - { $ref: '#/components/schemas/User' }
+        - type: object
+          properties:
+            status: { type: string }
+            deleted_at: { type: [string, 'null'], format: date-time }
+            profile: { $ref: '#/components/schemas/ContactProfile' }
+    FollowUpTask:
+      type: object
+      required: [id, user_id, peer_user_id, type, status, title, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        user_id: { type: integer, format: int64 }
+        peer_user_id: { type: integer, format: int64 }
+        call_id: { type: string }
+        type: { type: string }
+        status: { type: string }
+        title: { type: string }
+        description: { type: string }
+        due_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+        reminder_mode: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    FollowUpItem:
+      type: object
+      required: [task, is_overdue]
+      properties:
+        task: { $ref: '#/components/schemas/FollowUpTask' }
+        peer: { oneOf: [{ $ref: '#/components/schemas/User' }, { type: 'null' }] }
+        contact: { oneOf: [{ $ref: '#/components/schemas/ContactProfile' }, { type: 'null' }] }
+        is_overdue: { type: boolean }
+    PipelineStage:
+      type: object
+      required: [id, pipeline_id, name, position, is_closed]
+      properties:
+        id: { type: integer, format: int64 }
+        pipeline_id: { type: integer, format: int64 }
+        name: { type: string }
+        position: { type: integer }
+        is_closed: { type: boolean }
+    Pipeline:
+      type: object
+      required: [id, organization_id, name, is_default, stages]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        name: { type: string }
+        is_default: { type: boolean }
+        stages: { type: array, items: { $ref: '#/components/schemas/PipelineStage' } }
+    Deal:
+      type: object
+      required: [id, organization_id, pipeline_id, owner_id, title, status, value_cents, currency, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        pipeline_id: { type: integer, format: int64 }
+        stage_id: { type: [integer, 'null'], format: int64 }
+        stage_name: { type: string }
+        owner_id: { type: integer, format: int64 }
+        title: { type: string }
+        description: { type: string }
+        status: { type: string }
+        value_cents: { type: integer, format: int64 }
+        currency: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    DealActivity:
+      type: object
+      required: [id, organization_id, deal_id, type, reference_type, reference_id, summary, created_by, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        deal_id: { type: integer, format: int64 }
+        type: { type: string }
+        reference_type: { type: string }
+        reference_id: { type: string }
+        summary: { type: string }
+        metadata_json: { type: string }
+        created_by: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+    CallHistory:
+      type: object
+      required: [id, call_id, caller_id, callee_id, caller_email, callee_email, caller_display_name, callee_display_name, status, end_reason, started_at]
+      properties:
+        id: { type: integer, format: int64 }
+        call_id: { type: string }
+        caller_id: { type: integer, format: int64 }
+        callee_id: { type: integer, format: int64 }
+        caller_email: { type: string }
+        callee_email: { type: string }
+        caller_display_name: { type: string }
+        callee_display_name: { type: string }
+        status: { type: string }
+        end_reason: { type: string }
+        started_at: { type: string, format: date-time }
+        answered_at: { type: [string, 'null'], format: date-time }
+        ended_at: { type: [string, 'null'], format: date-time }
+        followup_status: { type: string }
+        next_task_due_at: { type: [string, 'null'], format: date-time }
+        is_overdue: { type: boolean }
