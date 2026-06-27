@@ -16,9 +16,14 @@ import { DealDetailPage } from "@/pages/collaboration/DealDetailPage";
 import { DealsPage } from "@/pages/collaboration/DealsPage";
 import { FollowUpsPage } from "@/pages/collaboration/FollowUpsPage";
 import { InboxPage } from "@/pages/collaboration/InboxPage";
+import { MeetingsPage } from "@/pages/meetings/MeetingsPage";
+import { MeetingPreflightPage } from "@/pages/meetings/MeetingPreflightPage";
+import { MeetingRoomPage } from "@/pages/meetings/MeetingRoomPage";
+import { RecordingsPage } from "@/pages/recordings/RecordingsPage";
+import { RecordingTranscriptPage } from "@/pages/recordings/RecordingTranscriptPage";
 
 const pages: Array<[string, string]> = [
-  ["meetings", "会议"], ["agent-lab", "Agent Lab"], ["knowledge", "知识库"], ["recordings", "录音转写"],
+  ["agent-lab", "Agent Lab"], ["knowledge", "知识库"],
 ];
 
 export function App() {
@@ -40,6 +45,9 @@ export function App() {
         <Route path="/calls" element={<CallHistoryPage />} />
         <Route path="/deals" element={<DealsPage />} />
         <Route path="/deals/:dealId" element={<DealDetailPage />} />
+        <Route path="/meetings" element={<MeetingsPage />} />
+        <Route path="/recordings" element={<RecordingsPage />} />
+        <Route path="/recordings/:recordingId" element={<RecordingTranscriptPage />} />
         <Route path="/organizations" element={<OrganizationsPage />} />
         <Route path="/settings" element={<SettingsLayout />}>
           <Route index element={<Navigate to="profile" replace />} />
@@ -52,6 +60,8 @@ export function App() {
         </Route>
         <Route index element={<Navigate to="/inbox" replace />} />
       </Route>
+      <Route path="/meetings/:roomId/preflight" element={<MeetingPreflightPage />} />
+      <Route path="/meetings/:roomId" element={<MeetingRoomPage />} />
     </Route>
     <Route path="*" element={<Navigate to="/inbox" replace />} />
   </Routes>;

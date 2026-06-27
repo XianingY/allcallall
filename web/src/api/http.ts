@@ -89,3 +89,14 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}, option
 
 export const refreshAccessToken = refresh;
 
+export async function apiDownload(path: string, retry401 = true): Promise<{ blob: Blob; fileName?: string }> {
+  const headers = new Headers({ Accept: "*/*" });
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  if (organizationId) headers.set("X-Organization-ID", String(organizationId));
+  const response = await fetch(`${runtimeConfig.apiBaseUrl}${path}`, { headers, credentials: "include" });
+  if (response.status === 401 && retry401) { await refresh(); return apiDownload(path, false); }
+  if (!response.ok) throw await toAPIError(response);
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  return { blob: await response.blob(), fileName: match?.[1] };
+}

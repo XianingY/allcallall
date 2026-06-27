@@ -534,3 +534,129 @@ components:
         channel: { type: string, enum: [chat, signaling] }
         expires_at: { type: string, format: date-time }
         websocket_path: { type: string }
+    RoomMember:
+      type: object
+      required: [id, room_id, user_id, role]
+      properties:
+        id: { type: integer, format: int64 }
+        room_id: { type: integer, format: int64 }
+        user_id: { type: integer, format: int64 }
+        role: { type: string }
+        user_email: { type: string }
+        user_display_name: { type: string }
+        joined: { type: boolean }
+        left: { type: boolean }
+        audio_enabled: { type: boolean }
+        video_enabled: { type: boolean }
+        connection_state: { type: string }
+        is_host: { type: boolean }
+        joined_at: { type: [string, 'null'], format: date-time }
+        left_at: { type: [string, 'null'], format: date-time }
+    RecordingSession:
+      type: object
+      required: [id, organization_id, room_id, started_by, status, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        room_id: { type: integer, format: int64 }
+        started_by: { type: integer, format: int64 }
+        status: { type: string }
+        started_at: { type: [string, 'null'], format: date-time }
+        stopped_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Room:
+      type: object
+      required: [room, members, events, participant_count, is_active, has_recording]
+      properties:
+        room:
+          type: object
+          required: [id, organization_id, title, status, created_by, created_at, updated_at]
+          properties:
+            id: { type: integer, format: int64 }
+            organization_id: { type: integer, format: int64 }
+            team_id: { type: [integer, 'null'], format: int64 }
+            conversation_id: { type: [integer, 'null'], format: int64 }
+            title: { type: string }
+            status: { type: string }
+            created_by: { type: integer, format: int64 }
+            started_at: { type: [string, 'null'], format: date-time }
+            ended_at: { type: [string, 'null'], format: date-time }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+        members: { type: array, items: { $ref: '#/components/schemas/RoomMember' } }
+        events: { type: array, items: { type: object, additionalProperties: true } }
+        active_recording: { oneOf: [{ $ref: '#/components/schemas/RecordingSession' }, { type: 'null' }] }
+        conversation_id: { type: [integer, 'null'], format: int64 }
+        conversation_title: { type: string }
+        participant_count: { type: integer }
+        is_active: { type: boolean }
+        has_recording: { type: boolean }
+        latest_recording_id: { type: [integer, 'null'], format: int64 }
+    RecordingFile:
+      type: object
+      required: [id, recording_session_id, storage_driver, object_key, content_type, duration_seconds, created_at, download_url, file_name, file_size_bytes, recording_kind]
+      properties:
+        id: { type: integer, format: int64 }
+        recording_session_id: { type: integer, format: int64 }
+        storage_driver: { type: string }
+        storage_bucket: { type: string }
+        object_key: { type: string }
+        etag: { type: string }
+        content_type: { type: string }
+        retention_until: { type: [string, 'null'], format: date-time }
+        deleted_at: { type: [string, 'null'], format: date-time }
+        duration_seconds: { type: number }
+        metadata_json: { type: string }
+        created_at: { type: string, format: date-time }
+        download_url: { type: string }
+        file_name: { type: string }
+        file_size_bytes: { type: integer, format: int64 }
+        recording_kind: { type: string }
+    RecordingTranscription:
+      type: object
+      required: [id, status, segment_count, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        status: { type: string, enum: [pending, processing, ready, failed, skipped] }
+        provider: { type: string }
+        segment_count: { type: integer }
+        error_message: { type: string }
+        started_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Recording:
+      type: object
+      required: [session, files]
+      properties:
+        session: { $ref: '#/components/schemas/RecordingSession' }
+        files: { type: array, items: { $ref: '#/components/schemas/RecordingFile' } }
+        transcription: { oneOf: [{ $ref: '#/components/schemas/RecordingTranscription' }, { type: 'null' }] }
+    MeetingTranscriptSegment:
+      type: object
+      required: [id, organization_id, conversation_id, room_id, recording_session_id, recording_file_id, source, text, start_ms, end_ms, confidence, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        conversation_id: { type: integer, format: int64 }
+        room_id: { type: integer, format: int64 }
+        recording_session_id: { type: integer, format: int64 }
+        recording_file_id: { type: integer, format: int64 }
+        speaker_user_id: { type: [integer, 'null'], format: int64 }
+        track_key: { type: string }
+        source: { type: string }
+        provider: { type: string }
+        language: { type: string }
+        text: { type: string }
+        start_ms: { type: integer, format: int64 }
+        end_ms: { type: integer, format: int64 }
+        confidence: { type: number }
+        created_at: { type: string, format: date-time }
+    RecordingTranscriptPage:
+      type: object
+      required: [segments]
+      properties:
+        transcription: { oneOf: [{ $ref: '#/components/schemas/RecordingTranscription' }, { type: 'null' }] }
+        segments: { type: array, items: { $ref: '#/components/schemas/MeetingTranscriptSegment' } }
+        next_after_id: { type: [integer, 'null'], format: int64 }

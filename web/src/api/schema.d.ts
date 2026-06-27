@@ -734,6 +734,163 @@ export interface components {
             expires_at: string;
             websocket_path: string;
         };
+        RoomMember: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            room_id: number;
+            /** Format: int64 */
+            user_id: number;
+            role: string;
+            user_email?: string;
+            user_display_name?: string;
+            joined?: boolean;
+            left?: boolean;
+            audio_enabled?: boolean;
+            video_enabled?: boolean;
+            connection_state?: string;
+            is_host?: boolean;
+            /** Format: date-time */
+            joined_at?: string | null;
+            /** Format: date-time */
+            left_at?: string | null;
+        };
+        RecordingSession: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            room_id: number;
+            /** Format: int64 */
+            started_by: number;
+            status: string;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            stopped_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        Room: {
+            room: {
+                /** Format: int64 */
+                id: number;
+                /** Format: int64 */
+                organization_id: number;
+                /** Format: int64 */
+                team_id?: number | null;
+                /** Format: int64 */
+                conversation_id?: number | null;
+                title: string;
+                status: string;
+                /** Format: int64 */
+                created_by: number;
+                /** Format: date-time */
+                started_at?: string | null;
+                /** Format: date-time */
+                ended_at?: string | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                updated_at: string;
+            };
+            members: components["schemas"]["RoomMember"][];
+            events: {
+                [key: string]: unknown;
+            }[];
+            active_recording?: components["schemas"]["RecordingSession"] | null;
+            /** Format: int64 */
+            conversation_id?: number | null;
+            conversation_title?: string;
+            participant_count: number;
+            is_active: boolean;
+            has_recording: boolean;
+            /** Format: int64 */
+            latest_recording_id?: number | null;
+        };
+        RecordingFile: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            recording_session_id: number;
+            storage_driver: string;
+            storage_bucket?: string;
+            object_key: string;
+            etag?: string;
+            content_type: string;
+            /** Format: date-time */
+            retention_until?: string | null;
+            /** Format: date-time */
+            deleted_at?: string | null;
+            duration_seconds: number;
+            metadata_json?: string;
+            /** Format: date-time */
+            created_at: string;
+            download_url: string;
+            file_name: string;
+            /** Format: int64 */
+            file_size_bytes: number;
+            recording_kind: string;
+        };
+        RecordingTranscription: {
+            /** Format: int64 */
+            id: number;
+            /** @enum {string} */
+            status: "pending" | "processing" | "ready" | "failed" | "skipped";
+            provider?: string;
+            segment_count: number;
+            error_message?: string;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        Recording: {
+            session: components["schemas"]["RecordingSession"];
+            files: components["schemas"]["RecordingFile"][];
+            transcription?: components["schemas"]["RecordingTranscription"] | null;
+        };
+        MeetingTranscriptSegment: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            conversation_id: number;
+            /** Format: int64 */
+            room_id: number;
+            /** Format: int64 */
+            recording_session_id: number;
+            /** Format: int64 */
+            recording_file_id: number;
+            /** Format: int64 */
+            speaker_user_id?: number | null;
+            track_key?: string;
+            source: string;
+            provider?: string;
+            language?: string;
+            text: string;
+            /** Format: int64 */
+            start_ms: number;
+            /** Format: int64 */
+            end_ms: number;
+            confidence: number;
+            /** Format: date-time */
+            created_at: string;
+        };
+        RecordingTranscriptPage: {
+            transcription?: components["schemas"]["RecordingTranscription"] | null;
+            segments: components["schemas"]["MeetingTranscriptSegment"][];
+            /** Format: int64 */
+            next_after_id?: number | null;
+        };
     };
     responses: {
         /** @description Authenticated. */
