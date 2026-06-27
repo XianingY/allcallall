@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 import clsx from "clsx";
 import { useAuth } from "@/auth/AuthProvider";
 import { useOrganization } from "@/organizations/OrganizationProvider";
+import { CallOverlay } from "@/calls/CallOverlay";
+import { useChatConnected } from "@/realtime/ChatRealtimeProvider";
 
 const nav = [
   ["/inbox", "nav.inbox", Inbox], ["/meetings", "nav.meetings", CalendarDays],
@@ -19,6 +21,7 @@ export function AppShell() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
   const { organizations, activeOrganization, select } = useOrganization();
+  const chatConnected = useChatConnected();
   return (
     <div className="min-h-screen bg-canvas text-ink">
       <header className="fixed inset-x-0 top-0 z-30 flex h-14 items-center border-b border-line bg-panel px-4 lg:hidden">
@@ -28,7 +31,7 @@ export function AppShell() {
       {open && <button className="fixed inset-0 z-30 bg-black/30 lg:hidden" aria-label="关闭导航" onClick={() => setOpen(false)} />}
       <aside className={clsx("fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-line bg-panel transition-transform lg:translate-x-0", open ? "translate-x-0" : "-translate-x-full")}>
         <div className="flex h-16 items-center justify-between border-b border-line px-5">
-          <div><div className="text-lg font-bold">AllCallAll</div><div className="text-xs text-muted">{t("brand.tagline")}</div></div>
+          <div><div className="flex items-center gap-2 text-lg font-bold">AllCallAll<span className={`connection-dot ${chatConnected ? "online" : ""}`} title={chatConnected ? "实时连接正常" : "正在连接实时服务"} /></div><div className="text-xs text-muted">{t("brand.tagline")}</div></div>
           <button className="icon-button lg:hidden" aria-label="关闭导航" onClick={() => setOpen(false)}><X size={19} /></button>
         </div>
         <div className="border-b border-line p-3">
@@ -40,6 +43,7 @@ export function AppShell() {
         <div className="sidebar-account"><div className="account-avatar">{user?.display_name.slice(0, 1).toUpperCase()}</div><div className="min-w-0 flex-1"><strong>{user?.display_name}</strong><span>{user?.email}</span></div><button className="icon-button" title="退出" aria-label="退出" onClick={() => void logout()}><LogOut size={17} /></button></div>
       </aside>
       <main className="min-h-screen pt-14 lg:ml-60 lg:pt-0"><Outlet /></main>
+      <CallOverlay />
     </div>
   );
 }

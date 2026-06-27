@@ -356,6 +356,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/realtime/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue a 60-second, channel-bound, single-use WebSocket ticket. */
+        post: operations["issueRealtimeTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webrtc/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getWebRTCConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -692,6 +725,14 @@ export interface components {
             /** Format: date-time */
             next_task_due_at?: string | null;
             is_overdue?: boolean;
+        };
+        RealtimeTicket: {
+            ticket: string;
+            /** @enum {string} */
+            channel: "chat" | "signaling";
+            /** Format: date-time */
+            expires_at: string;
+            websocket_path: string;
         };
     };
     responses: {
@@ -1130,6 +1171,59 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: components["responses"]["Success"];
+        };
+    };
+    issueRealtimeTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    channel: "chat" | "signaling";
+                };
+            };
+        };
+        responses: {
+            /** @description Realtime ticket issued. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RealtimeTicket"];
+                };
+            };
+        };
+    };
+    getWebRTCConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description ICE/TURN configuration. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ice_servers: {
+                            urls: string[];
+                            username?: string;
+                            credential?: string;
+                        }[];
+                    };
+                };
+            };
         };
     };
 }

@@ -63,7 +63,6 @@ func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGrou
 	protected.GET("/conversations/:id/notes", h.handleListConversationNotes)
 	protected.POST("/conversations/:id/notes", h.handleCreateConversationNote)
 	protected.POST("/conversations/:id/rooms", h.handleCreateConversationRoom)
-	protected.GET("/chat/ws", h.handleChatWS)
 	protected.GET("/search/messages", h.handleSearchMessages)
 
 	protected.POST("/rooms", h.handleCreateRoom)
@@ -90,6 +89,10 @@ func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGrou
 	protected.PATCH("/deals/:id", h.handleUpdateDeal)
 	protected.POST("/deals/:id/contacts", h.handleAddDealContact)
 	protected.GET("/deals/:id/activities", h.handleListDealActivities)
+}
+
+func (h *CollaborationHandler) RegisterRealtimeRoutes(api *gin.RouterGroup, middleware gin.HandlerFunc) {
+	api.GET("/chat/ws", middleware, h.handleChatWS)
 }
 
 func (h *CollaborationHandler) RegisterInternalRoutes(api *gin.RouterGroup) {

@@ -7,6 +7,8 @@ import { App } from "@/app/App";
 import { AuthProvider } from "@/auth/AuthProvider";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { OrganizationProvider } from "@/organizations/OrganizationProvider";
+import { CallProvider } from "@/calls/CallProvider";
+import { ChatRealtimeProvider } from "@/realtime/ChatRealtimeProvider";
 import "@/i18n";
 import "@/styles.css";
 
@@ -23,9 +25,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <OrganizationProvider>
-            <BrowserRouter>
-              <App />
-            </BrowserRouter>
+            <CallProvider>
+              <ChatRealtimeProvider>
+                <BrowserRouter>
+                  <App />
+                </BrowserRouter>
+              </ChatRealtimeProvider>
+            </CallProvider>
           </OrganizationProvider>
         </AuthProvider>
       </QueryClientProvider>

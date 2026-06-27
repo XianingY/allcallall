@@ -200,7 +200,8 @@ func main() {
 		appLogger.Fatal().Err(err).Msg("failed to initialize jwt manager")
 	}
 	refreshSessionSvc := auth.NewRefreshSessionService(db, counterStore)
-	authMiddleware := auth.Middleware(jwtManager)
+	var tokenValidator auth.TokenValidator = jwtManager
+	authMiddleware := auth.MiddlewareWithValidator(tokenValidator)
 	var closeUserGRPC func() error
 	if userGRPCAddr := strings.TrimSpace(os.Getenv("USER_SERVICE_GRPC_ADDR")); userGRPCAddr != "" {
 		remoteAuth, closeFn, err := usergrpc.DialClientAuthenticator(rootCtx, userGRPCAddr, 2*time.Second)
@@ -208,7 +209,8 @@ func main() {
 			appLogger.Fatal().Err(err).Str("addr", userGRPCAddr).Msg("failed to initialize user grpc auth client")
 		}
 		closeUserGRPC = closeFn
-		authMiddleware = auth.MiddlewareWithValidator(remoteAuth)
+		tokenValidator = remoteAuth
+		authMiddleware = auth.MiddlewareWithValidator(tokenValidator)
 		appLogger.Info().Str("addr", userGRPCAddr).Msg("protected auth middleware using user grpc service")
 	}
 	defer func() {
@@ -277,6 +279,8 @@ func main() {
 	collaborationSvc.WithMediaEngine(mediaEngine)
 
 	signalingHandler := handlers.NewSignalingHandler(appLogger, signalingHub)
+	realtimeTicketSvc := auth.NewRealtimeTicketService(redisClient)
+	realtimeHandler := handlers.NewRealtimeHandler(realtimeTicketSvc)
 	signalingPollHandler := handlers.NewSignalingPollHandler(appLogger, signalingHub)
 	var translationWSHandler *handlers.TranslationWSHandler
 	if cfg.Translation.Enabled {
@@ -304,20 +308,23 @@ func main() {
 	}
 
 	server.RegisterRoutes(engine, server.RouteDependencies{
-		AuthHandler:      authHandler,
-		EmailHandler:     emailHandler,
-		UserHandler:      userHandler,
-		Commercial:       commercialHandler,
-		Collaboration:    collaborationHandler,
-		Agent:            agentHandler,
-		Knowledge:        knowledgeHandler,
-		Invitations:      invitationHandler,
-		SignalingHandler: signalingHandler,
-		SignalingPoll:    signalingPollHandler,
-		WebRTCHandler:    webrtcHandler,
-		TranslationWS:    translationWSHandler,
-		AuthMiddleware:   authMiddleware,
-		Metrics:          counterStore,
+		AuthHandler:        authHandler,
+		EmailHandler:       emailHandler,
+		UserHandler:        userHandler,
+		Commercial:         commercialHandler,
+		Collaboration:      collaborationHandler,
+		Agent:              agentHandler,
+		Knowledge:          knowledgeHandler,
+		Invitations:        invitationHandler,
+		SignalingHandler:   signalingHandler,
+		SignalingPoll:      signalingPollHandler,
+		WebRTCHandler:      webrtcHandler,
+		TranslationWS:      translationWSHandler,
+		Realtime:           realtimeHandler,
+		AuthMiddleware:     authMiddleware,
+		ChatRealtimeAuth:   auth.RealtimeMiddleware(realtimeTicketSvc, tokenValidator, "chat"),
+		SignalRealtimeAuth: auth.RealtimeMiddleware(realtimeTicketSvc, tokenValidator, "signaling"),
+		Metrics:            counterStore,
 		ReadinessChecks: map[string]server.ReadinessCheck{
 			"mysql": func(ctx context.Context) error {
 				sqlDB, err := db.DB()

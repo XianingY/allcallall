@@ -15,21 +15,24 @@ type ReadinessCheck func(context.Context) error
 // RouteDependencies 路由所需依赖
 // RouteDependencies bundles handlers and middleware.
 type RouteDependencies struct {
-	AuthHandler      *handlers.AuthHandler
-	EmailHandler     *handlers.EmailHandler
-	UserHandler      *handlers.UserHandler
-	Commercial       *handlers.CommercialHandler
-	Collaboration    *handlers.CollaborationHandler
-	Agent            *handlers.AgentHandler
-	Knowledge        *handlers.KnowledgeHandler
-	Invitations      *handlers.InvitationHandler
-	SignalingHandler *handlers.SignalingHandler
-	SignalingPoll    *handlers.SignalingPollHandler
-	WebRTCHandler    *handlers.WebRTCHandler
-	TranslationWS    *handlers.TranslationWSHandler
-	AuthMiddleware   gin.HandlerFunc
-	Metrics          *metrics.CounterStore
-	ReadinessChecks  map[string]ReadinessCheck
+	AuthHandler        *handlers.AuthHandler
+	EmailHandler       *handlers.EmailHandler
+	UserHandler        *handlers.UserHandler
+	Commercial         *handlers.CommercialHandler
+	Collaboration      *handlers.CollaborationHandler
+	Agent              *handlers.AgentHandler
+	Knowledge          *handlers.KnowledgeHandler
+	Invitations        *handlers.InvitationHandler
+	SignalingHandler   *handlers.SignalingHandler
+	SignalingPoll      *handlers.SignalingPollHandler
+	WebRTCHandler      *handlers.WebRTCHandler
+	TranslationWS      *handlers.TranslationWSHandler
+	Realtime           *handlers.RealtimeHandler
+	AuthMiddleware     gin.HandlerFunc
+	ChatRealtimeAuth   gin.HandlerFunc
+	SignalRealtimeAuth gin.HandlerFunc
+	Metrics            *metrics.CounterStore
+	ReadinessChecks    map[string]ReadinessCheck
 }
 
 // RegisterRoutes 注册所有 HTTP 路由
@@ -41,9 +44,14 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 	if deps.Invitations != nil {
 		deps.Invitations.RegisterDocumentRoutes(router)
 	}
-
 	api := router.Group("/api/v1")
 	registerHealthRoutes(api, deps)
+	if deps.Collaboration != nil && deps.ChatRealtimeAuth != nil {
+		deps.Collaboration.RegisterRealtimeRoutes(api, deps.ChatRealtimeAuth)
+	}
+	if deps.SignalingHandler != nil && deps.SignalRealtimeAuth != nil {
+		api.GET("/ws", deps.SignalRealtimeAuth, deps.SignalingHandler.Handle)
+	}
 
 	authGroup := api.Group("/auth")
 	deps.AuthHandler.RegisterRoutes(authGroup)
@@ -85,7 +93,9 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 		if deps.Invitations != nil {
 			deps.Invitations.RegisterProtectedRoutes(protected)
 		}
-		protected.GET("/ws", deps.SignalingHandler.Handle)
+		if deps.Realtime != nil {
+			deps.Realtime.RegisterProtectedRoutes(protected)
+		}
 		if deps.SignalingPoll != nil {
 			deps.SignalingPoll.RegisterRoutes(protected)
 		}

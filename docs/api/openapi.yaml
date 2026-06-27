@@ -166,6 +166,43 @@ paths:
       parameters:
         - { name: code, in: path, required: true, schema: { type: string } }
       responses: { '200': { $ref: '#/components/responses/Success' } }
+  /realtime/tickets:
+    post:
+      operationId: issueRealtimeTicket
+      summary: Issue a 60-second, channel-bound, single-use WebSocket ticket.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel]
+              properties: { channel: { type: string, enum: [chat, signaling] } }
+      responses:
+        '201':
+          description: Realtime ticket issued.
+          content: { application/json: { schema: { $ref: '#/components/schemas/RealtimeTicket' } } }
+  /webrtc/config:
+    get:
+      operationId: getWebRTCConfig
+      responses:
+        '200':
+          description: ICE/TURN configuration.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ice_servers]
+                properties:
+                  ice_servers:
+                    type: array
+                    items:
+                      type: object
+                      required: [urls]
+                      properties:
+                        urls: { type: array, items: { type: string } }
+                        username: { type: string }
+                        credential: { type: string }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -489,3 +526,11 @@ components:
         followup_status: { type: string }
         next_task_due_at: { type: [string, 'null'], format: date-time }
         is_overdue: { type: boolean }
+    RealtimeTicket:
+      type: object
+      required: [ticket, channel, expires_at, websocket_path]
+      properties:
+        ticket: { type: string }
+        channel: { type: string, enum: [chat, signaling] }
+        expires_at: { type: string, format: date-time }
+        websocket_path: { type: string }
