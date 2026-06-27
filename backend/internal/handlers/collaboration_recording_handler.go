@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -91,6 +92,73 @@ func (h *CollaborationHandler) handleGetRecording(c *gin.Context) {
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"recording": toRecordingResponse(*item)})
+}
+
+func (h *CollaborationHandler) handleGetRecordingTranscript(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	recordingID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid recording id")
+		return
+	}
+	afterID, err := parseOptionalTranscriptCursor(c.Query("after_id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid after_id")
+		return
+	}
+	limit := 100
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsed <= 0 {
+			JSONError(c, http.StatusBadRequest, "invalid limit")
+			return
+		}
+		limit = parsed
+	}
+	page, err := h.service.GetRecordingTranscript(c.Request.Context(), orgID, claims.UserID, recordingID, afterID, limit)
+	if err != nil {
+		JSONErrorWithCode(c, http.StatusNotFound, "RECORDING_TRANSCRIPT_NOT_FOUND", err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, page)
+}
+
+func (h *CollaborationHandler) handleRetryRecordingTranscription(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	recordingID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid recording id")
+		return
+	}
+	item, err := h.service.RetryRecordingTranscription(c.Request.Context(), orgID, claims.UserID, recordingID)
+	if err != nil {
+		status := http.StatusBadRequest
+		code := "RECORDING_TRANSCRIPTION_RETRY_FAILED"
+		if errors.Is(err, collaboration.ErrRecordingNotAllowed) {
+			status = http.StatusForbidden
+			code = "RECORDING_TRANSCRIPTION_RETRY_FORBIDDEN"
+		} else if errors.Is(err, collaboration.ErrTranscriptionNotRetryable) {
+			status = http.StatusConflict
+			code = "RECORDING_TRANSCRIPTION_NOT_RETRYABLE"
+		}
+		JSONErrorWithCode(c, status, code, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusAccepted, gin.H{"transcription": item})
+}
+
+func parseOptionalTranscriptCursor(raw string) (uint64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	return strconv.ParseUint(raw, 10, 64)
 }
 
 func (h *CollaborationHandler) handleDownloadRecordingFile(c *gin.Context) {

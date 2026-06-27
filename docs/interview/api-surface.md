@@ -50,6 +50,8 @@ Talking points:
 - `POST /api/v1/rooms/:roomId/recording/stop`
 - `GET /api/v1/recordings`
 - `GET /api/v1/recordings/:id`
+- `GET /api/v1/recordings/:id/transcript`
+- `POST /api/v1/recordings/:id/transcription/retry`
 - `GET /api/v1/recordings/:id/files/:fileId`
 
 Talking points:

@@ -45,6 +45,14 @@ const linking: LinkingOptions<RootStackParamList> = {
       Contacts: "contacts",
       FollowUps: "follow-ups",
       Recordings: "recordings",
+      RecordingTranscript: {
+        path: "recordings/:recordingId/transcript",
+        parse: {
+          recordingId: (value: string) => Number(value),
+          segmentId: (value: string) => Number(value),
+          startMs: (value: string) => Number(value),
+        },
+      },
       Settings: "settings",
       Sessions: "sessions",
       InvitationAccept: "invite/:code",

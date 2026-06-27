@@ -1,12 +1,16 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, FlatList, StyleSheet, Text, View } from "react-native";
+import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { buildRecordingDownloadRequest, listRecordings, type RecordingRecord } from "../api/collaboration";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
 import fileDownloadAdapter from "../platform/fileDownload";
+import type { RootStackParamList } from "../navigation/AppNavigator";
 
-const RecordingsScreen: React.FC = () => {
+type Props = NativeStackScreenProps<RootStackParamList, "Recordings">;
+
+const RecordingsScreen: React.FC<Props> = ({ navigation }) => {
   const { token } = useAuthContext();
   const [items, setItems] = useState<RecordingRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -63,6 +67,23 @@ const RecordingsScreen: React.FC = () => {
             <Text style={styles.title}>会议 #{item.session.room_id}</Text>
             <Text style={styles.meta}>状态 {item.session.status}</Text>
             <Text style={styles.meta}>文件数 {item.files.length}</Text>
+            <Text style={styles.meta}>
+              转写 {item.transcription?.status ?? "not_requested"}
+              {item.transcription?.segment_count
+                ? ` · ${item.transcription.segment_count} segments`
+                : ""}
+            </Text>
+            {item.transcription ? (
+              <PrimaryButton
+                title="查看会议转写"
+                onPress={() =>
+                  navigation.navigate("RecordingTranscript", {
+                    recordingId: item.session.id,
+                  })
+                }
+                style={styles.transcriptButton}
+              />
+            ) : null}
             {item.files.map((file) => (
               <View key={file.id} style={styles.fileRow}>
                 <Text style={styles.fileType}>{file.recording_kind} · {file.content_type}</Text>
@@ -132,6 +153,10 @@ const styles = StyleSheet.create({
   },
   downloadButton: {
     marginTop: 10
+  },
+  transcriptButton: {
+    marginTop: 10,
+    backgroundColor: "#0f766e"
   },
   empty: {
     alignItems: "center",

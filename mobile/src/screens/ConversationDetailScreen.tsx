@@ -1166,6 +1166,23 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
           <Text style={styles.infoMeta}>
             文件数 {latestRecording.files.length}
           </Text>
+          <Text style={styles.infoMeta}>
+            转写 {latestRecording.transcription?.status ?? "not_requested"}
+            {latestRecording.transcription?.segment_count
+              ? ` · ${latestRecording.transcription.segment_count} segments`
+              : ""}
+          </Text>
+          {latestRecording.transcription ? (
+            <PrimaryButton
+              title="查看会议转写"
+              onPress={() =>
+                navigation.navigate("RecordingTranscript", {
+                  recordingId: latestRecording.session.id,
+                })
+              }
+              style={styles.recordingButton}
+            />
+          ) : null}
           {latestRecording.files.slice(0, 2).map((file) => (
             <View key={file.id} style={styles.recordingFileRow}>
               <Text style={styles.recordingFileTitle}>{file.file_name}</Text>
@@ -1238,6 +1255,18 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
               <Text style={styles.systemMeta}>
                 {String(item.metadata.event_type)}
               </Text>
+            ) : null}
+            {item.metadata?.event_type === "meeting.transcription.ready" &&
+            typeof item.metadata.recording_id === "number" ? (
+              <PrimaryButton
+                title="查看会议转写"
+                onPress={() =>
+                  navigation.navigate("RecordingTranscript", {
+                    recordingId: item.metadata!.recording_id as number,
+                  })
+                }
+                style={styles.systemAction}
+              />
             ) : null}
             <Text style={styles.time}>
               {new Date(item.created_at).toLocaleString()}
@@ -1625,6 +1654,11 @@ const styles = StyleSheet.create({
   recordingButton: {
     marginTop: 12,
     backgroundColor: "#0f172a",
+  },
+  systemAction: {
+    marginTop: 8,
+    paddingVertical: 9,
+    backgroundColor: "#0f766e",
   },
   recordingLinkButton: {
     marginTop: 12,

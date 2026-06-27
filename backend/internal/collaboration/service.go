@@ -23,11 +23,12 @@ import (
 )
 
 var (
-	ErrOrganizationAccessDenied = errors.New("organization access denied")
-	ErrConversationAccessDenied = errors.New("conversation access denied")
-	ErrRoomAccessDenied         = errors.New("room access denied")
-	ErrRecordingNotAllowed      = errors.New("recording not allowed")
-	ErrInviteEmailMismatch      = errors.New("invite email mismatch")
+	ErrOrganizationAccessDenied  = errors.New("organization access denied")
+	ErrConversationAccessDenied  = errors.New("conversation access denied")
+	ErrRoomAccessDenied          = errors.New("room access denied")
+	ErrRecordingNotAllowed       = errors.New("recording not allowed")
+	ErrTranscriptionNotRetryable = errors.New("recording transcription is not retryable")
+	ErrInviteEmailMismatch       = errors.New("invite email mismatch")
 )
 
 type EventPublisher interface {
@@ -320,6 +321,12 @@ type RecordingView struct {
 	Session       models.RecordingSession     `json:"session"`
 	Files         []RecordingFileView         `json:"files"`
 	Transcription *RecordingTranscriptionView `json:"transcription,omitempty"`
+}
+
+type RecordingTranscriptPage struct {
+	Transcription *RecordingTranscriptionView       `json:"transcription,omitempty"`
+	Segments      []models.MeetingTranscriptSegment `json:"segments"`
+	NextAfterID   *uint64                           `json:"next_after_id,omitempty"`
 }
 
 type SupportRoomView struct {

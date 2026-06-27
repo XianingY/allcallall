@@ -165,6 +165,9 @@ const main = async () => {
     const conversationText = await visit(page, conversationPath, "conversation route");
     assertContainsAny(conversationText, "conversation route", loggedIn ? ["协作线程", "Inbox", "Conversation"] : ["AllCallAll", "Login", "登录"]);
 
+    const transcriptText = await visit(page, "/recordings/1/transcript", "recording transcript route");
+    assertContainsAny(transcriptText, "recording transcript route", loggedIn ? ["会议录音", "转写", "Transcript"] : ["AllCallAll", "Login", "登录"]);
+
     const sessionsText = await visit(page, "/sessions", "sessions route");
     assertContainsAny(sessionsText, "sessions route", loggedIn ? ["登录会话", "Active Sessions", "Refresh"] : ["AllCallAll", "Login", "登录"]);
 

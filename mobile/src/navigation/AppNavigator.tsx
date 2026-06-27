@@ -29,6 +29,7 @@ import DealDetailScreen from "../screens/DealDetailScreen";
 import RoomsScreen from "../screens/RoomsScreen";
 import RoomDetailScreen from "../screens/RoomDetailScreen";
 import RecordingsScreen from "../screens/RecordingsScreen";
+import RecordingTranscriptScreen from "../screens/RecordingTranscriptScreen";
 import PreJoinScreen from "../screens/PreJoinScreen";
 import MeetingParticipantsScreen from "../screens/MeetingParticipantsScreen";
 import type { User } from "../api/users";
@@ -70,6 +71,11 @@ export type RootStackParamList = {
   Deals: undefined;
   DealDetail: { deal: DealRecord };
   Recordings: undefined;
+  RecordingTranscript: {
+    recordingId: number;
+    segmentId?: number;
+    startMs?: number;
+  };
   ChangePassword: undefined;
   Settings: undefined;
   Sessions: undefined;
@@ -188,6 +194,11 @@ const AppNavigator: React.FC = () => {
             name="Recordings"
             component={RecordingsScreen}
             options={{ title: "录音存档 / Recordings" }}
+          />
+          <Stack.Screen
+            name="RecordingTranscript"
+            component={RecordingTranscriptScreen}
+            options={{ title: "会议转写 / Transcript" }}
           />
           <Stack.Screen
             name="DealDetail"

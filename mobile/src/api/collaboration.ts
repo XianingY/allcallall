@@ -192,6 +192,31 @@ export interface RecordingRecord {
   transcription?: RecordingTranscriptionRecord | null;
 }
 
+export interface MeetingTranscriptSegmentRecord {
+  id: number;
+  organization_id: number;
+  conversation_id: number;
+  room_id: number;
+  recording_session_id: number;
+  recording_file_id: number;
+  speaker_user_id?: number | null;
+  track_key?: string;
+  source: string;
+  provider?: string;
+  language?: string;
+  text: string;
+  start_ms: number;
+  end_ms: number;
+  confidence: number;
+  created_at: string;
+}
+
+export interface RecordingTranscriptPage {
+  transcription?: RecordingTranscriptionRecord | null;
+  segments: MeetingTranscriptSegmentRecord[];
+  next_after_id?: number | null;
+}
+
 export interface RoomRecord {
   room: {
     id: number;
@@ -574,6 +599,35 @@ export const fetchRecording = async (token: string, recordingId: number) => {
     `/recordings/${recordingId}`,
   );
   return response.data.recording;
+};
+
+export const fetchRecordingTranscript = async (
+  token: string,
+  recordingId: number,
+  params?: { afterId?: number; limit?: number },
+): Promise<RecordingTranscriptPage> => {
+  const api = createApiClient(token);
+  const response = await api.get<RecordingTranscriptPage>(
+    `/recordings/${recordingId}/transcript`,
+    {
+      params: {
+        after_id: params?.afterId,
+        limit: params?.limit ?? 100,
+      },
+    },
+  );
+  return response.data;
+};
+
+export const retryRecordingTranscription = async (
+  token: string,
+  recordingId: number,
+): Promise<RecordingTranscriptionRecord> => {
+  const api = createApiClient(token);
+  const response = await api.post<{ transcription: RecordingTranscriptionRecord }>(
+    `/recordings/${recordingId}/transcription/retry`,
+  );
+  return response.data.transcription;
 };
 
 export const buildRecordingDownloadRequest = (
