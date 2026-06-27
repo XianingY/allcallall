@@ -1,0 +1,146 @@
+openapi: 3.1.0
+info:
+  title: AllCallAll API
+  version: 1.0.0
+  description: Authoritative contract consumed by the primary Web client.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /auth/login:
+    post:
+      security: []
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '401': { $ref: '#/components/responses/Error' }
+  /auth/register:
+    post:
+      security: []
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Registered
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/Error' }
+  /auth/refresh:
+    post:
+      security: []
+      operationId: refreshSession
+      responses:
+        '200':
+          description: Refreshed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '401': { $ref: '#/components/responses/Error' }
+  /auth/logout:
+    post:
+      security: []
+      operationId: logout
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /users/me:
+    get:
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties: { user: { $ref: '#/components/schemas/User' } }
+  /organizations:
+    get:
+      operationId: listOrganizations
+      responses:
+        '200':
+          description: Organizations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [organizations]
+                properties:
+                  organizations:
+                    type: array
+                    items: { $ref: '#/components/schemas/Organization' }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/APIError' }
+    Success:
+      description: Success
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success]
+            properties: { success: { type: boolean } }
+  schemas:
+    APIError:
+      type: object
+      required: [success, code, error]
+      properties:
+        success: { type: boolean, const: false }
+        code: { type: string }
+        error: { type: string }
+        request_id: { type: string }
+    User:
+      type: object
+      required: [id, email, display_name]
+      properties:
+        id: { type: integer, format: int64 }
+        email: { type: string, format: email }
+        display_name: { type: string }
+    Organization:
+      type: object
+      required: [id, name, role]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        role: { type: string, enum: [owner, admin, member] }
+    AuthResponse:
+      type: object
+      required: [user, access_token]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        access_token: { type: string }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+    RegisterRequest:
+      type: object
+      required: [email, password, display_name, accept_current_legal]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        display_name: { type: string }
+        accept_current_legal: { type: boolean }
