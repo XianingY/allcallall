@@ -5,7 +5,7 @@ This is the shortest current path to run the backend API and Web surface locally
 ## Prerequisites
 
 - Go 1.24+
-- Node.js compatible with the Expo toolchain used by `mobile/`
+- Node.js compatible with the Vite Web app and Expo native toolchain.
 - Docker / Docker Compose
 - MySQL and Redis through `infra/docker-compose.yml`
 
@@ -59,17 +59,20 @@ When a room recording is stopped, the service creates a `recording.transcription
 ## 4. Run Web Workspace
 
 ```bash
-cd mobile
+cd web
 npm install
-EXPO_PUBLIC_API_HTTP=http://localhost:8080 \
-EXPO_PUBLIC_API_WS=ws://localhost:8080 \
-npm run web
+npm run dev
 ```
+
+The Vite dev server listens on `http://localhost:5173` and proxies `/api` plus WebSocket traffic to the backend at `http://127.0.0.1:8080`.
 
 Useful Web routes:
 
 - `/meetings`
-- `/rooms/:roomId`
+- `/meetings/:roomId/preflight`
+- `/meetings/:roomId`
+- `/agent-lab`
+- `/knowledge`
 - `/conversations/:conversationId`
 
 ## 5. Run Android Development Client
@@ -82,7 +85,7 @@ cd mobile
 npm run start:dev-client
 ```
 
-Mobile/Web runtime config uses `EXPO_PUBLIC_*` only. `APP_ENV` is historical.
+Mobile native runtime config uses `EXPO_PUBLIC_*` only. Browser runtime config belongs to the `web/` app and production `/config.js`. `APP_ENV` is historical.
 
 ## 6. Optional Extracted Processes
 
@@ -121,6 +124,7 @@ This starts the portfolio/demo topology: API, gRPC User Service, standalone work
 
 ```bash
 cd backend && go test ./... && go vet ./...
+cd web && npm run typecheck && npm run lint && npm test && npm run build
 cd mobile && npm run test:unit && npx tsc --noEmit && npm run lint
 cd desktop && npm run check && npm run build
 ```

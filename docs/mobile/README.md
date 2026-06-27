@@ -1,18 +1,18 @@
-# Mobile / Web Client Docs
+# Mobile Native Client Docs
 
-The `mobile/` package is the shared Expo + React Native client for Android and Web. It also provides the Web surface consumed by the Electron desktop shell.
+The `mobile/` package is the Expo + React Native client for Android and iOS. Browser production traffic now uses the independent React + Vite app in `web/`; the Electron desktop shell also loads that Web app instead of an Expo Web bundle.
 
-The current project focus is backend/Agent interview readiness, so client docs emphasize how to run and verify the frontend surfaces rather than commercial launch instructions.
+The current mobile focus is keeping native Android/iOS workflows buildable while the primary product surface moves to Web.
 
 ## Current Scope
 
 - Android development client.
-- Web browser workspace.
-- Electron desktop shell through Web.
 - iOS target exists, but iOS real-device validation is paused.
-- Web push and Web billing are intentionally not implemented.
-- Realtime translation UI entry points are hidden; the backend compatibility endpoint remains.
-- Meeting recording cards show transcription status when backend data is available.
+- Native push, native billing, media permissions, and WebRTC adapters remain in this package.
+- Realtime translation UI entry points are hidden; backend compatibility endpoints remain.
+- Meeting recording cards can show transcription status when backend data is available.
+
+For browser workflows, use [Web/Desktop workflow](../development/web-desktop-workflow.md).
 
 ## Runtime Configuration
 
@@ -32,22 +32,6 @@ Detailed references:
 - [Mobile runtime config](setup/app-env-usage.md)
 - [Configuration](../configuration/configuration.md)
 
-## Run Web
-
-```bash
-cd mobile
-npm install
-EXPO_PUBLIC_API_HTTP=http://127.0.0.1:8080 \
-EXPO_PUBLIC_API_WS=ws://127.0.0.1:8080 \
-npm run web
-```
-
-Useful routes:
-
-- `/meetings`
-- `/rooms/:roomId`
-- `/conversations/:conversationId`
-
 ## Run Android Development Client
 
 ```bash
@@ -55,6 +39,7 @@ adb reverse tcp:8080 tcp:8080
 adb reverse tcp:8081 tcp:8081
 
 cd mobile
+npm install
 npm run start:dev-client
 ```
 
@@ -72,18 +57,26 @@ cd mobile
 npm run test:unit
 npx tsc --noEmit
 npm run lint
-npx expo export --platform web
 ```
 
-If Web export fails, check for native-only imports and move them behind platform adapters.
+This package no longer owns the production Web export. Run browser checks from `web/`:
+
+```bash
+cd web
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npx playwright test
+```
 
 ## Important Source Areas
 
 ```text
-mobile/src/api/          API client and backend integration
+mobile/src/api/          Native API client and backend integration
 mobile/src/config/       EXPO_PUBLIC_* runtime config
 mobile/src/context/      Auth, signaling, rooms, follow-ups, billing
-mobile/src/platform/     Cross-platform adapters
+mobile/src/platform/     Native/cross-platform adapters
 mobile/src/screens/      Meetings, Inbox, contacts, settings
 mobile/src/services/     Push, billing, media, audio/video/vibration
 ```

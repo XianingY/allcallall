@@ -2,7 +2,7 @@
 
 AllCallAll Web uses a split session model:
 
-- Access token: short-lived JWT returned in the JSON auth response and stored by the Web client in `sessionStorage`.
+- Access token: short-lived JWT returned in the JSON auth response and stored by the Web client in memory.
 - Refresh token: JWT stored only as an HttpOnly cookie named `allcallall_refresh`.
 - Native mobile still uses secure Keychain storage for the same JSON auth response.
 
@@ -30,7 +30,7 @@ Web/Desktop browser clients need credentialed CORS when the app origin and API o
 - Set `CORS_ALLOWED_ORIGINS` to a comma-separated allowlist, for example `https://app.example.com,https://desktop.example.com`.
 - The backend returns `Access-Control-Allow-Credentials: true` only for allowlisted origins.
 - Do not use `*` for credentialed auth traffic.
-- If `CORS_ALLOWED_ORIGINS` is not set, the backend allows only local development origins such as `http://localhost:8081`.
+- If `CORS_ALLOWED_ORIGINS` is not set, the backend allows only local development origins such as `http://localhost:5173`.
 
 ## Current Boundary
 

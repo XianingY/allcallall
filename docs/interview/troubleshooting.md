@@ -232,14 +232,18 @@ Known checks:
 - `cd mobile && npm run test:unit`
 - `cd mobile && npx tsc --noEmit`
 - `cd mobile && npm run lint`
-- `cd mobile && npx expo export --platform web`
-- `cd mobile && npm run web:smoke`
+- `cd web && npm run typecheck`
+- `cd web && npm run lint`
+- `cd web && npm test`
+- `cd web && npm run build`
+- `cd web && npx playwright test`
 
 Common causes:
 
 - Node version mismatch. GitHub CI uses Node 24.
-- Web export imports a native-only dependency without a platform adapter.
-- A route or link helper changed without updating unit tests.
+- A Web route, generated API type, or link helper changed without updating tests.
+- A native-only dependency leaked from `mobile/` into the independent Web app.
+- Browser-only SDK config is missing from `web/public/config.js` or mocked runtime config.
 
 Local reproduction:
 
@@ -248,8 +252,12 @@ cd mobile
 npm run test:unit
 npx tsc --noEmit
 npm run lint
-npx expo export --platform web
-npm run web:smoke
+cd ../web
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npx playwright test
 ```
 
 ## Interview Demo Fails

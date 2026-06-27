@@ -81,7 +81,15 @@ Recording and transcription:
 - `RECORDING_S3_FORCE_PATH_STYLE=1`
 - `RECORDING_PUBLIC_BASE_URL`
 - `TRANSCRIPTION_ENABLED=true`
-- `TRANSCRIPTION_PROVIDER=mock`
+- `TRANSCRIPTION_PROVIDER=mock|openai_compatible`
+- `TRANSCRIPTION_OPENAI_BASE_URL`
+- `TRANSCRIPTION_OPENAI_API_KEY`
+- `TRANSCRIPTION_OPENAI_MODEL`
+- `TRANSCRIPTION_OPENAI_LANGUAGE`
+- `TRANSCRIPTION_OPENAI_TIMEOUT_SEC`
+- `TRANSCRIPTION_CHUNK_SECONDS`
+- `TRANSCRIPTION_MAX_UPLOAD_BYTES`
+- `TRANSCRIPTION_FFMPEG_PATH`
 
 Infra extensions:
 
@@ -96,7 +104,7 @@ Infra extensions:
 
 ## Important API Areas
 
-- Health and metrics: `GET /api/v1/health`, `GET /api/v1/metrics`.
+- Health, readiness, and metrics: `GET /api/v1/health`, `GET /api/v1/ready`, `GET /api/v1/metrics`.
 - Auth: `/api/v1/auth/register`, `/login`, `/refresh`, `/logout`, `/logout-all`, `/sessions`.
 - Email verification: `/api/v1/email/send-verification-code`, `/api/v1/email/verify-code`.
 - Users and contacts: `/api/v1/users/*`, `/api/v1/invitations/*`.

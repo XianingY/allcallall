@@ -2,17 +2,18 @@
 
 AllCallAll is a backend engineering portfolio project for an **AI-powered realtime collaboration system**. It is built around Go, Gin, Gorm/MySQL, Redis, WebSocket/WebRTC, recording storage, asynchronous workers, Elasticsearch search, and AI Agent workflows.
 
-The strongest project story is not a commercial app launch. The repo demonstrates how a realtime collaboration backend can evolve from a modular monolith into extracted worker/service boundaries while keeping product-facing surfaces available for Web, Android/Expo, and an Electron shell.
+The strongest project story is not a commercial app launch. The repo demonstrates how a realtime collaboration backend can evolve from a modular monolith into extracted worker/service boundaries while keeping a primary Web app, native Expo mobile app, and Electron shell available.
 
 ## Current Positioning
 
 - **Realtime collaboration**: organizations, conversations, messages, notes, durable WebSocket replay, room state, WebRTC signaling, and recording sessions.
 - **AI Agent system**: ReAct-style single-agent runs, workflow/DAG-style multi-agent tasks, tool calling, approvals, persisted traces, memory, and conversation-aware context retrieval.
-- **Meeting recording transcription**: recording stop can enqueue `recording.transcription.requested`; the v1 provider abstraction supports `TRANSCRIPTION_PROVIDER=mock` and stores `MeetingTranscriptSegment` rows for Agent retrieval.
+- **Meeting recording transcription**: recording stop can enqueue `recording.transcription.requested`; the provider abstraction supports mock and OpenAI-compatible ASR paths and stores `MeetingTranscriptSegment` rows for Agent retrieval.
 - **Hybrid retrieval**: conversation context plus external knowledge sources, BM25/vector search where Elasticsearch is configured, and Go-layer reranking/chunk assembly.
 - **Async reliability**: MySQL outbox, claim/lease workers, retries, idempotency keys, and Prometheus-style counters.
 - **Extractable runtime**: API server can run embedded workers locally, or split into User Service, Agent Worker, Outbox Worker, Data Worker, Search Worker, and Cleanup Worker.
-- **Supporting mobile/commercial surfaces**: Expo mobile/Web, legal/account deletion, FCM push, RevenueCat demo paths, and desktop wrapper remain in the repo but are secondary to the backend/Agent narrative.
+- **Primary Web surface**: `web/` is the main browser client, covering auth, organizations, collaboration, chat, calls, meetings, recordings, transcripts, Agent Lab, knowledge, approvals, billing settings, Web Push, and responsive layouts.
+- **Supporting native/desktop surfaces**: `mobile/` remains the Expo Android/iOS client; `desktop/` is a thin Electron shell over the Web client.
 
 Realtime translation code is still present for compatibility, but the mobile UI entry points are currently hidden. Meeting transcription is now independent of the realtime translation switch.
 
@@ -20,7 +21,8 @@ Realtime translation code is still present for compatibility, but the mobile UI 
 
 ```text
 backend/     Go backend: API, auth, collaboration, Agent, search, storage, workers
-mobile/      Expo React Native app plus Web export surface
+web/         Primary React + Vite + TypeScript Web application
+mobile/      Expo React Native app for native Android/iOS
 desktop/     Electron shell wrapping the Web client
 infra/       Docker Compose local stack and optional interview infra profiles
 scripts/     Development, smoke, seed, and benchmark scripts
@@ -48,22 +50,22 @@ Health check:
 curl http://localhost:8080/api/v1/health
 ```
 
-Run the Web surface:
+Run the Web app:
 
 ```bash
-cd mobile
+cd web
 npm install
-EXPO_PUBLIC_API_HTTP=http://localhost:8080 \
-EXPO_PUBLIC_API_WS=ws://localhost:8080 \
-npm run web
+npm run dev
 ```
+
+Vite serves the app at `http://localhost:5173` and proxies `/api` and WebSocket traffic to `http://127.0.0.1:8080`.
 
 Run the desktop shell:
 
 ```bash
 cd desktop
 npm install
-ALLCALLALL_WEB_URL=http://localhost:8081 npm run build
+ALLCALLALL_WEB_URL=http://localhost:5173 npm run build
 ```
 
 Android development still uses Expo/React Native and `EXPO_PUBLIC_*` configuration. `APP_ENV` is historical and is not an active mobile runtime control.
@@ -115,7 +117,14 @@ Common backend variables:
 - `KAFKA_BROKERS`, `KAFKA_SETTLEMENT_TOPIC`: enables settlement event publishing/consumption.
 - `ELASTICSEARCH_URL`, `ELASTICSEARCH_INDEX`: enables Elasticsearch message/search indexing.
 
-Mobile/Web public variables:
+Web runtime public variables are injected through `/config.js` in production:
+
+- `PUBLIC_API_BASE_URL`
+- `PUBLIC_WS_BASE_URL`
+- `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_APP_ID`, `FIREBASE_VAPID_KEY`
+- `REVENUECAT_PUBLIC_API_KEY`
+
+Mobile native public variables:
 
 - `EXPO_PUBLIC_API_HTTP`
 - `EXPO_PUBLIC_API_WS`
@@ -124,7 +133,7 @@ Mobile/Web public variables:
 - `EXPO_PUBLIC_SIGNALING_TRANSPORT`
 - `EXPO_PUBLIC_SIGNALING_SHAPING`
 - `EXPO_PUBLIC_E2EE_MODE=experimental`
-- `EXPO_PUBLIC_REVENUECAT_API_KEY` and related RevenueCat variables for Android subscription demo paths.
+- `EXPO_PUBLIC_REVENUECAT_API_KEY` and related RevenueCat variables for Android subscription paths.
 
 ## Optional Microservice / Infra Demo
 
@@ -170,7 +179,13 @@ Backend:
 cd backend && go test ./... && go vet ./...
 ```
 
-Mobile/Web:
+Web:
+
+```bash
+cd web && npm run typecheck && npm run lint && npm test && npm run build
+```
+
+Mobile:
 
 ```bash
 cd mobile && npx tsc --noEmit && npm run lint
@@ -187,9 +202,9 @@ Use the narrowest relevant check for small changes, then broaden when shared beh
 ## Scope Boundaries
 
 - Kubernetes is intentionally not part of the current implementation.
-- Real ASR, S3 recording reads for transcription, and a full transcript viewer are future enhancements.
+- Transcript editing, large-meeting SFU scale-out, and Kubernetes are future enhancements.
 - Kafka and Elasticsearch adapters exist, but live smoke tests require the optional Compose profiles.
-- Web billing and Web push are intentionally not implemented.
+- Production Web billing and Web Push require RevenueCat/Firebase public runtime config plus backend FCM service-account config.
 - The `.proto` file is the source contract; current Go gRPC binding is hand-written because `protoc` is not required by CI.
 
 ## License

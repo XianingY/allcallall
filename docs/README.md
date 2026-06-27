@@ -11,7 +11,7 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 - [Root README](../README.md): project positioning, repo map, fast start, and runtime summary.
 - [Backend README](../backend/README.md): backend entrypoints, commands, API areas, and environment variables.
 - [Quick Start](./getting-started/quick-start.md): local startup flow.
-- [Configuration](./configuration/configuration.md): backend/mobile/infra configuration reference.
+- [Configuration](./configuration/configuration.md): backend, Web, mobile, and infra configuration reference.
 
 ## Interview / Portfolio
 
@@ -48,9 +48,10 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 
 ## Client / Development
 
-- [Mobile Docs](./mobile/README.md): current Expo mobile/Web status.
+- [Web / Desktop Workflow](./development/web-desktop-workflow.md): primary Web app and Electron wrapper workflow.
+- [Web Migration Feature Matrix](./development/web-migration-feature-matrix.md): current Web coverage against migrated product surfaces.
+- [Mobile Docs](./mobile/README.md): current Expo native Android/iOS status.
 - [Mobile Scripts](../mobile/scripts/README.md): app-side helper scripts.
-- [Web / Desktop Workflow](./development/web-desktop-workflow.md): Web export and Electron wrapper workflow.
 - [Web Smoke Test](./testing/web-smoke.md): browser smoke checklist.
 
 ## Supporting Docs
@@ -67,10 +68,12 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 - Optional infra profiles: Kafka-compatible broker and Elasticsearch.
 - Agent providers: `rules`, `mock`, and OpenAI-compatible provider paths.
 - Recording: local or S3-compatible storage.
-- Meeting transcription: optional recording-end transcription through `TRANSCRIPTION_ENABLED=true` and `TRANSCRIPTION_PROVIDER=mock`; v1 requires locally readable recording files.
+- Primary Web: independent `web/` React + Vite app; Expo Web is no longer the production Web bundle.
+- Meeting transcription: optional recording-end transcription through `TRANSCRIPTION_ENABLED=true`; mock and OpenAI-compatible providers are supported by current code paths.
 - Realtime translation: backend code remains, but mobile UI entry points are currently hidden.
-- Mobile/Web config: only `EXPO_PUBLIC_*`; `APP_ENV` is historical.
-- Push: `FCM_SERVICE_ACCOUNT_PATH` enables real Firebase Admin SDK delivery; missing config disables FCM safely.
+- Web config: production runtime `/config.js` generated from `PUBLIC_*`, `FIREBASE_*`, and `REVENUECAT_PUBLIC_API_KEY`.
+- Mobile native config: only `EXPO_PUBLIC_*`; `APP_ENV` is historical.
+- Push: `FCM_SERVICE_ACCOUNT_PATH` enables real Firebase Admin SDK delivery; Web Push additionally requires Firebase Web public config and VAPID key.
 - Kubernetes: intentionally not implemented in this stage.
 
 ## Documentation Maintenance Rules
@@ -80,6 +83,7 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 - Do not describe realtime translation as a primary current feature while its UI is hidden.
 - Do not describe meeting transcription as dependent on realtime translation.
 - Do not describe FCM as a placeholder; it is real when `FCM_SERVICE_ACCOUNT_PATH` is configured.
+- Do not describe Expo Web as the primary Web client; `web/` is now authoritative for browser production.
 - Do not claim Kafka/Elasticsearch live smoke has run unless the optional Compose profiles were actually started.
 - When adding backend entrypoints, update `backend/README.md`, `docs/interview/worker-runtime.md`, and `docs/interview/api-surface.md`.
 - When adding models, outbox events, or Agent context sources, update `docs/api/database.md`, `docs/interview/system-design.md`, and `docs/interview/ai-agent-design.md`.

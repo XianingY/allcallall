@@ -1,6 +1,6 @@
-# Mobile Runtime Configuration
+# Mobile Native Runtime Configuration
 
-AllCallAll mobile/Web uses Expo `EXPO_PUBLIC_*` variables. Do not use `APP_ENV`, `DEV_API`, or `PROD_API_IP` for new work.
+AllCallAll native mobile uses Expo `EXPO_PUBLIC_*` variables. Do not use `APP_ENV`, `DEV_API`, or `PROD_API_IP` for new work. The primary browser client now lives in `web/` and reads runtime public config from `/config.js`.
 
 ## Defaults
 
@@ -30,15 +30,6 @@ Translation variables still exist in config for compatibility, but realtime tran
 
 ## Common Commands
 
-Web:
-
-```bash
-cd mobile
-EXPO_PUBLIC_API_HTTP=http://127.0.0.1:8080 \
-EXPO_PUBLIC_API_WS=ws://127.0.0.1:8080 \
-npm run web
-```
-
 Android dev client:
 
 ```bash
@@ -48,7 +39,7 @@ EXPO_PUBLIC_API_WS=ws://127.0.0.1:8080 \
 npm run start:dev-client
 ```
 
-Restricted network:
+Native restricted network:
 
 ```bash
 EXPO_PUBLIC_API_HTTP=https://api.example.com \
@@ -56,7 +47,7 @@ EXPO_PUBLIC_API_WS=wss://api.example.com \
 EXPO_PUBLIC_FORCE_TLS=1 \
 EXPO_PUBLIC_RESTRICTED_NETWORK=1 \
 EXPO_PUBLIC_SIGNALING_TRANSPORT=poll \
-npm run web
+npm run start:dev-client
 ```
 
 ## Verification

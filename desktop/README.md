@@ -4,8 +4,8 @@ Desktop uses Electron as a thin shell around the Web client.
 
 ## Local development
 
-1. Start the web client in `mobile/`:
-   - `cd mobile && npm run web`
+1. Start the Web client in `web/`:
+   - `cd web && npm install && npm run dev`
 2. Install desktop dependencies:
    - `cd desktop && npm install`
 3. Launch Electron:
@@ -24,17 +24,18 @@ npm run build
 `npm run check` also validates desktop deep-link normalization without starting Electron. This covers:
 
 - `allcallall://rooms/:roomId`
+- `allcallall://meetings/:roomId`
 - `allcallall://conversations/:conversationId`
 - `allcallall://meetings`
-- Web routes such as `/rooms/:roomId`
+- Web routes such as `/meetings/:roomId`
 - rejection of non-AllCallAll external route targets
 
 ## Notes
 
-- Default web URL: `http://localhost:8081`
+- Default web URL: `http://localhost:5173`
 - Override with `ALLCALLALL_WEB_URL`
 - Override the managed download folder with `ALLCALLALL_DOWNLOAD_DIR`
 - Default managed download folder: `~/Downloads/AllCallAll`
-- Desktop opens to `/meetings` and reuses the Web routes `/rooms/:roomId` and `/conversations/:conversationId`
-- The Electron package registers the `allcallall://` scheme; `allcallall://rooms/:roomId` and `allcallall://conversations/:id` are normalized to Web routes
-- Push notifications, Web billing, auto-update, and native screen sharing are intentionally out of scope for this thin shell
+- Desktop opens to `/meetings` and reuses the Web routes `/meetings/:roomId` and `/conversations/:conversationId`
+- The Electron package registers the `allcallall://` scheme; legacy `allcallall://rooms/:roomId` links are normalized to `/meetings/:roomId`
+- Auto-update and native screen sharing are intentionally out of scope for this thin shell. Billing and Web Push are handled by the loaded Web app when its runtime config is present.

@@ -1,6 +1,6 @@
 # Configuration
 
-This page is the maintained runtime configuration reference. Backend config is `CONFIG_PATH` YAML plus environment overrides; mobile/Web config is Expo `EXPO_PUBLIC_*`; Docker Compose can inject both.
+This page is the maintained runtime configuration reference. Backend config is `CONFIG_PATH` YAML plus environment overrides; Web config is runtime `/config.js`; mobile native config uses Expo `EXPO_PUBLIC_*`; Docker Compose can inject all of them.
 
 ## Backend Config Loading
 
@@ -140,9 +140,28 @@ Long recordings are split into OGG chunks before upload. Local and S3-compatible
 | `REVENUECAT_WEBHOOK_AUTH_TOKEN` | Protects the RevenueCat webhook path. |
 | `SUPPORT_API_TOKEN` | Protects internal support endpoints. |
 
-## Mobile / Web Variables
+## Web Runtime Variables
 
-Only `EXPO_PUBLIC_*` is active for Expo mobile/Web runtime and build-time config.
+The production Web container generates `/config.js` from public environment variables in `infra/web-runtime-config.sh`.
+
+| Variable | Purpose |
+| --- | --- |
+| `PUBLIC_API_BASE_URL` | Browser REST API base URL; defaults to `/api/v1`. |
+| `PUBLIC_WS_BASE_URL` | Browser WebSocket API base URL; empty uses current host and protocol. |
+| `FIREBASE_API_KEY` | Firebase Web app public API key. |
+| `FIREBASE_AUTH_DOMAIN` | Firebase Web auth domain. |
+| `FIREBASE_PROJECT_ID` | Firebase project ID. |
+| `FIREBASE_STORAGE_BUCKET` | Optional Firebase storage bucket. |
+| `FIREBASE_MESSAGING_SENDER_ID` | Firebase messaging sender ID. |
+| `FIREBASE_APP_ID` | Firebase Web app ID. |
+| `FIREBASE_VAPID_KEY` | Web Push VAPID public key. |
+| `REVENUECAT_PUBLIC_API_KEY` | RevenueCat Web Billing public API key. |
+
+Local Vite Web uses `http://localhost:5173` and proxies `/api` to `http://127.0.0.1:8080`.
+
+## Mobile Native Variables
+
+Only `EXPO_PUBLIC_*` is active for Expo native runtime and build-time config.
 
 | Variable | Purpose |
 | --- | --- |
@@ -153,7 +172,7 @@ Only `EXPO_PUBLIC_*` is active for Expo mobile/Web runtime and build-time config
 | `EXPO_PUBLIC_SIGNALING_TRANSPORT` | `auto` or `poll`. |
 | `EXPO_PUBLIC_SIGNALING_SHAPING` | Enables conservative signaling shaping. |
 | `EXPO_PUBLIC_E2EE_MODE` | `experimental` enables experimental client E2EE mode. |
-| `EXPO_PUBLIC_REVENUECAT_API_KEY` | Android subscription demo path. |
+| `EXPO_PUBLIC_REVENUECAT_API_KEY` | Android subscription path. |
 | `EXPO_PUBLIC_REVENUECAT_OFFERING_ID` | RevenueCat offering. |
 | `EXPO_PUBLIC_REVENUECAT_MONTHLY_PRODUCT_ID` | Defaults around `premium_monthly`. |
 | `EXPO_PUBLIC_REVENUECAT_YEARLY_PRODUCT_ID` | Defaults around `premium_yearly`. |

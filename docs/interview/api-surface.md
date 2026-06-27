@@ -28,13 +28,30 @@ Talking points:
 - `GET /api/v1/conversations/:id/notes`
 - `POST /api/v1/conversations/:id/notes`
 - `GET /api/v1/chat/ws`
+- `POST /api/v1/realtime/tickets`
 - `GET /api/v1/search/messages?q=<keyword>`
 
 Talking points:
 
 - Organization-scoped access control.
 - Durable `chat_events` replay with `event_id`, `sequence`, and `since_id`.
+- Browser WebSocket clients use short-lived channel-bound realtime tickets; mobile token-query auth remains compatible during transition.
 - Message search is eventually consistent and membership-filtered after Elasticsearch hits.
+
+## Push And Commercial Surface
+
+- `GET /api/v1/push/devices`
+- `POST /api/v1/push/devices`
+- `DELETE /api/v1/push/devices/:deviceId`
+- `GET /api/v1/entitlements/me`
+- `GET /api/v1/usage/me`
+- `POST /api/v1/billing/revenuecat/webhook`
+
+Talking points:
+
+- Push registrations are device-level, so one user can keep multiple browser/mobile devices active.
+- Backend fanout deletes provider-invalid tokens after FCM delivery failures.
+- RevenueCat entitlement webhooks remain the authority; Web and mobile clients only display/refresh state.
 
 ## Meetings, Recording, Transcription
 

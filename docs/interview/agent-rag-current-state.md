@@ -20,7 +20,7 @@
 
 | 模块 | 当前状态 | 真实能力 | 主要边界 |
 | --- | --- | --- | --- |
-| Web Agent Lab | 可演示 | 登录后默认进入 `AgentDemo` 路由里的 Agent Lab；含 Knowledge/Run/Graph/Approvals/Eval tabs | 需要登录态和当前 organization，不是免登录公开 demo |
+| Web Agent Lab | 可演示 | 独立 `web/` 应用提供 `/agent-lab`；含 Run/Trace/Citations/Approvals/History 展示，并可跳转 Knowledge Center | 需要登录态和当前 organization，不是免登录公开 demo |
 | Agent run 生命周期 | 基本完整 | 创建 run、幂等键、pending/running/ready/failed/requires_action、lease、attempt、outbox worker 执行 | worker 可靠性和失败重放还偏本地开发级 |
 | Workflow+Agent 编排 | 可演示 | 固定 DAG：`collect_context -> decompose -> parallel_agents -> merge -> propose_tools -> approval -> commit_result`；部分 role task 内部运行 bounded ReAct | DAG 目前固定，不支持用户自定义 workflow |
 | 并行多 Agent | 可演示 | `searcher/summarizer/risk_analyst` 三个 workflow task 并行执行；`searcher`/`risk_analyst` 使用 read-only bounded ReAct，并通过 `agent_messages` 持久化计划、观察和结果 | 当前 role loop 是固定策略，不是完全自治 agent |
@@ -40,7 +40,7 @@
 
 ```mermaid
 flowchart LR
-  Web["Expo Web\n/agent-demo"] --> API["Gin API\n/api/v1"]
+  Web["React + Vite Web\n/agent-lab"] --> API["Gin API\n/api/v1"]
   API --> AgentSvc["agent.Service"]
   AgentSvc --> MySQL["MySQL\nruns/steps/tool_calls/chunks"]
   AgentSvc --> Outbox["event_outbox\nagent.run.requested"]
@@ -71,24 +71,17 @@ flowchart LR
 
 ## Web 端使用入口
 
-当前 Web 端已经被临时调整成 Agent Lab 展示优先：
+当前主 Web 端已经迁移到独立 React + Vite 应用：
 
-- `mobile/src/navigation/AppNavigator.tsx` 中，登录后如果是 Web 平台，初始页是 `AgentDemo`。
-- `mobile/src/screens/AgentDemoScreen.tsx` 现在是 Agent Lab：
-  - `Knowledge` tab：manual text、URL、txt/md/html/pdf 文件上传，查看 source/version/chunk/index 状态，查看和重试 RAG dead-letter。
-  - `Run` tab：选择 conversation + goal，创建 Workflow Agent run，并可手动推进本地 demo。
-  - `Graph` tab：展示 workflow task graph、并行 agent task 状态和 `agent_messages`。
-  - `Approvals` tab：展示 `tool_approvals`，支持 approve/reject。
-  - `Eval` tab：展示 eval 入口和最近 workflows。
-- 侧栏仍保留演示会话能力：
-  - 列出 open conversations。
-  - 创建 `Agent Lab` 演示线程。
-  - 自动写入两条客户消息和两条内部备注。
-  - 作为 Workflow Agent run 的 conversation 输入。
-- `mobile/src/screens/ConversationDetailScreen.tsx` 也有 `Ask AI`，可以在普通会话详情里直接提交 Agent run。
-- `mobile/src/components/AgentMessageBubble.tsx` 仍保留旧 Agent run 展示，用于会话页 Ask AI。
+- `web/src/pages/agent/AgentLabPage.tsx` 是 Agent Lab 主页面，路由为 `/agent-lab`。
+- `Run` 区支持 ReAct run、Workflow run 和默认 `meeting_brief` 会议复盘 preset。
+- Trace 区展示 agent step、tool call、tool result、approval wait 和 final answer。
+- Citation 区按 `meeting_transcript`、`knowledge`、`conversation` 等来源分类，会议转写引用可携带 recording/segment/time metadata。
+- Approvals 页面支持 pending/all 过滤、审批原因、工具参数摘要和执行结果。
+- `web/src/pages/knowledge/KnowledgePage.tsx` 负责 manual text、URL、txt/md/html/pdf 文件知识导入、版本/重复候选和 dead-letter/retry。
+- `mobile/` 保留原生 Android/iOS 客户端，不再承担生产 Web bundle。
 
-Web API 客户端在 `mobile/src/api/agent.ts`：
+Web API 客户端在 `web/src/api/agent.ts`：
 
 - `POST /api/v1/agent/runs` 创建 run。
 - `GET /api/v1/agent/runs/:id` 获取 run、steps、tool_calls、trace、citations。
@@ -100,7 +93,7 @@ Web API 客户端在 `mobile/src/api/agent.ts`：
 - `GET /api/v1/agent/approvals` 查看审批。
 - `POST /api/v1/agent/approvals/:id/decision` 提交 approve/reject。
 
-知识库 API 客户端在 `mobile/src/api/knowledge.ts`：
+知识库 API 客户端在 `web/src/api/knowledge.ts`：
 
 - `POST /api/v1/knowledge/sources` 创建 manual/url/file source。
 - `GET /api/v1/knowledge/sources` 列 source。
@@ -415,8 +408,8 @@ JWT_SECRET=...
 当前阶段已经跑通过以下类型验证：
 
 - 后端 Go 测试：Agent、search、handlers 等相关包通过。
-- 移动/Web TypeScript 类型检查通过。
-- Expo Web smoke 可以打开 `/agent-demo`。
+- Web TypeScript 类型检查、Vitest、Vite production build 和 Playwright smoke 通过。
+- `/agent-lab` 可以从主 Web Shell 打开；旧 `/agent-demo` 由 Nginx 兼容重定向到 `/agent-lab`。
 - ES index mapping 中 `allcallall_context_chunks.content_vector` 是 `dense_vector`，dims 与配置一致。
 - 真实 embedding probe 返回 1024 维向量。
 - 真实 HTTP Agent RAG smoke 能完成 run，并产生：
@@ -435,7 +428,7 @@ JWT_SECRET=...
 cd backend && go test ./internal/agent ./internal/search ./internal/handlers
 cd backend && go run ./cmd/agent-eval -fixture ./internal/agent/testdata/workflow_eval_cases.json
 cd backend && go run ./cmd/rag-eval -fixture ./internal/agent/testdata/rag_eval_cases.json
-cd mobile && npx tsc --noEmit
+cd web && npm run typecheck && npm test
 ```
 
 如果改到真实 demo 链路，再加：
