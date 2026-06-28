@@ -198,6 +198,7 @@ func buildRouter(db *gorm.DB, jwtManager *auth.Manager) *gin.Engine {
 	protected := api.Group("")
 	protected.Use(auth.Middleware(jwtManager))
 	handler.RegisterProtectedRoutes(protected)
+	handler.RegisterRealtimeRoutes(api, auth.Middleware(jwtManager))
 	return router
 }
 
