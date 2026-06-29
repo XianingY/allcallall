@@ -45,6 +45,7 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 - [Meeting Room State Protocol](./deployment/meeting-room-state-protocol.md): room state event contract.
 - [Web Auth Session](./deployment/web-auth-session.md): browser refresh-cookie session behavior.
 - [Security Guidelines](./configuration/security-guidelines.md): security and privacy rules.
+- [Beta Smoke Checklist](./testing/beta-smoke-checklist.md): small-team Beta validation checklist and seed-data flow.
 
 ## Client / Development
 
@@ -66,10 +67,10 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 - Backend default: one API process with embedded workers.
 - Extracted processes: `user-service`, `agent-worker`, `outbox-worker`, `data-worker`, `search-worker`, `cleanup-worker`.
 - Optional infra profiles: Kafka-compatible broker and Elasticsearch.
-- Agent providers: `rules`, `mock`, and OpenAI-compatible provider paths.
+- Agent providers: `rules`, `mock_llm`, and `openai_compatible`.
 - Recording: local or S3-compatible storage.
 - Primary Web: independent `web/` React + Vite app; Expo Web is no longer the production Web bundle.
-- Meeting transcription: optional recording-end transcription through `TRANSCRIPTION_ENABLED=true`; mock and OpenAI-compatible providers are supported by current code paths.
+- Meeting transcription: optional recording-end transcription through `TRANSCRIPTION_ENABLED=true`; `mock` is for deterministic local paths, while Beta should use `openai_compatible`.
 - Realtime translation: backend code remains, but mobile UI entry points are currently hidden.
 - Web config: production runtime `/config.js` generated from `PUBLIC_*`, `FIREBASE_*`, and `REVENUECAT_PUBLIC_API_KEY`.
 - Mobile native config: only `EXPO_PUBLIC_*`; `APP_ENV` is historical.

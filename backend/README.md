@@ -27,6 +27,7 @@ cmd/data-worker     Kafka settlement consumer, writes room_settlements.
 cmd/search-worker   Message indexing worker for Elasticsearch.
 cmd/cleanup-worker  Refresh-session and recording-retention cleanup.
 cmd/mcp-tool-server MCP-compatible stdio tool server for read-only Agent tools.
+cmd/beta-seed       Idempotent small-team Beta demo data seed.
 ```
 
 ## Common Commands
@@ -46,6 +47,9 @@ make run-outbox-worker
 make run-data-worker
 make run-search-worker
 make run-cleanup-worker
+
+# Seed local Beta walkthrough data
+make beta-seed
 
 # Test and vet
 cd backend && go test ./...
@@ -101,6 +105,8 @@ Infra extensions:
 - `ELASTICSEARCH_URL=http://localhost:9200`
 - `ELASTICSEARCH_INDEX=allcallall_messages`
 - `FCM_SERVICE_ACCOUNT_PATH=/path/firebase-service-account.json`
+
+Beta provider rule: use `AGENT_PROVIDER=openai_compatible`, `AGENT_PROVIDER_STRICT=true`, `TRANSCRIPTION_PROVIDER=openai_compatible`, and real ASR/LLM credentials for product validation. Use `rules`, `mock_llm`, and `TRANSCRIPTION_PROVIDER=mock` only for deterministic eval, local development, or seed-data demos.
 
 ## Important API Areas
 

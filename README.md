@@ -14,6 +14,7 @@ The strongest project story is not a commercial app launch. The repo demonstrate
 - **Extractable runtime**: API server can run embedded workers locally, or split into User Service, Agent Worker, Outbox Worker, Data Worker, Search Worker, and Cleanup Worker.
 - **Primary Web surface**: `web/` is the main browser client, covering auth, organizations, collaboration, chat, calls, meetings, recordings, transcripts, Agent Lab, knowledge, approvals, billing settings, Web Push, and responsive layouts.
 - **Supporting native/desktop surfaces**: `mobile/` remains the Expo Android/iOS client; `desktop/` is a thin Electron shell over the Web client.
+- **Beta v1 scope**: the practical product loop is a 3-6 person team flow: create organization, invite members, chat, start a meeting, record, transcribe, generate an Agent meeting brief, inspect citations, and approve write-back tools.
 
 Realtime translation code is still present for compatibility, but the mobile UI entry points are currently hidden. Meeting transcription is now independent of the realtime translation switch.
 
@@ -85,6 +86,7 @@ make run-search-worker
 make run-cleanup-worker
 
 # Deterministic interview/demo harnesses
+make beta-seed
 make interview-demo
 make interview-microservice-demo
 make agent-eval
@@ -105,14 +107,16 @@ Common backend variables:
 - `REDIS_ADDR`, `REDIS_PASSWORD`: Redis connection.
 - `JWT_SECRET`: JWT signing secret.
 - `MAIL_PASSWORD`: SMTP credential override.
-- `AGENT_PROVIDER=rules|mock|openai`: Agent planner/provider selection.
+- `AGENT_PROVIDER=rules|mock_llm|openai_compatible`: Agent planner/provider selection.
+- `AGENT_PROVIDER_STRICT=true`: required for Beta/production when using a real provider; disables silent fallback to `rules`.
 - `EMBEDDED_WORKERS=0|1`: controls API-process workers.
 - `FCM_SERVICE_ACCOUNT_PATH`: enables Firebase Admin SDK push delivery.
 - `RECORDING_STORAGE_DRIVER=local|s3`: recording storage driver.
 - `RECORDING_STORAGE_DIR`: local recording storage root.
 - `RECORDING_S3_*`: S3-compatible recording storage config.
 - `TRANSCRIPTION_ENABLED=true`: enables recording transcription jobs.
-- `TRANSCRIPTION_PROVIDER=mock`: v1 transcription provider.
+- `TRANSCRIPTION_PROVIDER=mock|openai_compatible`: recording transcription provider.
+- `TRANSCRIPTION_OPENAI_BASE_URL`, `TRANSCRIPTION_OPENAI_MODEL`, `TRANSCRIPTION_OPENAI_API_KEY`: OpenAI-compatible ASR settings for Beta.
 - `USER_SERVICE_GRPC_ADDR`: enables API auth validation through User Service.
 - `KAFKA_BROKERS`, `KAFKA_SETTLEMENT_TOPIC`: enables settlement event publishing/consumption.
 - `ELASTICSEARCH_URL`, `ELASTICSEARCH_INDEX`: enables Elasticsearch message/search indexing.
@@ -157,6 +161,16 @@ ELASTICSEARCH_URL=http://elasticsearch:9200
 ELASTICSEARCH_INDEX=allcallall_messages
 EMBEDDED_WORKERS=0
 ```
+
+## Beta Demo Seed
+
+For local Beta walkthroughs, seed a small team workspace after MySQL is running:
+
+```bash
+make beta-seed
+```
+
+The command creates deterministic owner/member accounts, an organization, a team, a conversation, sample messages, a completed meeting, ready transcript segments, and audit events. It prints login credentials and direct Web routes. The seeded transcript is metadata and text-only; it is useful for UI and Agent grounding demos, not for real ASR/download validation.
 
 ## Documentation
 

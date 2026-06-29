@@ -103,14 +103,14 @@ sequenceDiagram
     API->>Outbox: recording.transcription.requested
     API-->>Client: recording saved
     Worker->>Outbox: claim transcription event
-    Worker->>Provider: transcribe local audio file
+    Worker->>Provider: transcribe local/S3 audio file chunks
     Provider-->>Worker: transcript segments
     Worker->>DB: write meeting_transcript_segments
     Worker->>DB: mark transcription ready/failed/skipped
     Agent->>DB: load meeting_transcript_segments as context
 ```
 
-v1 uses `TRANSCRIPTION_PROVIDER=mock` and requires locally readable recording files. S3-only files are marked failed until Reader/download support is implemented. This path is independent of realtime translation, whose UI is currently hidden.
+The deterministic local path can use `TRANSCRIPTION_PROVIDER=mock`, while Beta uses `TRANSCRIPTION_PROVIDER=openai_compatible` with FFmpeg chunking and local/S3 recording reads. This path is independent of realtime translation, whose UI is currently hidden.
 
 ## Agent Execution Flow
 

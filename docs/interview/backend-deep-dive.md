@@ -70,7 +70,7 @@ Interview angle:
 - Retention metadata is written at upload time.
 - Cleanup workers handle stale refresh sessions and expired recording assets.
 - Recording-end transcription is decoupled from realtime translation: `TRANSCRIPTION_ENABLED=true` creates `recording.transcription.requested`, writes `recording_transcriptions`, and stores `meeting_transcript_segments` for Agent retrieval.
-- v1 transcription uses `TRANSCRIPTION_PROVIDER=mock` and requires locally readable recording files; S3-only files are marked failed until Reader/download support is added.
+- Local deterministic transcription can use `TRANSCRIPTION_PROVIDER=mock`; Beta uses `TRANSCRIPTION_PROVIDER=openai_compatible`, FFmpeg chunking, and local/S3 recording reads.
 
 Interview angle:
 

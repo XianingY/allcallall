@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { Building2, MailPlus, Plus, RefreshCw, Shield, Trash2, Users, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import {
   addOrganizationTeamMember,
@@ -104,15 +104,15 @@ function TeamsTab({ orgId, canManage, members, teams, refresh }: { orgId: number
 }
 
 function PoliciesTab({ orgId, canManage, policy, refresh }: { orgId: number; canManage: boolean; policy: UseQueryResult; refresh(): void }) {
-  const [mode, setMode] = useState("off"); const [days, setDays] = useState(30); const [exportAllowed, setExportAllowed] = useState(false);
-  const loadedId = (policy.data as { id?: number } | undefined)?.id;
-  useEffect(() => {
-    const data = policy.data as { recording_mode?: string; recording_storage_days?: number; recording_export_allowed?: boolean } | undefined;
-    if (data) { setMode(data.recording_mode ?? "off"); setDays(data.recording_storage_days ?? 30); setExportAllowed(Boolean(data.recording_export_allowed)); }
-  }, [loadedId]);
-  const save = useMutation({ mutationFn: () => updateOrganizationPolicy(orgId, { recording_mode: mode, recording_storage_days: days, recording_export_allowed: exportAllowed }), onSuccess: refresh });
   if (policy.isLoading) return <PageLoading />;
   if (policy.isError) return <PageError error={policy.error} retry={() => void policy.refetch()} />;
+  const data = policy.data as { id?: number; recording_mode?: string; recording_storage_days?: number; recording_export_allowed?: boolean } | undefined;
+  return <PolicyForm key={`${orgId}-${data?.id ?? "new"}`} orgId={orgId} canManage={canManage} initialMode={data?.recording_mode ?? "off"} initialDays={data?.recording_storage_days ?? 30} initialExportAllowed={Boolean(data?.recording_export_allowed)} refresh={refresh} />;
+}
+
+function PolicyForm({ orgId, canManage, initialMode, initialDays, initialExportAllowed, refresh }: { orgId: number; canManage: boolean; initialMode: string; initialDays: number; initialExportAllowed: boolean; refresh(): void }) {
+  const [mode, setMode] = useState(initialMode); const [days, setDays] = useState(initialDays); const [exportAllowed, setExportAllowed] = useState(initialExportAllowed);
+  const save = useMutation({ mutationFn: () => updateOrganizationPolicy(orgId, { recording_mode: mode, recording_storage_days: days, recording_export_allowed: exportAllowed }), onSuccess: refresh });
   return <div className="form-stack org-policy-form"><FormError error={save.error} /><label>录制策略<select className="field" disabled={!canManage} value={mode} onChange={(event) => setMode(event.target.value)}><option value="off">off</option><option value="admin_opt_in">admin_opt_in</option><option value="forced_for_team_meetings">forced_for_team_meetings</option></select></label><label>保存天数<input className="field" type="number" min="1" disabled={!canManage} value={days} onChange={(event) => setDays(Number(event.target.value))} /></label><label className="checkbox-row"><input type="checkbox" disabled={!canManage} checked={exportAllowed} onChange={(event) => setExportAllowed(event.target.checked)} />允许导出录音</label><button className="button-primary" disabled={!canManage || save.isPending} onClick={() => save.mutate()}>保存策略</button></div>;
 }
 

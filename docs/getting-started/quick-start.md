@@ -42,7 +42,7 @@ Notes:
 
 ## 3. Optional Recording Transcription
 
-The current v1 transcription path runs after recording stop, not during realtime translation.
+The current transcription path runs after recording stop, not during realtime translation.
 
 ```bash
 cd backend
@@ -56,7 +56,29 @@ go run ./cmd/server
 
 When a room recording is stopped, the service creates a `recording.transcription.requested` outbox event. The worker writes `meeting_transcript_segments` that the Agent can later retrieve as `meeting_transcript` context.
 
-## 4. Run Web Workspace
+Use `TRANSCRIPTION_PROVIDER=mock` only for local deterministic development. For a Beta validation run, configure an OpenAI-compatible ASR provider instead:
+
+```bash
+TRANSCRIPTION_ENABLED=true
+TRANSCRIPTION_PROVIDER=openai_compatible
+TRANSCRIPTION_OPENAI_BASE_URL=https://api.example.com/v1
+TRANSCRIPTION_OPENAI_MODEL=whisper-1
+TRANSCRIPTION_OPENAI_API_KEY=...
+AGENT_PROVIDER=openai_compatible
+AGENT_PROVIDER_STRICT=true
+```
+
+## 4. Optional Beta Seed
+
+After MySQL is running, seed a small-team walkthrough workspace:
+
+```bash
+make beta-seed
+```
+
+The command creates owner/member accounts, an organization, a team, a conversation, sample chat messages, a completed meeting, ready transcript segments, and direct Web routes. This is seed text for UI and Agent grounding demos; it does not create real audio bytes or prove ASR quality.
+
+## 5. Run Web Workspace
 
 ```bash
 cd web
@@ -75,7 +97,7 @@ Useful Web routes:
 - `/knowledge`
 - `/conversations/:conversationId`
 
-## 5. Run Android Development Client
+## 6. Run Android Development Client
 
 ```bash
 adb reverse tcp:8080 tcp:8080
@@ -87,7 +109,7 @@ npm run start:dev-client
 
 Mobile native runtime config uses `EXPO_PUBLIC_*` only. Browser runtime config belongs to the `web/` app and production `/config.js`. `APP_ENV` is historical.
 
-## 6. Optional Extracted Processes
+## 7. Optional Extracted Processes
 
 ```bash
 make run-user-service
@@ -109,7 +131,7 @@ ELASTICSEARCH_URL=http://localhost:9200
 ELASTICSEARCH_INDEX=allcallall_messages
 ```
 
-## 7. Optional Interview Infra
+## 8. Optional Interview Infra
 
 ```bash
 docker compose -f infra/docker-compose.yml \

@@ -70,6 +70,8 @@ Manual Beta checks that still need a real browser, media device, TURN/TLS endpoi
 - Register Web Push, receive a foreground/background notification, and unregister the device.
 - Open billing, purchase or restore in a RevenueCat sandbox environment, and verify backend entitlement refresh.
 
+For the maintained product-level Beta loop, follow [Beta Smoke Checklist](./beta-smoke-checklist.md). Web Push and Billing require external Firebase/RevenueCat configuration and are not core gates for the Beta v1 collaboration loop.
+
 ## Notes
 
 - Browser media permissions must be granted manually when testing actual meetings.

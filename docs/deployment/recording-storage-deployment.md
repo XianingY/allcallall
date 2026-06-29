@@ -41,8 +41,16 @@ Recording transcription is independent of realtime translation.
 
 ```bash
 TRANSCRIPTION_ENABLED=true
-TRANSCRIPTION_PROVIDER=mock
+TRANSCRIPTION_PROVIDER=openai_compatible
+TRANSCRIPTION_OPENAI_BASE_URL=https://api.example.com/v1
+TRANSCRIPTION_OPENAI_MODEL=whisper-1
+TRANSCRIPTION_OPENAI_API_KEY=...
+TRANSCRIPTION_CHUNK_SECONDS=600
+TRANSCRIPTION_MAX_UPLOAD_BYTES=25165824
+TRANSCRIPTION_FFMPEG_PATH=ffmpeg
 ```
+
+`TRANSCRIPTION_PROVIDER=mock` remains available for deterministic local development and tests, but it should not be used as Beta proof of real ASR behavior.
 
 Flow:
 
@@ -61,7 +69,7 @@ Status meanings:
 - `failed`: provider/storage error; recording remains saved.
 - `skipped`: no conversation binding, no audio file, or no transcript segments.
 
-v1 only supports locally readable recording files. If `OpenLocal=false`, such as S3-only files, transcription is marked failed until Reader/download support is added.
+Local and S3-compatible recordings can both enter the transcription path. Local files are opened directly; S3 objects are downloaded into a bounded temporary file and removed after processing. Long OGG recordings are split with FFmpeg before upload to the ASR endpoint.
 
 ## Agent Integration
 

@@ -1,7 +1,7 @@
 # AllCallAll Project Makefile
 # Common commands for development
 
-.PHONY: help setup build-android build-ios clean test run-api run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench interview-microservice-demo agent-eval rag-eval workflow-eval task-eval agent-demo-report resume-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench
+.PHONY: help setup build-android build-ios clean test run-api run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench interview-microservice-demo agent-eval rag-eval workflow-eval task-eval agent-demo-report resume-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench
 
 # Default target
 help:
@@ -24,6 +24,7 @@ help:
 	@echo "  make run-data-worker  - Start standalone Kafka settlement Data worker"
 	@echo "  make run-search-worker - Start standalone Elasticsearch indexing worker"
 	@echo "  make run-cleanup-worker - Start standalone Cleanup worker"
+	@echo "  make beta-seed        - Seed a small-team Beta demo workspace"
 	@echo "  make interview-demo   - Run local interview demo evidence suite"
 	@echo "  make interview-demo-live - Start MySQL/Redis and seed live interview demo data"
 	@echo "  make interview-live-suite - Run MySQL/Redis live interview smoke suite"
@@ -107,6 +108,10 @@ run-search-worker:
 run-cleanup-worker:
 	@echo "Starting standalone Cleanup worker..."
 	cd backend && go run ./cmd/cleanup-worker
+
+beta-seed:
+	@echo "Seeding small-team Beta demo workspace..."
+	cd backend && go run ./cmd/beta-seed
 
 # ===========================
 # Clean Commands

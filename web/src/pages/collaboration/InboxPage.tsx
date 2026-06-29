@@ -90,9 +90,11 @@ export function InboxPage() {
   const activeTypingUsers = useMemo(() => Object.entries(typingUsers).filter(([id, until]) => Number(id) !== user?.id && until > Date.now()).map(([id]) => Number(id)), [typingUsers, user?.id]);
 
   useEffect(() => {
-    setReplyTo(null);
-    setEditing(null);
-    setAttachments([]);
+    queueMicrotask(() => {
+      setReplyTo(null);
+      setEditing(null);
+      setAttachments([]);
+    });
     if (selectedId) void markConversationRead(selectedId).then(() => queryClient.invalidateQueries({ queryKey: ["organizations", orgId, "conversations"] }));
   }, [selectedId, orgId, queryClient]);
 
