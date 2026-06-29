@@ -256,6 +256,25 @@ func TestAgentHandlerCreateWorkflowWithPreset(t *testing.T) {
 	}
 }
 
+func TestAgentHandlerMeetingBriefRequiresTranscript(t *testing.T) {
+	handler, _, conversation := newAgentHandlerTestEnv(t)
+	router := newRouterWithClaims(&auth.Claims{UserID: 7, Email: "owner@example.com"}, handler.RegisterProtectedRoutes)
+
+	reqBody, _ := json.Marshal(map[string]any{
+		"conversation_id": conversation.ID,
+		"preset":          "meeting_brief",
+	})
+	rec := performRequestWithOrganization(t, router, http.MethodPost, "/api/v1/agent/workflows", reqBody, conversation.OrganizationID)
+	expectHandlerStatus(t, rec, http.StatusConflict)
+	var response struct {
+		Code string `json:"code"`
+	}
+	decodeBody(t, rec.Body.Bytes(), &response)
+	if response.Code != "MEETING_TRANSCRIPT_NOT_READY" {
+		t.Fatalf("unexpected error code: %+v", response)
+	}
+}
+
 func TestAgentHandlerStreamsRunEvents(t *testing.T) {
 	handler, _, conversation := newAgentHandlerTestEnv(t)
 	router := newRouterWithClaims(&auth.Claims{UserID: 7, Email: "owner@example.com"}, handler.RegisterProtectedRoutes)
