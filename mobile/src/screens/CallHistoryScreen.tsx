@@ -17,7 +17,7 @@ import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
 import { useCommercial } from "../context/CommercialContext";
 import { useFollowUps } from "../context/FollowUpContext";
-import { useSignaling } from "../context/SignalingContext";
+import { useSignaling } from "../context/signalingContextValue";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import AnalyticsService from "../services/AnalyticsService";
 import { FOLLOW_UP_CALLS_STORAGE_KEY } from "../constants/invitations";

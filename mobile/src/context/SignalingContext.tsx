@@ -1,7 +1,5 @@
 import React, {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -60,6 +58,7 @@ import {
   type E2EESessionKey
 } from "../services/e2ee/E2EEService";
 import { DEFAULT_ICE_SERVERS } from "./signalingConstants";
+import { SignalingContext } from "./signalingContextValue";
 import { preferRestrictedIceServers } from "./signalingHelpers";
 import { createSignalingTransport } from "./signalingTransports";
 import {
@@ -90,10 +89,6 @@ import type {
 } from "./signalingTypes";
 import { findTranslationUsage } from "../utils/usage";
 type MediaTrack = RemoteTrackLike;
-
-const SignalingContext = createContext<SignalingContextValue | undefined>(
-  undefined
-);
 
 export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   children
@@ -1192,10 +1187,4 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     startCall, acceptCall, rejectCall, endCall, toggleVideo, toggleAudio, switchCamera, toggleSpeaker, isSpeakerOn, toggleTranslation, retryTranslationInitialization]);
 
   return <SignalingContext.Provider value={value}>{children}</SignalingContext.Provider>;
-};
-
-export const useSignaling = () => {
-  const ctx = useContext(SignalingContext);
-  if (!ctx) throw new Error("useSignaling must be used within SignalingProvider");
-  return ctx;
 };

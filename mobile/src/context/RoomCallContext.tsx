@@ -1,7 +1,5 @@
 import React, {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -41,43 +39,18 @@ import {
 } from "../services/roomMediaMapping";
 import {
   RoomRemoteStreamRegistry,
-  type RemoteStreamRecord,
 } from "../services/roomRemoteStreamRegistry";
 import { applyRoomRealtimePatch } from "../services/roomRealtimeReducer";
 import { DEFAULT_ICE_SERVERS } from "./signalingConstants";
+import {
+  RoomCallContext,
+  type MeetingRemoteStreamRecord,
+  type RoomCallContextValue,
+  type RoomRealtimeEvent,
+} from "./roomCallContextValue";
 import { preferRestrictedIceServers } from "./signalingHelpers";
 import { RESTRICTED_NETWORK_MODE } from "../config";
 import { useAuthContext } from "./AuthContext";
-
-type MeetingRemoteStreamRecord = RemoteStreamRecord<MediaStream>;
-
-type RoomRealtimeEvent = {
-  event: string;
-  organization_id: number;
-  payload: unknown;
-};
-
-interface RoomCallContextValue {
-  room: RoomRecord | null;
-  localStream: MediaStream | null;
-  remoteStreams: MeetingRemoteStreamRecord[];
-  recording: RecordingRecord | null;
-  deviceState: MeetingDeviceState;
-  controlState: MeetingControlState;
-  preparePreview: (options: MeetingJoinOptions) => Promise<void>;
-  joinMeeting: (roomId: number, options: MeetingJoinOptions) => Promise<void>;
-  leaveMeeting: () => Promise<void>;
-  toggleAudio: () => void;
-  toggleVideo: () => Promise<void>;
-  switchCamera: () => Promise<void>;
-  toggleSpeaker: () => Promise<void>;
-  refreshRoom: (roomId?: number) => Promise<void>;
-  startRecording: () => Promise<void>;
-  stopRecording: () => Promise<void>;
-  applyRoomEvent: (event: RoomRealtimeEvent) => void;
-}
-
-const RoomCallContext = createContext<RoomCallContextValue | undefined>(undefined);
 
 const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token } = useAuthContext();
@@ -600,14 +573,6 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
   ]);
 
   return <RoomCallContext.Provider value={value}>{children}</RoomCallContext.Provider>;
-};
-
-export const useRoomCall = () => {
-  const context = useContext(RoomCallContext);
-  if (!context) {
-    throw new Error("useRoomCall must be used within RoomCallProvider");
-  }
-  return context;
 };
 
 export default RoomCallProvider;

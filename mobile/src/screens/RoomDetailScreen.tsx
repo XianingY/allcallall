@@ -14,7 +14,7 @@ import * as Clipboard from "expo-clipboard";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
 import { useOrganization } from "../context/OrganizationContext";
-import { useRoomCall } from "../context/RoomCallContext";
+import { useRoomCall } from "../context/roomCallContextValue";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import { RTCView } from "../platform/rtc";
 import ChatRealtimeService from "../services/ChatRealtimeService";

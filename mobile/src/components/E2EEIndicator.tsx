@@ -1,6 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
-import { useSignaling } from "../context/SignalingContext";
+import { useSignaling } from "../context/signalingContextValue";
 import { formatFingerprint } from "../services/e2ee/E2EEService";
 
 interface E2EEIndicatorProps {

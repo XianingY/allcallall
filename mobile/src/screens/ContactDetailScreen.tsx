@@ -29,7 +29,7 @@ import {
 } from "../api/users";
 import { useAuthContext } from "../context/AuthContext";
 import { useSettings } from "../context/SettingsContext";
-import { useSignaling } from "../context/SignalingContext";
+import { useSignaling } from "../context/signalingContextValue";
 import AnalyticsService from "../services/AnalyticsService";
 
 type Props = NativeStackScreenProps<RootStackParamList, "ContactDetail">;

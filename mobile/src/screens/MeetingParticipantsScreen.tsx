@@ -3,7 +3,7 @@ import { FlatList, StyleSheet, Text, View } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { useAuthContext } from "../context/AuthContext";
-import { useRoomCall } from "../context/RoomCallContext";
+import { useRoomCall } from "../context/roomCallContextValue";
 import { RootStackParamList } from "../navigation/AppNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "MeetingParticipants">;

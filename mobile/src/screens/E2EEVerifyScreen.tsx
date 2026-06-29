@@ -9,7 +9,7 @@ import {
   ScrollView,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { useSignaling } from "../context/SignalingContext";
+import { useSignaling } from "../context/signalingContextValue";
 import { formatFingerprint } from "../services/e2ee/E2EEService";
 
 export const E2EEVerifyScreen: React.FC = () => {

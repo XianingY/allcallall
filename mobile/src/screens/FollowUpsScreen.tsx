@@ -5,7 +5,7 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { FollowUpListItem } from "../api/commercial";
 import PrimaryButton from "../components/PrimaryButton";
 import { useFollowUps } from "../context/FollowUpContext";
-import { useSignaling } from "../context/SignalingContext";
+import { useSignaling } from "../context/signalingContextValue";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import AnalyticsService from "../services/AnalyticsService";
 

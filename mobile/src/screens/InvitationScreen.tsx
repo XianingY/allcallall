@@ -17,7 +17,7 @@ import { RootStackParamList } from "../navigation/AppNavigator";
 import { createInvitation } from "../api/users";
 import { useAuthContext } from "../context/AuthContext";
 import AnalyticsService from "../services/AnalyticsService";
-import { useSignaling } from "../context/SignalingContext";
+import { useSignaling } from "../context/signalingContextValue";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Invitation">;
 

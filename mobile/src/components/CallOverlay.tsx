@@ -2,7 +2,7 @@ import React, { useEffect } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform } from "react-native";
 import { activateKeepAwake, deactivateKeepAwake } from "expo-keep-awake";
 
-import { useSignaling } from "../context/SignalingContext";
+import { useSignaling } from "../context/signalingContextValue";
 import { RTCView } from "../platform/rtc";
 import { E2EEIndicator } from "./E2EEIndicator";
 

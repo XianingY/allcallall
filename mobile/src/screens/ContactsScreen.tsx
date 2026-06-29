@@ -38,7 +38,7 @@ import { useCommercial } from "../context/CommercialContext";
 import { useFollowUps } from "../context/FollowUpContext";
 import { useOrganization } from "../context/OrganizationContext";
 import { useSettings } from "../context/SettingsContext";
-import { useSignaling } from "../context/SignalingContext";
+import { useSignaling } from "../context/signalingContextValue";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import AnalyticsService from "../services/AnalyticsService";
 import {

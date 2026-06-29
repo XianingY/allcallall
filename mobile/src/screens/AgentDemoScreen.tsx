@@ -29,17 +29,14 @@ import {
   type AgentToolCallRecord,
   type ToolApprovalRecord,
   type WorkflowResult,
-  type WorkflowTaskRecord,
 } from "../api/agent";
 import {
   createConversation,
   createConversationNote,
   createMessage,
-  fetchConversationDetail,
   listConversationNotes,
   listConversations,
   listMessages,
-  type ConversationDetailRecord,
   type ConversationNoteRecord,
   type ConversationRecord,
   type MessageRecord,
@@ -68,33 +65,25 @@ import TextField from "../components/TextField";
 import { useAuthContext } from "../context/AuthContext";
 import { useOrganization } from "../context/OrganizationContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import {
+  compact,
+  defaultGoal,
+  formatTime,
+  jsonSummary,
+  parseJSON,
+  sourceTypeLabel,
+  tabs,
+  taskOrder,
+  terminalRunStatuses,
+  workflowPresets,
+  type ApprovalFilter,
+  type LabTab,
+  type WorkflowPreset,
+} from "./agentDemoUtils";
 
 type Props =
   | NativeStackScreenProps<RootStackParamList, "AgentDemo">
   | NativeStackScreenProps<RootStackParamList, "KnowledgeCenter">;
-type LabTab = "knowledge" | "run" | "graph" | "approvals" | "eval";
-type WorkflowPreset = "meeting_brief" | "follow_up" | "risk_review";
-type ApprovalFilter = "pending" | "all";
-
-const tabs: Array<{ key: LabTab; label: string }> = [
-  { key: "knowledge", label: "Knowledge" },
-  { key: "run", label: "Run" },
-  { key: "graph", label: "Graph" },
-  { key: "approvals", label: "Approvals" },
-  { key: "eval", label: "Eval" },
-];
-
-const defaultGoal =
-  "请基于会话消息、内部备注和知识库，给出客户当前诉求、风险点、下一步建议，并列出依据。";
-
-const workflowPresets: Array<{ key: WorkflowPreset; label: string }> = [
-  { key: "meeting_brief", label: "Meeting Brief" },
-  { key: "follow_up", label: "Follow-up" },
-  { key: "risk_review", label: "Risk Review" },
-];
-
-const terminalRunStatuses = new Set(["ready", "failed", "requires_action"]);
-
 const statusTone = (status: string) => {
   switch (status) {
     case "ready":
@@ -114,74 +103,6 @@ const statusTone = (status: string) => {
   }
 };
 
-const parseJSON = (raw?: string): unknown => {
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-};
-
-const compact = (value: string, max = 180) => {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (normalized.length <= max) return normalized;
-  return `${normalized.slice(0, Math.max(0, max - 3))}...`;
-};
-
-const formatTime = (value?: string | null) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString();
-};
-
-const sourceTypeLabel = (sourceType: string) => {
-  switch (sourceType) {
-    case "meeting_transcript":
-      return "Meeting transcript";
-    case "transcript":
-      return "Call captions";
-    case "knowledge":
-      return "Knowledge";
-    case "message":
-      return "Message";
-    case "note":
-      return "Internal note";
-    case "memory":
-      return "Agent memory";
-    case "followup":
-      return "Follow-up";
-    case "contact_profile":
-      return "Contact";
-    default:
-      return sourceType || "Context";
-  }
-};
-
-const jsonSummary = (raw?: string, max = 360) => {
-  const parsed = parseJSON(raw);
-  if (parsed === null || parsed === undefined) {
-    return raw ? compact(raw, max) : "";
-  }
-  return compact(JSON.stringify(parsed), max);
-};
-
-const taskOrder = (task: WorkflowTaskRecord) => {
-  const index = [
-    "collect_context",
-    "decompose",
-    "searcher",
-    "summarizer",
-    "risk_analyst",
-    "merge",
-    "propose_tools",
-    "approval",
-    "commit_result",
-  ].indexOf(task.name);
-  return index >= 0 ? index : 99;
-};
-
 const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
   const { token } = useAuthContext();
   const { currentOrganization, loading: organizationLoading } =
@@ -195,7 +116,6 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
   const [selectedConversationId, setSelectedConversationId] = useState<
     number | null
   >(null);
-  const [detail, setDetail] = useState<ConversationDetailRecord | null>(null);
   const [messages, setMessages] = useState<MessageRecord[]>([]);
   const [notes, setNotes] = useState<ConversationNoteRecord[]>([]);
   const [sources, setSources] = useState<KnowledgeSourceRecord[]>([]);
@@ -352,17 +272,14 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const refreshSelectedContext = useCallback(async () => {
     if (!token || !selectedConversationId) {
-      setDetail(null);
       setMessages([]);
       setNotes([]);
       return;
     }
-    const [nextDetail, nextMessages, nextNotes] = await Promise.all([
-      fetchConversationDetail(token, selectedConversationId),
+    const [nextMessages, nextNotes] = await Promise.all([
       listMessages(token, selectedConversationId),
       listConversationNotes(token, selectedConversationId),
     ]);
-    setDetail(nextDetail);
     setMessages(nextMessages);
     setNotes(nextNotes);
   }, [selectedConversationId, token]);
@@ -902,10 +819,18 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
                 {sourceDetail.versions[0]?.chunk_count ?? 0} chunks
               </Text>
               <View style={styles.statsRow}>
-                <Text style={styles.statChip}>Indexed {selectedChunkStats.indexed}</Text>
-                <Text style={styles.statChip}>Failed {selectedChunkStats.failed}</Text>
-                <Text style={styles.statChip}>Skipped {selectedChunkStats.skipped}</Text>
-                <Text style={styles.statChip}>Pending {selectedChunkStats.pending}</Text>
+                <Text style={styles.statChip}>
+                  Indexed {selectedChunkStats.indexed}
+                </Text>
+                <Text style={styles.statChip}>
+                  Failed {selectedChunkStats.failed}
+                </Text>
+                <Text style={styles.statChip}>
+                  Skipped {selectedChunkStats.skipped}
+                </Text>
+                <Text style={styles.statChip}>
+                  Pending {selectedChunkStats.pending}
+                </Text>
               </View>
               {sourceDetail.versions.map((version) => (
                 <View key={version.id} style={styles.versionRow}>
@@ -1127,7 +1052,9 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
         <View style={styles.panel}>
           <View style={styles.panelHeader}>
             <View>
-              <Text style={styles.sectionTitle}>ReAct Run #{activeRun.run.id}</Text>
+              <Text style={styles.sectionTitle}>
+                ReAct Run #{activeRun.run.id}
+              </Text>
               <Text style={styles.contextLine}>
                 {activeRun.run.source || "agent"} · {activeRun.run.goal}
               </Text>
@@ -1415,7 +1342,9 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
             <Text style={styles.rowMeta}>
               workflow #{approval.workflow_run_id} · requested by{" "}
               {approval.requested_by}
-              {approval.decided_by ? ` · decided by ${approval.decided_by}` : ""}
+              {approval.decided_by
+                ? ` · decided by ${approval.decided_by}`
+                : ""}
             </Text>
             <Text style={styles.messageBody}>
               Input: {jsonSummary(approval.input_json, 360)}
@@ -1567,7 +1496,10 @@ const TraceTimeline: React.FC<TraceTimelineProps> = ({ trace, events }) => {
     <View style={styles.traceBlock}>
       <Text style={styles.citationsTitle}>Trace</Text>
       {trace.map((item, index) => (
-        <View key={`trace-${index}-${item.ref_id ?? item.name}`} style={styles.timelineItem}>
+        <View
+          key={`trace-${index}-${item.ref_id ?? item.name}`}
+          style={styles.timelineItem}
+        >
           <View style={styles.timelineDot} />
           <View style={styles.timelineBody}>
             <View style={styles.rowTop}>
@@ -1662,19 +1594,22 @@ interface CitationListProps {
 
 const CitationList: React.FC<CitationListProps> = ({ citations, onPress }) => {
   if (citations.length === 0) return null;
-  const grouped = citations.slice(0, 12).reduce<
-    Array<{ sourceType: string; items: AgentCitation[] }>
-  >((groups, citation) => {
-    const existing = groups.find(
-      (group) => group.sourceType === citation.source_type,
+  const grouped = citations
+    .slice(0, 12)
+    .reduce<Array<{ sourceType: string; items: AgentCitation[] }>>(
+      (groups, citation) => {
+        const existing = groups.find(
+          (group) => group.sourceType === citation.source_type,
+        );
+        if (existing) {
+          existing.items.push(citation);
+        } else {
+          groups.push({ sourceType: citation.source_type, items: [citation] });
+        }
+        return groups;
+      },
+      [],
     );
-    if (existing) {
-      existing.items.push(citation);
-    } else {
-      groups.push({ sourceType: citation.source_type, items: [citation] });
-    }
-    return groups;
-  }, []);
   return (
     <View style={styles.citationContainer}>
       <Text style={styles.citationsTitle}>Citations</Text>

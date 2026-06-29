@@ -6,7 +6,7 @@ import * as Clipboard from "expo-clipboard";
 import { fetchRoomState, type MeetingJoinOptions, type RoomRecord } from "../api/collaboration";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
-import { useRoomCall } from "../context/RoomCallContext";
+import { useRoomCall } from "../context/roomCallContextValue";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import { RTCView } from "../platform/rtc";
 import { buildRoomShareLinks } from "../utils/invitations";
