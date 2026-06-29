@@ -77,6 +77,21 @@ func (f *fakeHybridChunkIndexer) SearchChunksHybrid(_ context.Context, query sea
 	return out, nil
 }
 
+type reverseReranker struct{}
+
+func (reverseReranker) Rerank(_ context.Context, input search.RerankInput) ([]search.RerankResult, error) {
+	out := make([]search.RerankResult, 0, len(input.Candidates))
+	for i := len(input.Candidates) - 1; i >= 0; i-- {
+		out = append(out, search.RerankResult{
+			ID:           input.Candidates[i].ID,
+			RerankScore:  float64(len(input.Candidates) - i),
+			RerankReason: "test_reverse",
+			FinalRank:    len(out) + 1,
+		})
+	}
+	return out, nil
+}
+
 func TestChunkTextUsesOverlapAndDedupesWithinVersion(t *testing.T) {
 	input := "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
 	chunks := ChunkText(input, 24, 6)
@@ -279,6 +294,43 @@ func TestSearchFallsBackToSQLWithoutIndexer(t *testing.T) {
 	}
 	if results[0].RetrievalMode != models.RAGRetrievalModeSQLFallback || results[0].FallbackReason != "indexer_unavailable" {
 		t.Fatalf("unexpected fallback metadata: %+v", results[0])
+	}
+}
+
+func TestSearchAppliesRerankerMetadata(t *testing.T) {
+	ctx := context.Background()
+	db := newKnowledgeTestDB(t)
+	orgID, userID, conversationID := seedKnowledgeAccess(t, db)
+	svc := NewService(db).WithOutbox(events.NewStore(db)).WithReranker(reverseReranker{})
+	for _, spec := range []struct {
+		title string
+		text  string
+	}{
+		{title: "First source", text: "Security approval notes for baseline ordering."},
+		{title: "Second source", text: "Security approval risk and follow-up notes."},
+	} {
+		source, err := svc.CreateSource(ctx, orgID, userID, CreateSourceInput{
+			Kind:           models.RAGSourceKindManualText,
+			Title:          spec.title,
+			ConversationID: &conversationID,
+			Text:           spec.text,
+		})
+		if err != nil {
+			t.Fatalf("create source: %v", err)
+		}
+		if err := svc.ProcessSourceIngest(ctx, source.ID); err != nil {
+			t.Fatalf("process ingest: %v", err)
+		}
+	}
+	results, err := svc.Search(ctx, orgID, &conversationID, "security approval", 5)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if results[0].FinalRank != 1 || results[0].RerankScore == 0 || results[0].RerankReason != "test_reverse" {
+		t.Fatalf("missing rerank metadata: %+v", results[0])
 	}
 }
 

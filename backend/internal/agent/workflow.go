@@ -53,6 +53,11 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 			workflowType = "meeting_agent"
 			workflowVersion = "meeting_agent_v1"
 		}
+		runtimeName := WorkflowRuntimeGo
+		if s.workflowRuntime != nil && s.workflowRuntime.Supports(models.WorkflowRun{Preset: preset}) {
+			runtimeName = s.workflowRuntime.Name()
+			workflowVersion = "meeting_agent_langgraph_v1"
+		}
 		agentRun := models.AgentRun{
 			OrganizationID:    organizationID,
 			UserID:            userID,
@@ -82,7 +87,7 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 			Preset:            preset,
 			PromptVersion:     CurrentWorkflowPromptVersion,
 			ToolSchemaVersion: CurrentToolSchemaVersion,
-			StateJSON:         mustJSONString(map[string]any{"phase": "created", "preset": preset}),
+			StateJSON:         mustJSONString(map[string]any{"phase": "created", "preset": preset, "runtime": runtimeName}),
 			Goal:              goal,
 		}
 		if err := tx.Create(&workflow).Error; err != nil {
@@ -92,6 +97,7 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 			"workflow_type":       workflow.WorkflowType,
 			"workflow_version":    workflow.WorkflowVersion,
 			"preset":              preset,
+			"runtime":             runtimeName,
 			"prompt_version":      workflow.PromptVersion,
 			"tool_schema_version": workflow.ToolSchemaVersion,
 		}); err != nil {
@@ -257,6 +263,27 @@ func (s *Service) ProcessWorkflowRun(ctx context.Context, workflowRunID uint64) 
 		return nil, err
 	}
 	s.syncBackingAgentRun(ctx, run, models.AgentRunStatusRunning, "")
+
+	if s.shouldUseExternalWorkflowRuntime(run) {
+		result, err := s.processWorkflowRunWithExternalRuntime(ctx, run)
+		if err != nil {
+			if workflowRuntimeStrictFromEnv() {
+				s.failWorkflowRun(ctx, run, err)
+				return nil, err
+			}
+			_ = s.appendWorkflowHistory(ctx, run, "runtime_fallback", "workflow_run", &run.ID, map[string]any{
+				"from_runtime": s.workflowRuntime.Name(),
+				"to_runtime":   WorkflowRuntimeGo,
+				"error":        err.Error(),
+			})
+			_ = s.db.WithContext(ctx).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
+				"state_json": workflowStateJSON(run, map[string]any{"phase": "runtime_fallback", "runtime": WorkflowRuntimeGo, "fallback_from": s.workflowRuntime.Name()}),
+				"updated_at": time.Now().UTC(),
+			}).Error
+		} else {
+			return result, nil
+		}
+	}
 
 	conversationCtx, err := s.loadConversationContext(ctx, run.OrganizationID, run.UserID, run.ConversationID, run.Goal)
 	if err != nil {

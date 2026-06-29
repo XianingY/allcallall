@@ -19,6 +19,7 @@ type Options struct {
 	RAGFixture         string
 	WorkflowFixture    string
 	TaskFixture        string
+	TaskRuntime        string
 	BenchConversations int
 	BenchBatchSize     int
 }
@@ -26,6 +27,7 @@ type Options struct {
 type Report struct {
 	GeneratedAt string                    `json:"generated_at"`
 	Provider    string                    `json:"provider"`
+	TaskRuntime string                    `json:"task_runtime"`
 	Summary     Summary                   `json:"summary"`
 	Eval        agent.DemoEvalReport      `json:"eval"`
 	TaskEval    agent.AgentTaskEvalReport `json:"task_eval"`
@@ -102,7 +104,7 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	taskReport, err := agent.RunAgentTaskEval(ctx, taskCases)
+	taskReport, err := agent.RunAgentTaskEvalWithOptions(ctx, taskCases, agent.AgentTaskEvalOptions{Runtime: opts.TaskRuntime})
 	if err != nil {
 		return Report{}, err
 	}
@@ -121,6 +123,7 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	report := Report{
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Provider:    evalReport.Provider,
+		TaskRuntime: taskReport.Runtime,
 		Summary:     buildSummary(evalReport, taskReport, *benchOutput, workflowCases),
 		Eval:        evalReport,
 		TaskEval:    taskReport,
@@ -159,6 +162,7 @@ func FormatMarkdown(report Report) string {
 	b.WriteString("# AllCallAll Resume Eval Summary\n\n")
 	b.WriteString(fmt.Sprintf("- Generated at: `%s`\n", report.GeneratedAt))
 	b.WriteString(fmt.Sprintf("- Provider: `%s`\n", report.Provider))
+	b.WriteString(fmt.Sprintf("- Task eval runtime: `%s`\n", firstNonEmpty(report.TaskRuntime, agent.WorkflowRuntimeGo)))
 	b.WriteString("- Recommended resume-safe scope: `current deterministic fixture set + local SQLite functional benchmark`\n")
 	b.WriteString("- Interpretation note: `these metrics validate regression stability and safety boundaries, not open-ended user satisfaction`\n\n")
 
@@ -364,6 +368,15 @@ func pct(value float64) float64 {
 	return value * 100
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func writeJSON(path string, value any) error {
 	raw, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
@@ -387,6 +400,9 @@ func (opts Options) withDefaults() Options {
 	}
 	if strings.TrimSpace(opts.TaskFixture) == "" {
 		opts.TaskFixture = agent.DefaultTaskEvalFixture
+	}
+	if strings.TrimSpace(opts.TaskRuntime) == "" {
+		opts.TaskRuntime = agent.WorkflowRuntimeGo
 	}
 	if opts.BenchConversations <= 0 {
 		opts.BenchConversations = 25

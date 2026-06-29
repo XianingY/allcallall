@@ -40,6 +40,9 @@ type RetrievedContextChunk struct {
 	RRFScore          float64
 	BM25Score         float64
 	VectorScore       float64
+	RerankScore       float64
+	RerankReason      string
+	FinalRank         int
 }
 
 type bm25ChunkSearcher interface {
@@ -236,6 +239,9 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, convers
 							RRFScore:      res.RRFScore,
 							BM25Score:     res.BM25Score,
 							VectorScore:   res.VectorScore,
+							RerankScore:   res.RerankScore,
+							RerankReason:  res.RerankReason,
+							FinalRank:     res.FinalRank,
 						})
 					}
 				} else if searchErr != nil {
@@ -269,6 +275,9 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, convers
 							RRFScore:      res.RRFScore,
 							BM25Score:     res.BM25Score,
 							VectorScore:   res.VectorScore,
+							RerankScore:   res.RerankScore,
+							RerankReason:  res.RerankReason,
+							FinalRank:     res.FinalRank,
 						})
 					}
 					fallbackReason = ""
@@ -334,6 +343,9 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, convers
 				RRFScore:         result.RRFScore,
 				BM25Score:        result.BM25Score,
 				VectorScore:      result.VectorScore,
+				RerankScore:      result.RerankScore,
+				RerankReason:     result.RerankReason,
+				FinalRank:        result.FinalRank,
 			})
 		}
 	}
@@ -352,10 +364,66 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, convers
 		return retrievedChunkUpdatedAt(scored[i]).After(retrievedChunkUpdatedAt(scored[j]))
 	})
 	scored = ensureMeetingAwareContext(conversationCtx, scored, limit)
+	scored = s.applyContextRerank(ctx, query, scored, limit)
 	if len(scored) > limit {
 		scored = scored[:limit]
 	}
 	return scored, nil
+}
+
+func (s *Service) applyContextRerank(ctx context.Context, query string, input []RetrievedContextChunk, limit int) []RetrievedContextChunk {
+	if len(input) == 0 {
+		return input
+	}
+	for index := range input {
+		if input[index].FinalRank == 0 {
+			input[index].FinalRank = index + 1
+		}
+	}
+	if s.reranker == nil || strings.TrimSpace(query) == "" {
+		return input
+	}
+	candidates := make([]search.RerankCandidate, 0, len(input))
+	byID := make(map[string]int, len(input))
+	for index, item := range input {
+		id := retrievedChunkRerankID(item)
+		byID[id] = index
+		candidates = append(candidates, search.RerankCandidate{
+			ID:            id,
+			SourceType:    retrievedChunkSourceType(item),
+			SourceID:      retrievedChunkSourceID(item),
+			Title:         retrievedChunkTitle(item),
+			Snippet:       retrievedChunkContent(item),
+			Score:         item.Score,
+			RetrievalMode: item.RetrievalMode,
+			BM25Rank:      item.BM25Rank,
+			VectorRank:    item.VectorRank,
+			RRFScore:      item.RRFScore,
+			BM25Score:     item.BM25Score,
+			VectorScore:   item.VectorScore,
+			UpdatedAt:     retrievedChunkUpdatedAt(item),
+		})
+	}
+	results, err := s.reranker.Rerank(ctx, search.RerankInput{Query: query, Candidates: candidates, Limit: limit})
+	if err != nil || len(results) == 0 {
+		return input
+	}
+	out := make([]RetrievedContextChunk, 0, len(results))
+	for _, result := range results {
+		index, ok := byID[result.ID]
+		if !ok {
+			continue
+		}
+		item := input[index]
+		item.RerankScore = result.RerankScore
+		item.RerankReason = result.RerankReason
+		item.FinalRank = result.FinalRank
+		out = append(out, item)
+	}
+	if len(out) == 0 {
+		return input
+	}
+	return out
 }
 
 func hybridConversationChunkScore(result search.ContextChunkSearchResult) int {
@@ -542,6 +610,10 @@ func retrievedChunkKey(item RetrievedContextChunk) string {
 		return fmt.Sprintf("knowledge:%d", item.KnowledgeChunk.ID)
 	}
 	return fmt.Sprintf("%s:%d", item.Chunk.SourceType, item.Chunk.SourceID)
+}
+
+func retrievedChunkRerankID(item RetrievedContextChunk) string {
+	return retrievedChunkKey(item)
 }
 
 func firstNonEmptyString(values ...string) string {

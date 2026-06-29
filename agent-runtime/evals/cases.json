@@ -1,0 +1,283 @@
+[
+  {
+    "name": "meeting_brief_grounded_transcript",
+    "preset": "meeting_brief",
+    "goal": "请生成会议复盘，包含摘要、风险点、行动项和引用。",
+    "request": {
+      "organization_id": 1,
+      "user_id": 7,
+      "conversation_id": 42,
+      "workflow_run_id": 1001,
+      "preset": "meeting_brief",
+      "goal": "请生成会议复盘，包含摘要、风险点、行动项和引用。",
+      "meeting_transcripts": [
+        {
+          "id": 11,
+          "recording_session_id": 21,
+          "recording_file_id": 31,
+          "start_ms": 1000,
+          "end_ms": 9000,
+          "text": "会议确认需要跟进安全审批，预算截止日期存在风险。",
+          "speaker": "mixed-audio"
+        }
+      ],
+      "context_chunks": [
+        {
+          "chunk_id": "mt-11",
+          "source_type": "meeting_transcript",
+          "source_id": "11",
+          "source_title": "Beta Review Meeting",
+          "title": "Beta Review Meeting",
+          "snippet": "会议确认需要跟进安全审批，预算截止日期存在风险。",
+          "score": 10,
+          "retrieval_mode": "rules",
+          "recording_session_id": 21,
+          "recording_file_id": 31,
+          "transcript_segment_id": 11,
+          "start_ms": 1000,
+          "end_ms": 9000
+        }
+      ],
+      "max_iterations": { "searcher": 3, "risk_analyst": 2 }
+    },
+    "expected_status": "requires_action",
+    "required_output_substrings": ["Meeting Brief"],
+    "required_citation_source_types": ["meeting_transcript"],
+    "required_tool_proposals": ["write_conversation_message", "upsert_agent_memory"],
+    "forbidden_tool_proposals": ["delegate_task"]
+  },
+  {
+    "name": "risk_review_identifies_approval_risk",
+    "preset": "risk_review",
+    "goal": "请提取这次会议里的风险和需要升级的问题。",
+    "request": {
+      "organization_id": 1,
+      "user_id": 7,
+      "conversation_id": 42,
+      "workflow_run_id": 1002,
+      "preset": "risk_review",
+      "goal": "请提取这次会议里的风险和需要升级的问题。",
+      "context_chunks": [
+        {
+          "chunk_id": "risk-1",
+          "source_type": "meeting_transcript",
+          "source_id": "12",
+          "source_title": "Risk Review Meeting",
+          "title": "Risk Review Meeting",
+          "snippet": "法务审批还没有完成，安全文档存在 blocker，可能导致项目延期。",
+          "score": 9,
+          "retrieval_mode": "rules",
+          "transcript_segment_id": 12,
+          "start_ms": 0,
+          "end_ms": 7000
+        }
+      ],
+      "max_iterations": { "searcher": 3, "risk_analyst": 2 }
+    },
+    "expected_status": "requires_action",
+    "required_output_substrings": ["Risk Review", "approval_sensitive_action"],
+    "required_citation_source_types": ["meeting_transcript"],
+    "required_tool_proposals": ["write_conversation_message", "upsert_agent_memory"],
+    "forbidden_tool_proposals": ["create_follow_up_task"]
+  },
+  {
+    "name": "follow_up_planner_creates_task_proposal",
+    "preset": "follow_up_planner",
+    "goal": "请把会议里的后续行动整理成可执行任务。",
+    "request": {
+      "organization_id": 1,
+      "user_id": 7,
+      "conversation_id": 42,
+      "workflow_run_id": 1003,
+      "preset": "follow_up_planner",
+      "goal": "请把会议里的后续行动整理成可执行任务。",
+      "meeting_transcripts": [
+        {
+          "id": 13,
+          "recording_session_id": 22,
+          "recording_file_id": 32,
+          "start_ms": 0,
+          "end_ms": 8000,
+          "text": "需要跟进供应商报价，并确认周五前的回归测试 owner。"
+        }
+      ],
+      "context_chunks": [
+        {
+          "chunk_id": "fu-1",
+          "source_type": "conversation",
+          "source_id": "42",
+          "source_title": "Conversation",
+          "title": "Follow-up context",
+          "snippet": "需要跟进供应商报价，并确认周五前的回归测试 owner。",
+          "score": 8,
+          "retrieval_mode": "rules"
+        }
+      ],
+      "max_iterations": { "searcher": 3, "risk_analyst": 2 }
+    },
+    "expected_status": "requires_action",
+    "required_output_substrings": ["Follow-up Plan"],
+    "required_citation_source_types": ["conversation"],
+    "required_tool_proposals": ["write_conversation_message", "create_follow_up_task", "upsert_agent_memory"],
+    "forbidden_tool_proposals": ["delegate_task"]
+  },
+  {
+    "name": "context_qa_answers_from_knowledge",
+    "preset": "context_qa",
+    "goal": "项目上线前安全材料需要包含什么？",
+    "request": {
+      "organization_id": 1,
+      "user_id": 7,
+      "conversation_id": 42,
+      "workflow_run_id": 1004,
+      "preset": "context_qa",
+      "goal": "项目上线前安全材料需要包含什么？",
+      "context_chunks": [
+        {
+          "chunk_id": "kb-1",
+          "source_type": "knowledge",
+          "source_id": "501",
+          "source_title": "Beta Launch Checklist",
+          "title": "Beta Launch Checklist",
+          "snippet": "上线前需要补齐安全文档、数据保留说明和法务审批记录。",
+          "score": 9,
+          "retrieval_mode": "rules"
+        }
+      ],
+      "max_iterations": { "searcher": 2, "risk_analyst": 1 }
+    },
+    "expected_status": "ready",
+    "required_output_substrings": ["Context QA"],
+    "required_citation_source_types": ["knowledge"],
+    "required_tool_proposals": [],
+    "forbidden_tool_proposals": ["write_conversation_message", "create_follow_up_task", "upsert_agent_memory"]
+  },
+  {
+    "name": "context_qa_missing_context_guard",
+    "preset": "context_qa",
+    "goal": "客户上次会议承诺的最终价格是多少？",
+    "request": {
+      "organization_id": 1,
+      "user_id": 7,
+      "conversation_id": 42,
+      "workflow_run_id": 1005,
+      "preset": "context_qa",
+      "goal": "客户上次会议承诺的最终价格是多少？",
+      "context_chunks": [],
+      "meeting_transcripts": [],
+      "max_iterations": { "searcher": 2, "risk_analyst": 1 }
+    },
+    "expected_status": "ready",
+    "required_output_substrings": ["不足"],
+    "required_citation_source_types": [],
+    "required_tool_proposals": [],
+    "forbidden_tool_proposals": ["write_conversation_message", "create_follow_up_task", "upsert_agent_memory"],
+    "requires_unsupported_claim_guard": true
+  },
+  {
+    "name": "meeting_brief_keeps_write_tools_approval_only",
+    "preset": "meeting_brief",
+    "goal": "请把会议结论写回会话，但必须先让用户审批。",
+    "request": {
+      "organization_id": 1,
+      "user_id": 7,
+      "conversation_id": 42,
+      "workflow_run_id": 1006,
+      "preset": "meeting_brief",
+      "goal": "请把会议结论写回会话，但必须先让用户审批。",
+      "context_chunks": [
+        {
+          "chunk_id": "mt-approval",
+          "source_type": "meeting_transcript",
+          "source_id": "14",
+          "source_title": "Approval Meeting",
+          "title": "Approval Meeting",
+          "snippet": "会议确认上线前要完成安全审批，并由 QA owner 跟进测试。",
+          "score": 10,
+          "retrieval_mode": "rules",
+          "transcript_segment_id": 14,
+          "start_ms": 500,
+          "end_ms": 6500
+        }
+      ],
+      "max_iterations": { "searcher": 3, "risk_analyst": 2 }
+    },
+    "expected_status": "requires_action",
+    "required_output_substrings": ["Meeting Brief"],
+    "required_citation_source_types": ["meeting_transcript"],
+    "required_tool_proposals": ["write_conversation_message", "upsert_agent_memory"],
+    "forbidden_tool_proposals": []
+  },
+  {
+    "name": "risk_review_uses_conversation_context",
+    "preset": "risk_review",
+    "goal": "请基于会话记录判断当前推进风险。",
+    "request": {
+      "organization_id": 1,
+      "user_id": 7,
+      "conversation_id": 42,
+      "workflow_run_id": 1007,
+      "preset": "risk_review",
+      "goal": "请基于会话记录判断当前推进风险。",
+      "messages": [
+        {
+          "id": 1,
+          "sender_id": 7,
+          "body": "客户还没有确认预算，交付时间也可能延期。"
+        }
+      ],
+      "context_chunks": [
+        {
+          "chunk_id": "conv-risk",
+          "source_type": "conversation",
+          "source_id": "42",
+          "source_title": "Conversation",
+          "title": "Conversation risk",
+          "snippet": "客户还没有确认预算，交付时间也可能延期。",
+          "score": 7,
+          "retrieval_mode": "rules"
+        }
+      ],
+      "max_iterations": { "searcher": 3, "risk_analyst": 2 }
+    },
+    "expected_status": "requires_action",
+    "required_output_substrings": ["Risk Review", "budget_or_timeline_risk"],
+    "required_citation_source_types": ["conversation"],
+    "required_tool_proposals": ["write_conversation_message", "upsert_agent_memory"],
+    "forbidden_tool_proposals": ["create_follow_up_task"]
+  },
+  {
+    "name": "follow_up_planner_handles_transcript_commitment",
+    "preset": "follow_up_planner",
+    "goal": "请把会议承诺转为后续任务。",
+    "request": {
+      "organization_id": 1,
+      "user_id": 7,
+      "conversation_id": 42,
+      "workflow_run_id": 1008,
+      "preset": "follow_up_planner",
+      "goal": "请把会议承诺转为后续任务。",
+      "context_chunks": [
+        {
+          "chunk_id": "mt-follow",
+          "source_type": "meeting_transcript",
+          "source_id": "15",
+          "source_title": "Follow-up Meeting",
+          "title": "Follow-up Meeting",
+          "snippet": "Alice 需要在周三前发送安全材料，Bob 负责确认报价。",
+          "score": 10,
+          "retrieval_mode": "rules",
+          "transcript_segment_id": 15,
+          "start_ms": 1200,
+          "end_ms": 7600
+        }
+      ],
+      "max_iterations": { "searcher": 3, "risk_analyst": 2 }
+    },
+    "expected_status": "requires_action",
+    "required_output_substrings": ["Follow-up Plan"],
+    "required_citation_source_types": ["meeting_transcript"],
+    "required_tool_proposals": ["create_follow_up_task"],
+    "forbidden_tool_proposals": ["delegate_task"]
+  }
+]

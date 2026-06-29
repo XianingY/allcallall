@@ -13,9 +13,11 @@ import (
 var ErrMeetingTranscriptNotReady = errors.New("meeting transcript is not ready")
 
 const (
-	WorkflowPresetMeetingBrief = "meeting_brief"
-	WorkflowPresetFollowUp     = "follow_up"
-	WorkflowPresetRiskReview   = "risk_review"
+	WorkflowPresetMeetingBrief    = "meeting_brief"
+	WorkflowPresetFollowUp        = "follow_up"
+	WorkflowPresetFollowUpPlanner = "follow_up_planner"
+	WorkflowPresetRiskReview      = "risk_review"
+	WorkflowPresetContextQA       = "context_qa"
 )
 
 func normalizeWorkflowPreset(raw string) string {
@@ -24,8 +26,12 @@ func normalizeWorkflowPreset(raw string) string {
 		return WorkflowPresetMeetingBrief
 	case WorkflowPresetFollowUp:
 		return WorkflowPresetFollowUp
+	case WorkflowPresetFollowUpPlanner:
+		return WorkflowPresetFollowUpPlanner
 	case WorkflowPresetRiskReview:
 		return WorkflowPresetRiskReview
+	case WorkflowPresetContextQA:
+		return WorkflowPresetContextQA
 	default:
 		return ""
 	}
@@ -37,8 +43,12 @@ func workflowPresetDefaultGoal(preset string) string {
 		return "Generate a grounded meeting brief with summary, evidence, and next steps."
 	case WorkflowPresetFollowUp:
 		return "Extract concrete follow-up commitments, owners, and recommended external next actions."
+	case WorkflowPresetFollowUpPlanner:
+		return "Plan concrete follow-up tasks from the conversation and meeting transcript."
 	case WorkflowPresetRiskReview:
 		return "Review the latest meeting for risks, unresolved items, and escalation suggestions."
+	case WorkflowPresetContextQA:
+		return "Answer the user's question using only grounded conversation, transcript, and knowledge context."
 	default:
 		return "summarize_conversation_next_steps"
 	}

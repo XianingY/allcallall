@@ -32,9 +32,28 @@ func workflowToolCallID(workflowRunID uint64, toolName string, input map[string]
 	return fmt.Sprintf("workflow:%d:%s", workflowRunID, toolName)
 }
 
+func workflowToolRequestCallID(workflowRunID uint64, request workflowToolRequest) string {
+	if idempotencyKey := strings.TrimSpace(request.IdempotencyKey); idempotencyKey != "" {
+		return idempotencyKey
+	}
+	return workflowToolCallID(workflowRunID, request.ToolName, request.Input)
+}
+
 func workflowStateJSON(run models.WorkflowRun, payload map[string]any) string {
 	if payload == nil {
 		payload = map[string]any{}
+	}
+	if strings.TrimSpace(run.StateJSON) != "" {
+		var existing map[string]any
+		if err := json.Unmarshal([]byte(run.StateJSON), &existing); err == nil {
+			for _, key := range []string{"runtime", "provider"} {
+				if _, ok := payload[key]; !ok {
+					if value, found := existing[key]; found {
+						payload[key] = value
+					}
+				}
+			}
+		}
 	}
 	if _, ok := payload["preset"]; !ok {
 		payload["preset"] = workflowPresetFromRun(run)

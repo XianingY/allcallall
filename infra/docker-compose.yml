@@ -73,9 +73,6 @@ services:
     depends_on:
       - mysql
       - redis
-      - user-service
-      - kafka
-      - elasticsearch
     environment:
       DB_DSN: allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local
       REDIS_ADDR: redis:6379
@@ -90,6 +87,11 @@ services:
       # WebSocket keepalive 配置
       WS_PING_INTERVAL: ${WS_PING_INTERVAL:-30s}
       WS_PONG_WAIT: ${WS_PONG_WAIT:-60s}
+      AGENT_RUNTIME: ${AGENT_RUNTIME:-go}
+      PY_AGENT_RUNTIME_BASE_URL: ${PY_AGENT_RUNTIME_BASE_URL:-http://agent-runtime:8090}
+      PY_AGENT_RUNTIME_TIMEOUT_SEC: ${PY_AGENT_RUNTIME_TIMEOUT_SEC:-60}
+      PY_AGENT_RUNTIME_STRICT: ${PY_AGENT_RUNTIME_STRICT:-true}
+      AGENT_RUNTIME_TOOL_TOKEN: ${AGENT_RUNTIME_TOOL_TOKEN:-local-agent-runtime-tool-token}
     ports:
       - "8080:8080"
     volumes:
@@ -99,6 +101,29 @@ services:
       - allcallall_network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  agent-runtime:
+    build:
+      context: ../agent-runtime
+      dockerfile: Dockerfile
+    environment:
+      PY_AGENT_PROVIDER: ${PY_AGENT_PROVIDER:-rules}
+      PY_AGENT_OPENAI_BASE_URL: ${PY_AGENT_OPENAI_BASE_URL:-}
+      PY_AGENT_OPENAI_API_KEY: ${PY_AGENT_OPENAI_API_KEY:-}
+      PY_AGENT_OPENAI_MODEL: ${PY_AGENT_OPENAI_MODEL:-}
+      PY_AGENT_TOOL_BRIDGE_BASE_URL: ${PY_AGENT_TOOL_BRIDGE_BASE_URL:-http://backend:8080}
+      PY_AGENT_TOOL_BRIDGE_TOKEN: ${AGENT_RUNTIME_TOOL_TOKEN:-local-agent-runtime-tool-token}
+      PY_AGENT_RUNTIME_PORT: "8090"
+    ports:
+      - "8090:8090"
+    restart: unless-stopped
+    networks:
+      - allcallall_network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health', timeout=2)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -130,6 +155,11 @@ services:
       FCM_SERVICE_ACCOUNT_PATH: ${FCM_SERVICE_ACCOUNT_PATH:-}
       WS_PING_INTERVAL: ${WS_PING_INTERVAL:-30s}
       WS_PONG_WAIT: ${WS_PONG_WAIT:-60s}
+      AGENT_RUNTIME: ${AGENT_RUNTIME:-go}
+      PY_AGENT_RUNTIME_BASE_URL: ${PY_AGENT_RUNTIME_BASE_URL:-http://agent-runtime:8090}
+      PY_AGENT_RUNTIME_TIMEOUT_SEC: ${PY_AGENT_RUNTIME_TIMEOUT_SEC:-60}
+      PY_AGENT_RUNTIME_STRICT: ${PY_AGENT_RUNTIME_STRICT:-true}
+      AGENT_RUNTIME_TOOL_TOKEN: ${AGENT_RUNTIME_TOOL_TOKEN:-local-agent-runtime-tool-token}
     ports:
       - "8080:8080"
     volumes:
@@ -223,6 +253,11 @@ services:
       MAIL_PASSWORD: ${MAIL_PASSWORD}
       CONFIG_PATH: /app/configs/config.yaml
       AGENT_PROVIDER: ${AGENT_PROVIDER:-rules}
+      AGENT_RUNTIME: ${AGENT_RUNTIME:-go}
+      PY_AGENT_RUNTIME_BASE_URL: ${PY_AGENT_RUNTIME_BASE_URL:-http://agent-runtime:8090}
+      PY_AGENT_RUNTIME_TIMEOUT_SEC: ${PY_AGENT_RUNTIME_TIMEOUT_SEC:-60}
+      PY_AGENT_RUNTIME_STRICT: ${PY_AGENT_RUNTIME_STRICT:-true}
+      AGENT_RUNTIME_TOOL_TOKEN: ${AGENT_RUNTIME_TOOL_TOKEN:-local-agent-runtime-tool-token}
       WORKER_ID: agent-worker
       OUTBOX_WORKER_INTERVAL_SEC: ${OUTBOX_WORKER_INTERVAL_SEC:-1}
       OUTBOX_WORKER_BATCH_SIZE: ${OUTBOX_WORKER_BATCH_SIZE:-50}

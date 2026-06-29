@@ -28,6 +28,9 @@ type Citation struct {
 	RRFScore            float64    `json:"rrf_score,omitempty"`
 	BM25Score           float64    `json:"bm25_score,omitempty"`
 	VectorScore         float64    `json:"vector_score,omitempty"`
+	RerankScore         float64    `json:"rerank_score,omitempty"`
+	RerankReason        string     `json:"rerank_reason,omitempty"`
+	FinalRank           int        `json:"final_rank,omitempty"`
 	Score               int        `json:"score"`
 	CreatedAt           *time.Time `json:"created_at,omitempty"`
 	RecordingSessionID  *uint64    `json:"recording_session_id,omitempty"`
@@ -54,6 +57,9 @@ func buildCitationsFromContextChunks(chunks []RetrievedContextChunk) []Citation 
 			RRFScore:      item.RRFScore,
 			BM25Score:     item.BM25Score,
 			VectorScore:   item.VectorScore,
+			RerankScore:   item.RerankScore,
+			RerankReason:  item.RerankReason,
+			FinalRank:     item.FinalRank,
 			Score:         item.Score,
 			CreatedAt:     &updatedAt,
 		}
@@ -100,6 +106,9 @@ func buildCitationsFromToolCalls(toolCalls []models.AgentToolCall) []Citation {
 				RRFScore            float64 `json:"rrf_score"`
 				BM25Score           float64 `json:"bm25_score"`
 				VectorScore         float64 `json:"vector_score"`
+				RerankScore         float64 `json:"rerank_score"`
+				RerankReason        string  `json:"rerank_reason"`
+				FinalRank           int     `json:"final_rank"`
 				Score               int     `json:"score"`
 				CreatedAt           string  `json:"created_at"`
 				RecordingSessionID  *uint64 `json:"recording_session_id"`
@@ -141,6 +150,9 @@ func buildCitationsFromToolCalls(toolCalls []models.AgentToolCall) []Citation {
 				RRFScore:            chunk.RRFScore,
 				BM25Score:           chunk.BM25Score,
 				VectorScore:         chunk.VectorScore,
+				RerankScore:         chunk.RerankScore,
+				RerankReason:        strings.TrimSpace(chunk.RerankReason),
+				FinalRank:           chunk.FinalRank,
 				Score:               chunk.Score,
 				RecordingSessionID:  chunk.RecordingSessionID,
 				RecordingFileID:     chunk.RecordingFileID,

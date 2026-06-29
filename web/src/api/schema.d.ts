@@ -1229,6 +1229,14 @@ export interface components {
             knowledge_source_id?: number;
             version?: number;
             retrieval_mode?: string;
+            bm25_rank?: number;
+            vector_rank?: number;
+            rrf_score?: number;
+            bm25_score?: number;
+            vector_score?: number;
+            rerank_score?: number;
+            rerank_reason?: string;
+            final_rank?: number;
             score: number;
             /** Format: int64 */
             recording_session_id?: number;

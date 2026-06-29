@@ -121,6 +121,21 @@ func (s *Service) ExecuteReadOnlyTool(ctx context.Context, organizationID, userI
 			if item.RRFScore > 0 {
 				chunk["rrf_score"] = item.RRFScore
 			}
+			if item.BM25Score > 0 {
+				chunk["bm25_score"] = item.BM25Score
+			}
+			if item.VectorScore > 0 {
+				chunk["vector_score"] = item.VectorScore
+			}
+			if item.RerankScore > 0 {
+				chunk["rerank_score"] = item.RerankScore
+			}
+			if item.RerankReason != "" {
+				chunk["rerank_reason"] = item.RerankReason
+			}
+			if item.FinalRank > 0 {
+				chunk["final_rank"] = item.FinalRank
+			}
 			applyMeetingTranscriptChunkMetadata(chunk, item)
 			chunks = append(chunks, chunk)
 		}

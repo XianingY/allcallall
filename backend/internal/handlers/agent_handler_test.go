@@ -275,6 +275,42 @@ func TestAgentHandlerMeetingBriefRequiresTranscript(t *testing.T) {
 	}
 }
 
+func TestAgentHandlerInternalReadToolBridgeRequiresTokenAndExecutesReadTool(t *testing.T) {
+	handler, _, conversation := newAgentHandlerTestEnv(t)
+	router := newRouterWithClaims(nil, handler.RegisterInternalRoutes)
+	body, _ := json.Marshal(map[string]any{
+		"organization_id": conversation.OrganizationID,
+		"user_id":         uint64(7),
+		"tool_name":       agent.ToolQueryConversationMembers,
+		"arguments": map[string]any{
+			"conversation_id": conversation.ID,
+		},
+	})
+
+	rec := performRequest(t, router, http.MethodPost, "/api/v1/internal/agent/tools/read", body)
+	expectHandlerStatus(t, rec, http.StatusServiceUnavailable)
+
+	t.Setenv("AGENT_RUNTIME_TOOL_TOKEN", "test-runtime-token")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/agent/tools/read", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-runtime-token")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	expectHandlerStatus(t, rec, http.StatusOK)
+
+	var response struct {
+		ToolName   string `json:"tool_name"`
+		OutputJSON string `json:"output_json"`
+	}
+	decodeBody(t, rec.Body.Bytes(), &response)
+	if response.ToolName != agent.ToolQueryConversationMembers {
+		t.Fatalf("unexpected tool name: %+v", response)
+	}
+	if !strings.Contains(response.OutputJSON, "member_count") {
+		t.Fatalf("unexpected tool output: %+v", response)
+	}
+}
+
 func TestAgentHandlerStreamsRunEvents(t *testing.T) {
 	handler, _, conversation := newAgentHandlerTestEnv(t)
 	router := newRouterWithClaims(&auth.Claims{UserID: 7, Email: "owner@example.com"}, handler.RegisterProtectedRoutes)

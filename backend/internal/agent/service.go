@@ -53,8 +53,10 @@ type Service struct {
 	outbox             *events.Store
 	indexer            ChunkIndexer
 	knowledgeRetriever KnowledgeRetriever
+	reranker           search.Reranker
 	streamPublisher    StreamPublisher
 	strictProvider     bool
+	workflowRuntime    WorkflowRuntime
 }
 
 type RunInput struct {
@@ -116,12 +118,15 @@ func NewService(db *gorm.DB, counters ...counterRecorder) *Service {
 	if len(counters) > 0 {
 		metrics = counters[0]
 	}
+	reranker, _ := search.NewRerankerFromEnv()
 	return &Service{
-		db:             db,
-		metrics:        metrics,
-		planner:        RulesPlanner{},
-		outbox:         events.NewStore(db),
-		strictProvider: AgentProviderStrictFromEnv(),
+		db:              db,
+		metrics:         metrics,
+		planner:         RulesPlanner{},
+		outbox:          events.NewStore(db),
+		reranker:        reranker,
+		strictProvider:  AgentProviderStrictFromEnv(),
+		workflowRuntime: NewWorkflowRuntimeFromEnv(),
 	}
 }
 
@@ -145,6 +150,11 @@ func (s *Service) WithKnowledgeRetriever(r KnowledgeRetriever) *Service {
 	return s
 }
 
+func (s *Service) WithReranker(r search.Reranker) *Service {
+	s.reranker = r
+	return s
+}
+
 func (s *Service) WithOutbox(outbox *events.Store) {
 	if outbox != nil {
 		s.outbox = outbox
@@ -153,6 +163,11 @@ func (s *Service) WithOutbox(outbox *events.Store) {
 
 func (s *Service) WithStreamPublisher(p StreamPublisher) *Service {
 	s.streamPublisher = p
+	return s
+}
+
+func (s *Service) WithWorkflowRuntime(runtime WorkflowRuntime) *Service {
+	s.workflowRuntime = runtime
 	return s
 }
 
@@ -855,6 +870,15 @@ func (s *Service) recordContextToolCalls(ctx context.Context, run models.AgentRu
 		}
 		if item.VectorScore > 0 {
 			chunk["vector_score"] = item.VectorScore
+		}
+		if item.RerankScore > 0 {
+			chunk["rerank_score"] = item.RerankScore
+		}
+		if item.RerankReason != "" {
+			chunk["rerank_reason"] = item.RerankReason
+		}
+		if item.FinalRank > 0 {
+			chunk["final_rank"] = item.FinalRank
 		}
 		if item.FallbackReason != "" {
 			chunk["fallback_reason"] = item.FallbackReason

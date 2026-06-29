@@ -223,6 +223,15 @@ func buildPromptContextJSON(input PlannerInput) (string, error) {
 		if item.RRFScore > 0 {
 			payload["rrf_score"] = item.RRFScore
 		}
+		if item.RerankScore > 0 {
+			payload["rerank_score"] = item.RerankScore
+		}
+		if item.RerankReason != "" {
+			payload["rerank_reason"] = item.RerankReason
+		}
+		if item.FinalRank > 0 {
+			payload["final_rank"] = item.FinalRank
+		}
 		if item.FallbackReason != "" {
 			payload["fallback_reason"] = item.FallbackReason
 		}
@@ -341,7 +350,7 @@ func buildRulesOutput(input PlannerInput) (string, []string, string, []string) {
 		summary = "Meeting Brief: " + summary
 		actionItems = append(actionItems, "确认本次会议结论是否需要同步给外部参与方")
 		nextStep = "确认摘要准确后，将会议结论同步到线程并明确下一步。"
-	case WorkflowPresetFollowUp:
+	case WorkflowPresetFollowUp, WorkflowPresetFollowUpPlanner:
 		summary = "Follow-up Plan: " + summary
 		actionItems = append(actionItems, "整理对外跟进消息草案并确认 owner")
 		nextStep = "将 follow-up 承诺落成具体任务，并确认发送窗口。"
@@ -350,6 +359,9 @@ func buildRulesOutput(input PlannerInput) (string, []string, string, []string) {
 		riskFlags = append(riskFlags, "meeting_risk_review")
 		actionItems = append(actionItems, "确认是否存在未决项需要升级或额外审批")
 		nextStep = "复核风险点并决定是否需要升级处理。"
+	case WorkflowPresetContextQA:
+		summary = "Context QA: " + summary
+		nextStep = "如答案依据不足，请补充会议转写或知识库材料后重试。"
 	}
 	return summary, uniqueStrings(actionItems), nextStep, uniqueStrings(riskFlags)
 }

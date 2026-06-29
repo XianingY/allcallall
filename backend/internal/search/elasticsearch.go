@@ -178,6 +178,9 @@ type ContextChunkSearchResult struct {
 	RRFScore      float64 `json:"rrf_score,omitempty"`
 	BM25Score     float64 `json:"bm25_score,omitempty"`
 	VectorScore   float64 `json:"vector_score,omitempty"`
+	RerankScore   float64 `json:"rerank_score,omitempty"`
+	RerankReason  string  `json:"rerank_reason,omitempty"`
+	FinalRank     int     `json:"final_rank,omitempty"`
 }
 
 func (e *ElasticsearchIndexer) InitChunkIndex(ctx context.Context) error {

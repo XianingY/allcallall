@@ -1,0 +1,38 @@
+[project]
+name = "allcallall-agent-runtime"
+version = "0.1.0"
+description = "Python LangGraph runtime for AllCallAll Agent workflows"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.111,<1",
+  "httpx>=0.27,<1",
+  "langchain-core>=0.2,<1",
+  "langgraph>=0.2,<1",
+  "pydantic>=2.7,<3",
+  "uvicorn[standard]>=0.30,<1",
+]
+
+[project.scripts]
+allcallall-agent-eval = "app.eval_runner:main"
+
+[project.optional-dependencies]
+llamaindex = [
+  "llama-index-core>=0.11,<1",
+]
+dev = [
+  "mypy>=1.10,<2",
+  "pytest>=8.2,<9",
+  "ruff>=0.5,<1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]

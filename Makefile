@@ -1,7 +1,9 @@
 # AllCallAll Project Makefile
 # Common commands for development
 
-.PHONY: help setup build-android build-ios clean test run-api run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench interview-microservice-demo agent-eval rag-eval workflow-eval task-eval agent-demo-report resume-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench
+PYTHON ?= python3
+
+.PHONY: help setup build-android build-ios clean test run-api run-agent-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench interview-microservice-demo agent-runtime-test python-agent-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench
 
 # Default target
 help:
@@ -18,6 +20,7 @@ help:
 	@echo "Backend:"
 	@echo "  make run-backend      - Start backend server"
 	@echo "  make run-api          - Start API server (EMBEDDED_WORKERS configurable)"
+	@echo "  make run-agent-runtime - Start Python LangGraph Agent Runtime"
 	@echo "  make run-user-service - Start standalone gRPC User Service"
 	@echo "  make run-agent-worker - Start standalone Agent worker"
 	@echo "  make run-outbox-worker - Start standalone Outbox worker"
@@ -31,11 +34,15 @@ help:
 	@echo "  make interview-load-suite - Generate local interview load suite artifacts"
 	@echo "  make interview-microservice-demo - Run API + standalone worker demo"
 	@echo "  make agent-eval       - Run deterministic Agent eval harness"
+	@echo "  make agent-runtime-test - Run Python Agent Runtime tests and checks"
+	@echo "  make python-agent-eval - Run Python LangGraph task eval fixtures"
 	@echo "  make rag-eval         - Run deterministic RAG retrieval eval harness"
+	@echo "  make rerank-eval      - Run RAG rerank eval with baseline comparison"
 	@echo "  make workflow-eval    - Run deterministic Workflow multi-agent eval harness"
 	@echo "  make task-eval        - Run deterministic black-box task eval harness"
 	@echo "  make agent-demo-report - Generate combined Agent/RAG/Workflow demo report"
 	@echo "  make resume-eval      - Generate resume-oriented Agent KPI artifacts"
+	@echo "  make ai-portfolio-eval - Generate AI Agent portfolio evidence bundle"
 	@echo "  make mcp-tool-server  - Start MCP-compatible read-only tool server"
 	@echo "  make interview-bench  - Run local Agent/outbox benchmark"
 	@echo "  make realtime-replay-bench - Run local realtime replay benchmark"
@@ -84,6 +91,10 @@ run-backend:
 run-api:
 	@echo "Starting API server..."
 	cd backend && EMBEDDED_WORKERS=$${EMBEDDED_WORKERS:-1} go run ./cmd/server
+
+run-agent-runtime:
+	@echo "Starting Python LangGraph Agent Runtime..."
+	cd agent-runtime && uvicorn app.main:app --reload --port $${PY_AGENT_RUNTIME_PORT:-8090}
 
 run-user-service:
 	@echo "Starting standalone gRPC User Service..."
@@ -172,6 +183,11 @@ rag-eval:
 	@mkdir -p /tmp/allcallall-go-cache
 	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/rag-eval
 
+rerank-eval:
+	@echo "Running deterministic RAG rerank eval harness..."
+	@mkdir -p /tmp/allcallall-go-cache
+	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/allcallallctl rerank-eval -out ../docs/interview/generated-rerank-eval
+
 workflow-eval:
 	@echo "Running deterministic Workflow eval harness..."
 	@mkdir -p /tmp/allcallall-go-cache
@@ -180,7 +196,17 @@ workflow-eval:
 task-eval:
 	@echo "Running deterministic black-box task eval harness..."
 	@mkdir -p /tmp/allcallall-go-cache
-	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/allcallallctl task-eval -fixture ./internal/agent/testdata/task_eval_cases.json
+	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/allcallallctl task-eval -runtime $${AGENT_RUNTIME:-go} -fixture ./internal/agent/testdata/task_eval_cases.json
+
+agent-runtime-test:
+	@echo "Running Python Agent Runtime tests..."
+	cd agent-runtime && pytest
+	cd agent-runtime && ruff check .
+	cd agent-runtime && mypy .
+
+python-agent-eval:
+	@echo "Running Python LangGraph Agent Runtime eval..."
+	cd agent-runtime && $(PYTHON) -m app.eval_runner --out evals/reports
 
 agent-demo-report:
 	@echo "Generating combined Agent demo report..."
@@ -191,6 +217,12 @@ resume-eval:
 	@echo "Generating resume-oriented Agent KPI report..."
 	@mkdir -p /tmp/allcallall-go-cache
 	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/allcallallctl resume-eval -provider $${AGENT_PROVIDER:-rules} -out ../docs/interview/generated-resume-eval
+
+ai-portfolio-eval:
+	@echo "Generating AI Agent portfolio eval bundle..."
+	@mkdir -p /tmp/allcallall-go-cache
+	cd agent-runtime && $(PYTHON) -m app.eval_runner --out evals/reports
+	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/allcallallctl ai-portfolio-eval -provider $${AGENT_PROVIDER:-rules} -out ../docs/interview/generated-ai-portfolio-eval
 
 mcp-tool-server:
 	@echo "Starting MCP-compatible read-only tool server..."

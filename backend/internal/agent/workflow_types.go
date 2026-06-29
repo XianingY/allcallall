@@ -70,8 +70,11 @@ type workflowRoleResult struct {
 }
 
 type workflowToolRequest struct {
-	ToolName string
-	Input    map[string]any
+	ToolName         string
+	Input            map[string]any
+	Reason           string
+	IdempotencyKey   string
+	ApprovalRequired bool
 }
 
 func workflowTaskSpecs() []workflowTaskSpec {

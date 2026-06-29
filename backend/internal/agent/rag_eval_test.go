@@ -69,3 +69,34 @@ func TestRunRAGEvalIncludesIRSummary(t *testing.T) {
 		}
 	}
 }
+
+func TestRunRerankEvalIncludesBaselineAndDelta(t *testing.T) {
+	cases, err := LoadRAGEvalCases(filepath.Join("testdata", "rag_eval_cases.json"))
+	if err != nil {
+		t.Fatalf("load rag eval cases failed: %v", err)
+	}
+	report, err := RunRerankEval(context.Background(), cases[:4])
+	if err != nil {
+		t.Fatalf("run rerank eval failed: %v", err)
+	}
+	if !report.RerankEnabled {
+		t.Fatalf("expected rerank enabled report")
+	}
+	if report.Passed != 4 || report.Failed != 0 {
+		t.Fatalf("unexpected rerank report: %+v", report)
+	}
+	foundBaseline := false
+	for _, result := range report.Results {
+		if len(result.BaselineHits) > 0 {
+			foundBaseline = true
+		}
+		for _, hit := range result.Hits {
+			if hit.FinalRank == 0 {
+				t.Fatalf("missing final rank: %+v", hit)
+			}
+		}
+	}
+	if !foundBaseline {
+		t.Fatalf("expected baseline hits in rerank report")
+	}
+}

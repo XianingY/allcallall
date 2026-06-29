@@ -65,11 +65,16 @@ type AgentTaskEvalSummary struct {
 
 type AgentTaskEvalReport struct {
 	Mode    string                `json:"mode"`
+	Runtime string                `json:"runtime"`
 	Cases   int                   `json:"cases"`
 	Passed  int                   `json:"passed"`
 	Failed  int                   `json:"failed"`
 	Summary AgentTaskEvalSummary  `json:"summary"`
 	Results []AgentTaskEvalResult `json:"results"`
+}
+
+type AgentTaskEvalOptions struct {
+	Runtime string
 }
 
 func LoadAgentTaskEvalCases(path string) ([]AgentTaskEvalCase, error) {
@@ -85,13 +90,19 @@ func LoadAgentTaskEvalCases(path string) ([]AgentTaskEvalCase, error) {
 }
 
 func RunAgentTaskEval(ctx context.Context, cases []AgentTaskEvalCase) (AgentTaskEvalReport, error) {
+	return RunAgentTaskEvalWithOptions(ctx, cases, AgentTaskEvalOptions{})
+}
+
+func RunAgentTaskEvalWithOptions(ctx context.Context, cases []AgentTaskEvalCase, opts AgentTaskEvalOptions) (AgentTaskEvalReport, error) {
+	runtimeName := normalizeWorkflowRuntime(opts.Runtime)
 	report := AgentTaskEvalReport{
 		Mode:    "task_eval",
+		Runtime: runtimeName,
 		Cases:   len(cases),
 		Results: make([]AgentTaskEvalResult, 0, len(cases)),
 	}
 	for i, item := range cases {
-		result, err := runAgentTaskEvalCase(ctx, i+1, item)
+		result, err := runAgentTaskEvalCase(ctx, i+1, item, opts)
 		if err != nil {
 			result = AgentTaskEvalResult{Name: item.Name, Mode: normalizeTaskEvalMode(item.Mode), Errors: []string{err.Error()}}
 		}
@@ -111,6 +122,7 @@ func FormatAgentTaskEvalMarkdown(report AgentTaskEvalReport) string {
 	var b strings.Builder
 	b.WriteString("# AllCallAll Agent Task Eval Report\n\n")
 	b.WriteString("- Scope: `current deterministic task fixture set`\n")
+	b.WriteString(fmt.Sprintf("- Runtime: `%s`\n", firstNonEmptyString(report.Runtime, WorkflowRuntimeGo)))
 	b.WriteString("- Positioning: `black-box task completion and safety checks, not open-ended user satisfaction`\n\n")
 
 	b.WriteString("## Summary\n\n")
@@ -146,7 +158,7 @@ func normalizeTaskEvalMode(mode string) string {
 	}
 }
 
-func runAgentTaskEvalCase(ctx context.Context, index int, item AgentTaskEvalCase) (AgentTaskEvalResult, error) {
+func runAgentTaskEvalCase(ctx context.Context, index int, item AgentTaskEvalCase, opts AgentTaskEvalOptions) (AgentTaskEvalResult, error) {
 	db, err := openTaskEvalDB(index)
 	if err != nil {
 		return AgentTaskEvalResult{}, err
@@ -159,6 +171,9 @@ func runAgentTaskEvalCase(ctx context.Context, index int, item AgentTaskEvalCase
 	}
 	svc := NewService(db).WithPlanner(RulesPlanner{})
 	svc.WithOutbox(events.NewStore(db))
+	if normalizeWorkflowRuntime(opts.Runtime) == WorkflowRuntimePythonLangGraph {
+		svc.WithWorkflowRuntime(NewPythonLangGraphRuntimeFromEnv())
+	}
 
 	if normalizeTaskEvalMode(item.Mode) == "workflow" {
 		return executeWorkflowTaskEval(ctx, svc, orgID, userID, conversationID, item)

@@ -42,10 +42,12 @@ func (s *Service) executeDecomposeTask(ctx context.Context, run models.WorkflowR
 	switch preset {
 	case WorkflowPresetMeetingBrief:
 		summarizerGoal = "Produce a grounded meeting brief with concise summary, evidence, and next steps."
-	case WorkflowPresetFollowUp:
+	case WorkflowPresetFollowUp, WorkflowPresetFollowUpPlanner:
 		summarizerGoal = "Extract follow-up commitments, likely owners, and suggested external next actions."
 	case WorkflowPresetRiskReview:
 		riskGoal = "Focus on risks, unresolved items, and whether escalation or approval is needed."
+	case WorkflowPresetContextQA:
+		summarizerGoal = "Answer the user's question using only retrieved context; refuse when evidence is insufficient."
 	}
 	return s.executeWorkflowTask(ctx, run.ID, models.WorkflowTaskDecompose, map[string]any{
 		"goal":   run.Goal,
@@ -236,59 +238,71 @@ func (s *Service) executeProposeToolsTask(ctx context.Context, run models.Workfl
 		"next_step":    merged.NextStep,
 		"risk_flags":   merged.RiskFlags,
 	}, func(task models.WorkflowTask) (map[string]any, error) {
-		role, err := s.organizationRole(ctx, run.OrganizationID, run.UserID)
+		approvals, err := s.createWorkflowToolApprovals(ctx, run, task, s.workflowToolInputs(run, merged))
 		if err != nil {
 			return nil, err
 		}
-		toolInputs := s.workflowToolInputs(run, merged)
-		approvals := make([]models.ToolApproval, 0, len(toolInputs))
-		for _, item := range toolInputs {
-			toolName := item.ToolName
-			input := item.Input
-			effect, err := s.resolveToolPolicyEffect(ctx, run.OrganizationID, role, toolName)
-			if err != nil {
-				return nil, err
-			}
-			if effect == models.ToolPolicyEffectDeny {
-				return nil, fmt.Errorf("tool %s denied by policy", toolName)
-			}
-			inputJSON := mustJSONString(input)
-			if err := ValidateToolArguments(toolName, inputJSON); err != nil {
-				return nil, err
-			}
-			approval := models.ToolApproval{
-				WorkflowRunID:     run.ID,
-				TaskID:            task.ID,
-				OrganizationID:    run.OrganizationID,
-				ToolCallID:        workflowToolCallID(run.ID, toolName, input),
-				ToolName:          toolName,
-				Status:            models.ToolApprovalStatusPending,
-				ToolSchemaVersion: CurrentToolSchemaVersion,
-				InputJSON:         inputJSON,
-				RequestedBy:       run.UserID,
-				RequestedAt:       time.Now().UTC(),
-			}
-			if effect == models.ToolPolicyEffectAllow {
-				approval.Status = models.ToolApprovalStatusApproved
-			}
-			if err := s.db.WithContext(ctx).
-				Where("tool_call_id = ?", approval.ToolCallID).
-				Attrs(approval).
-				FirstOrCreate(&approval).Error; err != nil {
-				return nil, err
-			}
-			approvals = append(approvals, approval)
-			if err := s.createAgentMessage(ctx, run, &task.ID, "tool_planner", "human", models.AgentMessageTypeToolRequest, map[string]any{
-				"tool_call_id": approval.ToolCallID,
-				"tool_name":    toolName,
-				"input":        input,
-				"status":       approval.Status,
-			}, approval.ToolCallID); err != nil {
-				return nil, err
-			}
-		}
 		return map[string]any{"approval_count": len(approvals), "approvals": approvals}, nil
 	})
+}
+
+func (s *Service) createWorkflowToolApprovals(ctx context.Context, run models.WorkflowRun, task models.WorkflowTask, toolInputs []workflowToolRequest) ([]models.ToolApproval, error) {
+	role, err := s.organizationRole(ctx, run.OrganizationID, run.UserID)
+	if err != nil {
+		return nil, err
+	}
+	approvals := make([]models.ToolApproval, 0, len(toolInputs))
+	for _, item := range toolInputs {
+		toolName := item.ToolName
+		input := item.Input
+		if input == nil {
+			input = map[string]any{}
+		}
+		effect, err := s.resolveToolPolicyEffect(ctx, run.OrganizationID, role, toolName)
+		if err != nil {
+			return nil, err
+		}
+		if effect == models.ToolPolicyEffectDeny {
+			return nil, fmt.Errorf("tool %s denied by policy", toolName)
+		}
+		inputJSON := mustJSONString(input)
+		if err := ValidateToolArguments(toolName, inputJSON); err != nil {
+			return nil, err
+		}
+		approval := models.ToolApproval{
+			WorkflowRunID:     run.ID,
+			TaskID:            task.ID,
+			OrganizationID:    run.OrganizationID,
+			ToolCallID:        workflowToolRequestCallID(run.ID, item),
+			ToolName:          toolName,
+			Status:            models.ToolApprovalStatusPending,
+			ToolSchemaVersion: CurrentToolSchemaVersion,
+			InputJSON:         inputJSON,
+			RequestedBy:       run.UserID,
+			RequestedAt:       time.Now().UTC(),
+		}
+		if effect == models.ToolPolicyEffectAllow && !item.ApprovalRequired {
+			approval.Status = models.ToolApprovalStatusApproved
+		}
+		if err := s.db.WithContext(ctx).
+			Where("tool_call_id = ?", approval.ToolCallID).
+			Attrs(approval).
+			FirstOrCreate(&approval).Error; err != nil {
+			return nil, err
+		}
+		approvals = append(approvals, approval)
+		if err := s.createAgentMessage(ctx, run, &task.ID, "tool_planner", "human", models.AgentMessageTypeToolRequest, map[string]any{
+			"tool_call_id":      approval.ToolCallID,
+			"tool_name":         toolName,
+			"input":             input,
+			"status":            approval.Status,
+			"reason":            item.Reason,
+			"approval_required": item.ApprovalRequired,
+		}, approval.ToolCallID); err != nil {
+			return nil, err
+		}
+	}
+	return approvals, nil
 }
 
 func (s *Service) executeApprovalTask(ctx context.Context, run models.WorkflowRun) (bool, error) {
@@ -433,7 +447,7 @@ func (s *Service) workflowToolInputs(run models.WorkflowRun, merged workflowRole
 			workflowToolRequest{ToolName: ToolUpsertConversationMemory, Input: cloneMapWith(base, map[string]any{"key": models.AgentMemoryKeyLastAgentSummary})},
 			workflowToolRequest{ToolName: ToolUpsertConversationMemory, Input: cloneMapWith(base, map[string]any{"key": models.AgentMemoryKeyLatestMeetingBrief})},
 		)
-	case WorkflowPresetFollowUp:
+	case WorkflowPresetFollowUp, WorkflowPresetFollowUpPlanner:
 		requests = append(requests,
 			workflowToolRequest{ToolName: ToolCreateFollowUpTask, Input: map[string]any{
 				"conversation_id": run.ConversationID,
@@ -445,6 +459,8 @@ func (s *Service) workflowToolInputs(run models.WorkflowRun, merged workflowRole
 		requests = append(requests,
 			workflowToolRequest{ToolName: ToolUpsertConversationMemory, Input: cloneMapWith(base, map[string]any{"key": models.AgentMemoryKeyOpenRiskRegister})},
 		)
+	case WorkflowPresetContextQA:
+		return nil
 	default:
 		requests = append(requests,
 			workflowToolRequest{ToolName: ToolCreateFollowUpTask, Input: map[string]any{

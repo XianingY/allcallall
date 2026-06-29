@@ -72,6 +72,7 @@ type Service struct {
 	outbox   *events.Store
 	indexer  ChunkIndexer
 	embedder EmbeddingProvider
+	reranker search.Reranker
 	client   *http.Client
 }
 
@@ -103,6 +104,9 @@ type SearchResult struct {
 	RRFScore       float64
 	BM25Score      float64
 	VectorScore    float64
+	RerankScore    float64
+	RerankReason   string
+	FinalRank      int
 }
 
 type ChunkSpec struct {
@@ -115,10 +119,12 @@ type ChunkSpec struct {
 }
 
 func NewService(db *gorm.DB) *Service {
+	reranker, _ := search.NewRerankerFromEnv()
 	return &Service{
-		db:     db,
-		outbox: events.NewStore(db),
-		client: &http.Client{Timeout: 10 * time.Second},
+		db:       db,
+		outbox:   events.NewStore(db),
+		reranker: reranker,
+		client:   &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -136,6 +142,11 @@ func (s *Service) WithChunkIndexer(indexer ChunkIndexer) *Service {
 
 func (s *Service) WithEmbeddingProvider(provider EmbeddingProvider) *Service {
 	s.embedder = provider
+	return s
+}
+
+func (s *Service) WithReranker(reranker search.Reranker) *Service {
+	s.reranker = reranker
 	return s
 }
 
@@ -713,7 +724,7 @@ func (s *Service) Search(ctx context.Context, organizationID uint64, conversatio
 			if searchErr == nil && len(searchRes) > 0 {
 				out := s.searchResultsToOutput(searchRes, chunks, sources, versions, limit)
 				if len(out) > 0 {
-					return out, nil
+					return s.applyRerank(ctx, query, out, limit), nil
 				}
 				fallbackReason = "vector_results_not_in_sql"
 			} else if searchErr != nil {
@@ -741,7 +752,7 @@ func (s *Service) Search(ctx context.Context, organizationID uint64, conversatio
 			if searchErr == nil && len(searchRes) > 0 {
 				out := s.searchResultsToOutput(searchRes, chunks, sources, versions, limit)
 				if len(out) > 0 {
-					return out, nil
+					return s.applyRerank(ctx, query, out, limit), nil
 				}
 				fallbackReason = "bm25_results_not_in_sql"
 			} else if searchErr != nil {
@@ -751,7 +762,7 @@ func (s *Service) Search(ctx context.Context, organizationID uint64, conversatio
 			}
 		}
 	}
-	return rankSQLFallback(chunks, sources, versions, query, limit, fallbackReason), nil
+	return s.applyRerank(ctx, query, rankSQLFallback(chunks, sources, versions, query, limit, fallbackReason), limit), nil
 }
 
 func (s *Service) searchResultsToOutput(results []search.ContextChunkSearchResult, chunks map[uint64]models.RAGChunk, sources map[uint64]models.RAGSource, versions map[uint64]models.RAGSourceVersion, limit int) []SearchResult {
@@ -783,10 +794,77 @@ func (s *Service) searchResultsToOutput(results []search.ContextChunkSearchResul
 			RRFScore:      item.RRFScore,
 			BM25Score:     item.BM25Score,
 			VectorScore:   item.VectorScore,
+			RerankScore:   item.RerankScore,
+			RerankReason:  item.RerankReason,
+			FinalRank:     item.FinalRank,
 		})
 		if len(out) >= limit {
 			break
 		}
+	}
+	return out
+}
+
+func (s *Service) applyRerank(ctx context.Context, query string, input []SearchResult, limit int) []SearchResult {
+	if len(input) == 0 {
+		return input
+	}
+	for index := range input {
+		if input[index].FinalRank == 0 {
+			input[index].FinalRank = index + 1
+		}
+	}
+	if s.reranker == nil || strings.TrimSpace(query) == "" {
+		if len(input) > limit {
+			return input[:limit]
+		}
+		return input
+	}
+	candidates := make([]search.RerankCandidate, 0, len(input))
+	byID := make(map[string]int, len(input))
+	for index, item := range input {
+		id := fmt.Sprintf("knowledge:%d", item.Chunk.ID)
+		byID[id] = index
+		candidates = append(candidates, search.RerankCandidate{
+			ID:            id,
+			SourceType:    "knowledge",
+			SourceID:      item.Chunk.ID,
+			Title:         item.Source.Title,
+			Snippet:       item.Chunk.Content,
+			Score:         item.Score,
+			RetrievalMode: item.RetrievalMode,
+			BM25Rank:      item.BM25Rank,
+			VectorRank:    item.VectorRank,
+			RRFScore:      item.RRFScore,
+			BM25Score:     item.BM25Score,
+			VectorScore:   item.VectorScore,
+			UpdatedAt:     item.Chunk.UpdatedAt,
+		})
+	}
+	results, err := s.reranker.Rerank(ctx, search.RerankInput{Query: query, Candidates: candidates, Limit: limit})
+	if err != nil || len(results) == 0 {
+		if len(input) > limit {
+			return input[:limit]
+		}
+		return input
+	}
+	out := make([]SearchResult, 0, len(results))
+	for _, result := range results {
+		index, ok := byID[result.ID]
+		if !ok {
+			continue
+		}
+		item := input[index]
+		item.RerankScore = result.RerankScore
+		item.RerankReason = result.RerankReason
+		item.FinalRank = result.FinalRank
+		out = append(out, item)
+	}
+	if len(out) == 0 {
+		if len(input) > limit {
+			return input[:limit]
+		}
+		return input
 	}
 	return out
 }

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,14 @@ import (
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/testutil"
 )
+
+func ptrUint64(value uint64) *uint64 {
+	return &value
+}
+
+func ptrInt64(value int64) *int64 {
+	return &value
+}
 
 func newWorkflowTestService(t *testing.T) (*Service, *gorm.DB) {
 	t.Helper()
@@ -105,6 +114,154 @@ func seedReadyMeetingTranscript(t *testing.T, db *gorm.DB, conversation models.C
 		t.Fatalf("create meeting transcript: %v", err)
 	}
 	return segment
+}
+
+type fakeMeetingBriefRuntime struct {
+	calls int
+}
+
+func (r *fakeMeetingBriefRuntime) Name() string {
+	return WorkflowRuntimePythonLangGraph
+}
+
+func (r *fakeMeetingBriefRuntime) Supports(run models.WorkflowRun) bool {
+	return workflowPresetFromRun(run) == WorkflowPresetMeetingBrief
+}
+
+func (r *fakeMeetingBriefRuntime) RunWorkflow(ctx context.Context, input WorkflowRuntimeRequest) (WorkflowRuntimeResponse, error) {
+	r.calls++
+	iteration := 1
+	citation := Citation{
+		ChunkID:             "segment-1",
+		SourceType:          contextChunkSourceMeetingTranscript,
+		SourceID:            "1",
+		Title:               "Meeting transcript",
+		SourceTitle:         "Meeting transcript",
+		Snippet:             "会议录音转写：供应链交付存在两周风险。",
+		RecordingSessionID:  ptrUint64(88),
+		RecordingFileID:     ptrUint64(99),
+		TranscriptSegmentID: ptrUint64(100),
+		StartMS:             ptrInt64(0),
+		EndMS:               ptrInt64(12000),
+	}
+	roleTrace := []WorkflowRuntimeTrace{
+		{
+			Event:       "react.observe",
+			Node:        models.WorkflowTaskSearcher,
+			Role:        models.WorkflowTaskSearcher,
+			Status:      "completed",
+			Iteration:   &iteration,
+			Thought:     "Retrieve grounded transcript evidence.",
+			ToolName:    ToolQueryContextChunks,
+			ToolInput:   map[string]any{"conversation_id": input.ConversationID, "query": input.Goal},
+			Observation: "1 meeting_transcript chunk",
+		},
+	}
+	baseInput := map[string]any{
+		"conversation_id": input.ConversationID,
+		"summary":         "Python LangGraph meeting brief summary",
+		"action_items":    []string{"Confirm quality regression owner."},
+		"next_step":       "Review citations and approve write-back.",
+		"risk_flags":      []string{"unresolved_meeting_risk"},
+	}
+	messageInput := cloneMapWith(baseInput, map[string]any{"citations": []Citation{citation}})
+	return WorkflowRuntimeResponse{
+		Status:      models.WorkflowRunStatusRequiresAction,
+		Runtime:     WorkflowRuntimePythonLangGraph,
+		Provider:    "rules",
+		Summary:     "Python LangGraph meeting brief summary",
+		ActionItems: []string{"Confirm quality regression owner."},
+		NextStep:    "Review citations and approve write-back.",
+		RiskFlags:   []string{"unresolved_meeting_risk"},
+		Citations:   []Citation{citation},
+		RoleResults: []WorkflowRuntimeRole{
+			{Role: models.WorkflowTaskSearcher, Summary: "Searcher found transcript evidence.", Citations: []Citation{citation}, ReactTrace: roleTrace},
+			{Role: models.WorkflowTaskSummarizer, Summary: "Python LangGraph meeting brief summary", ActionItems: []string{"Confirm quality regression owner."}, Citations: []Citation{citation}},
+			{Role: models.WorkflowTaskRiskAnalyst, Summary: "Risk analyst found unresolved risk.", RiskFlags: []string{"unresolved_meeting_risk"}, Citations: []Citation{citation}, ReactTrace: roleTrace},
+		},
+		TraceEvents: roleTrace,
+		ProposedToolCalls: []WorkflowRuntimeToolCall{
+			{ToolName: ToolWriteConversationMessage, Arguments: messageInput, Reason: "write grounded recap", IdempotencyKey: "fake:write", ApprovalRequired: true},
+			{ToolName: ToolUpsertConversationMemory, Arguments: cloneMapWith(baseInput, map[string]any{"key": models.AgentMemoryKeyLatestMeetingBrief}), Reason: "store latest meeting brief", IdempotencyKey: "fake:memory", ApprovalRequired: true},
+		},
+	}, nil
+}
+
+func TestWorkflowAgentCanUsePythonLangGraphRuntimeForMeetingBrief(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	runtime := &fakeMeetingBriefRuntime{}
+	svc.WithOutbox(events.NewStore(db))
+	svc.WithWorkflowRuntime(runtime)
+	conversation := seedWorkflowConversation(t, db)
+	seedReadyMeetingTranscript(t, db, conversation, 88)
+
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Goal:           "Generate a grounded meeting brief.",
+		Preset:         WorkflowPresetMeetingBrief,
+	})
+	if err != nil {
+		t.Fatalf("start workflow failed: %v", err)
+	}
+	if !strings.Contains(created.Run.StateJSON, WorkflowRuntimePythonLangGraph) {
+		t.Fatalf("expected python runtime marker in state json, got %s", created.Run.StateJSON)
+	}
+	paused, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatalf("process workflow failed: %v", err)
+	}
+	if runtime.calls != 1 {
+		t.Fatalf("expected runtime call once, got %d", runtime.calls)
+	}
+	if paused.Run.Status != models.WorkflowRunStatusRequiresAction {
+		t.Fatalf("expected requires_action, got %s", paused.Run.Status)
+	}
+	if len(paused.Approvals) != 2 {
+		t.Fatalf("expected python runtime proposals to create two approvals, got %d", len(paused.Approvals))
+	}
+	if len(paused.Citations) == 0 || paused.Citations[0].TranscriptSegmentID == nil {
+		t.Fatalf("expected transcript citation metadata, got %+v", paused.Citations)
+	}
+	if !workflowTaskReady(paused.Tasks, models.WorkflowTaskProposeTools) {
+		t.Fatalf("expected propose_tools task ready")
+	}
+	for _, approval := range paused.Approvals {
+		if approval.Status != models.ToolApprovalStatusPending {
+			t.Fatalf("python runtime write proposal should require approval, got %+v", approval)
+		}
+		if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "approve"); err != nil {
+			t.Fatalf("approve workflow tool failed: %v", err)
+		}
+	}
+	ready, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatalf("resume workflow failed: %v", err)
+	}
+	if runtime.calls != 1 {
+		t.Fatalf("runtime should not be called again after approvals, got %d", runtime.calls)
+	}
+	if ready.Run.Status != models.WorkflowRunStatusReady {
+		t.Fatalf("expected ready, got %s", ready.Run.Status)
+	}
+}
+
+func TestPythonLangGraphRuntimeSupportsAgentPresets(t *testing.T) {
+	runtime := &PythonLangGraphRuntime{}
+	for _, preset := range []string{
+		WorkflowPresetMeetingBrief,
+		WorkflowPresetFollowUp,
+		WorkflowPresetFollowUpPlanner,
+		WorkflowPresetRiskReview,
+		WorkflowPresetContextQA,
+	} {
+		if !runtime.Supports(models.WorkflowRun{Preset: preset}) {
+			t.Fatalf("expected python runtime to support preset %s", preset)
+		}
+	}
+	if runtime.Supports(models.WorkflowRun{Preset: "unknown"}) {
+		t.Fatalf("unexpected support for unknown preset")
+	}
 }
 
 func TestWorkflowAgentPausesForApprovalAndCommitsApprovedTools(t *testing.T) {
