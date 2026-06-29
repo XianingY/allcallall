@@ -36,6 +36,9 @@ PY_AGENT_RUNTIME_STRICT=true
 - `PY_AGENT_PROVIDER_STRICT=true`: when using `openai_compatible`, missing config or provider errors return a failed workflow response instead of silently falling back.
 - `PY_AGENT_TOOL_BRIDGE_BASE_URL`: Go backend base URL for read-only tool execution, for example `http://backend:8080`.
 - `PY_AGENT_TOOL_BRIDGE_TOKEN`: shared bearer token matching Go `AGENT_RUNTIME_TOOL_TOKEN`.
+- `PY_AGENT_ENABLE_AGENTIC_RAG=false`: enable bounded Agentic RAG retrieval planning and refinement.
+- `PY_AGENT_RAG_MAX_RETRIEVAL_STEPS=3`: hard cap for Agentic RAG read-tool retrieval attempts.
+- `PY_AGENT_RAG_MIN_CONFIDENCE=0.6`: confidence threshold for stopping retrieval refinement.
 
 If the tool bridge is not configured, the runtime still uses context preloaded by Go. This keeps deterministic local evals independent from a running backend.
 
@@ -51,4 +54,4 @@ Outputs:
 - `evals/reports/python-agent-eval.json`
 - `evals/reports/python-agent-eval.md`
 
-The eval fixtures are deterministic regression cases for task completion, citation grounding, tool intent, approval safety, and unsupported-claim guarding. They are not open-domain model-quality claims.
+The eval fixtures are deterministic regression cases for task completion, citation grounding, tool intent, approval safety, Agentic RAG refinement, citation coverage, iteration caps, and unsupported-claim guarding. They are not open-domain model-quality claims.

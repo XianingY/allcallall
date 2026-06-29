@@ -44,6 +44,7 @@ type WorkflowRuntimeRequest struct {
 	ContextChunks      []WorkflowRuntimeContextChunk `json:"context_chunks"`
 	ToolPolicy         WorkflowRuntimeToolPolicy     `json:"tool_policy"`
 	MaxIterations      map[string]int                `json:"max_iterations"`
+	AgenticRAG         WorkflowRuntimeAgenticRAG     `json:"agentic_rag,omitempty"`
 }
 
 type WorkflowRuntimeMessage struct {
@@ -94,19 +95,30 @@ type WorkflowRuntimeToolPolicy struct {
 	WriteTools []string `json:"write_tools"`
 }
 
+type WorkflowRuntimeAgenticRAG struct {
+	Enabled            bool     `json:"enabled"`
+	MaxSteps           int      `json:"max_steps"`
+	AllowedSourceTypes []string `json:"allowed_source_types"`
+	MinConfidence      float64  `json:"min_confidence"`
+}
+
 type WorkflowRuntimeResponse struct {
-	Status            string                    `json:"status"`
-	Runtime           string                    `json:"runtime"`
-	Provider          string                    `json:"provider"`
-	Summary           string                    `json:"summary"`
-	ActionItems       []string                  `json:"action_items"`
-	NextStep          string                    `json:"next_step"`
-	RiskFlags         []string                  `json:"risk_flags"`
-	Citations         []Citation                `json:"citations"`
-	RoleResults       []WorkflowRuntimeRole     `json:"role_results"`
-	TraceEvents       []WorkflowRuntimeTrace    `json:"trace_events"`
-	ProposedToolCalls []WorkflowRuntimeToolCall `json:"proposed_tool_calls"`
-	Error             string                    `json:"error"`
+	Status             string                    `json:"status"`
+	Runtime            string                    `json:"runtime"`
+	Provider           string                    `json:"provider"`
+	Summary            string                    `json:"summary"`
+	ActionItems        []string                  `json:"action_items"`
+	NextStep           string                    `json:"next_step"`
+	RiskFlags          []string                  `json:"risk_flags"`
+	Citations          []Citation                `json:"citations"`
+	RoleResults        []WorkflowRuntimeRole     `json:"role_results"`
+	TraceEvents        []WorkflowRuntimeTrace    `json:"trace_events"`
+	ProposedToolCalls  []WorkflowRuntimeToolCall `json:"proposed_tool_calls"`
+	RetrievalPlan      map[string]any            `json:"retrieval_plan,omitempty"`
+	RetrievalAttempts  []map[string]any          `json:"retrieval_attempts,omitempty"`
+	EvidencePack       map[string]any            `json:"evidence_pack,omitempty"`
+	ContextSufficiency map[string]any            `json:"context_sufficiency,omitempty"`
+	Error              string                    `json:"error"`
 }
 
 type WorkflowRuntimeRole struct {

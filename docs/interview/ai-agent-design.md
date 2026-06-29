@@ -165,6 +165,17 @@ Current Python-supported presets are `meeting_brief`, `risk_review`, `follow_up_
 - Python does not write the main database and does not execute write tools. Returned proposals become `tool_approvals` in Go and must pass the existing approval path before `commit_result`.
 - `PY_AGENT_PROVIDER=rules` is deterministic for eval; `PY_AGENT_PROVIDER=openai_compatible` uses an OpenAI-compatible `/chat/completions` provider with JSON structured output and explicit error classification.
 
+### Bounded Agentic RAG
+
+The Python runtime can optionally enable bounded Agentic RAG with `PY_AGENT_ENABLE_AGENTIC_RAG=true`. This does not replace the Go Hybrid RAG or rerank layer. Instead, it controls retrieval strategy above that layer:
+
+- `retrieval_planner` creates source-specific retrieval steps for meeting transcript, knowledge, and conversation context.
+- `retrieval_loop` runs at most three read-only tool calls through the Go bridge and records `rag.plan`, `rag.tool_call`, `rag.observe`, and `rag.refine` events.
+- `evidence_pack` selects final citations and keeps source coverage, confidence, and rejected count.
+- `sufficiency_gate` blocks write-tool proposals when evidence is missing, so unsupported answers remain conservative.
+
+This design is intentionally bounded: Python plans retrieval and synthesis, while Go still owns data access, permissions, approval, audit, and side effects.
+
 Runtime flow:
 
 ```mermaid

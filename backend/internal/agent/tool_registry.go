@@ -15,14 +15,17 @@ const (
 	ToolPermissionConversationMember = "conversation_member"
 	ToolPermissionConversationWriter = "conversation_writer"
 
-	ToolQueryRecentMeetings      = "query_recent_meetings"
-	ToolQueryConversationMembers = "query_conversation_members"
-	ToolQueryContactProfile      = "query_contact_profile"
-	ToolQueryContextChunks       = "query_context_chunks"
-	ToolWriteConversationMessage = "write_conversation_message"
-	ToolCreateFollowUpTask       = "create_follow_up_task"
-	ToolUpsertConversationMemory = "upsert_agent_memory"
-	ToolDelegateTask             = "delegate_task"
+	ToolQueryRecentMeetings            = "query_recent_meetings"
+	ToolQueryConversationMembers       = "query_conversation_members"
+	ToolQueryContactProfile            = "query_contact_profile"
+	ToolQueryContextChunks             = "query_context_chunks"
+	ToolQueryKnowledgeChunks           = "query_knowledge_chunks"
+	ToolQueryMeetingTranscriptSegments = "query_meeting_transcript_segments"
+	ToolQueryRecentFollowups           = "query_recent_followups"
+	ToolWriteConversationMessage       = "write_conversation_message"
+	ToolCreateFollowUpTask             = "create_follow_up_task"
+	ToolUpsertConversationMemory       = "upsert_agent_memory"
+	ToolDelegateTask                   = "delegate_task"
 
 	CurrentToolSchemaVersion = "tool_schema_v1"
 )
@@ -128,6 +131,50 @@ func RegisteredTools() []ToolDescriptor {
 					"origin_url":          stringSchema("Origin URL."),
 				})),
 				"count": integerSchema("Returned chunk count."),
+			}),
+		},
+		{
+			Name:        ToolQueryKnowledgeChunks,
+			Kind:        ToolKindReadOnly,
+			Permission:  ToolPermissionConversationMember,
+			Description: "Retrieve Top-K organization knowledge chunks for an Agentic RAG refinement step.",
+			InputSchema: objectSchema([]string{"conversation_id", "query", "limit"}, map[string]any{
+				"conversation_id": integerSchema("Conversation id used for scoped retrieval."),
+				"query":           stringSchema("Search query."),
+				"limit":           integerSchema("Maximum number of chunks to return."),
+			}),
+			OutputSchema: objectSchema([]string{"chunks", "count"}, map[string]any{
+				"chunks": arraySchema(looseObjectSchema("Knowledge grounding chunks with retrieval and rerank metadata.")),
+				"count":  integerSchema("Returned chunk count."),
+			}),
+		},
+		{
+			Name:        ToolQueryMeetingTranscriptSegments,
+			Kind:        ToolKindReadOnly,
+			Permission:  ToolPermissionConversationMember,
+			Description: "Retrieve Top-K meeting transcript chunks with recording and time-range metadata.",
+			InputSchema: objectSchema([]string{"conversation_id", "query", "limit"}, map[string]any{
+				"conversation_id": integerSchema("Conversation id used for scoped retrieval."),
+				"query":           stringSchema("Search query."),
+				"limit":           integerSchema("Maximum number of chunks to return."),
+			}),
+			OutputSchema: objectSchema([]string{"chunks", "count"}, map[string]any{
+				"chunks": arraySchema(looseObjectSchema("Meeting transcript chunks with recording ids and segment timestamps.")),
+				"count":  integerSchema("Returned chunk count."),
+			}),
+		},
+		{
+			Name:        ToolQueryRecentFollowups,
+			Kind:        ToolKindReadOnly,
+			Permission:  ToolPermissionConversationMember,
+			Description: "Load recent follow-up summaries for a conversation without creating new tasks.",
+			InputSchema: objectSchema([]string{"conversation_id", "limit"}, map[string]any{
+				"conversation_id": integerSchema("Conversation id to inspect."),
+				"limit":           integerSchema("Maximum number of follow-ups to return."),
+			}),
+			OutputSchema: objectSchema([]string{"followups", "count"}, map[string]any{
+				"followups": arraySchema(looseObjectSchema("Recent follow-up summary.")),
+				"count":     integerSchema("Returned follow-up count."),
 			}),
 		},
 		{

@@ -47,6 +47,56 @@
     "forbidden_tool_proposals": ["delegate_task"]
   },
   {
+    "name": "meeting_brief_agentic_rag_multihop",
+    "preset": "meeting_brief",
+    "goal": "请结合会议转写和上线安全知识库生成会议复盘。",
+    "request": {
+      "organization_id": 1,
+      "user_id": 7,
+      "conversation_id": 42,
+      "workflow_run_id": 1011,
+      "preset": "meeting_brief",
+      "goal": "请结合会议转写和上线安全知识库生成会议复盘。",
+      "context_chunks": [
+        {
+          "chunk_id": "mt-agentic-1",
+          "source_type": "meeting_transcript",
+          "source_id": "111",
+          "source_title": "Launch Meeting",
+          "title": "Launch Meeting",
+          "snippet": "会议确认本周上线前需要完成安全审批，并安排 QA owner 跟进回归测试。",
+          "score": 10,
+          "retrieval_mode": "rules",
+          "transcript_segment_id": 111,
+          "start_ms": 1000,
+          "end_ms": 9000
+        },
+        {
+          "chunk_id": "kb-agentic-1",
+          "source_type": "knowledge",
+          "source_id": "701",
+          "source_title": "Beta Launch Security Checklist",
+          "title": "Beta Launch Security Checklist",
+          "snippet": "上线安全材料需要包含安全审批记录、数据保留说明和测试回归结论。",
+          "score": 8,
+          "retrieval_mode": "rules"
+        }
+      ],
+      "agentic_rag": {
+        "enabled": true,
+        "max_steps": 3,
+        "allowed_source_types": ["meeting_transcript", "knowledge", "conversation"],
+        "min_confidence": 0.8
+      },
+      "max_iterations": { "searcher": 3, "risk_analyst": 2 }
+    },
+    "expected_status": "requires_action",
+    "required_output_substrings": ["Meeting Brief"],
+    "required_citation_source_types": ["meeting_transcript", "knowledge"],
+    "required_tool_proposals": ["write_conversation_message", "upsert_agent_memory"],
+    "forbidden_tool_proposals": ["delegate_task"]
+  },
+  {
     "name": "risk_review_identifies_approval_risk",
     "preset": "risk_review",
     "goal": "请提取这次会议里的风险和需要升级的问题。",

@@ -35,8 +35,8 @@ func TestMCPInitializeAndListTools(t *testing.T) {
 		t.Fatalf("expected 2 responses, got %d: %s", len(responses), out.String())
 	}
 	tools := responses[1]["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != 4 {
-		t.Fatalf("expected 4 read-only tools, got %d", len(tools))
+	if len(tools) != 7 {
+		t.Fatalf("expected 7 read-only tools, got %d", len(tools))
 	}
 	for _, raw := range tools {
 		tool := raw.(map[string]any)

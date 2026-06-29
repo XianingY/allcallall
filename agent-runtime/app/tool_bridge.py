@@ -99,6 +99,14 @@ def chunks_from_tool_output(output_json: str) -> list[ContextChunk]:
                 snippet=str(item.get("snippet", "")),
                 score=int_or_zero(item.get("score")),
                 retrieval_mode=str(item.get("retrieval_mode", "")),
+                bm25_rank=int_or_zero(item.get("bm25_rank")),
+                vector_rank=int_or_zero(item.get("vector_rank")),
+                rrf_score=float_or_zero(item.get("rrf_score")),
+                bm25_score=float_or_zero(item.get("bm25_score")),
+                vector_score=float_or_zero(item.get("vector_score")),
+                rerank_score=float_or_zero(item.get("rerank_score")),
+                rerank_reason=str(item.get("rerank_reason", "")),
+                final_rank=int_or_zero(item.get("final_rank")),
                 recording_session_id=optional_int(item.get("recording_session_id")),
                 recording_file_id=optional_int(item.get("recording_file_id")),
                 transcript_segment_id=optional_int(item.get("transcript_segment_id")),
@@ -129,3 +137,16 @@ def optional_int(value: object) -> int | None:
 def int_or_zero(value: object) -> int:
     parsed = optional_int(value)
     return parsed or 0
+
+
+def float_or_zero(value: object) -> float:
+    if isinstance(value, bool) or value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return 0.0
+    return 0.0

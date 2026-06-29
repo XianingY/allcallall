@@ -58,6 +58,26 @@ class ToolPolicy(BaseModel):
     write_tools: list[str] = Field(default_factory=list)
 
 
+class AgenticRAGConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    max_steps: int = 3
+    allowed_source_types: list[str] = Field(
+        default_factory=lambda: [
+            "meeting_transcript",
+            "knowledge",
+            "conversation",
+            "message",
+            "note",
+            "followup",
+            "memory",
+            "contact_profile",
+        ]
+    )
+    min_confidence: float = 0.6
+
+
 class MeetingBriefRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -74,6 +94,7 @@ class MeetingBriefRequest(BaseModel):
     context_chunks: list[ContextChunk] = Field(default_factory=list)
     tool_policy: ToolPolicy = Field(default_factory=ToolPolicy)
     max_iterations: dict[str, int] = Field(default_factory=dict)
+    agentic_rag: AgenticRAGConfig = Field(default_factory=AgenticRAGConfig)
 
     @field_validator(
         "messages",
@@ -90,6 +111,34 @@ class MeetingBriefRequest(BaseModel):
     @classmethod
     def none_to_dict(cls, value: object) -> object:
         return {} if value is None else value
+
+
+class RetrievalPlanStep(BaseModel):
+    step: int
+    query: str
+    source_scope: str = "all"
+    tool_name: str = "query_context_chunks"
+    rationale: str = ""
+
+
+class RetrievalPlan(BaseModel):
+    enabled: bool = False
+    max_steps: int = 3
+    min_confidence: float = 0.6
+    steps: list[RetrievalPlanStep] = Field(default_factory=list)
+
+
+class RetrievalAttempt(BaseModel):
+    step: int
+    query: str
+    tool_name: str
+    source_scope: str = "all"
+    hit_count: int = 0
+    source_types: list[str] = Field(default_factory=list)
+    selected_chunk_ids: list[str] = Field(default_factory=list)
+    observation: str = ""
+    refined: bool = False
+    confidence: float = 0
 
 
 class Citation(BaseModel):
@@ -143,6 +192,22 @@ class ToolProposal(BaseModel):
     approval_required: bool = True
 
 
+class EvidencePack(BaseModel):
+    selected_chunk_ids: list[str] = Field(default_factory=list)
+    rejected_count: int = 0
+    confidence: float = 0
+    source_types: list[str] = Field(default_factory=list)
+    snippets: list[str] = Field(default_factory=list)
+    citations: list[Citation] = Field(default_factory=list)
+
+
+class ContextSufficiency(BaseModel):
+    sufficient: bool = True
+    confidence: float = 1
+    reason: str = ""
+    missing_info: list[str] = Field(default_factory=list)
+
+
 class MeetingBriefResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -159,6 +224,10 @@ class MeetingBriefResponse(BaseModel):
     proposed_tool_calls: list[ToolProposal] = Field(default_factory=list)
     prompt_version: str = ""
     grounding_check_result: dict[str, Any] = Field(default_factory=dict)
+    retrieval_plan: RetrievalPlan = Field(default_factory=RetrievalPlan)
+    retrieval_attempts: list[RetrievalAttempt] = Field(default_factory=list)
+    evidence_pack: EvidencePack = Field(default_factory=EvidencePack)
+    context_sufficiency: ContextSufficiency = Field(default_factory=ContextSufficiency)
     error: str = ""
 
 
@@ -195,6 +264,10 @@ class WorkflowEvalCaseResult(BaseModel):
     unsupported_claim_guarded: bool
     prompt_schema_valid: bool = True
     grounding_check_passed: bool = True
+    retrieval_refinement_succeeded: bool = True
+    citation_coverage_passed: bool = True
+    max_iteration_compliant: bool = True
+    unnecessary_tool_calls_avoided: bool = True
     errors: list[str] = Field(default_factory=list)
 
 
@@ -210,6 +283,10 @@ class WorkflowEvalSummary(BaseModel):
     unsupported_claim_guard_rate: float = 0
     prompt_schema_valid_rate: float = 0
     grounding_check_rate: float = 0
+    retrieval_refinement_success_rate: float = 0
+    citation_coverage_rate: float = 0
+    max_iteration_compliance_rate: float = 0
+    unnecessary_tool_call_rate: float = 0
 
 
 class WorkflowEvalReport(BaseModel):

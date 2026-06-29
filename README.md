@@ -122,6 +122,7 @@ Common backend variables:
 - `PY_AGENT_PROVIDER=rules|openai_compatible`: Python runtime provider selection.
 - `PY_AGENT_OPENAI_BASE_URL`, `PY_AGENT_OPENAI_MODEL`, `PY_AGENT_OPENAI_API_KEY`: Python runtime OpenAI-compatible chat provider settings.
 - `PY_AGENT_PROMPT_VERSION`, `PY_AGENT_ENABLE_GROUNDING_CHECK`: Python prompt-template and grounding-check controls.
+- `PY_AGENT_ENABLE_AGENTIC_RAG=false`, `PY_AGENT_RAG_MAX_RETRIEVAL_STEPS=3`, `PY_AGENT_RAG_MIN_CONFIDENCE=0.6`: bounded Agentic RAG planning/refinement controls.
 - `PY_AGENT_TOOL_BRIDGE_BASE_URL`, `PY_AGENT_TOOL_BRIDGE_TOKEN`: Python runtime access to Go-owned read-only tools.
 - `EMBEDDED_WORKERS=0|1`: controls API-process workers.
 - `FCM_SERVICE_ACCOUNT_PATH`: enables Firebase Admin SDK push delivery.

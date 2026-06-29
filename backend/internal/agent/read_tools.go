@@ -94,55 +94,108 @@ func (s *Service) ExecuteReadOnlyTool(ctx context.Context, organizationID, userI
 		return mustJSONString(output), nil
 	case ToolQueryContextChunks:
 		limit := intFromToolParam(params["limit"], 5)
-		if limit <= 0 || limit > len(conversationCtx.ContextChunks) {
-			limit = len(conversationCtx.ContextChunks)
-		}
-		chunks := make([]map[string]any, 0, limit)
-		for _, item := range conversationCtx.ContextChunks[:limit] {
-			chunk := map[string]any{
-				"chunk_id":       retrievedChunkID(item),
-				"source_type":    retrievedChunkSourceType(item),
-				"source_id":      retrievedChunkSourceID(item),
-				"title":          retrievedChunkTitle(item),
-				"score":          item.Score,
-				"retrieval_mode": item.RetrievalMode,
-				"snippet":        compactSnippet(retrievedChunkContent(item), 180),
-				"created_at":     retrievedChunkUpdatedAt(item).Format(time.RFC3339),
-			}
-			if item.FallbackReason != "" {
-				chunk["fallback_reason"] = item.FallbackReason
-			}
-			if item.BM25Rank > 0 {
-				chunk["bm25_rank"] = item.BM25Rank
-			}
-			if item.VectorRank > 0 {
-				chunk["vector_rank"] = item.VectorRank
-			}
-			if item.RRFScore > 0 {
-				chunk["rrf_score"] = item.RRFScore
-			}
-			if item.BM25Score > 0 {
-				chunk["bm25_score"] = item.BM25Score
-			}
-			if item.VectorScore > 0 {
-				chunk["vector_score"] = item.VectorScore
-			}
-			if item.RerankScore > 0 {
-				chunk["rerank_score"] = item.RerankScore
-			}
-			if item.RerankReason != "" {
-				chunk["rerank_reason"] = item.RerankReason
-			}
-			if item.FinalRank > 0 {
-				chunk["final_rank"] = item.FinalRank
-			}
-			applyMeetingTranscriptChunkMetadata(chunk, item)
-			chunks = append(chunks, chunk)
-		}
+		chunks := readToolContextChunks(conversationCtx.ContextChunks, limit, "")
 		return mustJSONString(map[string]any{"chunks": chunks, "count": len(chunks)}), nil
+	case ToolQueryKnowledgeChunks:
+		limit := intFromToolParam(params["limit"], 5)
+		chunks := readToolContextChunks(conversationCtx.ContextChunks, limit, "knowledge")
+		return mustJSONString(map[string]any{"chunks": chunks, "count": len(chunks)}), nil
+	case ToolQueryMeetingTranscriptSegments:
+		limit := intFromToolParam(params["limit"], 5)
+		chunks := readToolContextChunks(conversationCtx.ContextChunks, limit, contextChunkSourceMeetingTranscript)
+		return mustJSONString(map[string]any{"chunks": chunks, "count": len(chunks)}), nil
+	case ToolQueryRecentFollowups:
+		limit := intFromToolParam(params["limit"], 5)
+		if limit <= 0 || limit > len(conversationCtx.Followups) {
+			limit = len(conversationCtx.Followups)
+		}
+		followups := make([]map[string]any, 0, limit)
+		for _, item := range conversationCtx.Followups[:limit] {
+			followups = append(followups, map[string]any{
+				"id":                item.ID,
+				"call_id":           item.CallID,
+				"summary_cn":        item.SummaryCN,
+				"summary_en":        item.SummaryEN,
+				"next_step":         item.NextStep,
+				"action_items_json": item.ActionItemsJSON,
+				"risk_flags_json":   item.RiskFlagsJSON,
+			})
+		}
+		return mustJSONString(map[string]any{"followups": followups, "count": len(followups)}), nil
 	default:
 		return "", fmt.Errorf("unsupported read-only tool: %s", toolName)
 	}
+}
+
+func readToolContextChunks(input []RetrievedContextChunk, limit int, sourceType string) []map[string]any {
+	filtered := make([]RetrievedContextChunk, 0, len(input))
+	for _, item := range input {
+		if sourceType == "" || retrievedChunkSourceType(item) == sourceType {
+			filtered = append(filtered, item)
+		}
+	}
+	if limit <= 0 || limit > len(filtered) {
+		limit = len(filtered)
+	}
+	chunks := make([]map[string]any, 0, limit)
+	for _, item := range filtered[:limit] {
+		chunks = append(chunks, readToolContextChunkPayload(item))
+	}
+	return chunks
+}
+
+func readToolContextChunkPayload(item RetrievedContextChunk) map[string]any {
+	chunk := map[string]any{
+		"chunk_id":       retrievedChunkID(item),
+		"source_type":    retrievedChunkSourceType(item),
+		"source_id":      retrievedChunkSourceID(item),
+		"title":          retrievedChunkTitle(item),
+		"score":          item.Score,
+		"retrieval_mode": item.RetrievalMode,
+		"snippet":        compactSnippet(retrievedChunkContent(item), 180),
+		"created_at":     retrievedChunkUpdatedAt(item).Format(time.RFC3339),
+	}
+	if item.FallbackReason != "" {
+		chunk["fallback_reason"] = item.FallbackReason
+	}
+	if item.BM25Rank > 0 {
+		chunk["bm25_rank"] = item.BM25Rank
+	}
+	if item.VectorRank > 0 {
+		chunk["vector_rank"] = item.VectorRank
+	}
+	if item.RRFScore > 0 {
+		chunk["rrf_score"] = item.RRFScore
+	}
+	if item.BM25Score > 0 {
+		chunk["bm25_score"] = item.BM25Score
+	}
+	if item.VectorScore > 0 {
+		chunk["vector_score"] = item.VectorScore
+	}
+	if item.RerankScore > 0 {
+		chunk["rerank_score"] = item.RerankScore
+	}
+	if item.RerankReason != "" {
+		chunk["rerank_reason"] = item.RerankReason
+	}
+	if item.FinalRank > 0 {
+		chunk["final_rank"] = item.FinalRank
+	}
+	if item.KnowledgeSource != nil {
+		chunk["knowledge_source_id"] = item.KnowledgeSource.ID
+		chunk["origin_type"] = item.KnowledgeSource.Kind
+		chunk["origin_url"] = item.KnowledgeSource.URI
+		chunk["source_title"] = item.KnowledgeSource.Title
+	}
+	if item.KnowledgeVersion != nil {
+		chunk["version"] = item.KnowledgeVersion.Version
+	}
+	if item.KnowledgeChunk != nil && item.KnowledgeChunk.ConversationID != nil {
+		chunk["conversation_id"] = *item.KnowledgeChunk.ConversationID
+	}
+	applyMeetingTranscriptChunkMetadata(chunk, item)
+	return chunk
 }
 
 func uint64FromToolParam(value any) uint64 {

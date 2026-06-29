@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,13 +75,22 @@ func buildWorkflowRuntimeRequest(run models.WorkflowRun, conversationCtx *conver
 		Preset:         workflowPresetFromRun(run),
 		Goal:           run.Goal,
 		ToolPolicy: WorkflowRuntimeToolPolicy{
-			ReadTools:  []string{ToolQueryContextChunks, ToolQueryRecentMeetings, ToolQueryConversationMembers, ToolQueryContactProfile},
+			ReadTools: []string{
+				ToolQueryContextChunks,
+				ToolQueryKnowledgeChunks,
+				ToolQueryMeetingTranscriptSegments,
+				ToolQueryRecentFollowups,
+				ToolQueryRecentMeetings,
+				ToolQueryConversationMembers,
+				ToolQueryContactProfile,
+			},
 			WriteTools: []string{ToolWriteConversationMessage, ToolCreateFollowUpTask, ToolUpsertConversationMemory},
 		},
 		MaxIterations: map[string]int{
 			models.WorkflowTaskSearcher:    3,
 			models.WorkflowTaskRiskAnalyst: 2,
 		},
+		AgenticRAG: workflowRuntimeAgenticRAGFromEnv(),
 	}
 	if conversationCtx == nil {
 		return request
@@ -142,8 +153,15 @@ func (s *Service) persistExternalRuntimeOutput(ctx context.Context, run models.W
 	runtimeName := firstNonEmptyString(response.Runtime, s.workflowRuntime.Name())
 	if err := s.db.WithContext(ctx).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
 		"workflow_version": firstNonEmptyString(run.WorkflowVersion, "meeting_agent_langgraph_v1"),
-		"state_json":       workflowStateJSON(run, map[string]any{"phase": "runtime_completed", "preset": workflowPresetFromRun(run), "runtime": runtimeName, "provider": response.Provider}),
-		"updated_at":       time.Now().UTC(),
+		"state_json": workflowStateJSON(run, map[string]any{
+			"phase":               "runtime_completed",
+			"preset":              workflowPresetFromRun(run),
+			"runtime":             runtimeName,
+			"provider":            response.Provider,
+			"agentic_rag":         response.RetrievalPlan,
+			"context_sufficiency": response.ContextSufficiency,
+		}),
+		"updated_at": time.Now().UTC(),
 	}).Error; err != nil {
 		return err
 	}
@@ -181,7 +199,15 @@ func (s *Service) persistExternalRuntimeOutput(ctx context.Context, run models.W
 		if err := s.createAgentMessage(ctx, run, &task.ID, "merge", "tool_planner", models.AgentMessageTypeAgentResult, merged, "python_langgraph:merge"); err != nil {
 			return nil, err
 		}
-		return map[string]any{"result": merged, "runtime": runtimeName, "trace": response.TraceEvents}, nil
+		return map[string]any{
+			"result":              merged,
+			"runtime":             runtimeName,
+			"trace":               response.TraceEvents,
+			"agentic_rag":         response.RetrievalPlan,
+			"retrieval_attempts":  response.RetrievalAttempts,
+			"evidence_pack":       response.EvidencePack,
+			"context_sufficiency": response.ContextSufficiency,
+		}, nil
 	}); err != nil {
 		return err
 	}
@@ -218,6 +244,10 @@ func (s *Service) persistExternalCollectContextTask(ctx context.Context, run mod
 			"retrieved_context_chunks": len(conversationCtx.ContextChunks),
 			"meeting_context":          conversationCtx.MeetingContext,
 			"citations":                buildCitationsFromContextChunks(conversationCtx.ContextChunks),
+			"agentic_rag":              response.RetrievalPlan,
+			"retrieval_attempts":       response.RetrievalAttempts,
+			"evidence_pack":            response.EvidencePack,
+			"context_sufficiency":      response.ContextSufficiency,
 		}
 		return output, s.createAgentMessage(ctx, run, &task.ID, "workflow", "planner", models.AgentMessageTypeTaskInput, output, "python_langgraph:collect_context")
 	})
@@ -322,4 +352,51 @@ func mapValues(values map[string]workflowRoleResult) []workflowRoleResult {
 		out = append(out, value)
 	}
 	return out
+}
+
+func workflowRuntimeAgenticRAGFromEnv() WorkflowRuntimeAgenticRAG {
+	return WorkflowRuntimeAgenticRAG{
+		Enabled:            envBool("PY_AGENT_ENABLE_AGENTIC_RAG", false),
+		MaxSteps:           envInt("PY_AGENT_RAG_MAX_RETRIEVAL_STEPS", 3),
+		AllowedSourceTypes: []string{contextChunkSourceMeetingTranscript, "knowledge", "conversation", contextChunkSourceMessage, contextChunkSourceNote, contextChunkSourceFollowup, contextChunkSourceMemory, contextChunkSourceContactProfile},
+		MinConfidence:      envFloat("PY_AGENT_RAG_MIN_CONFIDENCE", 0.6),
+	}
+}
+
+func envBool(name string, fallback bool) bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv(name)))
+	if raw == "" {
+		return fallback
+	}
+	return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
+}
+
+func envInt(name string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	if parsed > 3 {
+		return 3
+	}
+	return parsed
+}
+
+func envFloat(name string, fallback float64) float64 {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseFloat(raw, 64)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	if parsed > 1 {
+		return 1
+	}
+	return parsed
 }

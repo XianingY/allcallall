@@ -8,10 +8,16 @@ from langgraph.graph import END, StateGraph
 
 from .grounding import check_grounding
 from .models import (
+    AgenticRAGConfig,
     Citation,
+    ContextSufficiency,
     ContextChunk,
+    EvidencePack,
     MeetingBriefRequest,
     MeetingBriefResponse,
+    RetrievalAttempt,
+    RetrievalPlan,
+    RetrievalPlanStep,
     RoleResult,
     ToolProposal,
     TraceEvent,
@@ -30,8 +36,14 @@ class GraphState(TypedDict, total=False):
     tool_bridge: GoToolBridge
     trace_events: list[TraceEvent]
     role_results: list[RoleResult]
+    agentic_rag_enabled: bool
+    retrieval_plan: RetrievalPlan
+    retrieval_attempts: list[RetrievalAttempt]
+    agentic_context_chunks: list[ContextChunk]
     retrieved_context_chunks: list[ContextChunk]
     reranked_context_chunks: list[ContextChunk]
+    evidence_pack: EvidencePack
+    context_sufficiency: ContextSufficiency
     searcher: RoleResult
     summarizer: RoleResult
     risk_analyst: RoleResult
@@ -46,6 +58,9 @@ class GraphState(TypedDict, total=False):
 
 
 READ_TOOL_CONTEXT_CHUNKS = "query_context_chunks"
+READ_TOOL_KNOWLEDGE_CHUNKS = "query_knowledge_chunks"
+READ_TOOL_MEETING_TRANSCRIPTS = "query_meeting_transcript_segments"
+READ_TOOL_RECENT_FOLLOWUPS = "query_recent_followups"
 READ_TOOL_RECENT_MEETINGS = "query_recent_meetings"
 WRITE_CONVERSATION_MESSAGE = "write_conversation_message"
 CREATE_FOLLOW_UP_TASK = "create_follow_up_task"
@@ -125,6 +140,10 @@ def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
         proposed_tool_calls=proposed,
         prompt_version=result.get("prompt_version", prompt_version_for(request)),
         grounding_check_result=result.get("grounding_check_result", {}),
+        retrieval_plan=result.get("retrieval_plan", RetrievalPlan()),
+        retrieval_attempts=result.get("retrieval_attempts", []),
+        evidence_pack=result.get("evidence_pack", EvidencePack()),
+        context_sufficiency=result.get("context_sufficiency", ContextSufficiency()),
     )
 
 
@@ -135,8 +154,12 @@ def build_meeting_brief_graph() -> Any:
 def build_workflow_graph() -> Any:
     graph = StateGraph(GraphState)
     graph.add_node("collect_context", collect_context)
+    graph.add_node("retrieval_planner", retrieval_planner)
+    graph.add_node("retrieval_loop", retrieval_loop)
     graph.add_node("retrieve_context", retrieve_context)
     graph.add_node("rerank_context", rerank_context)
+    graph.add_node("evidence_pack", build_evidence_pack)
+    graph.add_node("sufficiency_gate", sufficiency_gate)
     graph.add_node("decompose", decompose)
     graph.add_node("searcher", searcher)
     graph.add_node("synthesize", synthesize)
@@ -147,9 +170,13 @@ def build_workflow_graph() -> Any:
     graph.add_node("approval_gate", approval_gate)
     graph.add_node("finalize", finalize)
     graph.set_entry_point("collect_context")
-    graph.add_edge("collect_context", "retrieve_context")
+    graph.add_edge("collect_context", "retrieval_planner")
+    graph.add_edge("retrieval_planner", "retrieval_loop")
+    graph.add_edge("retrieval_loop", "retrieve_context")
     graph.add_edge("retrieve_context", "rerank_context")
-    graph.add_edge("rerank_context", "decompose")
+    graph.add_edge("rerank_context", "evidence_pack")
+    graph.add_edge("evidence_pack", "sufficiency_gate")
+    graph.add_edge("sufficiency_gate", "decompose")
     graph.add_edge("decompose", "searcher")
     graph.add_edge("searcher", "synthesize")
     graph.add_edge("synthesize", "risk_analyst")
@@ -185,18 +212,164 @@ def collect_context(state: GraphState) -> GraphState:
     return {"trace_events": trace, "prompt_version": prompt_version}
 
 
+def retrieval_planner(state: GraphState) -> GraphState:
+    request = state["request"]
+    trace = state.get("trace_events", [])
+    config = resolve_agentic_rag_config(request.agentic_rag)
+    enabled = agentic_rag_enabled(config)
+    plan = build_retrieval_plan(request, config, enabled)
+    trace.append(TraceEvent(event="graph.node.started", node="retrieval_planner", status="running"))
+    trace.append(
+        TraceEvent(
+            event="rag.plan",
+            node="retrieval_planner",
+            status="completed",
+            metadata={
+                "enabled": plan.enabled,
+                "max_steps": plan.max_steps,
+                "min_confidence": plan.min_confidence,
+                "steps": [step.model_dump() for step in plan.steps],
+            },
+        )
+    )
+    trace.append(TraceEvent(event="graph.node.completed", node="retrieval_planner", status="completed"))
+    return {"trace_events": trace, "agentic_rag_enabled": enabled, "retrieval_plan": plan}
+
+
+def retrieval_loop(state: GraphState) -> GraphState:
+    request = state["request"]
+    trace = state.get("trace_events", [])
+    plan = state.get("retrieval_plan", RetrievalPlan())
+    trace.append(TraceEvent(event="graph.node.started", node="retrieval_loop", status="running"))
+    if not plan.enabled:
+        trace.append(
+            TraceEvent(
+                event="rag.observe",
+                node="retrieval_loop",
+                status="skipped",
+                observation="agentic rag disabled; using preloaded Go context",
+                metadata={"preloaded_context_chunks": len(request.context_chunks)},
+            )
+        )
+        trace.append(TraceEvent(event="graph.node.completed", node="retrieval_loop", status="completed"))
+        return {"trace_events": trace, "retrieval_attempts": [], "agentic_context_chunks": []}
+
+    bridge = state["tool_bridge"]
+    attempts: list[RetrievalAttempt] = []
+    gathered: list[ContextChunk] = []
+    seen_chunks: set[str] = set()
+    confidence = 0.0
+    for step in plan.steps[: max(1, min(plan.max_steps, 3))]:
+        tool_input = {
+            "conversation_id": request.conversation_id,
+            "query": step.query,
+            "limit": 6,
+            "source_type": step.source_scope,
+        }
+        trace.append(
+            TraceEvent(
+                event="rag.tool_call",
+                node="retrieval_loop",
+                status="running",
+                iteration=step.step,
+                tool_name=step.tool_name,
+                tool_input=tool_input,
+                metadata={"source_scope": step.source_scope, "rationale": step.rationale},
+            )
+        )
+        selected = local_agentic_retrieval(request.context_chunks, step)
+        observation_suffix = " via preloaded_context"
+        try:
+            bridge_observation = bridge.execute_read_tool(request, step.tool_name, tool_input)
+            if bridge_observation is not None:
+                selected = list(bridge_observation.chunks)
+                observation_suffix = " via go_tool_bridge"
+        except ToolBridgeError as exc:
+            trace.append(
+                TraceEvent(
+                    event="rag.tool_call",
+                    node="retrieval_loop",
+                    status="failed",
+                    iteration=step.step,
+                    tool_name=step.tool_name,
+                    tool_input=tool_input,
+                    observation=str(exc),
+                    metadata={"fallback": "preloaded_context"},
+                )
+            )
+        for chunk in selected:
+            key = chunk_key(chunk)
+            if key in seen_chunks:
+                continue
+            seen_chunks.add(key)
+            gathered.append(chunk)
+        confidence = estimate_retrieval_confidence(request, gathered)
+        attempt = RetrievalAttempt(
+            step=step.step,
+            query=step.query,
+            tool_name=step.tool_name,
+            source_scope=step.source_scope,
+            hit_count=len(selected),
+            source_types=unique_strings([chunk.source_type for chunk in selected]),
+            selected_chunk_ids=[chunk_key(chunk) for chunk in selected],
+            observation=summarize_observation(step.tool_name, selected) + observation_suffix,
+            refined=step.step > 1,
+            confidence=confidence,
+        )
+        attempts.append(attempt)
+        trace.append(
+            TraceEvent(
+                event="rag.observe",
+                node="retrieval_loop",
+                status="completed",
+                iteration=step.step,
+                tool_name=step.tool_name,
+                tool_input=tool_input,
+                observation=attempt.observation,
+                metadata={
+                    "hit_count": attempt.hit_count,
+                    "source_types": attempt.source_types,
+                    "confidence": attempt.confidence,
+                },
+            )
+        )
+        if confidence >= plan.min_confidence:
+            break
+        if step.step < len(plan.steps):
+            trace.append(
+                TraceEvent(
+                    event="rag.refine",
+                    node="retrieval_loop",
+                    status="running",
+                    iteration=step.step + 1,
+                    observation="evidence coverage below threshold; refining retrieval query",
+                    metadata={"confidence": confidence, "min_confidence": plan.min_confidence},
+                )
+            )
+    trace.append(
+        TraceEvent(
+            event="graph.node.completed",
+            node="retrieval_loop",
+            status="completed",
+            metadata={"attempts": len(attempts), "chunks": len(gathered), "confidence": confidence},
+        )
+    )
+    return {"trace_events": trace, "retrieval_attempts": attempts, "agentic_context_chunks": gathered}
+
+
 def retrieve_context(state: GraphState) -> GraphState:
     request = state["request"]
     trace = state.get("trace_events", [])
     trace.append(TraceEvent(event="graph.node.started", node="retrieve_context", status="running"))
-    chunks = retrieve_context_chunks(request.context_chunks)
+    agentic_chunks = state.get("agentic_context_chunks", [])
+    chunks = retrieve_context_chunks(agentic_chunks or request.context_chunks)
     trace.append(
         TraceEvent(
             event="retrieval.context_loaded",
             node="retrieve_context",
             status="completed",
             metadata={
-                "retrieval_mode": "preloaded_go_context",
+                "retrieval_mode": "agentic_rag" if agentic_chunks else "preloaded_go_context",
                 "context_chunks": len(chunks),
                 "source_types": unique_strings([chunk.source_type for chunk in chunks]),
             },
@@ -214,6 +387,63 @@ def rerank_context(state: GraphState) -> GraphState:
     trace.append(output.trace)
     trace.append(TraceEvent(event="graph.node.completed", node="rerank_context", status="completed"))
     return {"trace_events": trace, "reranked_context_chunks": output.chunks}
+
+
+def build_evidence_pack(state: GraphState) -> GraphState:
+    request = state["request"]
+    chunks = state.get("reranked_context_chunks") or state.get("retrieved_context_chunks") or []
+    citations = citations_from_chunks(chunks)
+    snippets = top_snippets(chunks, 6)
+    confidence = estimate_retrieval_confidence(request, chunks)
+    pack = EvidencePack(
+        selected_chunk_ids=[chunk_key(chunk) for chunk in chunks],
+        rejected_count=max(0, len(state.get("retrieved_context_chunks", [])) - len(chunks)),
+        confidence=confidence,
+        source_types=unique_strings([chunk.source_type for chunk in chunks]),
+        snippets=snippets,
+        citations=citations,
+    )
+    trace = state.get("trace_events", [])
+    trace.append(TraceEvent(event="graph.node.started", node="evidence_pack", status="running"))
+    trace.append(
+        TraceEvent(
+            event="rag.evidence_pack",
+            node="evidence_pack",
+            status="completed",
+            metadata={
+                "selected_chunks": len(pack.selected_chunk_ids),
+                "citations": len(pack.citations),
+                "source_types": pack.source_types,
+                "confidence": pack.confidence,
+                "rejected_count": pack.rejected_count,
+            },
+        )
+    )
+    trace.append(TraceEvent(event="graph.node.completed", node="evidence_pack", status="completed"))
+    return {"trace_events": trace, "evidence_pack": pack}
+
+
+def sufficiency_gate(state: GraphState) -> GraphState:
+    request = state["request"]
+    pack = state.get("evidence_pack", EvidencePack())
+    result = evaluate_context_sufficiency(request, pack)
+    trace = state.get("trace_events", [])
+    trace.append(TraceEvent(event="graph.node.started", node="sufficiency_gate", status="running"))
+    trace.append(
+        TraceEvent(
+            event="rag.sufficiency_check",
+            node="sufficiency_gate",
+            status="completed" if result.sufficient else "requires_context",
+            observation=result.reason,
+            metadata={
+                "sufficient": result.sufficient,
+                "confidence": result.confidence,
+                "missing_info": result.missing_info,
+            },
+        )
+    )
+    trace.append(TraceEvent(event="graph.node.completed", node="sufficiency_gate", status="completed"))
+    return {"trace_events": trace, "context_sufficiency": result}
 
 
 def decompose(state: GraphState) -> GraphState:
@@ -255,11 +485,16 @@ def synthesize(state: GraphState) -> GraphState:
     request = request_with_runtime_context(state)
     citations = citations_from_chunks(request.context_chunks)
     snippets = top_snippets(request.context_chunks, 4)
-    synthesis = state["provider"].synthesize(request, snippets)
+    sufficiency = state.get("context_sufficiency", ContextSufficiency())
+    synthesis = state["provider"].synthesize(request, snippets) if sufficiency.sufficient else None
     if synthesis:
         summary = synthesis.summary or synthesize_summary(request, snippets)
         action_items = list(synthesis.action_items) or synthesize_action_items(request)
         next_step = synthesis.next_step or synthesize_next_step(request)
+    elif not sufficiency.sufficient:
+        summary = insufficient_context_summary(request, sufficiency)
+        action_items = []
+        next_step = "补充会议转写、知识库或会话上下文后再重新运行。"
     else:
         summary = synthesize_summary(request, snippets)
         action_items = synthesize_action_items(request)
@@ -387,9 +622,20 @@ def propose_tools(state: GraphState) -> GraphState:
         **base,
         "citations": [citation.model_dump(exclude_none=True) for citation in state.get("citations", [])],
     }
-    proposals = workflow_tool_proposals(request, base, message_arguments)
+    sufficiency = state.get("context_sufficiency", ContextSufficiency())
+    proposals = [] if not sufficiency.sufficient else workflow_tool_proposals(request, base, message_arguments)
     trace = state.get("trace_events", [])
     trace.append(TraceEvent(event="graph.node.started", node="propose_tools", status="running"))
+    if not sufficiency.sufficient:
+        trace.append(
+            TraceEvent(
+                event="tool.proposal.skipped",
+                node="propose_tools",
+                status="skipped",
+                observation="context is insufficient; write-tool proposals are suppressed",
+                metadata={"reason": sufficiency.reason, "missing_info": sufficiency.missing_info},
+            )
+        )
     for proposal in proposals:
         trace.append(
             TraceEvent(
@@ -437,6 +683,233 @@ def request_with_runtime_context(state: GraphState) -> WorkflowRequest:
     if chunks is None:
         return request
     return request.model_copy(update={"context_chunks": chunks})
+
+
+def resolve_agentic_rag_config(config: AgenticRAGConfig) -> AgenticRAGConfig:
+    enabled = config.enabled or env_bool("PY_AGENT_ENABLE_AGENTIC_RAG", False)
+    max_steps = config.max_steps
+    if max_steps <= 0:
+        max_steps = env_int("PY_AGENT_RAG_MAX_RETRIEVAL_STEPS", 3)
+    max_steps = max(1, min(max_steps, 3))
+    min_confidence = config.min_confidence
+    if min_confidence <= 0:
+        min_confidence = env_float("PY_AGENT_RAG_MIN_CONFIDENCE", 0.6)
+    min_confidence = max(0.1, min(min_confidence, 1.0))
+    allowed = [item for item in config.allowed_source_types if item.strip()]
+    if not allowed:
+        allowed = [
+            "meeting_transcript",
+            "knowledge",
+            "conversation",
+            "message",
+            "note",
+            "followup",
+            "memory",
+            "contact_profile",
+        ]
+    return config.model_copy(
+        update={
+            "enabled": enabled,
+            "max_steps": max_steps,
+            "min_confidence": min_confidence,
+            "allowed_source_types": allowed,
+        }
+    )
+
+
+def agentic_rag_enabled(config: AgenticRAGConfig) -> bool:
+    return config.enabled
+
+
+def build_retrieval_plan(request: WorkflowRequest, config: AgenticRAGConfig, enabled: bool) -> RetrievalPlan:
+    if not enabled:
+        return RetrievalPlan(enabled=False, max_steps=config.max_steps, min_confidence=config.min_confidence)
+    candidates: list[RetrievalPlanStep] = []
+    goal = request.goal.strip()
+    if request.preset == WORKFLOW_CONTEXT_QA:
+        candidates.append(
+            RetrievalPlanStep(
+                step=1,
+                query=goal,
+                source_scope="knowledge",
+                tool_name=READ_TOOL_KNOWLEDGE_CHUNKS,
+                rationale="Answer-oriented questions should first inspect organization knowledge.",
+            )
+        )
+        candidates.append(
+            RetrievalPlanStep(
+                step=2,
+                query=f"{goal} meeting transcript conversation evidence",
+                source_scope="all",
+                tool_name=READ_TOOL_CONTEXT_CHUNKS,
+                rationale="Refine with conversation and transcript evidence if knowledge is insufficient.",
+            )
+        )
+    elif request.preset == WORKFLOW_RISK_REVIEW:
+        candidates.append(
+            RetrievalPlanStep(
+                step=1,
+                query=f"{goal} risk blocker approval deadline budget",
+                source_scope="meeting_transcript",
+                tool_name=READ_TOOL_MEETING_TRANSCRIPTS,
+                rationale="Risk review should ground claims in meeting transcript segments first.",
+            )
+        )
+        candidates.append(
+            RetrievalPlanStep(
+                step=2,
+                query=f"{goal} risk policy knowledge approval",
+                source_scope="knowledge",
+                tool_name=READ_TOOL_KNOWLEDGE_CHUNKS,
+                rationale="Supplement risks with policy or knowledge evidence.",
+            )
+        )
+    else:
+        candidates.append(
+            RetrievalPlanStep(
+                step=1,
+                query=f"{goal} meeting decisions action items risks",
+                source_scope="meeting_transcript",
+                tool_name=READ_TOOL_MEETING_TRANSCRIPTS,
+                rationale="Meeting workflows should start from recording transcript evidence.",
+            )
+        )
+        candidates.append(
+            RetrievalPlanStep(
+                step=2,
+                query=f"{goal} related knowledge policy context",
+                source_scope="knowledge",
+                tool_name=READ_TOOL_KNOWLEDGE_CHUNKS,
+                rationale="Retrieve related knowledge when the transcript alone does not cover policy context.",
+            )
+        )
+    candidates.append(
+        RetrievalPlanStep(
+            step=len(candidates) + 1,
+            query=f"{goal} conversation notes follow ups memory",
+            source_scope="all",
+            tool_name=READ_TOOL_CONTEXT_CHUNKS,
+            rationale="Final bounded fallback over all scoped conversation context.",
+        )
+    )
+    steps: list[RetrievalPlanStep] = []
+    for step in candidates:
+        if step.source_scope != "all" and step.source_scope not in config.allowed_source_types:
+            continue
+        if not tool_allowed(request, step.tool_name):
+            fallback = step.model_copy(update={"tool_name": READ_TOOL_CONTEXT_CHUNKS, "source_scope": "all"})
+            if tool_allowed(request, fallback.tool_name):
+                steps.append(fallback.model_copy(update={"step": len(steps) + 1}))
+            continue
+        steps.append(step.model_copy(update={"step": len(steps) + 1}))
+        if len(steps) >= config.max_steps:
+            break
+    if not steps and tool_allowed(request, READ_TOOL_CONTEXT_CHUNKS):
+        steps.append(
+            RetrievalPlanStep(
+                step=1,
+                query=goal,
+                source_scope="all",
+                tool_name=READ_TOOL_CONTEXT_CHUNKS,
+                rationale="Fallback to scoped context retrieval.",
+            )
+        )
+    return RetrievalPlan(enabled=True, max_steps=config.max_steps, min_confidence=config.min_confidence, steps=steps)
+
+
+def tool_allowed(request: WorkflowRequest, tool_name: str) -> bool:
+    allowed = set(request.tool_policy.read_tools or [])
+    return not allowed or tool_name in allowed
+
+
+def local_agentic_retrieval(chunks: list[ContextChunk], step: RetrievalPlanStep) -> list[ContextChunk]:
+    scoped = chunks
+    if step.source_scope == "knowledge":
+        scoped = [chunk for chunk in chunks if chunk.source_type == "knowledge"]
+    elif step.source_scope == "meeting_transcript":
+        scoped = [chunk for chunk in chunks if chunk.source_type == "meeting_transcript"]
+    elif step.source_scope in {"conversation", "message", "note", "followup", "memory", "contact_profile"}:
+        scoped = [chunk for chunk in chunks if chunk.source_type in {step.source_scope, "conversation"}]
+    if not scoped and step.source_scope != "all":
+        scoped = chunks
+    output = rerank_context_chunks(step.query, scoped, limit=6)
+    return output.chunks
+
+
+def estimate_retrieval_confidence(request: WorkflowRequest, chunks: list[ContextChunk]) -> float:
+    if not chunks:
+        return 0.0
+    source_types = {chunk.source_type for chunk in chunks}
+    confidence = min(0.40 + len(chunks) * 0.08, 0.75)
+    if "meeting_transcript" in source_types:
+        confidence += 0.18
+    if "knowledge" in source_types:
+        confidence += 0.12
+    if request.preset == WORKFLOW_CONTEXT_QA and "knowledge" not in source_types:
+        confidence -= 0.25
+    if request.preset == WORKFLOW_MEETING_BRIEF and "meeting_transcript" not in source_types:
+        confidence -= 0.2
+    return max(0.0, min(confidence, 1.0))
+
+
+def evaluate_context_sufficiency(request: WorkflowRequest, pack: EvidencePack) -> ContextSufficiency:
+    missing: list[str] = []
+    if not pack.citations:
+        missing.append("retrieved evidence")
+    if request.preset == WORKFLOW_MEETING_BRIEF and "meeting_transcript" not in pack.source_types:
+        missing.append("meeting transcript citation")
+    if request.preset == WORKFLOW_CONTEXT_QA and not pack.source_types:
+        missing.append("knowledge or conversation evidence")
+    sufficient = not missing and pack.confidence >= 0.45
+    reason = "context is sufficient for grounded synthesis" if sufficient else "context is insufficient for grounded synthesis"
+    return ContextSufficiency(
+        sufficient=sufficient,
+        confidence=pack.confidence,
+        reason=reason,
+        missing_info=missing,
+    )
+
+
+def insufficient_context_summary(request: WorkflowRequest, sufficiency: ContextSufficiency) -> str:
+    missing = "、".join(sufficiency.missing_info) if sufficiency.missing_info else "可引用上下文"
+    if request.preset == WORKFLOW_CONTEXT_QA:
+        return f"Context QA: 当前上下文不足，缺少{missing}，无法给出有依据的回答。"
+    if request.preset == WORKFLOW_RISK_REVIEW:
+        return f"Risk Review: 当前上下文不足，缺少{missing}，暂不生成风险结论或写回建议。"
+    if request.preset == WORKFLOW_FOLLOW_UP_PLANNER:
+        return f"Follow-up Plan: 当前上下文不足，缺少{missing}，暂不创建后续任务建议。"
+    return f"Meeting Brief: 当前上下文不足，缺少{missing}，暂不生成可写回的会议复盘。"
+
+
+def chunk_key(chunk: ContextChunk) -> str:
+    return chunk.chunk_id or f"{chunk.source_type}:{chunk.source_id}"
+
+
+def env_bool(name: str, fallback: bool) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if raw == "":
+        return fallback
+    return raw in {"1", "true", "yes", "on"}
+
+
+def env_int(name: str, fallback: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if raw == "":
+        return fallback
+    try:
+        return int(raw)
+    except ValueError:
+        return fallback
+
+
+def env_float(name: str, fallback: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if raw == "":
+        return fallback
+    try:
+        return float(raw)
+    except ValueError:
+        return fallback
 
 
 def bounded_react_search(

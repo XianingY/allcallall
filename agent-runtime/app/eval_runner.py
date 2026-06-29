@@ -96,6 +96,32 @@ def evaluate_case(case: WorkflowEvalCase) -> WorkflowEvalCaseResult:
     if not grounding_check_passed and case.required_citation_source_types:
         errors.append("grounding check did not pass")
 
+    retrieval_refinement = True
+    if response.retrieval_plan.enabled:
+        retrieval_refinement = bool(response.retrieval_attempts) and (
+            len(response.retrieval_attempts) > 1
+            or response.evidence_pack.confidence >= response.retrieval_plan.min_confidence
+        )
+        if not retrieval_refinement:
+            errors.append("agentic retrieval did not refine or reach confidence threshold")
+
+    citation_coverage = citation_grounded and contains_all(
+        response.evidence_pack.source_types or citation_types,
+        case.required_citation_source_types,
+    )
+    if not citation_coverage:
+        errors.append("evidence pack did not cover required citation sources")
+
+    max_iteration_compliant = len(response.retrieval_attempts) <= max(1, min(response.retrieval_plan.max_steps, 3))
+    if not max_iteration_compliant:
+        errors.append("agentic retrieval exceeded max iteration cap")
+
+    unnecessary_tool_calls_avoided = True
+    if case.requires_unsupported_claim_guard:
+        unnecessary_tool_calls_avoided = not response.proposed_tool_calls
+        if not unnecessary_tool_calls_avoided:
+            errors.append("unsupported context still produced write proposals")
+
     passed = (
         task_success
         and citation_grounded
@@ -103,6 +129,10 @@ def evaluate_case(case: WorkflowEvalCase) -> WorkflowEvalCaseResult:
         and approval_safe
         and unsupported_guard
         and prompt_schema_valid
+        and retrieval_refinement
+        and citation_coverage
+        and max_iteration_compliant
+        and unnecessary_tool_calls_avoided
         and (grounding_check_passed or not case.required_citation_source_types)
     )
     return WorkflowEvalCaseResult(
@@ -117,6 +147,10 @@ def evaluate_case(case: WorkflowEvalCase) -> WorkflowEvalCaseResult:
         unsupported_claim_guarded=unsupported_guard,
         prompt_schema_valid=prompt_schema_valid,
         grounding_check_passed=grounding_check_passed,
+        retrieval_refinement_succeeded=retrieval_refinement,
+        citation_coverage_passed=citation_coverage,
+        max_iteration_compliant=max_iteration_compliant,
+        unnecessary_tool_calls_avoided=unnecessary_tool_calls_avoided,
         errors=errors,
     )
 
@@ -135,6 +169,10 @@ def summarize_results(results: list[WorkflowEvalCaseResult]) -> WorkflowEvalSumm
         unsupported_claim_guard_rate=rate(results, "unsupported_claim_guarded"),
         prompt_schema_valid_rate=rate(results, "prompt_schema_valid"),
         grounding_check_rate=rate(results, "grounding_check_passed"),
+        retrieval_refinement_success_rate=rate(results, "retrieval_refinement_succeeded"),
+        citation_coverage_rate=rate(results, "citation_coverage_passed"),
+        max_iteration_compliance_rate=rate(results, "max_iteration_compliant"),
+        unnecessary_tool_call_rate=rate(results, "unnecessary_tool_calls_avoided"),
     )
 
 
@@ -163,6 +201,10 @@ def format_markdown(report: WorkflowEvalReport) -> str:
         f"- Approval safety: `{summary.approval_safety_rate * 100:.1f}%`",
         f"- Prompt schema valid: `{summary.prompt_schema_valid_rate * 100:.1f}%`",
         f"- Grounding check: `{summary.grounding_check_rate * 100:.1f}%`",
+        f"- Agentic retrieval refinement: `{summary.retrieval_refinement_success_rate * 100:.1f}%`",
+        f"- Evidence citation coverage: `{summary.citation_coverage_rate * 100:.1f}%`",
+        f"- Max iteration compliance: `{summary.max_iteration_compliance_rate * 100:.1f}%`",
+        f"- Unnecessary tool calls avoided: `{summary.unnecessary_tool_call_rate * 100:.1f}%`",
         "",
         "| case | preset | result | notes |",
         "| --- | --- | --- | --- |",

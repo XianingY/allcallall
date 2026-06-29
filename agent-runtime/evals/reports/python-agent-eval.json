@@ -2,15 +2,19 @@
   "runtime": "python_langgraph",
   "provider": "rules",
   "summary": {
-    "total_cases": 8,
-    "passed_cases": 8,
+    "total_cases": 9,
+    "passed_cases": 9,
     "task_success_rate": 1.0,
     "citation_grounding_rate": 1.0,
     "tool_intent_match_rate": 1.0,
     "approval_safety_rate": 1.0,
     "unsupported_claim_guard_rate": 1.0,
     "prompt_schema_valid_rate": 1.0,
-    "grounding_check_rate": 0.875
+    "grounding_check_rate": 0.8888888888888888,
+    "retrieval_refinement_success_rate": 1.0,
+    "citation_coverage_rate": 1.0,
+    "max_iteration_compliance_rate": 1.0,
+    "unnecessary_tool_call_rate": 1.0
   },
   "cases": [
     {
@@ -25,6 +29,28 @@
       "unsupported_claim_guarded": true,
       "prompt_schema_valid": true,
       "grounding_check_passed": true,
+      "retrieval_refinement_succeeded": true,
+      "citation_coverage_passed": true,
+      "max_iteration_compliant": true,
+      "unnecessary_tool_calls_avoided": true,
+      "errors": []
+    },
+    {
+      "name": "meeting_brief_agentic_rag_multihop",
+      "preset": "meeting_brief",
+      "passed": true,
+      "status": "requires_action",
+      "task_success": true,
+      "citation_grounded": true,
+      "tool_intent_matched": true,
+      "approval_safe": true,
+      "unsupported_claim_guarded": true,
+      "prompt_schema_valid": true,
+      "grounding_check_passed": true,
+      "retrieval_refinement_succeeded": true,
+      "citation_coverage_passed": true,
+      "max_iteration_compliant": true,
+      "unnecessary_tool_calls_avoided": true,
       "errors": []
     },
     {
@@ -39,6 +65,10 @@
       "unsupported_claim_guarded": true,
       "prompt_schema_valid": true,
       "grounding_check_passed": true,
+      "retrieval_refinement_succeeded": true,
+      "citation_coverage_passed": true,
+      "max_iteration_compliant": true,
+      "unnecessary_tool_calls_avoided": true,
       "errors": []
     },
     {
@@ -53,6 +83,10 @@
       "unsupported_claim_guarded": true,
       "prompt_schema_valid": true,
       "grounding_check_passed": true,
+      "retrieval_refinement_succeeded": true,
+      "citation_coverage_passed": true,
+      "max_iteration_compliant": true,
+      "unnecessary_tool_calls_avoided": true,
       "errors": []
     },
     {
@@ -67,6 +101,10 @@
       "unsupported_claim_guarded": true,
       "prompt_schema_valid": true,
       "grounding_check_passed": true,
+      "retrieval_refinement_succeeded": true,
+      "citation_coverage_passed": true,
+      "max_iteration_compliant": true,
+      "unnecessary_tool_calls_avoided": true,
       "errors": []
     },
     {
@@ -81,6 +119,10 @@
       "unsupported_claim_guarded": true,
       "prompt_schema_valid": true,
       "grounding_check_passed": false,
+      "retrieval_refinement_succeeded": true,
+      "citation_coverage_passed": true,
+      "max_iteration_compliant": true,
+      "unnecessary_tool_calls_avoided": true,
       "errors": []
     },
     {
@@ -95,6 +137,10 @@
       "unsupported_claim_guarded": true,
       "prompt_schema_valid": true,
       "grounding_check_passed": true,
+      "retrieval_refinement_succeeded": true,
+      "citation_coverage_passed": true,
+      "max_iteration_compliant": true,
+      "unnecessary_tool_calls_avoided": true,
       "errors": []
     },
     {
@@ -109,6 +155,10 @@
       "unsupported_claim_guarded": true,
       "prompt_schema_valid": true,
       "grounding_check_passed": true,
+      "retrieval_refinement_succeeded": true,
+      "citation_coverage_passed": true,
+      "max_iteration_compliant": true,
+      "unnecessary_tool_calls_avoided": true,
       "errors": []
     },
     {
@@ -123,6 +173,10 @@
       "unsupported_claim_guarded": true,
       "prompt_schema_valid": true,
       "grounding_check_passed": true,
+      "retrieval_refinement_succeeded": true,
+      "citation_coverage_passed": true,
+      "max_iteration_compliant": true,
+      "unnecessary_tool_calls_avoided": true,
       "errors": []
     }
   ]
