@@ -10,7 +10,7 @@ import { createAgentRun, createWorkflow, decideApproval, getAgentRun, getWorkflo
 import { listConversations } from "@/api/collaboration";
 import { FormError } from "@/components/AuthLayout";
 import { PageError, PageLoading } from "@/components/PageState";
-import { useOrganization } from "@/organizations/OrganizationProvider";
+import { useOrganization } from "@/organizations/OrganizationContext";
 
 const terminal = new Set(["ready", "failed", "requires_action"]);
 const presets = [{ value: "meeting_brief", label: "会议复盘" }, { value: "follow_up", label: "跟进建议" }, { value: "risk_review", label: "风险审查" }];

@@ -1,11 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { useOrganization } from "@/organizations/OrganizationProvider";
+import { useOrganization } from "@/organizations/OrganizationContext";
+import { ChatConnectionContext } from "@/realtime/ChatRealtimeContext";
 import { initialChatCursor, reduceChatCursor, type ChatCursorState, type ChatEvent } from "@/realtime/chatEvents";
 import { TicketSocket } from "@/realtime/TicketSocket";
-
-const ChatConnectionContext = createContext(false);
 
 export function ChatRealtimeProvider({ children }: { children: React.ReactNode }) {
   const { activeOrganization } = useOrganization();
@@ -33,5 +32,3 @@ export function ChatRealtimeProvider({ children }: { children: React.ReactNode }
 
   return <ChatConnectionContext.Provider value={connected}>{children}</ChatConnectionContext.Provider>;
 }
-
-export const useChatConnected = () => useContext(ChatConnectionContext);

@@ -6,7 +6,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { getRoom, startRecording, stopRecording } from "@/api/meetings";
 import { PageError, PageLoading } from "@/components/PageState";
 import { useMeetingEngine } from "@/meetings/useMeetingEngine";
-import { useOrganization } from "@/organizations/OrganizationProvider";
+import { useOrganization } from "@/organizations/OrganizationContext";
 
 export function MeetingRoomPage() {
   const roomId = Number(useParams().roomId); const navigate = useNavigate(); const queryClient = useQueryClient(); const { activeOrganization } = useOrganization();

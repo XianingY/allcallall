@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 
 import { acceptOrganizationInvite } from "@/api/identity";
-import { useAuth } from "@/auth/AuthProvider";
+import { useAuth } from "@/auth/AuthContext";
 import { AuthLayout, FormError } from "@/components/AuthLayout";
 
 export function InvitePage() {

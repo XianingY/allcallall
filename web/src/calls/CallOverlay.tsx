@@ -1,7 +1,7 @@
 import { Mic, MicOff, Phone, PhoneOff, Video, VideoOff, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { useCall } from "@/calls/CallProvider";
+import { useCall } from "@/calls/CallContext";
 import { useCallStore } from "@/calls/callStore";
 
 export function CallOverlay() {

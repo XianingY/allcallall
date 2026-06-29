@@ -6,7 +6,7 @@ import { Link, useParams } from "react-router-dom";
 import { getDeal, listDealActivities, listPipelines, updateDeal, type Deal, type DealActivity, type PipelineStage } from "@/api/collaboration";
 import { FormError } from "@/components/AuthLayout";
 import { PageError, PageLoading } from "@/components/PageState";
-import { useOrganization } from "@/organizations/OrganizationProvider";
+import { useOrganization } from "@/organizations/OrganizationContext";
 
 export function DealDetailPage() {
   const id = Number(useParams().dealId); const { activeOrganization } = useOrganization(); const queryClient = useQueryClient(); const orgId = activeOrganization?.id;

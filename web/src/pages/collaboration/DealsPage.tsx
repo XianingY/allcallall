@@ -7,7 +7,7 @@ import { Link } from "react-router-dom";
 import { createDeal, listDeals, listPipelines, updateDeal } from "@/api/collaboration";
 import { FormError } from "@/components/AuthLayout";
 import { PageError, PageLoading } from "@/components/PageState";
-import { useOrganization } from "@/organizations/OrganizationProvider";
+import { useOrganization } from "@/organizations/OrganizationContext";
 
 const money = (cents: number, currency: string) => new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "CNY", maximumFractionDigits: 0 }).format(cents / 100);
 

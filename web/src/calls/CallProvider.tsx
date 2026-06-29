@@ -1,7 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { getWebRTCConfig } from "@/api/realtime";
-import { useAuth } from "@/auth/AuthProvider";
+import { useAuth } from "@/auth/AuthContext";
+import { CallContext } from "@/calls/CallContext";
 import { useCallStore } from "@/calls/callStore";
 import { TicketSocket } from "@/realtime/TicketSocket";
 
@@ -12,18 +13,6 @@ interface SignalMessage {
   from?: string;
   payload?: Record<string, unknown> | RTCIceCandidateInit | null;
 }
-
-interface CallContextValue {
-  start(email: string): Promise<void>;
-  accept(): Promise<void>;
-  reject(): void;
-  end(): void;
-  toggleMute(): void;
-  toggleCamera(): Promise<void>;
-  switchInput(deviceId: string): Promise<void>;
-}
-
-const CallContext = createContext<CallContextValue | null>(null);
 
 export function CallProvider({ children }: { children: React.ReactNode }) {
   const { status: authStatus } = useAuth();
@@ -130,5 +119,3 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(() => ({ start, accept, reject, end, toggleMute, toggleCamera, switchInput }), [start, accept, reject, end, toggleMute, toggleCamera, switchInput]);
   return <CallContext.Provider value={value}>{children}</CallContext.Provider>;
 }
-
-export function useCall() { const value = useContext(CallContext); if (!value) throw new Error("useCall must be used inside CallProvider"); return value; }

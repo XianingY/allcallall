@@ -7,7 +7,7 @@ import { useSearchParams } from "react-router-dom";
 import { createFileSource, createTextSource, createURLSource, decideDuplicate, getKnowledgeSource, listDeadLetters, listDuplicates, listKnowledgeSources, listSourceGroups, reingestSource, retryDeadLetter, setCanonicalSource } from "@/api/knowledge";
 import { FormError } from "@/components/AuthLayout";
 import { PageError, PageLoading } from "@/components/PageState";
-import { useOrganization } from "@/organizations/OrganizationProvider";
+import { useOrganization } from "@/organizations/OrganizationContext";
 
 export function KnowledgePage() {
   const { activeOrganization } = useOrganization(); const orgId = activeOrganization?.id; const queryClient = useQueryClient(); const [params, setParams] = useSearchParams(); const sourceId = Number(params.get("sourceId")) || 0; const [filter, setFilter] = useState("");

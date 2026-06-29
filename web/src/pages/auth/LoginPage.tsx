@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { z } from "zod";
 
-import { useAuth } from "@/auth/AuthProvider";
+import { useAuth } from "@/auth/AuthContext";
 import { AuthLayout, FieldError, FormError } from "@/components/AuthLayout";
 
 const schema = z.object({ email: z.string().email("请输入有效邮箱"), password: z.string().min(1, "请输入密码") });

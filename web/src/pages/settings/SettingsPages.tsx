@@ -1,15 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, CreditCard, ExternalLink, Globe2, LogOut, Trash2, Unlock } from "lucide-react";
+import { Bell, ExternalLink, Globe2, LogOut, Trash2, Unlock } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { acceptLegal, changePassword, deleteAccount, getLegal, listBlocks, listSessions, revokeSession, unblockUser } from "@/api/identity";
-import { deletePushDevice, getEntitlements, getUsage, listPushDevices } from "@/api/platform";
-import { useAuth } from "@/auth/AuthProvider";
+import { deletePushDevice, listPushDevices } from "@/api/platform";
+import { useAuth } from "@/auth/AuthContext";
 import { FormError } from "@/components/AuthLayout";
 import { PageError, PageLoading } from "@/components/PageState";
-import { isBillingConfigured, openRevenueCatCheckout, openRevenueCatPortal } from "@/platform/billing";
 import { clearStoredPushDeviceId, deleteBrowserPushToken, getStoredPushDeviceId, isPushConfigured, registerBrowserPush } from "@/platform/push";
 
 const dateTime = (value?: string | null) => value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "-";
@@ -51,15 +50,6 @@ export function NotificationSettingsPage() {
   const disableCurrent = useMutation({ mutationFn: async () => { const id = getStoredPushDeviceId(); if (id) await deletePushDevice(id); await deleteBrowserPushToken(); clearStoredPushDeviceId(); }, onSuccess: () => queryClient.invalidateQueries({ queryKey: ["account", "push-devices"] }) });
   const permission = typeof Notification === "undefined" ? "unsupported" : Notification.permission;
   return <SettingsPanel title="浏览器通知" description="用于后台来电提醒和关键协作事件。"><FormError error={enable.error || disableCurrent.error || remove.error} />{enable.isSuccess && <div className="status-success">当前浏览器已注册通知。</div>}<div className="settings-grid"><article className="settings-card"><Bell size={20} /><div><strong>当前浏览器</strong><p>{isPushConfigured() ? `权限状态：${permission}` : "Firebase Web Push 未配置"}</p></div><div className="button-row"><button className="button-primary" disabled={!isPushConfigured() || enable.isPending} onClick={() => enable.mutate()}>启用通知</button><button className="button-secondary" disabled={disableCurrent.isPending} onClick={() => disableCurrent.mutate()}>注销本机</button></div></article></div>{devices.isLoading ? <PageLoading /> : devices.isError ? <PageError error={devices.error} /> : <div className="list-stack mt-4">{devices.data?.length ? devices.data.map((device) => <div className="data-row" key={device.id}><div><strong>{device.platform} · {device.provider}</strong><small>{device.device_name || "未命名设备"}</small><small>最近注册 {dateTime(device.last_registered)}</small></div><button className="icon-button" title="注销设备" aria-label="注销设备" onClick={() => remove.mutate(device.id)}><Trash2 size={17} /></button></div>) : <div className="inline-empty">暂无注册设备</div>}</div>}</SettingsPanel>;
-}
-
-export function BillingSettingsPage() {
-  const { user } = useAuth(); const queryClient = useQueryClient();
-  const entitlements = useQuery({ queryKey: ["billing", "entitlements"], queryFn: getEntitlements });
-  const usage = useQuery({ queryKey: ["billing", "usage"], queryFn: getUsage });
-  const purchase = useMutation({ mutationFn: async () => { if (!user) throw new Error("not signed in"); return openRevenueCatCheckout(user); }, onSuccess: () => queryClient.invalidateQueries({ queryKey: ["billing"] }) });
-  const portal = useMutation({ mutationFn: async () => { if (!user) throw new Error("not signed in"); return openRevenueCatPortal(user); } });
-  return <SettingsPanel title="订阅与用量" description="后端 entitlement 是最终权限来源，RevenueCat 只负责 Web Billing 入口。"><FormError error={purchase.error || portal.error} />{entitlements.isLoading ? <PageLoading /> : entitlements.isError ? <PageError error={entitlements.error} /> : <div className="billing-summary"><div><span>当前版本</span><strong>{entitlements.data?.tier === "premium" ? "Premium" : "Free"}</strong></div><div className="button-row"><button className="button-primary" disabled={!isBillingConfigured() || purchase.isPending} onClick={() => purchase.mutate()}><CreditCard size={17} />升级</button><button className="button-secondary" disabled={!isBillingConfigured() || portal.isPending} onClick={() => portal.mutate()}>管理订阅</button></div>{!isBillingConfigured() && <p className="text-muted">未配置 RevenueCat public API key，生产环境通过 runtime config 注入。</p>}</div>}<section className="settings-section"><h3>权益</h3>{entitlements.data?.entitlements.length ? entitlements.data.entitlements.map((item) => <div className="data-row" key={item.id}><div><strong>{item.entitlement}</strong><small>{item.tier} · {item.status} · {item.source}</small>{item.expires_at && <small>到期 {dateTime(item.expires_at)}</small>}</div></div>) : <div className="inline-empty">暂无付费权益</div>}</section><section className="settings-section"><h3>用量</h3>{usage.isLoading ? <PageLoading /> : usage.isError ? <PageError error={usage.error} /> : usage.data?.map((item) => <div className="data-row" key={`${item.feature}-${item.period_key}`}><div><strong>{item.feature}</strong><small>{item.period_key} · {item.used_units}/{item.unlimited ? "无限" : item.limit_units} {item.unit}</small></div><span>{item.unlimited ? "unlimited" : `剩余 ${item.remaining_units}`}</span></div>)}</section></SettingsPanel>;
 }
 
 export function PreferencesSettingsPage() {

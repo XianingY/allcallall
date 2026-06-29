@@ -3,7 +3,7 @@ import { CheckCircle2, Clock3 } from "lucide-react";
 
 import { listFollowUps, updateFollowUp } from "@/api/collaboration";
 import { PageError, PageLoading } from "@/components/PageState";
-import { useOrganization } from "@/organizations/OrganizationProvider";
+import { useOrganization } from "@/organizations/OrganizationContext";
 
 export function FollowUpsPage() {
   const { activeOrganization } = useOrganization(); const queryClient = useQueryClient(); const key = ["organizations", activeOrganization?.id, "follow-ups"];

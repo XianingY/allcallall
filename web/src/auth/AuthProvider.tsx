@@ -1,24 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import * as identity from "@/api/identity";
 import { setAccessToken } from "@/api/http";
-
-type Status = "loading" | "authenticated" | "anonymous";
-
-interface AuthContextValue {
-  status: Status;
-  user: identity.User | null;
-  login(email: string, password: string): Promise<void>;
-  register(input: identity.RegisterInput): Promise<void>;
-  logout(all?: boolean): Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null);
+import { AuthContext, type AuthStatus } from "@/auth/AuthContext";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
-  const [status, setStatus] = useState<Status>("loading");
+  const [status, setStatus] = useState<AuthStatus>("loading");
   const [user, setUser] = useState<identity.User | null>(null);
 
   useEffect(() => {
@@ -49,10 +38,3 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(() => ({ status, user, login, register, logout: endSession }), [status, user, login, register, endSession]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
-
-export function useAuth() {
-  const value = useContext(AuthContext);
-  if (!value) throw new Error("useAuth must be used inside AuthProvider");
-  return value;
-}
-

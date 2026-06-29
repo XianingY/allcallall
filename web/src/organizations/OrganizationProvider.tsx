@@ -1,19 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { createOrganization, listOrganizations, switchOrganization, type Organization } from "@/api/identity";
 import { setOrganizationId } from "@/api/http";
-import { useAuth } from "@/auth/AuthProvider";
+import { useAuth } from "@/auth/AuthContext";
+import { OrganizationContext } from "@/organizations/OrganizationContext";
 
-interface OrganizationContextValue {
-  organizations: Organization[];
-  activeOrganization: Organization | null;
-  loading: boolean;
-  select(id: number): Promise<void>;
-  create(name: string): Promise<Organization>;
-}
-
-const OrganizationContext = createContext<OrganizationContextValue | null>(null);
 const storageKey = "allcallall.activeOrganizationId";
 
 export function OrganizationProvider({ children }: { children: React.ReactNode }) {
@@ -48,10 +40,4 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
 
   const value = useMemo(() => ({ organizations, activeOrganization, loading: query.isLoading, select, create }), [organizations, activeOrganization, query.isLoading, select, create]);
   return <OrganizationContext.Provider value={value}>{children}</OrganizationContext.Provider>;
-}
-
-export function useOrganization() {
-  const value = useContext(OrganizationContext);
-  if (!value) throw new Error("useOrganization must be used inside OrganizationProvider");
-  return value;
 }

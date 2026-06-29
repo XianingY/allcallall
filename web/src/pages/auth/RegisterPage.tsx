@@ -6,7 +6,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { z } from "zod";
 
 import { getLegal, sendVerificationCode, verifyEmailCode } from "@/api/identity";
-import { useAuth } from "@/auth/AuthProvider";
+import { useAuth } from "@/auth/AuthContext";
 import { AuthLayout, FieldError, FormError } from "@/components/AuthLayout";
 import { useQuery } from "@tanstack/react-query";
 

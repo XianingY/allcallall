@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 
 import { listRecordings } from "@/api/meetings";
 import { PageError, PageLoading } from "@/components/PageState";
-import { useOrganization } from "@/organizations/OrganizationProvider";
+import { useOrganization } from "@/organizations/OrganizationContext";
 
 export function RecordingsPage() {
   const { activeOrganization } = useOrganization(); const query = useQuery({ queryKey: ["organizations", activeOrganization?.id, "recordings"], queryFn: listRecordings, enabled: Boolean(activeOrganization), refetchInterval: 10_000 });

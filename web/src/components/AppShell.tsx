@@ -3,10 +3,10 @@ import { Bot, Building2, CalendarDays, ContactRound, FileAudio, Inbox, LogOut, M
 import { NavLink, Outlet } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import clsx from "clsx";
-import { useAuth } from "@/auth/AuthProvider";
-import { useOrganization } from "@/organizations/OrganizationProvider";
+import { useAuth } from "@/auth/AuthContext";
+import { useOrganization } from "@/organizations/OrganizationContext";
 import { CallOverlay } from "@/calls/CallOverlay";
-import { useChatConnected } from "@/realtime/ChatRealtimeProvider";
+import { useChatConnected } from "@/realtime/ChatRealtimeContext";
 import { PushNotificationBridge } from "@/platform/PushNotificationBridge";
 
 const nav = [

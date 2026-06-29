@@ -7,7 +7,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { createRoom, listRooms } from "@/api/meetings";
 import { FormError } from "@/components/AuthLayout";
 import { PageError, PageLoading } from "@/components/PageState";
-import { useOrganization } from "@/organizations/OrganizationProvider";
+import { useOrganization } from "@/organizations/OrganizationContext";
 
 export function MeetingsPage() {
   const { activeOrganization } = useOrganization(); const orgId = activeOrganization?.id; const [open, setOpen] = useState(false);

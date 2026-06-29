@@ -6,8 +6,8 @@ import { useState } from "react";
 import { addContact, createInvitation, listContacts, removeContact, saveContactProfile, type Contact, type ContactProfile } from "@/api/collaboration";
 import { FormError } from "@/components/AuthLayout";
 import { PageError, PageLoading } from "@/components/PageState";
-import { useOrganization } from "@/organizations/OrganizationProvider";
-import { useCall } from "@/calls/CallProvider";
+import { useOrganization } from "@/organizations/OrganizationContext";
+import { useCall } from "@/calls/CallContext";
 
 export function ContactsPage() {
   const { activeOrganization } = useOrganization(); const queryClient = useQueryClient(); const [email, setEmail] = useState(""); const [inviteEmail, setInviteEmail] = useState(""); const [inviteURL, setInviteURL] = useState("");
