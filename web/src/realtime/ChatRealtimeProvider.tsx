@@ -18,6 +18,8 @@ export function ChatRealtimeProvider({ children }: { children: React.ReactNode }
     if (!organizationId) return;
     cursor.current = initialChatCursor;
     const socket = new TicketSocket<ChatEvent>("chat", { organization_id: organizationId, since_id: 0 }, (event) => {
+      window.dispatchEvent(new CustomEvent("allcallall:chat-event", { detail: event }));
+      if (event.event.startsWith("typing.")) return;
       const next = reduceChatCursor(cursor.current, event);
       if (next === cursor.current) return;
       cursor.current = next;

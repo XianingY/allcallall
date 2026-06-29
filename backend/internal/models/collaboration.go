@@ -194,15 +194,19 @@ func (ConversationMember) TableName() string {
 }
 
 type Message struct {
-	ID             uint64    `gorm:"primaryKey;autoIncrement"`
-	OrganizationID uint64    `gorm:"not null;index"`
-	ConversationID uint64    `gorm:"not null;index"`
-	SenderID       uint64    `gorm:"not null;index"`
-	Type           string    `gorm:"size:32;not null;index"`
-	Body           string    `gorm:"type:text"`
-	MetadataJSON   string    `gorm:"type:longtext"`
-	CreatedAt      time.Time `gorm:"autoCreateTime;index"`
-	UpdatedAt      time.Time `gorm:"autoUpdateTime"`
+	ID               uint64     `gorm:"primaryKey;autoIncrement"`
+	OrganizationID   uint64     `gorm:"not null;index"`
+	ConversationID   uint64     `gorm:"not null;index"`
+	SenderID         uint64     `gorm:"not null;index"`
+	ReplyToMessageID *uint64    `gorm:"index"`
+	Type             string     `gorm:"size:32;not null;index"`
+	Body             string     `gorm:"type:text"`
+	MetadataJSON     string     `gorm:"type:longtext"`
+	EditedAt         *time.Time `gorm:"index"`
+	DeletedAt        *time.Time `gorm:"index"`
+	DeletedBy        *uint64    `gorm:"index"`
+	CreatedAt        time.Time  `gorm:"autoCreateTime;index"`
+	UpdatedAt        time.Time  `gorm:"autoUpdateTime"`
 }
 
 func (Message) TableName() string {
@@ -238,17 +242,64 @@ func (ChatEvent) TableName() string {
 }
 
 type Attachment struct {
-	ID          uint64    `gorm:"primaryKey;autoIncrement"`
-	MessageID   uint64    `gorm:"not null;index"`
-	FileName    string    `gorm:"size:255;not null"`
-	ContentType string    `gorm:"size:120"`
-	ObjectKey   string    `gorm:"size:500"`
-	FileSize    int64     `gorm:"not null;default:0"`
-	CreatedAt   time.Time `gorm:"autoCreateTime"`
+	ID             uint64    `gorm:"primaryKey;autoIncrement"`
+	OrganizationID uint64    `gorm:"not null;index"`
+	ConversationID uint64    `gorm:"not null;index"`
+	MessageID      *uint64   `gorm:"index"`
+	UploaderID     uint64    `gorm:"not null;index"`
+	StorageDriver  string    `gorm:"size:32;not null;default:'local'"`
+	StorageBucket  string    `gorm:"size:255"`
+	FileName       string    `gorm:"size:255;not null"`
+	ContentType    string    `gorm:"size:120"`
+	ObjectKey      string    `gorm:"size:500"`
+	FileSize       int64     `gorm:"not null;default:0"`
+	CreatedAt      time.Time `gorm:"autoCreateTime"`
 }
 
 func (Attachment) TableName() string {
 	return "attachments"
+}
+
+type MessageReaction struct {
+	ID             uint64    `gorm:"primaryKey;autoIncrement"`
+	OrganizationID uint64    `gorm:"not null;index"`
+	ConversationID uint64    `gorm:"not null;index"`
+	MessageID      uint64    `gorm:"not null;index;uniqueIndex:idx_message_reaction"`
+	UserID         uint64    `gorm:"not null;index;uniqueIndex:idx_message_reaction"`
+	Emoji          string    `gorm:"size:32;not null;uniqueIndex:idx_message_reaction"`
+	CreatedAt      time.Time `gorm:"autoCreateTime"`
+}
+
+func (MessageReaction) TableName() string {
+	return "message_reactions"
+}
+
+type ConversationPin struct {
+	ID             uint64    `gorm:"primaryKey;autoIncrement"`
+	OrganizationID uint64    `gorm:"not null;index"`
+	ConversationID uint64    `gorm:"not null;index;uniqueIndex:idx_conversation_pin"`
+	MessageID      uint64    `gorm:"not null;index;uniqueIndex:idx_conversation_pin"`
+	PinnedBy       uint64    `gorm:"not null;index"`
+	CreatedAt      time.Time `gorm:"autoCreateTime;index"`
+}
+
+func (ConversationPin) TableName() string {
+	return "conversation_pins"
+}
+
+type OrganizationAuditEvent struct {
+	ID             uint64    `gorm:"primaryKey;autoIncrement"`
+	OrganizationID uint64    `gorm:"not null;index"`
+	ActorUserID    uint64    `gorm:"not null;index"`
+	Action         string    `gorm:"size:96;not null;index"`
+	TargetType     string    `gorm:"size:64;not null;index"`
+	TargetID       string    `gorm:"size:96;not null;index"`
+	MetadataJSON   string    `gorm:"type:longtext"`
+	CreatedAt      time.Time `gorm:"autoCreateTime;index"`
+}
+
+func (OrganizationAuditEvent) TableName() string {
+	return "organization_audit_events"
 }
 
 type CallRoom struct {

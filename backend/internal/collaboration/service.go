@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strconv"
@@ -201,15 +202,68 @@ type ConversationNoteRecord struct {
 }
 
 type MessageInput struct {
-	Type     string         `json:"type"`
-	Body     string         `json:"body"`
-	Metadata map[string]any `json:"metadata"`
+	Type             string         `json:"type"`
+	Body             string         `json:"body"`
+	ReplyToMessageID *uint64        `json:"reply_to_message_id"`
+	AttachmentIDs    []uint64       `json:"attachment_ids"`
+	Metadata         map[string]any `json:"metadata"`
 }
 
 type MessageRecord struct {
 	models.Message
+	SenderEmail       string                   `json:"sender_email"`
+	SenderDisplayName string                   `json:"sender_display_name"`
+	ReplyTo           *MessageReplyPreview     `gorm:"-"`
+	Attachments       []AttachmentView         `gorm:"-"`
+	Reactions         []MessageReactionSummary `gorm:"-"`
+	Pinned            bool                     `gorm:"-"`
+}
+
+type MessagePage struct {
+	Messages    []MessageRecord `json:"messages"`
+	NextBefore  *uint64         `json:"next_before_id,omitempty"`
+	NextAfter   *uint64         `json:"next_after_id,omitempty"`
+	HasMorePrev bool            `json:"has_more_prev"`
+	HasMoreNext bool            `json:"has_more_next"`
+}
+
+type MessageReplyPreview struct {
+	ID                uint64 `json:"id"`
+	SenderID          uint64 `json:"sender_id"`
 	SenderEmail       string `json:"sender_email"`
 	SenderDisplayName string `json:"sender_display_name"`
+	Body              string `json:"body"`
+	Deleted           bool   `json:"deleted"`
+}
+
+type AttachmentView struct {
+	models.Attachment
+	DownloadURL string `json:"download_url"`
+}
+
+type MessageReactionSummary struct {
+	Emoji          string   `json:"emoji"`
+	Count          int      `json:"count"`
+	ReactedUserIDs []uint64 `json:"reacted_user_ids"`
+	ReactedByMe    bool     `json:"reacted_by_me"`
+}
+
+type AttachmentInput struct {
+	FileName    string
+	ContentType string
+	FileSize    int64
+	Reader      io.Reader
+}
+
+type AttachmentDownload struct {
+	Attachment models.Attachment
+	Reader     io.ReadCloser
+}
+
+type MessageCursor struct {
+	BeforeID uint64
+	AfterID  uint64
+	Limit    int
 }
 
 type RealtimeEventRecord struct {
@@ -1246,15 +1300,39 @@ func (s *Service) createMessageTx(ctx context.Context, tx *gorm.DB, organization
 		metadataJSON = string(raw)
 	}
 	message := &models.Message{
-		OrganizationID: organizationID,
-		ConversationID: conversationID,
-		SenderID:       userID,
-		Type:           input.Type,
-		Body:           body,
-		MetadataJSON:   metadataJSON,
+		OrganizationID:   organizationID,
+		ConversationID:   conversationID,
+		SenderID:         userID,
+		ReplyToMessageID: input.ReplyToMessageID,
+		Type:             input.Type,
+		Body:             body,
+		MetadataJSON:     metadataJSON,
+	}
+	if message.ReplyToMessageID != nil {
+		var count int64
+		if err := tx.WithContext(ctx).Model(&models.Message{}).
+			Where("id = ? AND organization_id = ? AND conversation_id = ?", *message.ReplyToMessageID, organizationID, conversationID).
+			Count(&count).Error; err != nil {
+			return nil, err
+		}
+		if count == 0 {
+			return nil, errors.New("reply target not found")
+		}
 	}
 	if err := tx.Create(message).Error; err != nil {
 		return nil, err
+	}
+	if len(input.AttachmentIDs) > 0 {
+		ids := uniqueUint64s(input.AttachmentIDs)
+		result := tx.WithContext(ctx).Model(&models.Attachment{}).
+			Where("organization_id = ? AND conversation_id = ? AND uploader_id = ? AND id IN ? AND message_id IS NULL", organizationID, conversationID, userID, ids).
+			Update("message_id", message.ID)
+		if result.Error != nil {
+			return nil, result.Error
+		}
+		if result.RowsAffected != int64(len(ids)) {
+			return nil, errors.New("one or more attachments are unavailable")
+		}
 	}
 	now := time.Now()
 	if err := tx.Model(&models.Conversation{}).
@@ -1700,6 +1778,10 @@ func (s *Service) ensureConversationMember(ctx context.Context, organizationID, 
 }
 
 func (s *Service) loadMessageRecord(ctx context.Context, messageID uint64) (*MessageRecord, error) {
+	return s.loadMessageRecordForUser(ctx, messageID, 0)
+}
+
+func (s *Service) loadMessageRecordForUser(ctx context.Context, messageID, viewerID uint64) (*MessageRecord, error) {
 	var record MessageRecord
 	err := s.db.WithContext(ctx).
 		Table("messages").
@@ -1710,7 +1792,146 @@ func (s *Service) loadMessageRecord(ctx context.Context, messageID uint64) (*Mes
 	if err != nil {
 		return nil, err
 	}
-	return &record, nil
+	records := []MessageRecord{record}
+	if err := s.hydrateMessageRecords(ctx, viewerID, records); err != nil {
+		return nil, err
+	}
+	return &records[0], nil
+}
+
+func (s *Service) hydrateMessageRecords(ctx context.Context, viewerID uint64, records []MessageRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	ids := make([]uint64, 0, len(records))
+	replyIDs := make([]uint64, 0, len(records))
+	indexByID := make(map[uint64]int, len(records))
+	for i := range records {
+		ids = append(ids, records[i].ID)
+		indexByID[records[i].ID] = i
+		if records[i].ReplyToMessageID != nil {
+			replyIDs = append(replyIDs, *records[i].ReplyToMessageID)
+		}
+		if records[i].DeletedAt != nil {
+			records[i].Body = ""
+		}
+	}
+
+	if len(replyIDs) > 0 {
+		var replies []MessageRecord
+		if err := s.db.WithContext(ctx).
+			Table("messages").
+			Select("messages.*, users.email AS sender_email, users.display_name AS sender_display_name").
+			Joins("JOIN users ON users.id = messages.sender_id").
+			Where("messages.id IN ?", uniqueUint64s(replyIDs)).
+			Find(&replies).Error; err != nil {
+			return err
+		}
+		replyByID := map[uint64]MessageReplyPreview{}
+		for _, reply := range replies {
+			body := reply.Body
+			deleted := reply.DeletedAt != nil
+			if deleted {
+				body = ""
+			}
+			replyByID[reply.ID] = MessageReplyPreview{
+				ID:                reply.ID,
+				SenderID:          reply.SenderID,
+				SenderEmail:       reply.SenderEmail,
+				SenderDisplayName: reply.SenderDisplayName,
+				Body:              truncate(body, 120),
+				Deleted:           deleted,
+			}
+		}
+		for i := range records {
+			if records[i].ReplyToMessageID == nil {
+				continue
+			}
+			if preview, ok := replyByID[*records[i].ReplyToMessageID]; ok {
+				item := preview
+				records[i].ReplyTo = &item
+			}
+		}
+	}
+
+	var attachments []models.Attachment
+	if err := s.db.WithContext(ctx).
+		Where("message_id IN ?", ids).
+		Order("id ASC").
+		Find(&attachments).Error; err != nil {
+		return err
+	}
+	for _, attachment := range attachments {
+		if attachment.MessageID == nil {
+			continue
+		}
+		if idx, ok := indexByID[*attachment.MessageID]; ok {
+			records[idx].Attachments = append(records[idx].Attachments, AttachmentView{
+				Attachment:  attachment,
+				DownloadURL: attachmentDownloadURL(attachment.ID),
+			})
+		}
+	}
+
+	var reactions []models.MessageReaction
+	if err := s.db.WithContext(ctx).Where("message_id IN ?", ids).Find(&reactions).Error; err != nil {
+		return err
+	}
+	reactionsByMessage := map[uint64]map[string]*MessageReactionSummary{}
+	for _, reaction := range reactions {
+		if reactionsByMessage[reaction.MessageID] == nil {
+			reactionsByMessage[reaction.MessageID] = map[string]*MessageReactionSummary{}
+		}
+		summary := reactionsByMessage[reaction.MessageID][reaction.Emoji]
+		if summary == nil {
+			summary = &MessageReactionSummary{Emoji: reaction.Emoji}
+			reactionsByMessage[reaction.MessageID][reaction.Emoji] = summary
+		}
+		summary.Count++
+		summary.ReactedUserIDs = append(summary.ReactedUserIDs, reaction.UserID)
+		if viewerID != 0 && reaction.UserID == viewerID {
+			summary.ReactedByMe = true
+		}
+	}
+	for messageID, byEmoji := range reactionsByMessage {
+		idx, ok := indexByID[messageID]
+		if !ok {
+			continue
+		}
+		for _, summary := range byEmoji {
+			records[idx].Reactions = append(records[idx].Reactions, *summary)
+		}
+		sort.Slice(records[idx].Reactions, func(i, j int) bool {
+			return records[idx].Reactions[i].Emoji < records[idx].Reactions[j].Emoji
+		})
+	}
+
+	var pins []models.ConversationPin
+	if err := s.db.WithContext(ctx).Where("message_id IN ?", ids).Find(&pins).Error; err != nil {
+		return err
+	}
+	for _, pin := range pins {
+		if idx, ok := indexByID[pin.MessageID]; ok {
+			records[idx].Pinned = true
+		}
+	}
+	return nil
+}
+
+func (s *Service) ensureMessageAccess(ctx context.Context, organizationID, userID, conversationID, messageID uint64) error {
+	if err := s.ensureConversationMember(ctx, organizationID, userID, conversationID); err != nil {
+		return err
+	}
+	var count int64
+	if err := s.db.WithContext(ctx).Model(&models.Message{}).
+		Where("id = ? AND organization_id = ? AND conversation_id = ?", messageID, organizationID, conversationID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (s *Service) listConversationMemberIDs(ctx context.Context, conversationID uint64) ([]uint64, error) {

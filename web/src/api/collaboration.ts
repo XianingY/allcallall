@@ -4,6 +4,7 @@ import { apiRequest } from "@/api/http";
 export type Conversation = components["schemas"]["Conversation"];
 export type ConversationDetail = components["schemas"]["ConversationDetail"];
 export type Message = components["schemas"]["Message"];
+export type Attachment = components["schemas"]["Attachment"];
 export type ConversationNote = components["schemas"]["ConversationNote"];
 export type Contact = components["schemas"]["Contact"];
 export type ContactProfile = components["schemas"]["ContactProfile"];
@@ -26,8 +27,22 @@ export const listConversations = (filter = "") => apiRequest<{ conversations: Co
 export const getConversation = (id: number) => apiRequest<{ conversation: ConversationDetail }>(`/conversations/${id}`).then((value) => value.conversation);
 export const createConversation = (input: { type: string; title?: string; topic?: string; member_ids?: number[] }) => apiRequest<{ conversation: Conversation }>("/conversations", { method: "POST", body: JSON.stringify(input) }).then((value) => value.conversation);
 export const updateConversation = (id: number, input: { status?: string; priority?: string; assignee_user_id?: number | null; contact_id?: number | null }) => apiRequest<{ conversation: Conversation }>(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify(input) }).then((value) => value.conversation);
-export const listMessages = (id: number) => apiRequest<{ messages: Message[] }>(`/conversations/${id}/messages`).then((value) => value.messages);
-export const sendMessage = (id: number, body: string, type = "text") => apiRequest<{ message: Message }>(`/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ body, type }) }).then((value) => value.message);
+export interface MessagePage { messages: Message[]; next_before_id?: number | null; next_after_id?: number | null; has_more_prev?: boolean; has_more_next?: boolean }
+export interface SendMessageInput { body: string; type?: string; reply_to_message_id?: number; attachment_ids?: number[] }
+export const listMessages = (id: number, cursor: { beforeId?: number; afterId?: number; limit?: number } = {}) => apiRequest<MessagePage>(`/conversations/${id}/messages${query({ before_id: cursor.beforeId, after_id: cursor.afterId, limit: cursor.limit ?? 50 })}`);
+export const sendMessage = (id: number, input: string | SendMessageInput, type = "text") => {
+  const body = typeof input === "string" ? { body: input, type } : { type: "text", ...input };
+  return apiRequest<{ message: Message }>(`/conversations/${id}/messages`, { method: "POST", body: JSON.stringify(body) }).then((value) => value.message);
+};
+export const editMessage = (conversationId: number, messageId: number, body: string) => apiRequest<{ message: Message }>(`/conversations/${conversationId}/messages/${messageId}`, { method: "PATCH", body: JSON.stringify({ body }) }).then((value) => value.message);
+export const deleteMessage = (conversationId: number, messageId: number) => apiRequest<{ message: Message }>(`/conversations/${conversationId}/messages/${messageId}`, { method: "DELETE" }).then((value) => value.message);
+export const addReaction = (conversationId: number, messageId: number, emoji: string) => apiRequest<{ message: Message }>(`/conversations/${conversationId}/messages/${messageId}/reactions`, { method: "POST", body: JSON.stringify({ emoji }) }).then((value) => value.message);
+export const removeReaction = (conversationId: number, messageId: number, emoji: string) => apiRequest<{ message: Message }>(`/conversations/${conversationId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`, { method: "DELETE" }).then((value) => value.message);
+export const pinMessage = (conversationId: number, messageId: number) => apiRequest<{ message: Message }>(`/conversations/${conversationId}/messages/${messageId}/pin`, { method: "POST" }).then((value) => value.message);
+export const unpinMessage = (conversationId: number, messageId: number) => apiRequest<{ message: Message }>(`/conversations/${conversationId}/messages/${messageId}/pin`, { method: "DELETE" }).then((value) => value.message);
+export const listPinnedMessages = (conversationId: number) => apiRequest<{ messages: Message[] }>(`/conversations/${conversationId}/pins`).then((value) => value.messages);
+export const uploadAttachment = (conversationId: number, file: File) => { const data = new FormData(); data.append("file", file); return apiRequest<{ attachment: Attachment }>(`/conversations/${conversationId}/attachments`, { method: "POST", body: data }).then((value) => value.attachment); };
+export const sendTyping = (conversationId: number, typing: boolean) => apiRequest<void>(`/conversations/${conversationId}/typing`, { method: "POST", body: JSON.stringify({ typing }) });
 export const markConversationRead = (id: number) => apiRequest<void>(`/conversations/${id}/read`, { method: "POST" });
 export const listNotes = (id: number) => apiRequest<{ notes: ConversationNote[] }>(`/conversations/${id}/notes`).then((value) => value.notes);
 export const createNote = (id: number, body: string) => apiRequest<{ note: ConversationNote }>(`/conversations/${id}/notes`, { method: "POST", body: JSON.stringify({ body }) }).then((value) => value.note);

@@ -461,7 +461,7 @@ components:
         latest_recording_id: { type: [integer, 'null'], format: int64 }
     Message:
       type: object
-      required: [id, organization_id, conversation_id, sender_id, sender_email, sender_display_name, type, body, created_at]
+      required: [id, organization_id, conversation_id, sender_id, sender_email, sender_display_name, type, body, pinned, created_at]
       properties:
         id: { type: integer, format: int64 }
         organization_id: { type: integer, format: int64 }
@@ -469,10 +469,50 @@ components:
         sender_id: { type: integer, format: int64 }
         sender_email: { type: string }
         sender_display_name: { type: string }
+        reply_to_message_id: { type: [integer, 'null'], format: int64 }
+        reply_to: { oneOf: [{ $ref: '#/components/schemas/MessageReply' }, { type: 'null' }] }
         type: { type: string }
         body: { type: string }
         metadata: { type: object, additionalProperties: true }
+        attachments: { type: array, items: { $ref: '#/components/schemas/Attachment' } }
+        reactions: { type: array, items: { $ref: '#/components/schemas/MessageReaction' } }
+        pinned: { type: boolean }
+        edited_at: { type: [string, 'null'], format: date-time }
+        deleted_at: { type: [string, 'null'], format: date-time }
+        deleted_by: { type: [integer, 'null'], format: int64 }
         created_at: { type: string, format: date-time }
+    MessageReply:
+      type: object
+      required: [id, sender_id, sender_email, sender_display_name, body, deleted]
+      properties:
+        id: { type: integer, format: int64 }
+        sender_id: { type: integer, format: int64 }
+        sender_email: { type: string }
+        sender_display_name: { type: string }
+        body: { type: string }
+        deleted: { type: boolean }
+    Attachment:
+      type: object
+      required: [id, organization_id, conversation_id, uploader_id, file_name, content_type, file_size, download_url, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        conversation_id: { type: integer, format: int64 }
+        message_id: { type: [integer, 'null'], format: int64 }
+        uploader_id: { type: integer, format: int64 }
+        file_name: { type: string }
+        content_type: { type: string }
+        file_size: { type: integer, format: int64 }
+        download_url: { type: string }
+        created_at: { type: string, format: date-time }
+    MessageReaction:
+      type: object
+      required: [emoji, count, reacted_user_ids, reacted_by_me]
+      properties:
+        emoji: { type: string }
+        count: { type: integer }
+        reacted_user_ids: { type: array, items: { type: integer, format: int64 } }
+        reacted_by_me: { type: boolean }
     ConversationNote:
       type: object
       required: [id, organization_id, conversation_id, author_id, author_email, author_display_name, body, created_at]

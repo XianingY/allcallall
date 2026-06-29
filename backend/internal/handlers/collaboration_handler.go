@@ -59,6 +59,16 @@ func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGrou
 	protected.PATCH("/conversations/:id", h.handleUpdateConversation)
 	protected.GET("/conversations/:id/messages", h.handleListMessages)
 	protected.POST("/conversations/:id/messages", h.handleCreateMessage)
+	protected.PATCH("/conversations/:id/messages/:messageId", h.handleUpdateMessage)
+	protected.DELETE("/conversations/:id/messages/:messageId", h.handleDeleteMessage)
+	protected.POST("/conversations/:id/messages/:messageId/reactions", h.handleAddMessageReaction)
+	protected.DELETE("/conversations/:id/messages/:messageId/reactions/:emoji", h.handleRemoveMessageReaction)
+	protected.POST("/conversations/:id/messages/:messageId/pin", h.handlePinMessage)
+	protected.DELETE("/conversations/:id/messages/:messageId/pin", h.handleUnpinMessage)
+	protected.GET("/conversations/:id/pins", h.handleListPinnedMessages)
+	protected.POST("/conversations/:id/attachments", h.handleUploadConversationAttachment)
+	protected.GET("/attachments/:attachmentId/download", h.handleDownloadConversationAttachment)
+	protected.POST("/conversations/:id/typing", h.handleSendTypingEvent)
 	protected.POST("/conversations/:id/read", h.handleMarkConversationRead)
 	protected.GET("/conversations/:id/notes", h.handleListConversationNotes)
 	protected.POST("/conversations/:id/notes", h.handleCreateConversationNote)
@@ -201,16 +211,53 @@ type meetingSummaryCardResponse struct {
 }
 
 type messageResponse struct {
-	ID                uint64         `json:"id"`
-	OrganizationID    uint64         `json:"organization_id"`
-	ConversationID    uint64         `json:"conversation_id"`
-	SenderID          uint64         `json:"sender_id"`
-	SenderEmail       string         `json:"sender_email"`
-	SenderDisplayName string         `json:"sender_display_name"`
-	Type              string         `json:"type"`
-	Body              string         `json:"body"`
-	Metadata          map[string]any `json:"metadata,omitempty"`
-	CreatedAt         time.Time      `json:"created_at"`
+	ID                uint64                    `json:"id"`
+	OrganizationID    uint64                    `json:"organization_id"`
+	ConversationID    uint64                    `json:"conversation_id"`
+	SenderID          uint64                    `json:"sender_id"`
+	SenderEmail       string                    `json:"sender_email"`
+	SenderDisplayName string                    `json:"sender_display_name"`
+	ReplyToMessageID  *uint64                   `json:"reply_to_message_id,omitempty"`
+	ReplyTo           *messageReplyResponse     `json:"reply_to,omitempty"`
+	Type              string                    `json:"type"`
+	Body              string                    `json:"body"`
+	Metadata          map[string]any            `json:"metadata,omitempty"`
+	Attachments       []attachmentResponse      `json:"attachments,omitempty"`
+	Reactions         []messageReactionResponse `json:"reactions,omitempty"`
+	Pinned            bool                      `json:"pinned"`
+	EditedAt          *time.Time                `json:"edited_at,omitempty"`
+	DeletedAt         *time.Time                `json:"deleted_at,omitempty"`
+	DeletedBy         *uint64                   `json:"deleted_by,omitempty"`
+	CreatedAt         time.Time                 `json:"created_at"`
+}
+
+type messageReplyResponse struct {
+	ID                uint64 `json:"id"`
+	SenderID          uint64 `json:"sender_id"`
+	SenderEmail       string `json:"sender_email"`
+	SenderDisplayName string `json:"sender_display_name"`
+	Body              string `json:"body"`
+	Deleted           bool   `json:"deleted"`
+}
+
+type attachmentResponse struct {
+	ID             uint64    `json:"id"`
+	OrganizationID uint64    `json:"organization_id"`
+	ConversationID uint64    `json:"conversation_id"`
+	MessageID      *uint64   `json:"message_id,omitempty"`
+	UploaderID     uint64    `json:"uploader_id"`
+	FileName       string    `json:"file_name"`
+	ContentType    string    `json:"content_type"`
+	FileSize       int64     `json:"file_size"`
+	DownloadURL    string    `json:"download_url"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type messageReactionResponse struct {
+	Emoji          string   `json:"emoji"`
+	Count          int      `json:"count"`
+	ReactedUserIDs []uint64 `json:"reacted_user_ids"`
+	ReactedByMe    bool     `json:"reacted_by_me"`
 }
 
 type roomStateResponse struct {
@@ -775,9 +822,35 @@ func toMessageResponse(item collaboration.MessageRecord) messageResponse {
 		SenderID:          item.SenderID,
 		SenderEmail:       item.SenderEmail,
 		SenderDisplayName: item.SenderDisplayName,
+		ReplyToMessageID:  item.ReplyToMessageID,
 		Type:              item.Type,
 		Body:              item.Body,
+		Pinned:            item.Pinned,
+		EditedAt:          item.EditedAt,
+		DeletedAt:         item.DeletedAt,
+		DeletedBy:         item.DeletedBy,
 		CreatedAt:         item.CreatedAt,
+	}
+	if item.ReplyTo != nil {
+		response.ReplyTo = &messageReplyResponse{
+			ID:                item.ReplyTo.ID,
+			SenderID:          item.ReplyTo.SenderID,
+			SenderEmail:       item.ReplyTo.SenderEmail,
+			SenderDisplayName: item.ReplyTo.SenderDisplayName,
+			Body:              item.ReplyTo.Body,
+			Deleted:           item.ReplyTo.Deleted,
+		}
+	}
+	for _, attachment := range item.Attachments {
+		response.Attachments = append(response.Attachments, toAttachmentResponse(attachment))
+	}
+	for _, reaction := range item.Reactions {
+		response.Reactions = append(response.Reactions, messageReactionResponse{
+			Emoji:          reaction.Emoji,
+			Count:          reaction.Count,
+			ReactedUserIDs: reaction.ReactedUserIDs,
+			ReactedByMe:    reaction.ReactedByMe,
+		})
 	}
 	if strings.TrimSpace(item.MetadataJSON) != "" {
 		var metadata map[string]any
@@ -786,6 +859,21 @@ func toMessageResponse(item collaboration.MessageRecord) messageResponse {
 		}
 	}
 	return response
+}
+
+func toAttachmentResponse(item collaboration.AttachmentView) attachmentResponse {
+	return attachmentResponse{
+		ID:             item.ID,
+		OrganizationID: item.OrganizationID,
+		ConversationID: item.ConversationID,
+		MessageID:      item.MessageID,
+		UploaderID:     item.UploaderID,
+		FileName:       item.FileName,
+		ContentType:    item.ContentType,
+		FileSize:       item.FileSize,
+		DownloadURL:    item.DownloadURL,
+		CreatedAt:      item.CreatedAt,
+	}
 }
 
 func toRoomStateResponse(state collaboration.RoomState) roomStateResponse {

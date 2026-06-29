@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -108,16 +109,27 @@ func (h *CollaborationHandler) handleListMessages(c *gin.Context) {
 		JSONError(c, http.StatusBadRequest, "invalid conversation id")
 		return
 	}
-	items, err := h.service.ListMessages(c.Request.Context(), orgID, claims.UserID, conversationID, 100)
+	cursor, err := parseMessageCursor(c)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	page, err := h.service.ListMessagePage(c.Request.Context(), orgID, claims.UserID, conversationID, cursor)
 	if err != nil {
 		JSONError(c, http.StatusForbidden, err.Error())
 		return
 	}
-	response := make([]messageResponse, 0, len(items))
-	for _, item := range items {
+	response := make([]messageResponse, 0, len(page.Messages))
+	for _, item := range page.Messages {
 		response = append(response, toMessageResponse(item))
 	}
-	JSONSuccess(c, http.StatusOK, gin.H{"messages": response})
+	JSONSuccess(c, http.StatusOK, gin.H{
+		"messages":       response,
+		"next_before_id": page.NextBefore,
+		"next_after_id":  page.NextAfter,
+		"has_more_prev":  page.HasMorePrev,
+		"has_more_next":  page.HasMoreNext,
+	})
 }
 
 func (h *CollaborationHandler) handleCreateMessage(c *gin.Context) {
@@ -143,6 +155,198 @@ func (h *CollaborationHandler) handleCreateMessage(c *gin.Context) {
 	JSONSuccess(c, http.StatusCreated, gin.H{"message": toMessageResponse(*item)})
 }
 
+func (h *CollaborationHandler) handleUpdateMessage(c *gin.Context) {
+	claims, orgID, conversationID, messageID, ok := h.messageRouteParams(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		Body string `json:"body"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := h.service.EditMessage(c.Request.Context(), orgID, claims.UserID, conversationID, messageID, req.Body)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"message": toMessageResponse(*item)})
+}
+
+func (h *CollaborationHandler) handleDeleteMessage(c *gin.Context) {
+	claims, orgID, conversationID, messageID, ok := h.messageRouteParams(c)
+	if !ok {
+		return
+	}
+	item, err := h.service.DeleteMessage(c.Request.Context(), orgID, claims.UserID, conversationID, messageID)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"message": toMessageResponse(*item)})
+}
+
+func (h *CollaborationHandler) handleAddMessageReaction(c *gin.Context) {
+	claims, orgID, conversationID, messageID, ok := h.messageRouteParams(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		Emoji string `json:"emoji"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := h.service.AddMessageReaction(c.Request.Context(), orgID, claims.UserID, conversationID, messageID, req.Emoji)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"message": toMessageResponse(*item)})
+}
+
+func (h *CollaborationHandler) handleRemoveMessageReaction(c *gin.Context) {
+	claims, orgID, conversationID, messageID, ok := h.messageRouteParams(c)
+	if !ok {
+		return
+	}
+	item, err := h.service.RemoveMessageReaction(c.Request.Context(), orgID, claims.UserID, conversationID, messageID, c.Param("emoji"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"message": toMessageResponse(*item)})
+}
+
+func (h *CollaborationHandler) handlePinMessage(c *gin.Context) {
+	claims, orgID, conversationID, messageID, ok := h.messageRouteParams(c)
+	if !ok {
+		return
+	}
+	item, err := h.service.PinMessage(c.Request.Context(), orgID, claims.UserID, conversationID, messageID)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"message": toMessageResponse(*item)})
+}
+
+func (h *CollaborationHandler) handleUnpinMessage(c *gin.Context) {
+	claims, orgID, conversationID, messageID, ok := h.messageRouteParams(c)
+	if !ok {
+		return
+	}
+	item, err := h.service.UnpinMessage(c.Request.Context(), orgID, claims.UserID, conversationID, messageID)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"message": toMessageResponse(*item)})
+}
+
+func (h *CollaborationHandler) handleListPinnedMessages(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	conversationID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	items, err := h.service.ListPinnedMessages(c.Request.Context(), orgID, claims.UserID, conversationID)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response := make([]messageResponse, 0, len(items))
+	for _, item := range items {
+		response = append(response, toMessageResponse(item))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"messages": response})
+}
+
+func (h *CollaborationHandler) handleUploadConversationAttachment(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	conversationID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	file, err := c.FormFile("file")
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "file is required")
+		return
+	}
+	reader, err := file.Open()
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	defer reader.Close()
+	item, err := h.service.SaveConversationAttachment(c.Request.Context(), orgID, claims.UserID, conversationID, collaboration.AttachmentInput{
+		FileName:    file.Filename,
+		ContentType: file.Header.Get("Content-Type"),
+		FileSize:    file.Size,
+		Reader:      reader,
+	})
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusCreated, gin.H{"attachment": toAttachmentResponse(*item)})
+}
+
+func (h *CollaborationHandler) handleDownloadConversationAttachment(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	attachmentID, err := parseUintParam(c.Param("attachmentId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid attachment id")
+		return
+	}
+	download, err := h.service.OpenConversationAttachment(c.Request.Context(), orgID, claims.UserID, attachmentID)
+	if err != nil {
+		JSONError(c, http.StatusForbidden, err.Error())
+		return
+	}
+	defer download.Reader.Close()
+	c.Header("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(download.Attachment.FileName, `"`, "")+`"`)
+	c.DataFromReader(http.StatusOK, download.Attachment.FileSize, download.Attachment.ContentType, download.Reader, nil)
+}
+
+func (h *CollaborationHandler) handleSendTypingEvent(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	conversationID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	var req struct {
+		Typing bool `json:"typing"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.service.SendTypingEvent(c.Request.Context(), orgID, claims.UserID, conversationID, req.Typing); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
+}
+
 func (h *CollaborationHandler) handleMarkConversationRead(c *gin.Context) {
 	claims, orgID, ok := h.requireCurrentOrganization(c)
 	if !ok {
@@ -158,6 +362,53 @@ func (h *CollaborationHandler) handleMarkConversationRead(c *gin.Context) {
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
+}
+
+func (h *CollaborationHandler) messageRouteParams(c *gin.Context) (*auth.Claims, uint64, uint64, uint64, bool) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return nil, 0, 0, 0, false
+	}
+	conversationID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid conversation id")
+		return nil, 0, 0, 0, false
+	}
+	messageID, err := parseUintParam(c.Param("messageId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid message id")
+		return nil, 0, 0, 0, false
+	}
+	return claims, orgID, conversationID, messageID, true
+}
+
+func parseMessageCursor(c *gin.Context) (collaboration.MessageCursor, error) {
+	cursor := collaboration.MessageCursor{Limit: 100}
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil {
+			return cursor, err
+		}
+		cursor.Limit = limit
+	}
+	if raw := strings.TrimSpace(c.Query("before_id")); raw != "" {
+		before, err := parseUintParam(raw)
+		if err != nil {
+			return cursor, err
+		}
+		cursor.BeforeID = before
+	}
+	if raw := strings.TrimSpace(c.Query("after_id")); raw != "" {
+		after, err := parseUintParam(raw)
+		if err != nil {
+			return cursor, err
+		}
+		cursor.AfterID = after
+	}
+	if cursor.BeforeID != 0 && cursor.AfterID != 0 {
+		return cursor, errors.New("before_id and after_id cannot be used together")
+	}
+	return cursor, nil
 }
 
 func (h *CollaborationHandler) handleSearchMessages(c *gin.Context) {

@@ -648,13 +648,60 @@ export interface components {
             sender_id: number;
             sender_email: string;
             sender_display_name: string;
+            /** Format: int64 */
+            reply_to_message_id?: number | null;
+            reply_to?: components["schemas"]["MessageReply"] | null;
             type: string;
             body: string;
             metadata?: {
                 [key: string]: unknown;
             };
+            attachments?: components["schemas"]["Attachment"][];
+            reactions?: components["schemas"]["MessageReaction"][];
+            pinned: boolean;
+            /** Format: date-time */
+            edited_at?: string | null;
+            /** Format: date-time */
+            deleted_at?: string | null;
+            /** Format: int64 */
+            deleted_by?: number | null;
             /** Format: date-time */
             created_at: string;
+        };
+        MessageReply: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            sender_id: number;
+            sender_email: string;
+            sender_display_name: string;
+            body: string;
+            deleted: boolean;
+        };
+        Attachment: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            conversation_id: number;
+            /** Format: int64 */
+            message_id?: number | null;
+            /** Format: int64 */
+            uploader_id: number;
+            file_name: string;
+            content_type: string;
+            /** Format: int64 */
+            file_size: number;
+            download_url: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        MessageReaction: {
+            emoji: string;
+            count: number;
+            reacted_user_ids: number[];
+            reacted_by_me: boolean;
         };
         ConversationNote: {
             /** Format: int64 */

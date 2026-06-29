@@ -86,6 +86,9 @@ func newServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *user.Service) {
 		&models.MessageRead{},
 		&models.ChatEvent{},
 		&models.Attachment{},
+		&models.MessageReaction{},
+		&models.ConversationPin{},
+		&models.OrganizationAuditEvent{},
 		&models.CallRoom{},
 		&models.CallRoomMember{},
 		&models.CallRoomEvent{},
@@ -239,6 +242,123 @@ func TestRealtimeEventsAreRecipientScopedAndReplayable(t *testing.T) {
 	}
 	if len(afterOwnerEvent) != 0 {
 		t.Fatalf("expected no events after cursor, got %d", len(afterOwnerEvent))
+	}
+}
+
+func TestServiceBetaChatMessageLifecycle(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	ctx := context.Background()
+
+	owner := createTestUser(t, db, "chat-owner@example.com", "Owner")
+	teammate := createTestUser(t, db, "chat-teammate@example.com", "Teammate")
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Beta Chat Org")
+	if err != nil {
+		t.Fatalf("create organization failed: %v", err)
+	}
+	addOrgMember(t, db, org.ID, teammate.ID, models.OrganizationRoleMember)
+	conversation, err := svc.CreateConversation(ctx, org.ID, owner.ID, CreateConversationInput{
+		Type:      models.ConversationTypeChannel,
+		Title:     "Beta Channel",
+		MemberIDs: []uint64{teammate.ID},
+	})
+	if err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	first, err := svc.CreateMessage(ctx, org.ID, owner.ID, conversation.ID, MessageInput{Body: "first"})
+	if err != nil {
+		t.Fatalf("create first message failed: %v", err)
+	}
+	attachment, err := svc.SaveConversationAttachment(ctx, org.ID, owner.ID, conversation.ID, AttachmentInput{
+		FileName:    "plan.txt",
+		ContentType: "text/plain",
+		FileSize:    int64(len("attachment body")),
+		Reader:      strings.NewReader("attachment body"),
+	})
+	if err != nil {
+		t.Fatalf("save attachment failed: %v", err)
+	}
+	second, err := svc.CreateMessage(ctx, org.ID, owner.ID, conversation.ID, MessageInput{
+		Body:             "second",
+		ReplyToMessageID: &first.ID,
+		AttachmentIDs:    []uint64{attachment.ID},
+	})
+	if err != nil {
+		t.Fatalf("create reply message failed: %v", err)
+	}
+	third, err := svc.CreateMessage(ctx, org.ID, teammate.ID, conversation.ID, MessageInput{Body: "third"})
+	if err != nil {
+		t.Fatalf("create third message failed: %v", err)
+	}
+
+	page, err := svc.ListMessagePage(ctx, org.ID, owner.ID, conversation.ID, MessageCursor{Limit: 2})
+	if err != nil {
+		t.Fatalf("list latest page failed: %v", err)
+	}
+	if len(page.Messages) != 2 || page.Messages[0].ID != second.ID || page.Messages[1].ID != third.ID {
+		t.Fatalf("unexpected latest page: %+v", page.Messages)
+	}
+	if page.NextBefore == nil || !page.HasMorePrev {
+		t.Fatalf("expected previous page cursor, got %+v", page)
+	}
+	older, err := svc.ListMessagePage(ctx, org.ID, owner.ID, conversation.ID, MessageCursor{Limit: 2, BeforeID: *page.NextBefore})
+	if err != nil {
+		t.Fatalf("list older page failed: %v", err)
+	}
+	if len(older.Messages) != 1 || older.Messages[0].ID != first.ID {
+		t.Fatalf("unexpected older page: %+v", older.Messages)
+	}
+
+	loadedSecond, err := svc.loadMessageRecordForUser(ctx, second.ID, owner.ID)
+	if err != nil {
+		t.Fatalf("load second failed: %v", err)
+	}
+	if loadedSecond.ReplyTo == nil || loadedSecond.ReplyTo.ID != first.ID {
+		t.Fatalf("expected reply preview, got %+v", loadedSecond.ReplyTo)
+	}
+	if len(loadedSecond.Attachments) != 1 || loadedSecond.Attachments[0].FileName != "plan.txt" {
+		t.Fatalf("expected attached file, got %+v", loadedSecond.Attachments)
+	}
+	download, err := svc.OpenConversationAttachment(ctx, org.ID, teammate.ID, attachment.ID)
+	if err != nil {
+		t.Fatalf("open attachment failed: %v", err)
+	}
+	_ = download.Reader.Close()
+
+	edited, err := svc.EditMessage(ctx, org.ID, owner.ID, conversation.ID, second.ID, "second edited")
+	if err != nil {
+		t.Fatalf("edit message failed: %v", err)
+	}
+	if edited.EditedAt == nil || edited.Body != "second edited" {
+		t.Fatalf("expected edited message, got %+v", edited)
+	}
+	reacted, err := svc.AddMessageReaction(ctx, org.ID, teammate.ID, conversation.ID, second.ID, "+1")
+	if err != nil {
+		t.Fatalf("add reaction failed: %v", err)
+	}
+	if len(reacted.Reactions) != 1 || reacted.Reactions[0].Count != 1 {
+		t.Fatalf("expected reaction summary, got %+v", reacted.Reactions)
+	}
+	pinned, err := svc.PinMessage(ctx, org.ID, owner.ID, conversation.ID, second.ID)
+	if err != nil {
+		t.Fatalf("pin message failed: %v", err)
+	}
+	if !pinned.Pinned {
+		t.Fatal("expected message to be pinned")
+	}
+	pins, err := svc.ListPinnedMessages(ctx, org.ID, owner.ID, conversation.ID)
+	if err != nil {
+		t.Fatalf("list pins failed: %v", err)
+	}
+	if len(pins) != 1 || pins[0].ID != second.ID {
+		t.Fatalf("unexpected pins: %+v", pins)
+	}
+	deleted, err := svc.DeleteMessage(ctx, org.ID, owner.ID, conversation.ID, second.ID)
+	if err != nil {
+		t.Fatalf("delete message failed: %v", err)
+	}
+	if deleted.DeletedAt == nil || deleted.Body != "" {
+		t.Fatalf("expected redacted deleted message, got %+v", deleted)
 	}
 }
 
