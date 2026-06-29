@@ -1,0 +1,164 @@
+{
+  "cases": 2,
+  "passed": 2,
+  "failed": 0,
+  "rerank_enabled": true,
+  "summary": {
+    "answerable_cases": 2,
+    "negative_cases": 0,
+    "recall_at_k": 1,
+    "precision_at_k": 0.41666666666666663,
+    "mrr": 1,
+    "ndcg_at_k": 1,
+    "top_k_hit_rate": 1,
+    "negative_pass_rate": 0,
+    "citation_hit_rate": 1,
+    "citation_error_rate": 0.5833333333333333,
+    "latency_p50_ms": 29,
+    "latency_p95_ms": 39,
+    "vector_case_rate": 0,
+    "sql_fallback_case_rate": 1,
+    "rerank_mrr_delta": 0.5833333333333334,
+    "rerank_ndcg_delta": 0.4345351232142713
+  },
+  "results": [
+    {
+      "name": "rerank_promotes_title_grounded_policy",
+      "passed": true,
+      "hits": [
+        {
+          "chunk_id": 2,
+          "source_title": "Security Approval Blocker",
+          "retrieval_mode": "sql_fallback",
+          "score": 2,
+          "rerank_score": 58.3462040962227,
+          "rerank_reason": "rules keyword_overlap=3 title_overlap=3 source=knowledge retrieval=sql_fallback",
+          "final_rank": 1,
+          "snippet": "Legal review is blocking release approval; owner needs to confirm by Friday."
+        },
+        {
+          "chunk_id": 1,
+          "source_title": "Generic Security Log",
+          "retrieval_mode": "sql_fallback",
+          "score": 21,
+          "rerank_score": 43.030347484452776,
+          "rerank_reason": "rules keyword_overlap=3 title_overlap=1 source=knowledge retrieval=sql_fallback",
+          "final_rank": 2,
+          "snippet": "security security approval approval logistics update without blocker details."
+        },
+        {
+          "chunk_id": 3,
+          "source_title": "Budget Note",
+          "retrieval_mode": "sql_fallback",
+          "score": 16,
+          "rerank_score": 34.93440444801874,
+          "rerank_reason": "rules keyword_overlap=3 title_overlap=0 source=knowledge retrieval=sql_fallback",
+          "final_rank": 3,
+          "snippet": "Budget planning note unrelated to the security approval blocker."
+        }
+      ],
+      "baseline_hits": [
+        {
+          "chunk_id": 1,
+          "source_title": "Generic Security Log",
+          "retrieval_mode": "sql_fallback",
+          "score": 21,
+          "final_rank": 1,
+          "snippet": "security security approval approval logistics update without blocker details."
+        },
+        {
+          "chunk_id": 3,
+          "source_title": "Budget Note",
+          "retrieval_mode": "sql_fallback",
+          "score": 16,
+          "final_rank": 2,
+          "snippet": "Budget planning note unrelated to the security approval blocker."
+        },
+        {
+          "chunk_id": 2,
+          "source_title": "Security Approval Blocker",
+          "retrieval_mode": "sql_fallback",
+          "score": 2,
+          "final_rank": 3,
+          "snippet": "Legal review is blocking release approval; owner needs to confirm by Friday."
+        }
+      ],
+      "mode": "sql_fallback",
+      "fallback_reason": "indexer_unavailable",
+      "elapsed": "39.587208ms",
+      "elapsed_ms": 39,
+      "top_k_hit": true,
+      "citation_error_rate": 0.6666666666666666,
+      "recall_at_k": 1,
+      "precision_at_k": 0.3333333333333333,
+      "mrr": 1,
+      "ndcg_at_k": 1,
+      "baseline_recall_at_k": 1,
+      "baseline_precision_at_k": 0.3333333333333333,
+      "baseline_mrr": 0.3333333333333333,
+      "baseline_ndcg_at_k": 0.5,
+      "rerank_mrr_delta": 0.6666666666666667,
+      "rerank_ndcg_delta": 0.5
+    },
+    {
+      "name": "rerank_prefers_actionable_followup_evidence",
+      "passed": true,
+      "hits": [
+        {
+          "chunk_id": 2,
+          "source_title": "Customer Follow Up Owner Deadline",
+          "retrieval_mode": "sql_fallback",
+          "score": 4,
+          "rerank_score": 94.5264793041447,
+          "rerank_reason": "rules keyword_overlap=5 title_overlap=5 source=knowledge retrieval=sql_fallback",
+          "final_rank": 1,
+          "snippet": "Alice owns the follow-up and must send the revised rollout plan before Friday."
+        },
+        {
+          "chunk_id": 1,
+          "source_title": "Customer Chatter",
+          "retrieval_mode": "sql_fallback",
+          "score": 21,
+          "rerank_score": 43.030347484452776,
+          "rerank_reason": "rules keyword_overlap=3 title_overlap=1 source=knowledge retrieval=sql_fallback",
+          "final_rank": 2,
+          "snippet": "customer customer follow up follow up general discussion and repeated keywords."
+        }
+      ],
+      "baseline_hits": [
+        {
+          "chunk_id": 1,
+          "source_title": "Customer Chatter",
+          "retrieval_mode": "sql_fallback",
+          "score": 21,
+          "final_rank": 1,
+          "snippet": "customer customer follow up follow up general discussion and repeated keywords."
+        },
+        {
+          "chunk_id": 2,
+          "source_title": "Customer Follow Up Owner Deadline",
+          "retrieval_mode": "sql_fallback",
+          "score": 4,
+          "final_rank": 2,
+          "snippet": "Alice owns the follow-up and must send the revised rollout plan before Friday."
+        }
+      ],
+      "mode": "sql_fallback",
+      "fallback_reason": "indexer_unavailable",
+      "elapsed": "29.381416ms",
+      "elapsed_ms": 29,
+      "top_k_hit": true,
+      "citation_error_rate": 0.5,
+      "recall_at_k": 1,
+      "precision_at_k": 0.5,
+      "mrr": 1,
+      "ndcg_at_k": 1,
+      "baseline_recall_at_k": 1,
+      "baseline_precision_at_k": 0.5,
+      "baseline_mrr": 0.5,
+      "baseline_ndcg_at_k": 0.6309297535714574,
+      "rerank_mrr_delta": 0.5,
+      "rerank_ndcg_delta": 0.3690702464285426
+    }
+  ]
+}
