@@ -71,6 +71,19 @@ Realtime translation remains configurable in YAML, but its mobile UI entry point
 | `AGENT_OPENAI_API_KEY` | API key for `openai_compatible`. |
 | `AGENT_OPENAI_TIMEOUT_MS` | Optional request timeout. |
 | `AGENT_OPENAI_MAX_TOKENS` | Optional response token cap. |
+| `RAG_RERANK_ENABLED` | Enables explicit RAG rerank after BM25/vector/RRF retrieval. Defaults to disabled. |
+| `RAG_RERANK_PROVIDER` | `rules` for deterministic local rerank or `cross_encoder_compatible` for an HTTP rerank service. |
+| `RAG_RERANK_BASE_URL`, `RAG_RERANK_MODEL`, `RAG_RERANK_TIMEOUT_SEC` | HTTP rerank provider settings. The compatible endpoint is called at `/rerank`. |
+| `AGENT_RUNTIME` | `go` or `python_langgraph`; defaults to `go`. `python_langgraph` supports `meeting_brief`, `risk_review`, `follow_up_planner`, and `context_qa`. |
+| `PY_AGENT_RUNTIME_BASE_URL` | Python Agent Runtime base URL, for example `http://127.0.0.1:8090` locally or `http://agent-runtime:8090` in Compose. |
+| `PY_AGENT_RUNTIME_TIMEOUT_SEC` | Python runtime HTTP timeout; defaults to `60`. |
+| `PY_AGENT_RUNTIME_STRICT` | When true, Python runtime failures fail the workflow instead of silently falling back to Go. |
+| `PY_AGENT_PROVIDER` | Python runtime provider; deterministic `rules` is the default. |
+| `PY_AGENT_OPENAI_BASE_URL`, `PY_AGENT_OPENAI_MODEL`, `PY_AGENT_OPENAI_API_KEY` | OpenAI-compatible `/chat/completions` access from the Python runtime. |
+| `PY_AGENT_PROMPT_VERSION` | Optional prompt-template override. Empty uses preset defaults such as `meeting_brief_v1`. |
+| `PY_AGENT_ENABLE_GROUNDING_CHECK` | Enables Python-side citation grounding checks in trace output; defaults to true. |
+| `AGENT_RUNTIME_TOOL_TOKEN` | Go-side bearer token for the internal read-only tool bridge. Leave empty to disable the bridge. |
+| `PY_AGENT_TOOL_BRIDGE_BASE_URL`, `PY_AGENT_TOOL_BRIDGE_TOKEN` | Python-side Go tool bridge URL and token. When unset, Python uses only preloaded context. |
 | `ROOM_MAX_PARTICIPANTS` | Maximum active/invited members in a meeting room; defaults to `6`. |
 | `ELASTICSEARCH_URL` | Enables Elasticsearch search and chunk indexing. |
 | `ELASTICSEARCH_INDEX` | Message index name, default `allcallall_messages`. |

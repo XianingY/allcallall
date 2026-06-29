@@ -19,6 +19,8 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 - [System Design](./interview/system-design.md): current architecture and data flow.
 - [Backend Deep Dive](./interview/backend-deep-dive.md): backend module explanation.
 - [AI Agent Design](./interview/ai-agent-design.md): Agent runs, tools, approvals, memory, and RAG.
+- [Python Agent Runtime](./interview/python-agent-runtime.md): LangGraph runtime split, Go/Python boundary, tool bridge, and Python eval.
+- [AI Agent JD Fit](./interview/ai-portfolio-jd-fit.md): maps LangGraph, LangChain, Rerank, LlamaIndex, prompt engineering, and eval evidence to AI Agent JD requirements.
 - [Agent RAG Current State](./interview/agent-rag-current-state.md): retrieval implementation notes.
 - [Agent Demo Eval Report](./interview/agent-demo-report.md): reproducible planner, RAG, and workflow eval report.
 - [Resume Eval](./interview/resume-eval.md): resume-safe KPI summary and generation command.

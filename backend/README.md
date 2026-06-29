@@ -74,6 +74,18 @@ Core variables:
 - `WEBRTC_ICE_SERVERS_JSON`
 - `AGENT_PROVIDER=rules|mock_llm|openai_compatible`
 - `AGENT_PROVIDER_STRICT=true` for Beta/production; prevents a configured real provider from silently falling back to `rules`
+- `RAG_RERANK_ENABLED=true`
+- `RAG_RERANK_PROVIDER=rules|cross_encoder_compatible`
+- `RAG_RERANK_BASE_URL`, `RAG_RERANK_MODEL`, `RAG_RERANK_TIMEOUT_SEC`
+- `AGENT_RUNTIME=go|python_langgraph`; default `go`. `python_langgraph` can route `meeting_brief`, `risk_review`, `follow_up_planner`, and `context_qa` to the Python LangGraph service while keeping Go-owned data access, tool approval, audit, and write execution.
+- `PY_AGENT_RUNTIME_BASE_URL=http://127.0.0.1:8090`
+- `PY_AGENT_RUNTIME_TIMEOUT_SEC=60`
+- `PY_AGENT_RUNTIME_STRICT=true`
+- `AGENT_RUNTIME_TOOL_TOKEN`: bearer token required by the internal read-only tool bridge.
+- `PY_AGENT_PROVIDER=rules|openai_compatible`
+- `PY_AGENT_OPENAI_BASE_URL`, `PY_AGENT_OPENAI_MODEL`, `PY_AGENT_OPENAI_API_KEY`
+- `PY_AGENT_PROMPT_VERSION`, `PY_AGENT_ENABLE_GROUNDING_CHECK`
+- `PY_AGENT_TOOL_BRIDGE_BASE_URL`, `PY_AGENT_TOOL_BRIDGE_TOKEN`
 - `EMBEDDED_WORKERS=0|1`
 
 Recording and transcription:

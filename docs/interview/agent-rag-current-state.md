@@ -30,8 +30,9 @@
 | RAG 分段/版本/去重 | 已实现 | 归一化后约 900 字符 chunk、120 overlap；source 原文 hash 不变跳过；同 version content hash 去重 | 分段策略固定，尚无 UI 配置 |
 | Index retry/dead-letter | 已实现 | `rag.source.ingest_requested` 和 `rag.chunk.index_requested` 走 event_outbox；failed 即 dead-letter，可 Web 重试 | 依赖 outbox worker 或 API embedded worker |
 | ES vector | 已接入 | `allcallall_context_chunks` 使用 `dense_vector`、`index=true`、`cosine`，查询用 `cosineSimilarity` | ES 在本项目中承担向量数据库角色，不另引 Milvus/Pinecone |
-| 引用/citation | 可点击 | citation 返回 chunk/source/origin/conversation/version/retrieval_mode/score/snippet；Web 可打开知识源 preview 或 URL | 消息/备注回源目前先回到 conversation 维度，细粒度滚动定位未做 |
-| Eval | 本地可跑 | `cmd/agent-eval` 支持 planner/workflow fixture；`cmd/rag-eval` 支持 vector/fallback/citation fixture；组合报告覆盖 bounded role ReAct + meeting transcript | 尚未接入 CI，也没有在线 Eval API |
+| Rerank | 已接入 | 检索后有显式 `Reranker` 抽象，支持 deterministic `rules` 和 `cross_encoder_compatible` HTTP provider；citation/tool output 带 `rerank_score/rerank_reason/final_rank` | 默认关闭；真实 cross-encoder 服务需要外部部署 |
+| 引用/citation | 可点击 | citation 返回 chunk/source/origin/conversation/version/retrieval_mode/BM25/vector/RRF/rerank metadata/score/snippet；Web 可打开知识源 preview 或 URL | 消息/备注回源目前先回到 conversation 维度，细粒度滚动定位未做 |
+| Eval | 本地可跑 | `cmd/agent-eval`、`cmd/rag-eval`、`allcallallctl rerank-eval`、Python `eval_runner` 和 `ai-portfolio-eval` 覆盖 deterministic regression、retrieval/rerank quality、task completion | 没有真实生产数据集，不把 fixture 结果包装成线上效果 |
 | SSE/trace | 可展示 | 前端通过 SSE 看 run/step/tool 事件，结果页也可从持久化 trace 回放 | token 级流式在当前 tool-calling 模式下基本不会触发 |
 
 ## 运行架构
@@ -48,7 +49,9 @@ flowchart LR
   Worker --> AgentSvc
   AgentSvc --> LLM["OpenAI-compatible\nchat completions"]
   AgentSvc --> Embed["OpenAI-compatible\nembeddings"]
-  AgentSvc --> ES["Elasticsearch\nallcallall_context_chunks"]
+  AgentSvc --> ES["Elasticsearch\nBM25/vector/RRF"]
+  AgentSvc --> Rerank["Reranker\nrules / cross-encoder-compatible"]
+  API --> PyRuntime["Python FastAPI + LangGraph\nprompt/rerank/grounding/eval"]
   AgentSvc --> Redis["Redis Pub/Sub\nagent_run:{id}:stream"]
   API --> SSE["SSE events"]
   SSE --> Web
@@ -76,6 +79,7 @@ flowchart LR
 - `web/src/pages/agent/AgentLabPage.tsx` 是 Agent Lab 主页面，路由为 `/agent-lab`。
 - `Run` 区支持 ReAct run、Workflow run 和默认 `meeting_brief` 会议复盘 preset。
 - Trace 区展示 agent step、tool call、tool result、approval wait 和 final answer。
+- RAG/Rerank 区展示原始检索来源、BM25/vector/RRF/rerank score、final rank 和 rerank reason。
 - Citation 区按 `meeting_transcript`、`knowledge`、`conversation` 等来源分类，会议转写引用可携带 recording/segment/time metadata。
 - Approvals 页面支持 pending/all 过滤、审批原因、工具参数摘要和执行结果。
 - `web/src/pages/knowledge/KnowledgePage.tsx` 负责 manual text、URL、txt/md/html/pdf 文件知识导入、版本/重复候选和 dead-letter/retry。

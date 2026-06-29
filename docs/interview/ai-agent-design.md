@@ -147,6 +147,47 @@ The Workflow Agent now combines DAG control with bounded role-level ReAct:
 
 Each role iteration records a plan and observation in `agent_messages`, and the task output includes `react_trace`. Only read-only tools are allowed inside role ReAct. Side-effect tools such as `write_conversation_message`, `create_follow_up_task`, and `upsert_agent_memory` still enter the `propose_tools -> approval -> commit_result` path.
 
+### Python LangGraph Runtime
+
+Selected workflow presets can run through the optional Python Agent Runtime:
+
+```bash
+AGENT_RUNTIME=python_langgraph
+PY_AGENT_RUNTIME_BASE_URL=http://127.0.0.1:8090
+PY_AGENT_RUNTIME_STRICT=true
+```
+
+Current Python-supported presets are `meeting_brief`, `risk_review`, `follow_up_planner`, and `context_qa`. The split is intentionally narrow:
+
+- Go remains the source of truth for auth, organization membership, conversation state, meeting transcripts, tool schemas, policy, approval records, audit history, and final side effects.
+- Python owns Agent orchestration: workflow registry, LangGraph DAG execution, provider adapters, versioned prompts, retrieval/rerank trace, grounding checks, bounded ReAct-style read reasoning inside `searcher` and `risk_analyst`, structured trace events, citations, and write-tool proposals.
+- Python can call Go-owned read-only tools through an internal token-protected tool bridge (`AGENT_RUNTIME_TOOL_TOKEN` / `PY_AGENT_TOOL_BRIDGE_TOKEN`). If the bridge is not configured, Python uses the context preloaded by Go.
+- Python does not write the main database and does not execute write tools. Returned proposals become `tool_approvals` in Go and must pass the existing approval path before `commit_result`.
+- `PY_AGENT_PROVIDER=rules` is deterministic for eval; `PY_AGENT_PROVIDER=openai_compatible` uses an OpenAI-compatible `/chat/completions` provider with JSON structured output and explicit error classification.
+
+Runtime flow:
+
+```mermaid
+flowchart TD
+    A["Go workflow worker"] --> B["Load conversation + transcript context"]
+    B --> C["Python LangGraph Runtime"]
+    C --> D["collect_context"]
+    D --> E["decompose"]
+    E --> F["searcher bounded ReAct max 3"]
+    E --> G["summarizer synthesis"]
+    E --> H["risk_analyst bounded ReAct max 2"]
+    F --> T["Go read-only tool bridge"]
+    H --> T
+    F --> I["merge"]
+    G --> I
+    H --> I
+    I --> J["propose write tools"]
+    J --> K["Go tool approval records"]
+    K --> L["Go approval / reject / commit_result"]
+```
+
+This gives the project a defensible AI microservice boundary without splitting stable product domains such as auth, chat, meetings, or organization management too early.
+
 ## Trace And Events
 
 Agent API responses include a derived trace from persisted rows, not a separate trace table:
@@ -191,6 +232,8 @@ Conversation context chunks and knowledge chunks provide the retrieval layer:
 - Conversation messages, notes, memories, call transcripts, meeting transcripts, and follow-ups become retrievable chunks.
 - Knowledge sources support text/URL/file import, grouping, duplicates, canonical version selection, dead letters, and reingest.
 - Elasticsearch can back chunk/message indexing where configured.
+- Hybrid retrieval can combine BM25, dense vector search, and RRF fusion; an explicit rerank layer can then annotate candidates with `rerank_score`, `rerank_reason`, and `final_rank`.
+- Rerank supports deterministic `rules` for fixture eval and a `cross_encoder_compatible` HTTP provider for future local bge-reranker/Cohere-compatible services.
 - Retrieval remains permission-scoped through organization and conversation membership.
 
 ## Idempotency And Safety
@@ -206,8 +249,11 @@ Conversation context chunks and knowledge chunks provide the retrieval layer:
 ```bash
 make agent-eval
 make rag-eval
+make rerank-eval
 make workflow-eval
+make python-agent-eval
 make agent-demo-report
+make ai-portfolio-eval
 ```
 
-The eval harnesses run deterministic planner, RAG, and workflow cases without external credentials. Workflow eval includes a meeting recap case that verifies bounded role ReAct retrieves `meeting_transcript` citations while read tools bypass human approval and write tools still require it.
+The eval harnesses run deterministic planner, RAG, rerank, workflow, and Python LangGraph task cases without external credentials. Workflow eval includes a meeting recap case that verifies bounded role ReAct retrieves `meeting_transcript` citations while read tools bypass human approval and write tools still require it. Python eval writes `agent-runtime/evals/reports/python-agent-eval.{json,md}` and separately checks task success, citation grounding, tool intent, approval safety, prompt schema presence, grounding-check trace, and unsupported-claim guarding.

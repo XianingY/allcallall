@@ -15,6 +15,8 @@ AllCallAll is positioned as an AI-powered realtime collaboration backend project
 - [System Design](system-design.md): system-design interview view of the whole backend.
 - [Backend Deep Dive](backend-deep-dive.md): Go, transactions, realtime, auth, storage, and reliability talking points.
 - [AI Agent Design](ai-agent-design.md): Agent state machine, provider seam, tool calling, memory, guardrails.
+- [Python Agent Runtime](python-agent-runtime.md): LangGraph runtime split, Go/Python boundary, tool bridge, and Python eval.
+- [AI Agent JD Fit](ai-portfolio-jd-fit.md): JD capability mapping for LangGraph, LangChain, Rerank, LlamaIndex, prompt engineering, and eval.
 - [Microservice Evolution](microservice-evolution.md): modular monolith to microservice-ready worker migration path.
 - [gRPC, Kafka, and Elasticsearch Evolution](grpc-kafka-es-evolution.md): synchronous service split, async settlement pipeline, and message search index.
 - [Worker Runtime](worker-runtime.md): API-embedded workers, standalone worker commands, event ownership, and failure semantics.
@@ -99,8 +101,10 @@ make agent-eval
 make rag-eval
 make workflow-eval
 make task-eval
+make rerank-eval
 make agent-demo-report
 make resume-eval
+make ai-portfolio-eval
 ```
 
 Run the modular monolith plus standalone worker demo:

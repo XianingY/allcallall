@@ -7,6 +7,21 @@ Use this together with:
 - [Agent UX Eval](agent-ux-eval.md) for the reproducible-vs-manual evidence split
 - [Resume Eval](resume-eval.md) for the current generated KPI snapshot
 
+Run the same fixture set against the default Go runtime or the optional Python LangGraph runtime:
+
+```bash
+cd backend
+go run ./cmd/allcallallctl task-eval --runtime go --fixture ./internal/agent/testdata/task_eval_cases.json
+AGENT_RUNTIME=python_langgraph PY_AGENT_RUNTIME_BASE_URL=http://127.0.0.1:8090 \
+  go run ./cmd/allcallallctl task-eval --runtime python_langgraph --fixture ./internal/agent/testdata/task_eval_cases.json
+```
+
+The Python runtime path supports `meeting_brief`, `risk_review`, `follow_up_planner`, and `context_qa`. Python-side fixtures can also be run directly:
+
+```bash
+make python-agent-eval
+```
+
 ## Why This Layer Matters
 
 For this project, retrieval quality is only one part of the user experience. A stronger question is:

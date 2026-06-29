@@ -7,7 +7,7 @@ The strongest project story is not a commercial app launch. The repo demonstrate
 ## Current Positioning
 
 - **Realtime collaboration**: organizations, conversations, messages, notes, durable WebSocket replay, room state, WebRTC signaling, and recording sessions.
-- **AI Agent system**: ReAct-style single-agent runs, workflow/DAG-style multi-agent tasks, tool calling, approvals, persisted traces, memory, and conversation-aware context retrieval.
+- **AI Agent system**: ReAct-style single-agent runs, workflow/DAG-style multi-agent tasks, tool calling, approvals, persisted traces, memory, and conversation-aware context retrieval. Workflow presets can optionally run in a Python FastAPI + LangGraph runtime while Go remains the source of truth for data, permissions, approvals, audit, and writes.
 - **Meeting recording transcription**: recording stop can enqueue `recording.transcription.requested`; the provider abstraction supports mock and OpenAI-compatible ASR paths and stores `MeetingTranscriptSegment` rows for Agent retrieval.
 - **Hybrid retrieval**: conversation context plus external knowledge sources, BM25/vector search where Elasticsearch is configured, and Go-layer reranking/chunk assembly.
 - **Async reliability**: MySQL outbox, claim/lease workers, retries, idempotency keys, and Prometheus-style counters.
@@ -22,6 +22,7 @@ Realtime translation code is still present for compatibility, but the mobile UI 
 
 ```text
 backend/     Go backend: API, auth, collaboration, Agent, search, storage, workers
+agent-runtime/ Python FastAPI + LangGraph runtime, provider adapters, tool bridge client, and evals
 web/         Primary React + Vite + TypeScript Web application
 mobile/      Expo React Native app for native Android/iOS
 desktop/     Electron shell wrapping the Web client
@@ -90,6 +91,10 @@ make beta-seed
 make interview-demo
 make interview-microservice-demo
 make agent-eval
+make rag-eval
+make rerank-eval
+make python-agent-eval
+make ai-portfolio-eval
 make realtime-replay-bench
 make chat-ws-replay-bench
 ```
@@ -109,6 +114,15 @@ Common backend variables:
 - `MAIL_PASSWORD`: SMTP credential override.
 - `AGENT_PROVIDER=rules|mock_llm|openai_compatible`: Agent planner/provider selection.
 - `AGENT_PROVIDER_STRICT=true`: required for Beta/production when using a real provider; disables silent fallback to `rules`.
+- `RAG_RERANK_ENABLED=true`, `RAG_RERANK_PROVIDER=rules|cross_encoder_compatible`: optional post-retrieval rerank over BM25/vector/RRF candidates.
+- `AGENT_RUNTIME=go|python_langgraph`: workflow orchestration runtime. Default is `go`; `python_langgraph` supports `meeting_brief`, `risk_review`, `follow_up_planner`, and `context_qa`.
+- `PY_AGENT_RUNTIME_BASE_URL`: Python LangGraph runtime URL, defaulting to `http://127.0.0.1:8090` locally and `http://agent-runtime:8090` in Compose.
+- `PY_AGENT_RUNTIME_TIMEOUT_SEC`, `PY_AGENT_RUNTIME_STRICT`: timeout and strict failure behavior for the Python runtime.
+- `AGENT_RUNTIME_TOOL_TOKEN`: shared token that protects the Go read-only tool bridge for Python runtime calls.
+- `PY_AGENT_PROVIDER=rules|openai_compatible`: Python runtime provider selection.
+- `PY_AGENT_OPENAI_BASE_URL`, `PY_AGENT_OPENAI_MODEL`, `PY_AGENT_OPENAI_API_KEY`: Python runtime OpenAI-compatible chat provider settings.
+- `PY_AGENT_PROMPT_VERSION`, `PY_AGENT_ENABLE_GROUNDING_CHECK`: Python prompt-template and grounding-check controls.
+- `PY_AGENT_TOOL_BRIDGE_BASE_URL`, `PY_AGENT_TOOL_BRIDGE_TOKEN`: Python runtime access to Go-owned read-only tools.
 - `EMBEDDED_WORKERS=0|1`: controls API-process workers.
 - `FCM_SERVICE_ACCOUNT_PATH`: enables Firebase Admin SDK push delivery.
 - `RECORDING_STORAGE_DRIVER=local|s3`: recording storage driver.
