@@ -12,8 +12,8 @@ type EmailVerificationCode struct {
 	IsVerified    bool   `gorm:"default:false;index"`
 	VerifiedAt    *time.Time
 	ConsumedAt    *time.Time `gorm:"index"`
-	AttemptCount  int `gorm:"default:0"`
-	MaxAttempts   int `gorm:"default:3"`
+	AttemptCount  int        `gorm:"default:0"`
+	MaxAttempts   int        `gorm:"default:3"`
 	LastAttemptAt *time.Time
 	BlockedUntil  *time.Time
 	ExpiresAt     time.Time `gorm:"not null;index"`

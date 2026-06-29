@@ -13,19 +13,19 @@ import (
 )
 
 var (
-	ErrEmailTemporarilyBlocked          = errors.New("email is temporarily blocked, please try again later")
-	ErrVerificationCodeNotFoundOrUsed   = errors.New("verification code not found or already used")
-	ErrVerificationCodeExpired          = errors.New("verification code has expired")
-	ErrTooManyVerificationAttempts      = errors.New("too many attempts, please try again later")
-	ErrVerificationCodeIncorrect        = errors.New("verification code is incorrect")
-	ErrEmailNotVerifiedForRegistration  = errors.New("email must be verified before registration")
-	ErrVerificationAlreadyConsumed      = errors.New("verified email state has already been consumed")
-	ErrEmailNotVerifiedForPurpose       = errors.New("email must be verified for the requested purpose")
+	ErrEmailTemporarilyBlocked         = errors.New("email is temporarily blocked, please try again later")
+	ErrVerificationCodeNotFoundOrUsed  = errors.New("verification code not found or already used")
+	ErrVerificationCodeExpired         = errors.New("verification code has expired")
+	ErrTooManyVerificationAttempts     = errors.New("too many attempts, please try again later")
+	ErrVerificationCodeIncorrect       = errors.New("verification code is incorrect")
+	ErrEmailNotVerifiedForRegistration = errors.New("email must be verified before registration")
+	ErrVerificationAlreadyConsumed     = errors.New("verified email state has already been consumed")
+	ErrEmailNotVerifiedForPurpose      = errors.New("email must be verified for the requested purpose")
 )
 
 const (
-	PurposeRegister       = "register"
-	PurposePasswordReset  = "password_reset"
+	PurposeRegister        = "register"
+	PurposePasswordReset   = "password_reset"
 	PurposeAccountDeletion = "account_deletion"
 )
 

@@ -43,31 +43,31 @@ var ErrContactNotFound = errors.New("contact not found")
 
 type ContactRecord struct {
 	models.User
-	Company           string `json:"company,omitempty"`
-	Role              string `json:"role,omitempty"`
-	Timezone          string `json:"timezone,omitempty"`
-	DefaultSourceLang string `json:"default_source_lang,omitempty"`
-	DefaultTargetLang string `json:"default_target_lang,omitempty"`
+	Company               string `json:"company,omitempty"`
+	Role                  string `json:"role,omitempty"`
+	Timezone              string `json:"timezone,omitempty"`
+	DefaultSourceLang     string `json:"default_source_lang,omitempty"`
+	DefaultTargetLang     string `json:"default_target_lang,omitempty"`
 	RelationshipStatus    string `json:"relationship_status,omitempty"`
 	PreferredContactStart string `json:"preferred_contact_start,omitempty"`
 	PreferredContactEnd   string `json:"preferred_contact_end,omitempty"`
 	PreferredContactDays  string `json:"preferred_contact_days,omitempty"`
 	LastFollowupState     string `json:"last_followup_state,omitempty"`
-	Note              string `json:"note,omitempty"`
+	Note                  string `json:"note,omitempty"`
 }
 
 type ContactProfileInput struct {
-	Company           string
-	Role              string
-	Timezone          string
-	DefaultSourceLang string
-	DefaultTargetLang string
+	Company               string
+	Role                  string
+	Timezone              string
+	DefaultSourceLang     string
+	DefaultTargetLang     string
 	RelationshipStatus    string
 	PreferredContactStart string
 	PreferredContactEnd   string
 	PreferredContactDays  string
 	LastFollowupState     string
-	Note              string
+	Note                  string
 }
 
 // AddByEmail 通过邮箱添加联系人
@@ -118,18 +118,18 @@ func (s *Service) ListWithProfiles(ctx context.Context, ownerID uint64) ([]Conta
 	result := make([]ContactRecord, 0, len(rows))
 	for _, row := range rows {
 		result = append(result, ContactRecord{
-			User:              row.User,
-			Company:           row.Company,
-			Role:              row.Role,
-			Timezone:          row.Timezone,
-			DefaultSourceLang: row.DefaultSourceLang,
-			DefaultTargetLang: row.DefaultTargetLang,
-			RelationshipStatus: row.RelationshipStatus,
+			User:                  row.User,
+			Company:               row.Company,
+			Role:                  row.Role,
+			Timezone:              row.Timezone,
+			DefaultSourceLang:     row.DefaultSourceLang,
+			DefaultTargetLang:     row.DefaultTargetLang,
+			RelationshipStatus:    row.RelationshipStatus,
 			PreferredContactStart: row.PreferredContactStart,
 			PreferredContactEnd:   row.PreferredContactEnd,
 			PreferredContactDays:  row.PreferredContactDays,
 			LastFollowupState:     row.LastFollowupState,
-			Note:              row.Note,
+			Note:                  row.Note,
 		})
 	}
 	return result, nil
@@ -182,19 +182,19 @@ func (s *Service) SaveProfile(ctx context.Context, ownerID, contactID uint64, in
 	}
 
 	profile := &models.ContactProfile{
-		OwnerID:           ownerID,
-		ContactUserID:     contactID,
-		Company:           strings.TrimSpace(in.Company),
-		Role:              strings.TrimSpace(in.Role),
-		Timezone:          strings.TrimSpace(in.Timezone),
-		DefaultSourceLang: strings.TrimSpace(strings.ToLower(in.DefaultSourceLang)),
-		DefaultTargetLang: strings.TrimSpace(strings.ToLower(in.DefaultTargetLang)),
-		RelationshipStatus: strings.TrimSpace(strings.ToLower(in.RelationshipStatus)),
+		OwnerID:               ownerID,
+		ContactUserID:         contactID,
+		Company:               strings.TrimSpace(in.Company),
+		Role:                  strings.TrimSpace(in.Role),
+		Timezone:              strings.TrimSpace(in.Timezone),
+		DefaultSourceLang:     strings.TrimSpace(strings.ToLower(in.DefaultSourceLang)),
+		DefaultTargetLang:     strings.TrimSpace(strings.ToLower(in.DefaultTargetLang)),
+		RelationshipStatus:    strings.TrimSpace(strings.ToLower(in.RelationshipStatus)),
 		PreferredContactStart: strings.TrimSpace(in.PreferredContactStart),
 		PreferredContactEnd:   strings.TrimSpace(in.PreferredContactEnd),
 		PreferredContactDays:  strings.TrimSpace(in.PreferredContactDays),
 		LastFollowupState:     strings.TrimSpace(strings.ToLower(in.LastFollowupState)),
-		Note:              strings.TrimSpace(in.Note),
+		Note:                  strings.TrimSpace(in.Note),
 	}
 	if profile.RelationshipStatus == "" {
 		profile.RelationshipStatus = "new"

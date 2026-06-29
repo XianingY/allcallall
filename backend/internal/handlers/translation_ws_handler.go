@@ -138,7 +138,7 @@ func (h *TranslationWSHandler) Handle(c *gin.Context) {
 			stopSession()
 
 			req := translation.StartRequest{
-				OwnerID:     claims.UserID,
+				OwnerID:    claims.UserID,
 				CallID:     strings.TrimSpace(msg.CallID),
 				To:         strings.TrimSpace(msg.To),
 				SourceLang: strings.TrimSpace(msg.SourceLang),

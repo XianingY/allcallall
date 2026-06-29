@@ -10,17 +10,17 @@ import (
 
 type ContactWithProfile struct {
 	models.User
-	Company           string `gorm:"column:profile_company"`
-	Role              string `gorm:"column:profile_role"`
-	Timezone          string `gorm:"column:profile_timezone"`
-	DefaultSourceLang string `gorm:"column:profile_default_source_lang"`
-	DefaultTargetLang string `gorm:"column:profile_default_target_lang"`
-	RelationshipStatus string `gorm:"column:profile_relationship_status"`
+	Company               string `gorm:"column:profile_company"`
+	Role                  string `gorm:"column:profile_role"`
+	Timezone              string `gorm:"column:profile_timezone"`
+	DefaultSourceLang     string `gorm:"column:profile_default_source_lang"`
+	DefaultTargetLang     string `gorm:"column:profile_default_target_lang"`
+	RelationshipStatus    string `gorm:"column:profile_relationship_status"`
 	PreferredContactStart string `gorm:"column:profile_preferred_contact_start"`
 	PreferredContactEnd   string `gorm:"column:profile_preferred_contact_end"`
 	PreferredContactDays  string `gorm:"column:profile_preferred_contact_days"`
 	LastFollowupState     string `gorm:"column:profile_last_followup_state"`
-	Note              string `gorm:"column:profile_note"`
+	Note                  string `gorm:"column:profile_note"`
 }
 
 // Repository 联系人与关系数据访问

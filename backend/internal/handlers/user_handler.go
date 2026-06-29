@@ -209,17 +209,17 @@ type addContactRequest struct {
 }
 
 type contactProfileDTO struct {
-	Company           string `json:"company,omitempty"`
-	Role              string `json:"role,omitempty"`
-	Timezone          string `json:"timezone,omitempty"`
-	DefaultSourceLang string `json:"default_source_lang,omitempty"`
-	DefaultTargetLang string `json:"default_target_lang,omitempty"`
+	Company               string `json:"company,omitempty"`
+	Role                  string `json:"role,omitempty"`
+	Timezone              string `json:"timezone,omitempty"`
+	DefaultSourceLang     string `json:"default_source_lang,omitempty"`
+	DefaultTargetLang     string `json:"default_target_lang,omitempty"`
 	RelationshipStatus    string `json:"relationship_status,omitempty"`
 	PreferredContactStart string `json:"preferred_contact_start,omitempty"`
 	PreferredContactEnd   string `json:"preferred_contact_end,omitempty"`
 	PreferredContactDays  string `json:"preferred_contact_days,omitempty"`
 	LastFollowupState     string `json:"last_followup_state,omitempty"`
-	Note              string `json:"note,omitempty"`
+	Note                  string `json:"note,omitempty"`
 }
 
 func (h *UserHandler) handleAddContact(c *gin.Context) {
@@ -275,17 +275,17 @@ func (h *UserHandler) handleListContacts(c *gin.Context) {
 			"display_name": u.DisplayName,
 		}
 		item["profile"] = contactProfileDTO{
-			Company:           u.Company,
-			Role:              u.Role,
-			Timezone:          u.Timezone,
-			DefaultSourceLang: u.DefaultSourceLang,
-			DefaultTargetLang: u.DefaultTargetLang,
-			RelationshipStatus: u.RelationshipStatus,
+			Company:               u.Company,
+			Role:                  u.Role,
+			Timezone:              u.Timezone,
+			DefaultSourceLang:     u.DefaultSourceLang,
+			DefaultTargetLang:     u.DefaultTargetLang,
+			RelationshipStatus:    u.RelationshipStatus,
 			PreferredContactStart: u.PreferredContactStart,
 			PreferredContactEnd:   u.PreferredContactEnd,
 			PreferredContactDays:  u.PreferredContactDays,
 			LastFollowupState:     u.LastFollowupState,
-			Note:              u.Note,
+			Note:                  u.Note,
 		}
 		response = append(response, item)
 	}

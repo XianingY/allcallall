@@ -1,13 +1,13 @@
 package main
 
 import (
-"fmt"
-"log"
-"os"
+	"fmt"
+	"log"
+	"os"
 
-"github.com/allcallall/backend/internal/config"
-"github.com/allcallall/backend/internal/logger"
-"github.com/allcallall/backend/internal/mail"
+	"github.com/allcallall/backend/internal/config"
+	"github.com/allcallall/backend/internal/logger"
+	"github.com/allcallall/backend/internal/mail"
 )
 
 func main() {
@@ -39,15 +39,15 @@ func main() {
 
 	// 4. 创建邮件服务
 	mailSvc := mail.NewService(mail.Config{
-Host:             cfg.Mail.Host,
-Port:             cfg.Mail.Port,
-Username:         cfg.Mail.Username,
-Password:         mailPassword,
-From:             cfg.Mail.From,
-FromName:         cfg.Mail.FromName,
-MaxRetries:       cfg.Mail.MaxRetries,
-RetryDelaySecond: cfg.Mail.RetryDelaySecond,
-}, appLogger)
+		Host:             cfg.Mail.Host,
+		Port:             cfg.Mail.Port,
+		Username:         cfg.Mail.Username,
+		Password:         mailPassword,
+		From:             cfg.Mail.From,
+		FromName:         cfg.Mail.FromName,
+		MaxRetries:       cfg.Mail.MaxRetries,
+		RetryDelaySecond: cfg.Mail.RetryDelaySecond,
+	}, appLogger)
 
 	appLogger.Info().Msg("✓ Mail service created successfully")
 

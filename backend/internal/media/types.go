@@ -89,8 +89,8 @@ type OfferAnswer struct {
 // ICECandidateInit 包含 ICE 候选信息
 // ICECandidateInit contains ICE candidate information
 type ICECandidateInit struct {
-	Candidate        string `json:"candidate"`
+	Candidate        string  `json:"candidate"`
 	SDPMLineIndex    *uint16 `json:"sdpMLineIndex"`
 	SDPMid           *string `json:"sdpMid"`
-	UsernameFragment string `json:"usernameFragment,omitempty"`
+	UsernameFragment string  `json:"usernameFragment,omitempty"`
 }
