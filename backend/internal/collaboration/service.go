@@ -497,7 +497,10 @@ func (s *Service) CreateOrganization(ctx context.Context, userID uint64, name st
 		}).Error; err != nil {
 			return err
 		}
-		return s.seedDefaultPipelineTx(tx, created.ID, userID)
+		if err := s.seedDefaultPipelineTx(tx, created.ID, userID); err != nil {
+			return err
+		}
+		return s.recordOrganizationAuditTx(ctx, tx, created.ID, userID, "organization.created", "organization", strconv.FormatUint(created.ID, 10), map[string]any{"name": created.Name})
 	})
 	if err != nil {
 		return nil, err
@@ -561,6 +564,11 @@ func (s *Service) CreateOrganizationInvite(ctx context.Context, organizationID, 
 	} else if orgRole != models.OrganizationRoleOwner && orgRole != models.OrganizationRoleAdmin {
 		return nil, ErrOrganizationAccessDenied
 	}
+	if input.TeamID != nil {
+		if err := s.ensureTeamBelongsToOrg(ctx, organizationID, *input.TeamID); err != nil {
+			return nil, err
+		}
+	}
 	expiresAt := time.Now().Add(7 * 24 * time.Hour)
 	if input.ExpiresAt != nil {
 		expiresAt = *input.ExpiresAt
@@ -575,7 +583,17 @@ func (s *Service) CreateOrganizationInvite(ctx context.Context, organizationID, 
 		Status:         models.InvitationStatusPending,
 		ExpiresAt:      expiresAt,
 	}
-	if err := s.db.WithContext(ctx).Create(invite).Error; err != nil {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(invite).Error; err != nil {
+			return err
+		}
+		return s.recordOrganizationAuditTx(ctx, tx, organizationID, inviterID, "organization.invite.created", "invite", strconv.FormatUint(invite.ID, 10), map[string]any{
+			"target_email": invite.TargetEmail,
+			"role":         invite.Role,
+			"team_id":      invite.TeamID,
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
 	return invite, nil
@@ -624,7 +642,10 @@ func (s *Service) AcceptOrganizationInvite(ctx context.Context, code string, use
 		invite.Status = models.InvitationStatusAccepted
 		invite.AcceptedUserID = &userID
 		invite.AcceptedAt = &now
-		return tx.Save(&invite).Error
+		if err := tx.Save(&invite).Error; err != nil {
+			return err
+		}
+		return s.recordOrganizationAuditTx(ctx, tx, invite.OrganizationID, userID, "organization.invite.accepted", "invite", strconv.FormatUint(invite.ID, 10), map[string]any{"target_email": invite.TargetEmail})
 	})
 	if err != nil {
 		return nil, err
@@ -663,7 +684,16 @@ func (s *Service) UpdateOrganizationPolicy(ctx context.Context, organizationID, 
 		policy.RecordingStorageDays = input.RecordingStorageDays
 	}
 	policy.RecordingExportAllowed = input.RecordingExportAllowed
-	if err := s.db.WithContext(ctx).Save(&policy).Error; err != nil {
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&policy).Error; err != nil {
+			return err
+		}
+		return s.recordOrganizationAuditTx(ctx, tx, organizationID, userID, "organization.policy.updated", "policy", strconv.FormatUint(policy.ID, 10), map[string]any{
+			"recording_mode":           policy.RecordingMode,
+			"recording_storage_days":   policy.RecordingStorageDays,
+			"recording_export_allowed": policy.RecordingExportAllowed,
+		})
+	}); err != nil {
 		return nil, err
 	}
 	return &policy, nil

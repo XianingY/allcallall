@@ -312,6 +312,85 @@ components:
         slug: { type: string }
         description: { type: string }
         role: { type: string, enum: [owner, admin, member] }
+    OrganizationMember:
+      type: object
+      required: [id, organization_id, user_id, email, display_name, status, role, joined_at, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        user_id: { type: integer, format: int64 }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        status: { type: string }
+        role: { type: string, enum: [owner, admin, member] }
+        joined_at: { type: string, format: date-time }
+        last_active_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    OrganizationInvite:
+      type: object
+      required: [id, organization_id, code, target_email, role, status, expires_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        team_id: { type: [integer, 'null'], format: int64 }
+        code: { type: string }
+        target_email: { type: string, format: email }
+        role: { type: string, enum: [owner, admin, member] }
+        status: { type: string, enum: [pending, accepted, expired, revoked] }
+        accepted_user_id: { type: [integer, 'null'], format: int64 }
+        accepted_at: { type: [string, 'null'], format: date-time }
+        expires_at: { type: string, format: date-time }
+    OrganizationTeamMember:
+      type: object
+      required: [id, team_id, user_id, email, display_name, role, joined_at, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        team_id: { type: integer, format: int64 }
+        user_id: { type: integer, format: int64 }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        role: { type: string }
+        joined_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    OrganizationTeam:
+      type: object
+      required: [id, organization_id, name, slug, created_by, member_count, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: string }
+        created_by: { type: integer, format: int64 }
+        member_count: { type: integer, format: int64 }
+        members: { type: array, items: { $ref: '#/components/schemas/OrganizationTeamMember' } }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    OrganizationPolicy:
+      type: object
+      required: [id, organization_id, recording_mode, recording_storage_days, recording_export_allowed]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        recording_mode: { type: string, enum: [off, admin_opt_in, forced_for_team_meetings] }
+        recording_storage_days: { type: integer }
+        recording_export_allowed: { type: boolean }
+    OrganizationAuditEvent:
+      type: object
+      required: [id, organization_id, actor_user_id, actor_email, actor_display_name, action, target_type, target_id, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        actor_user_id: { type: integer, format: int64 }
+        actor_email: { type: string }
+        actor_display_name: { type: string }
+        action: { type: string }
+        target_type: { type: string }
+        target_id: { type: string }
+        metadata: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
     AuthResponse:
       type: object
       required: [user, access_token]

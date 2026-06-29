@@ -48,8 +48,21 @@ func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGrou
 	protected.POST("/organizations", h.handleCreateOrganization)
 	protected.GET("/organizations", h.handleListOrganizations)
 	protected.POST("/organizations/:id/switch", h.handleSwitchOrganization)
+	protected.GET("/organizations/:id/members", h.handleListOrganizationMembers)
+	protected.PATCH("/organizations/:id/members/:userId", h.handleUpdateOrganizationMember)
+	protected.DELETE("/organizations/:id/members/:userId", h.handleRemoveOrganizationMember)
+	protected.GET("/organizations/:id/invites", h.handleListOrganizationInvites)
 	protected.POST("/organizations/:id/invites", h.handleCreateOrganizationInvite)
+	protected.POST("/organizations/:id/invites/:inviteId/resend", h.handleResendOrganizationInvite)
+	protected.DELETE("/organizations/:id/invites/:inviteId", h.handleRevokeOrganizationInvite)
 	protected.POST("/organizations/invites/:code/accept", h.handleAcceptOrganizationInvite)
+	protected.GET("/organizations/:id/teams", h.handleListTeams)
+	protected.POST("/organizations/:id/teams", h.handleCreateTeam)
+	protected.PATCH("/organizations/:id/teams/:teamId", h.handleUpdateTeam)
+	protected.DELETE("/organizations/:id/teams/:teamId", h.handleDeleteTeam)
+	protected.POST("/organizations/:id/teams/:teamId/members", h.handleAddTeamMember)
+	protected.DELETE("/organizations/:id/teams/:teamId/members/:userId", h.handleRemoveTeamMember)
+	protected.GET("/organizations/:id/audit-events", h.handleListOrganizationAuditEvents)
 	protected.GET("/organizations/:id/policy", h.handleGetOrganizationPolicy)
 	protected.PUT("/organizations/:id/policy", h.handleUpdateOrganizationPolicy)
 
@@ -138,6 +151,58 @@ type organizationInviteResponse struct {
 	AcceptedUserID *uint64    `json:"accepted_user_id,omitempty"`
 	AcceptedAt     *time.Time `json:"accepted_at,omitempty"`
 	ExpiresAt      time.Time  `json:"expires_at"`
+}
+
+type organizationMemberResponse struct {
+	ID             uint64     `json:"id"`
+	OrganizationID uint64     `json:"organization_id"`
+	UserID         uint64     `json:"user_id"`
+	Email          string     `json:"email"`
+	DisplayName    string     `json:"display_name"`
+	Status         string     `json:"status"`
+	Role           string     `json:"role"`
+	JoinedAt       time.Time  `json:"joined_at"`
+	LastActiveAt   *time.Time `json:"last_active_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+type teamResponse struct {
+	ID             uint64               `json:"id"`
+	OrganizationID uint64               `json:"organization_id"`
+	Name           string               `json:"name"`
+	Slug           string               `json:"slug"`
+	Description    string               `json:"description,omitempty"`
+	CreatedBy      uint64               `json:"created_by"`
+	MemberCount    int64                `json:"member_count"`
+	Members        []teamMemberResponse `json:"members,omitempty"`
+	CreatedAt      time.Time            `json:"created_at"`
+	UpdatedAt      time.Time            `json:"updated_at"`
+}
+
+type teamMemberResponse struct {
+	ID          uint64    `json:"id"`
+	TeamID      uint64    `json:"team_id"`
+	UserID      uint64    `json:"user_id"`
+	Email       string    `json:"email"`
+	DisplayName string    `json:"display_name"`
+	Role        string    `json:"role"`
+	JoinedAt    time.Time `json:"joined_at"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type organizationAuditEventResponse struct {
+	ID               uint64         `json:"id"`
+	OrganizationID   uint64         `json:"organization_id"`
+	ActorUserID      uint64         `json:"actor_user_id"`
+	ActorEmail       string         `json:"actor_email"`
+	ActorDisplayName string         `json:"actor_display_name"`
+	Action           string         `json:"action"`
+	TargetType       string         `json:"target_type"`
+	TargetID         string         `json:"target_id"`
+	Metadata         map[string]any `json:"metadata,omitempty"`
+	CreatedAt        time.Time      `json:"created_at"`
 }
 
 type conversationResponse struct {
@@ -474,6 +539,105 @@ func (h *CollaborationHandler) handleCreateOrganizationInvite(c *gin.Context) {
 	JSONSuccess(c, http.StatusCreated, gin.H{"invite": toOrganizationInviteResponse(*invite)})
 }
 
+func (h *CollaborationHandler) handleListOrganizationMembers(c *gin.Context) {
+	claims, orgID, ok := h.organizationRouteParams(c)
+	if !ok {
+		return
+	}
+	items, err := h.service.ListOrganizationMembers(c.Request.Context(), orgID, claims.UserID)
+	if err != nil {
+		JSONError(c, http.StatusForbidden, err.Error())
+		return
+	}
+	response := make([]organizationMemberResponse, 0, len(items))
+	for _, item := range items {
+		response = append(response, toOrganizationMemberResponse(item))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"members": response})
+}
+
+func (h *CollaborationHandler) handleUpdateOrganizationMember(c *gin.Context) {
+	claims, orgID, ok := h.organizationRouteParams(c)
+	if !ok {
+		return
+	}
+	targetUserID, err := parseUintParam(c.Param("userId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	var req collaboration.OrganizationMemberUpdateInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := h.service.UpdateOrganizationMember(c.Request.Context(), orgID, claims.UserID, targetUserID, req)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"member": toOrganizationMemberResponse(*item)})
+}
+
+func (h *CollaborationHandler) handleRemoveOrganizationMember(c *gin.Context) {
+	claims, orgID, ok := h.organizationRouteParams(c)
+	if !ok {
+		return
+	}
+	targetUserID, err := parseUintParam(c.Param("userId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	if err := h.service.RemoveOrganizationMember(c.Request.Context(), orgID, claims.UserID, targetUserID); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
+}
+
+func (h *CollaborationHandler) handleListOrganizationInvites(c *gin.Context) {
+	claims, orgID, ok := h.organizationRouteParams(c)
+	if !ok {
+		return
+	}
+	items, err := h.service.ListOrganizationInvites(c.Request.Context(), orgID, claims.UserID)
+	if err != nil {
+		JSONError(c, http.StatusForbidden, err.Error())
+		return
+	}
+	response := make([]organizationInviteResponse, 0, len(items))
+	for _, item := range items {
+		response = append(response, toOrganizationInviteResponse(item))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"invites": response})
+}
+
+func (h *CollaborationHandler) handleResendOrganizationInvite(c *gin.Context) {
+	claims, orgID, inviteID, ok := h.organizationInviteRouteParams(c)
+	if !ok {
+		return
+	}
+	item, err := h.service.ResendOrganizationInvite(c.Request.Context(), orgID, claims.UserID, inviteID)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"invite": toOrganizationInviteResponse(*item)})
+}
+
+func (h *CollaborationHandler) handleRevokeOrganizationInvite(c *gin.Context) {
+	claims, orgID, inviteID, ok := h.organizationInviteRouteParams(c)
+	if !ok {
+		return
+	}
+	if err := h.service.RevokeOrganizationInvite(c.Request.Context(), orgID, claims.UserID, inviteID); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
+}
+
 func (h *CollaborationHandler) handleAcceptOrganizationInvite(c *gin.Context) {
 	claims, err := auth.GetClaimsFromContext(c)
 	if err != nil {
@@ -490,6 +654,135 @@ func (h *CollaborationHandler) handleAcceptOrganizationInvite(c *gin.Context) {
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"invite": toOrganizationInviteResponse(*invite)})
+}
+
+func (h *CollaborationHandler) handleListTeams(c *gin.Context) {
+	claims, orgID, ok := h.organizationRouteParams(c)
+	if !ok {
+		return
+	}
+	items, err := h.service.ListTeams(c.Request.Context(), orgID, claims.UserID)
+	if err != nil {
+		JSONError(c, http.StatusForbidden, err.Error())
+		return
+	}
+	response := make([]teamResponse, 0, len(items))
+	for _, item := range items {
+		response = append(response, toTeamResponse(item))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"teams": response})
+}
+
+func (h *CollaborationHandler) handleCreateTeam(c *gin.Context) {
+	claims, orgID, ok := h.organizationRouteParams(c)
+	if !ok {
+		return
+	}
+	var req collaboration.TeamInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := h.service.CreateTeam(c.Request.Context(), orgID, claims.UserID, req)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusCreated, gin.H{"team": toTeamResponse(*item)})
+}
+
+func (h *CollaborationHandler) handleUpdateTeam(c *gin.Context) {
+	claims, orgID, teamID, ok := h.teamRouteParams(c)
+	if !ok {
+		return
+	}
+	var req collaboration.TeamInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := h.service.UpdateTeam(c.Request.Context(), orgID, claims.UserID, teamID, req)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"team": toTeamResponse(*item)})
+}
+
+func (h *CollaborationHandler) handleDeleteTeam(c *gin.Context) {
+	claims, orgID, teamID, ok := h.teamRouteParams(c)
+	if !ok {
+		return
+	}
+	if err := h.service.DeleteTeam(c.Request.Context(), orgID, claims.UserID, teamID); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
+}
+
+func (h *CollaborationHandler) handleAddTeamMember(c *gin.Context) {
+	claims, orgID, teamID, ok := h.teamRouteParams(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		UserID uint64 `json:"user_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := h.service.AddTeamMember(c.Request.Context(), orgID, claims.UserID, teamID, req.UserID)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"team": toTeamResponse(*item)})
+}
+
+func (h *CollaborationHandler) handleRemoveTeamMember(c *gin.Context) {
+	claims, orgID, teamID, ok := h.teamRouteParams(c)
+	if !ok {
+		return
+	}
+	targetUserID, err := parseUintParam(c.Param("userId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	item, err := h.service.RemoveTeamMember(c.Request.Context(), orgID, claims.UserID, teamID, targetUserID)
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"team": toTeamResponse(*item)})
+}
+
+func (h *CollaborationHandler) handleListOrganizationAuditEvents(c *gin.Context) {
+	claims, orgID, ok := h.organizationRouteParams(c)
+	if !ok {
+		return
+	}
+	limit := 50
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			JSONError(c, http.StatusBadRequest, "invalid limit")
+			return
+		}
+		limit = parsed
+	}
+	items, err := h.service.ListOrganizationAuditEvents(c.Request.Context(), orgID, claims.UserID, limit)
+	if err != nil {
+		JSONError(c, http.StatusForbidden, err.Error())
+		return
+	}
+	response := make([]organizationAuditEventResponse, 0, len(items))
+	for _, item := range items {
+		response = append(response, toOrganizationAuditEventResponse(item))
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"events": response})
 }
 
 func (h *CollaborationHandler) handleGetOrganizationPolicy(c *gin.Context) {
@@ -690,6 +983,46 @@ func (h *CollaborationHandler) requireCurrentOrganization(c *gin.Context) (*auth
 	return claims, org.ID, true
 }
 
+func (h *CollaborationHandler) organizationRouteParams(c *gin.Context) (*auth.Claims, uint64, bool) {
+	claims, err := auth.GetClaimsFromContext(c)
+	if err != nil {
+		JSONError(c, http.StatusUnauthorized, "missing auth claims")
+		return nil, 0, false
+	}
+	orgID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid organization id")
+		return nil, 0, false
+	}
+	return claims, orgID, true
+}
+
+func (h *CollaborationHandler) organizationInviteRouteParams(c *gin.Context) (*auth.Claims, uint64, uint64, bool) {
+	claims, orgID, ok := h.organizationRouteParams(c)
+	if !ok {
+		return nil, 0, 0, false
+	}
+	inviteID, err := parseUintParam(c.Param("inviteId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid invite id")
+		return nil, 0, 0, false
+	}
+	return claims, orgID, inviteID, true
+}
+
+func (h *CollaborationHandler) teamRouteParams(c *gin.Context) (*auth.Claims, uint64, uint64, bool) {
+	claims, orgID, ok := h.organizationRouteParams(c)
+	if !ok {
+		return nil, 0, 0, false
+	}
+	teamID, err := parseUintParam(c.Param("teamId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid team id")
+		return nil, 0, 0, false
+	}
+	return claims, orgID, teamID, true
+}
+
 func toOrganizationResponse(org models.Organization, role string) organizationResponse {
 	return organizationResponse{
 		ID:          org.ID,
@@ -723,6 +1056,76 @@ func toOrganizationInviteResponse(item models.OrganizationInvite) organizationIn
 		AcceptedAt:     item.AcceptedAt,
 		ExpiresAt:      item.ExpiresAt,
 	}
+}
+
+func toOrganizationMemberResponse(item collaboration.OrganizationMemberView) organizationMemberResponse {
+	return organizationMemberResponse{
+		ID:             item.ID,
+		OrganizationID: item.OrganizationID,
+		UserID:         item.UserID,
+		Email:          item.Email,
+		DisplayName:    item.DisplayName,
+		Status:         item.Status,
+		Role:           item.Role,
+		JoinedAt:       item.JoinedAt,
+		LastActiveAt:   item.LastActiveAt,
+		CreatedAt:      item.CreatedAt,
+		UpdatedAt:      item.UpdatedAt,
+	}
+}
+
+func toTeamResponse(item collaboration.TeamView) teamResponse {
+	members := make([]teamMemberResponse, 0, len(item.Members))
+	for _, member := range item.Members {
+		members = append(members, toTeamMemberResponse(member))
+	}
+	return teamResponse{
+		ID:             item.ID,
+		OrganizationID: item.OrganizationID,
+		Name:           item.Name,
+		Slug:           item.Slug,
+		Description:    item.Description,
+		CreatedBy:      item.CreatedBy,
+		MemberCount:    item.MemberCount,
+		Members:        members,
+		CreatedAt:      item.CreatedAt,
+		UpdatedAt:      item.UpdatedAt,
+	}
+}
+
+func toTeamMemberResponse(item collaboration.TeamMemberView) teamMemberResponse {
+	return teamMemberResponse{
+		ID:          item.ID,
+		TeamID:      item.TeamID,
+		UserID:      item.UserID,
+		Email:       item.Email,
+		DisplayName: item.DisplayName,
+		Role:        item.Role,
+		JoinedAt:    item.JoinedAt,
+		CreatedAt:   item.CreatedAt,
+		UpdatedAt:   item.UpdatedAt,
+	}
+}
+
+func toOrganizationAuditEventResponse(item collaboration.OrganizationAuditEventView) organizationAuditEventResponse {
+	response := organizationAuditEventResponse{
+		ID:               item.ID,
+		OrganizationID:   item.OrganizationID,
+		ActorUserID:      item.ActorUserID,
+		ActorEmail:       item.ActorEmail,
+		ActorDisplayName: item.ActorDisplayName,
+		Action:           item.Action,
+		TargetType:       item.TargetType,
+		TargetID:         item.TargetID,
+		CreatedAt:        item.CreatedAt,
+	}
+	if strings.TrimSpace(item.MetadataJSON) != "" {
+		var metadata map[string]any
+		if err := json.Unmarshal([]byte(item.MetadataJSON), &metadata); err == nil {
+			response.Metadata = metadata
+		}
+	}
+	return response
 }
 
 func toConversationResponse(item collaboration.ConversationSummary) conversationResponse {

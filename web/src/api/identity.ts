@@ -3,6 +3,11 @@ import { apiRequest, setAccessToken } from "@/api/http";
 
 export type User = components["schemas"]["User"];
 export type Organization = components["schemas"]["Organization"];
+export type OrganizationMember = components["schemas"]["OrganizationMember"];
+export type OrganizationInvite = components["schemas"]["OrganizationInvite"];
+export type OrganizationTeam = components["schemas"]["OrganizationTeam"];
+export type OrganizationAuditEvent = components["schemas"]["OrganizationAuditEvent"];
+export type OrganizationPolicy = components["schemas"]["OrganizationPolicy"];
 export type AuthResponse = components["schemas"]["AuthResponse"];
 export type LegalInfo = components["schemas"]["LegalInfo"];
 export type RefreshSession = components["schemas"]["RefreshSession"];
@@ -38,4 +43,19 @@ export const listOrganizations = () => apiRequest<{ organizations: Organization[
 export const createOrganization = (name: string) => apiRequest<{ organization: Organization }>("/organizations", { method: "POST", body: JSON.stringify({ name }) }).then((value) => value.organization);
 export const switchOrganization = (id: number) => apiRequest<{ organization: Organization }>(`/organizations/${id}/switch`, { method: "POST" }).then((value) => value.organization);
 export const acceptOrganizationInvite = (code: string) => apiRequest<{ invite: { organization_id: number } }>(`/organizations/invites/${encodeURIComponent(code)}/accept`, { method: "POST" });
-
+export const listOrganizationMembers = (id: number) => apiRequest<{ members: OrganizationMember[] }>(`/organizations/${id}/members`).then((value) => value.members);
+export const updateOrganizationMember = (id: number, userId: number, role: string) => apiRequest<{ member: OrganizationMember }>(`/organizations/${id}/members/${userId}`, { method: "PATCH", body: JSON.stringify({ role }) }).then((value) => value.member);
+export const removeOrganizationMember = (id: number, userId: number) => apiRequest<void>(`/organizations/${id}/members/${userId}`, { method: "DELETE" });
+export const listOrganizationInvites = (id: number) => apiRequest<{ invites: OrganizationInvite[] }>(`/organizations/${id}/invites`).then((value) => value.invites);
+export const createOrganizationInvite = (id: number, input: { target_email: string; role?: string; team_id?: number }) => apiRequest<{ invite: OrganizationInvite }>(`/organizations/${id}/invites`, { method: "POST", body: JSON.stringify(input) }).then((value) => value.invite);
+export const resendOrganizationInvite = (id: number, inviteId: number) => apiRequest<{ invite: OrganizationInvite }>(`/organizations/${id}/invites/${inviteId}/resend`, { method: "POST" }).then((value) => value.invite);
+export const revokeOrganizationInvite = (id: number, inviteId: number) => apiRequest<void>(`/organizations/${id}/invites/${inviteId}`, { method: "DELETE" });
+export const listOrganizationTeams = (id: number) => apiRequest<{ teams: OrganizationTeam[] }>(`/organizations/${id}/teams`).then((value) => value.teams);
+export const createOrganizationTeam = (id: number, input: { name: string; description?: string }) => apiRequest<{ team: OrganizationTeam }>(`/organizations/${id}/teams`, { method: "POST", body: JSON.stringify(input) }).then((value) => value.team);
+export const updateOrganizationTeam = (id: number, teamId: number, input: { name: string; description?: string }) => apiRequest<{ team: OrganizationTeam }>(`/organizations/${id}/teams/${teamId}`, { method: "PATCH", body: JSON.stringify(input) }).then((value) => value.team);
+export const deleteOrganizationTeam = (id: number, teamId: number) => apiRequest<void>(`/organizations/${id}/teams/${teamId}`, { method: "DELETE" });
+export const addOrganizationTeamMember = (id: number, teamId: number, userId: number) => apiRequest<{ team: OrganizationTeam }>(`/organizations/${id}/teams/${teamId}/members`, { method: "POST", body: JSON.stringify({ user_id: userId }) }).then((value) => value.team);
+export const removeOrganizationTeamMember = (id: number, teamId: number, userId: number) => apiRequest<{ team: OrganizationTeam }>(`/organizations/${id}/teams/${teamId}/members/${userId}`, { method: "DELETE" }).then((value) => value.team);
+export const getOrganizationPolicy = (id: number) => apiRequest<{ policy: OrganizationPolicy }>(`/organizations/${id}/policy`).then((value) => value.policy);
+export const updateOrganizationPolicy = (id: number, input: { recording_mode: string; recording_storage_days: number; recording_export_allowed: boolean }) => apiRequest<{ policy: OrganizationPolicy }>(`/organizations/${id}/policy`, { method: "PUT", body: JSON.stringify(input) }).then((value) => value.policy);
+export const listOrganizationAuditEvents = (id: number) => apiRequest<{ events: OrganizationAuditEvent[] }>(`/organizations/${id}/audit-events`).then((value) => value.events);

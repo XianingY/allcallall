@@ -6,6 +6,7 @@ const (
 	InvitationStatusPending  = "pending"
 	InvitationStatusAccepted = "accepted"
 	InvitationStatusExpired  = "expired"
+	InvitationStatusRevoked  = "revoked"
 )
 
 // Invitation stores a directed business invitation that can auto-create contacts.

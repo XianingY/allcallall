@@ -392,6 +392,26 @@
 .contact-meta dt { display: flex; align-items: center; gap: .3rem; color: #7d8784; font-size: .65rem; }
 .contact-meta dd { overflow: hidden; margin: .15rem 0 0; text-overflow: ellipsis; font-size: .75rem; white-space: nowrap; }
 .compact { gap: .65rem; }
+.org-admin-layout { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 1rem; }
+.org-sidebar { align-self: start; }
+.org-admin-main { min-height: 620px; }
+.org-tabs { display: flex; flex-wrap: wrap; gap: .25rem; margin-bottom: 1rem; border-bottom: 1px solid #dfe4e2; padding-bottom: .6rem; }
+.org-tabs button { border-radius: 4px; padding: .35rem .6rem; color: #65706d; font-size: .72rem; }
+.org-tabs button.active { background: #dff2ed; color: #146c5a; font-weight: 650; }
+.org-overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .75rem; }
+.org-overview-grid article { display: grid; gap: .25rem; border: 1px solid #dfe4e2; border-radius: 6px; background: #fbfcfc; padding: .85rem; }
+.org-overview-grid span, .org-overview-grid small { color: #65706d; font-size: .7rem; }
+.org-overview-grid strong { font-size: 1.1rem; }
+.compact-field { width: 110px; }
+.org-invite-bar { display: grid; grid-template-columns: minmax(180px, 1fr) 120px minmax(140px, 180px) auto; align-items: center; }
+.org-team-bar { display: grid; grid-template-columns: minmax(160px, 220px) minmax(180px, 1fr) auto; align-items: center; }
+.org-team-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .75rem; }
+.team-card { padding: .85rem; }
+.team-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; margin-bottom: .75rem; }
+.team-card h2 { font-size: .9rem; font-weight: 650; }
+.team-card p { color: #65706d; font-size: .7rem; }
+.team-member-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; border-bottom: 1px solid #edf0ee; padding: .3rem 0; font-size: .72rem; }
+.org-policy-form { max-width: 520px; }
 .task-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; }
 .column-title { display: flex; align-items: center; gap: .5rem; font-size: .9rem; font-weight: 650; }
 .column-title span { border-radius: 8px; background: #e6ebe9; padding: .05rem .4rem; color: #65706d; font-size: .68rem; }

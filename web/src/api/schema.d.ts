@@ -480,6 +480,113 @@ export interface components {
             /** @enum {string} */
             role: "owner" | "admin" | "member";
         };
+        OrganizationMember: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            user_id: number;
+            /** Format: email */
+            email: string;
+            display_name: string;
+            status: string;
+            /** @enum {string} */
+            role: "owner" | "admin" | "member";
+            /** Format: date-time */
+            joined_at: string;
+            /** Format: date-time */
+            last_active_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        OrganizationInvite: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            team_id?: number | null;
+            code: string;
+            /** Format: email */
+            target_email: string;
+            /** @enum {string} */
+            role: "owner" | "admin" | "member";
+            /** @enum {string} */
+            status: "pending" | "accepted" | "expired" | "revoked";
+            /** Format: int64 */
+            accepted_user_id?: number | null;
+            /** Format: date-time */
+            accepted_at?: string | null;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        OrganizationTeamMember: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            team_id: number;
+            /** Format: int64 */
+            user_id: number;
+            /** Format: email */
+            email: string;
+            display_name: string;
+            role: string;
+            /** Format: date-time */
+            joined_at: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        OrganizationTeam: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            name: string;
+            slug: string;
+            description?: string;
+            /** Format: int64 */
+            created_by: number;
+            /** Format: int64 */
+            member_count: number;
+            members?: components["schemas"]["OrganizationTeamMember"][];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        OrganizationPolicy: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** @enum {string} */
+            recording_mode: "off" | "admin_opt_in" | "forced_for_team_meetings";
+            recording_storage_days: number;
+            recording_export_allowed: boolean;
+        };
+        OrganizationAuditEvent: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            actor_user_id: number;
+            actor_email: string;
+            actor_display_name: string;
+            action: string;
+            target_type: string;
+            target_id: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at: string;
+        };
         AuthResponse: {
             user: components["schemas"]["User"];
             access_token: string;

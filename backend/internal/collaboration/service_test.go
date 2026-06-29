@@ -79,6 +79,7 @@ func newServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *user.Service) {
 		&models.OrganizationPolicy{},
 		&models.Team{},
 		&models.TeamMember{},
+		&models.OrganizationInvite{},
 		&models.Conversation{},
 		&models.ConversationNote{},
 		&models.ConversationMember{},
@@ -359,6 +360,104 @@ func TestServiceBetaChatMessageLifecycle(t *testing.T) {
 	}
 	if deleted.DeletedAt == nil || deleted.Body != "" {
 		t.Fatalf("expected redacted deleted message, got %+v", deleted)
+	}
+}
+
+func TestServiceOrganizationAdminLifecycle(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	ctx := context.Background()
+
+	owner := createTestUser(t, db, "org-owner@example.com", "Owner")
+	admin := createTestUser(t, db, "org-admin@example.com", "Admin")
+	member := createTestUser(t, db, "org-member@example.com", "Member")
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Admin Org")
+	if err != nil {
+		t.Fatalf("create organization failed: %v", err)
+	}
+	addOrgMember(t, db, org.ID, admin.ID, models.OrganizationRoleAdmin)
+	addOrgMember(t, db, org.ID, member.ID, models.OrganizationRoleMember)
+
+	members, err := svc.ListOrganizationMembers(ctx, org.ID, member.ID)
+	if err != nil {
+		t.Fatalf("member should list org members: %v", err)
+	}
+	if len(members) != 3 {
+		t.Fatalf("expected 3 members, got %d", len(members))
+	}
+	if _, err := svc.UpdateOrganizationMember(ctx, org.ID, member.ID, admin.ID, OrganizationMemberUpdateInput{Role: models.OrganizationRoleMember}); !errors.Is(err, ErrOrganizationAccessDenied) {
+		t.Fatalf("expected member role update denied, got %v", err)
+	}
+	if _, err := svc.UpdateOrganizationMember(ctx, org.ID, admin.ID, owner.ID, OrganizationMemberUpdateInput{Role: models.OrganizationRoleMember}); !errors.Is(err, ErrOrganizationAccessDenied) {
+		t.Fatalf("expected admin demoting owner denied, got %v", err)
+	}
+	if err := svc.RemoveOrganizationMember(ctx, org.ID, owner.ID, owner.ID); err == nil || !strings.Contains(err.Error(), "at least one owner") {
+		t.Fatalf("expected last owner protection, got %v", err)
+	}
+	updated, err := svc.UpdateOrganizationMember(ctx, org.ID, owner.ID, member.ID, OrganizationMemberUpdateInput{Role: models.OrganizationRoleAdmin})
+	if err != nil {
+		t.Fatalf("owner updates member role: %v", err)
+	}
+	if updated.Role != models.OrganizationRoleAdmin {
+		t.Fatalf("expected admin role, got %s", updated.Role)
+	}
+
+	invite, err := svc.CreateOrganizationInvite(ctx, org.ID, owner.ID, OrganizationInviteInput{TargetEmail: "new-member@example.com"})
+	if err != nil {
+		t.Fatalf("create invite failed: %v", err)
+	}
+	if err := svc.RevokeOrganizationInvite(ctx, org.ID, owner.ID, invite.ID); err != nil {
+		t.Fatalf("revoke invite failed: %v", err)
+	}
+	resent, err := svc.ResendOrganizationInvite(ctx, org.ID, owner.ID, invite.ID)
+	if err != nil {
+		t.Fatalf("resend invite failed: %v", err)
+	}
+	if resent.Status != models.InvitationStatusPending {
+		t.Fatalf("expected pending invite, got %s", resent.Status)
+	}
+	invites, err := svc.ListOrganizationInvites(ctx, org.ID, owner.ID)
+	if err != nil {
+		t.Fatalf("list invites failed: %v", err)
+	}
+	if len(invites) != 1 {
+		t.Fatalf("expected one invite, got %d", len(invites))
+	}
+
+	team, err := svc.CreateTeam(ctx, org.ID, owner.ID, TeamInput{Name: "QA"})
+	if err != nil {
+		t.Fatalf("create team failed: %v", err)
+	}
+	team, err = svc.AddTeamMember(ctx, org.ID, owner.ID, team.ID, admin.ID)
+	if err != nil {
+		t.Fatalf("add team member failed: %v", err)
+	}
+	if team.MemberCount != 2 {
+		t.Fatalf("expected two team members, got %d", team.MemberCount)
+	}
+	team, err = svc.RemoveTeamMember(ctx, org.ID, owner.ID, team.ID, admin.ID)
+	if err != nil {
+		t.Fatalf("remove team member failed: %v", err)
+	}
+	if team.MemberCount != 1 {
+		t.Fatalf("expected owner left in team, got %d", team.MemberCount)
+	}
+
+	if err := svc.RemoveOrganizationMember(ctx, org.ID, owner.ID, admin.ID); err != nil {
+		t.Fatalf("remove org member failed: %v", err)
+	}
+	var teamMemberCount int64
+	if err := db.Model(&models.TeamMember{}).Where("user_id = ?", admin.ID).Count(&teamMemberCount).Error; err != nil {
+		t.Fatalf("count team members failed: %v", err)
+	}
+	if teamMemberCount != 0 {
+		t.Fatalf("expected removed org member to be removed from teams, got %d", teamMemberCount)
+	}
+	events, err := svc.ListOrganizationAuditEvents(ctx, org.ID, owner.ID, 50)
+	if err != nil {
+		t.Fatalf("list audit events failed: %v", err)
+	}
+	if len(events) < 6 {
+		t.Fatalf("expected audit events, got %d", len(events))
 	}
 }
 
