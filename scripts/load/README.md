@@ -141,6 +141,33 @@ Suggested flow:
 
 Do not claim retry/failure results unless you forced the handler to fail in a controlled dev setup. The default registered handlers execute `agent.run.requested` and observe `agent.run.completed` / `message.created`.
 
+## Core API QPS Benchmark
+
+Use `api-qps-bench.mjs` for live MySQL/Redis + Gin API measurements. It reports request count, QPS, p50/p95/p99 latency, error rate, and status counts as JSON.
+
+The latest recorded local snapshot is documented in `docs/interview/load-test-results.md` under "Core API QPS Benchmark"; do not copy JWT-bearing `login.json` artifacts into the repo.
+
+```bash
+BASE_URL=http://localhost:8080 \
+TOKEN=<jwt> \
+ORGANIZATION_ID=<id> \
+CONVERSATION_ID=<id> \
+SCENARIO=get_messages \
+CONCURRENCY=20 \
+DURATION_SECONDS=30 \
+node scripts/load/api-qps-bench.mjs
+```
+
+Supported scenarios:
+
+- `get_messages`: `GET /api/v1/conversations/:id/messages`
+- `post_message`: `POST /api/v1/conversations/:id/messages`
+- `post_agent_run`: `POST /api/v1/agent/runs`
+
+For Agent, this script measures create/enqueue QPS only. Continue using `interview-bench` or `agent-run-smoke.sh` when measuring end-to-end Agent execution, outbox drain, tool calls, and ready/failed status.
+
+Run each scenario separately and record commit SHA, machine, database, concurrency, duration, QPS, p95/p99 latency, and error rate before using the numbers in resume material.
+
 ## WebSocket Connection Smoke
 
 ```bash

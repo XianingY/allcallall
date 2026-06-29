@@ -58,10 +58,17 @@ type RegressionSummary struct {
 
 type RAGIRSummary struct {
 	Cases               int     `json:"cases"`
+	AnswerableCases     int     `json:"answerable_cases"`
+	NegativeCases       int     `json:"negative_cases"`
 	PassRate            float64 `json:"pass_rate"`
 	AvgLatencyMs        float64 `json:"avg_latency_ms"`
+	LatencyP50Ms        int64   `json:"latency_p50_ms"`
+	LatencyP95Ms        int64   `json:"latency_p95_ms"`
 	AvgHitsPerCase      float64 `json:"avg_hits_per_case"`
+	TopKHitRate         float64 `json:"top_k_hit_rate"`
+	NegativePassRate    float64 `json:"negative_pass_rate"`
 	CitationHitRate     float64 `json:"citation_hit_rate"`
+	CitationErrorRate   float64 `json:"citation_error_rate"`
 	RecallAtK           float64 `json:"recall_at_k"`
 	PrecisionAtK        float64 `json:"precision_at_k"`
 	MRR                 float64 `json:"mrr"`
@@ -162,11 +169,16 @@ func FormatMarkdown(report Report) string {
 	b.WriteString(fmt.Sprintf("| Regression | workflow pass rate | %.1f%% |\n", pct(report.Summary.Regression.WorkflowPassRate)))
 	b.WriteString(fmt.Sprintf("| Regression | task success rate | %.1f%% |\n", pct(report.Summary.Regression.TaskSuccessRate)))
 	b.WriteString(fmt.Sprintf("| Regression | approval safety rate | %.1f%% |\n", pct(report.Summary.Regression.ApprovalSafetyRate)))
+	b.WriteString(fmt.Sprintf("| RAG IR | answerable / negative cases | %d / %d |\n", report.Summary.RAGIRMetrics.AnswerableCases, report.Summary.RAGIRMetrics.NegativeCases))
+	b.WriteString(fmt.Sprintf("| RAG IR | Top-K hit rate | %.1f%% |\n", pct(report.Summary.RAGIRMetrics.TopKHitRate)))
+	b.WriteString(fmt.Sprintf("| RAG IR | negative pass rate | %.1f%% |\n", pct(report.Summary.RAGIRMetrics.NegativePassRate)))
 	b.WriteString(fmt.Sprintf("| RAG IR | citation hit rate | %.1f%% |\n", pct(report.Summary.RAGIRMetrics.CitationHitRate)))
+	b.WriteString(fmt.Sprintf("| RAG IR | citation error rate | %.1f%% |\n", pct(report.Summary.RAGIRMetrics.CitationErrorRate)))
 	b.WriteString(fmt.Sprintf("| RAG IR | Recall@K | %.2f |\n", report.Summary.RAGIRMetrics.RecallAtK))
 	b.WriteString(fmt.Sprintf("| RAG IR | Precision@K | %.2f |\n", report.Summary.RAGIRMetrics.PrecisionAtK))
 	b.WriteString(fmt.Sprintf("| RAG IR | MRR | %.2f |\n", report.Summary.RAGIRMetrics.MRR))
 	b.WriteString(fmt.Sprintf("| RAG IR | NDCG@K | %.2f |\n", report.Summary.RAGIRMetrics.NDCGAtK))
+	b.WriteString(fmt.Sprintf("| RAG IR | latency p50 / p95 | %d ms / %d ms |\n", report.Summary.RAGIRMetrics.LatencyP50Ms, report.Summary.RAGIRMetrics.LatencyP95Ms))
 	b.WriteString(fmt.Sprintf("| Benchmark | ready run rate | %.1f%% |\n", pct(report.Summary.Benchmark.ReadyRunRate)))
 	b.WriteString(fmt.Sprintf("| Benchmark | execute-run p95 | %d ms |\n", report.Summary.Benchmark.ExecuteRunP95Ms))
 	b.WriteString(fmt.Sprintf("| Benchmark | tool calls per run | %.1f |\n", report.Summary.Benchmark.ToolCallsPerRun))
@@ -177,8 +189,8 @@ func FormatMarkdown(report Report) string {
 		report.Eval.Planner.Passed, report.Eval.Planner.Cases,
 		report.Eval.RAG.Passed, report.Eval.RAG.Cases,
 		report.Eval.Workflow.Passed, report.Eval.Workflow.Cases))
-	b.WriteString(fmt.Sprintf("- RAG retrieval on the current fixture set achieved `Recall@K=%.2f`, `MRR=%.2f`, and `%.1f%%` citation hit rate across vector and SQL fallback paths.\n",
-		report.Summary.RAGIRMetrics.RecallAtK, report.Summary.RAGIRMetrics.MRR, pct(report.Summary.RAGIRMetrics.CitationHitRate)))
+	b.WriteString(fmt.Sprintf("- RAG retrieval on the current deterministic fixture set covers `%d` answerable and `%d` negative cases, tracking `Recall@K`, `Precision@K`, `MRR`, Top-K hit rate, negative pass rate, citation error rate, and p50/p95 latency.\n",
+		report.Summary.RAGIRMetrics.AnswerableCases, report.Summary.RAGIRMetrics.NegativeCases))
 	b.WriteString(fmt.Sprintf("- Workflow regression achieved `%.1f%%` pass rate; `%.1f%%` of cases triggered approval interception and meeting-transcript coverage was `%.1f%%` on transcript-required cases.\n",
 		pct(report.Summary.Regression.WorkflowPassRate), pct(report.Summary.Regression.ApprovalInterceptionRate), pct(report.Summary.Regression.MeetingTranscriptCoverage)))
 	b.WriteString(fmt.Sprintf("- A deterministic black-box task eval fixture set now checks natural-language task completion, tool selection, approval safety, and grounding; current task success rate is `%.1f%%` on `%d` cases.\n",
@@ -209,10 +221,17 @@ func buildSummary(eval agent.DemoEvalReport, taskEval agent.AgentTaskEvalReport,
 		},
 		RAGIRMetrics: RAGIRSummary{
 			Cases:               eval.RAG.Cases,
+			AnswerableCases:     eval.RAG.Summary.AnswerableCases,
+			NegativeCases:       eval.RAG.Summary.NegativeCases,
 			PassRate:            ratio(eval.RAG.Passed, eval.RAG.Cases),
 			AvgLatencyMs:        avgRAGLatency(eval.RAG.Results),
+			LatencyP50Ms:        eval.RAG.Summary.LatencyP50Ms,
+			LatencyP95Ms:        eval.RAG.Summary.LatencyP95Ms,
 			AvgHitsPerCase:      avgRAGHits(eval.RAG.Results),
+			TopKHitRate:         eval.RAG.Summary.TopKHitRate,
+			NegativePassRate:    eval.RAG.Summary.NegativePassRate,
 			CitationHitRate:     eval.RAG.Summary.CitationHitRate,
+			CitationErrorRate:   eval.RAG.Summary.CitationErrorRate,
 			RecallAtK:           eval.RAG.Summary.RecallAtK,
 			PrecisionAtK:        eval.RAG.Summary.PrecisionAtK,
 			MRR:                 eval.RAG.Summary.MRR,

@@ -28,16 +28,19 @@ type RAGEvalSource struct {
 }
 
 type RAGEvalCase struct {
-	Name                  string          `json:"name"`
-	Query                 string          `json:"query"`
-	UseVector             bool            `json:"use_vector"`
-	Sources               []RAGEvalSource `json:"sources"`
-	ExpectedSourceTitles  []string        `json:"expected_source_titles"`
-	RelevantSourceTitles  []string        `json:"relevant_source_titles,omitempty"`
-	GradedRelevance       map[string]int  `json:"graded_relevance,omitempty"`
-	ExpectedRetrievalMode string          `json:"expected_retrieval_mode"`
-	RequireCitation       bool            `json:"require_citation"`
-	RequiredSnippets      []string        `json:"required_snippets"`
+	Name                   string          `json:"name"`
+	Query                  string          `json:"query"`
+	UseVector              bool            `json:"use_vector"`
+	Sources                []RAGEvalSource `json:"sources"`
+	ExpectedSourceTitles   []string        `json:"expected_source_titles"`
+	RelevantSourceTitles   []string        `json:"relevant_source_titles,omitempty"`
+	GradedRelevance        map[string]int  `json:"graded_relevance,omitempty"`
+	ExpectedRetrievalMode  string          `json:"expected_retrieval_mode"`
+	RequireCitation        bool            `json:"require_citation"`
+	RequiredSnippets       []string        `json:"required_snippets"`
+	ExpectedNoAnswer       bool            `json:"expected_no_answer,omitempty"`
+	DistractorSourceTitles []string        `json:"distractor_source_titles,omitempty"`
+	ExpectedRiskFlags      []string        `json:"expected_risk_flags,omitempty"`
 }
 
 type RAGEvalHit struct {
@@ -49,26 +52,37 @@ type RAGEvalHit struct {
 }
 
 type RAGEvalResult struct {
-	Name         string       `json:"name"`
-	Passed       bool         `json:"passed"`
-	Errors       []string     `json:"errors,omitempty"`
-	Hits         []RAGEvalHit `json:"hits"`
-	Mode         string       `json:"mode"`
-	Reason       string       `json:"fallback_reason,omitempty"`
-	Elapsed      string       `json:"elapsed"`
-	ElapsedMs    int64        `json:"elapsed_ms"`
-	RecallAtK    float64      `json:"recall_at_k"`
-	PrecisionAtK float64      `json:"precision_at_k"`
-	MRR          float64      `json:"mrr"`
-	NDCGAtK      float64      `json:"ndcg_at_k"`
+	Name              string       `json:"name"`
+	Passed            bool         `json:"passed"`
+	Errors            []string     `json:"errors,omitempty"`
+	Hits              []RAGEvalHit `json:"hits"`
+	Mode              string       `json:"mode"`
+	Reason            string       `json:"fallback_reason,omitempty"`
+	Elapsed           string       `json:"elapsed"`
+	ElapsedMs         int64        `json:"elapsed_ms"`
+	ExpectedNoAnswer  bool         `json:"expected_no_answer,omitempty"`
+	NegativePass      bool         `json:"negative_pass,omitempty"`
+	TopKHit           bool         `json:"top_k_hit"`
+	CitationErrorRate float64      `json:"citation_error_rate"`
+	RecallAtK         float64      `json:"recall_at_k"`
+	PrecisionAtK      float64      `json:"precision_at_k"`
+	MRR               float64      `json:"mrr"`
+	NDCGAtK           float64      `json:"ndcg_at_k"`
 }
 
 type RAGEvalSummary struct {
+	AnswerableCases     int     `json:"answerable_cases"`
+	NegativeCases       int     `json:"negative_cases"`
 	RecallAtK           float64 `json:"recall_at_k"`
 	PrecisionAtK        float64 `json:"precision_at_k"`
 	MRR                 float64 `json:"mrr"`
 	NDCGAtK             float64 `json:"ndcg_at_k"`
+	TopKHitRate         float64 `json:"top_k_hit_rate"`
+	NegativePassRate    float64 `json:"negative_pass_rate"`
 	CitationHitRate     float64 `json:"citation_hit_rate"`
+	CitationErrorRate   float64 `json:"citation_error_rate"`
+	LatencyP50Ms        int64   `json:"latency_p50_ms"`
+	LatencyP95Ms        int64   `json:"latency_p95_ms"`
 	VectorCaseRate      float64 `json:"vector_case_rate"`
 	SQLFallbackCaseRate float64 `json:"sql_fallback_case_rate"`
 }
@@ -104,10 +118,20 @@ func RunRAGEval(ctx context.Context, cases []RAGEvalCase) (RAGEvalReport, error)
 		elapsed := time.Since(started)
 		result.Elapsed = elapsed.String()
 		result.ElapsedMs = elapsed.Milliseconds()
-		result.RecallAtK = ragRecallAtK(item, result.Hits)
-		result.PrecisionAtK = ragPrecisionAtK(item, result.Hits)
-		result.MRR = ragMRR(item, result.Hits)
-		result.NDCGAtK = ragNDCGAtK(item, result.Hits)
+		result.ExpectedNoAnswer = item.ExpectedNoAnswer
+		result.TopKHit = ragTopKHit(item, result.Hits)
+		result.CitationErrorRate = ragCitationErrorRate(item, result.Hits)
+		if item.ExpectedNoAnswer {
+			result.NegativePass = ragNegativePass(item, result.Hits)
+			if !result.NegativePass {
+				result.Errors = append(result.Errors, "negative case returned strong retrieval evidence")
+			}
+		} else {
+			result.RecallAtK = ragRecallAtK(item, result.Hits)
+			result.PrecisionAtK = ragPrecisionAtK(item, result.Hits)
+			result.MRR = ragMRR(item, result.Hits)
+			result.NDCGAtK = ragNDCGAtK(item, result.Hits)
+		}
 		result.Passed = len(result.Errors) == 0
 		if result.Passed {
 			report.Passed++
@@ -173,15 +197,17 @@ func runRAGEvalCase(ctx context.Context, index int, item RAGEvalCase) (RAGEvalRe
 			Snippet:       compactEvalSnippet(hit.Chunk.Content, 180),
 		})
 	}
-	if len(results) == 0 {
+	if len(results) == 0 && !item.ExpectedNoAnswer {
 		eval.Errors = append(eval.Errors, "no retrieval hits")
 	}
 	if item.ExpectedRetrievalMode != "" && eval.Mode != item.ExpectedRetrievalMode {
 		eval.Errors = append(eval.Errors, fmt.Sprintf("retrieval mode got %q want %q", eval.Mode, item.ExpectedRetrievalMode))
 	}
-	for _, title := range item.ExpectedSourceTitles {
-		if !seenTitles[title] {
-			eval.Errors = append(eval.Errors, fmt.Sprintf("missing source hit %q", title))
+	if !item.ExpectedNoAnswer {
+		for _, title := range item.ExpectedSourceTitles {
+			if !seenTitles[title] {
+				eval.Errors = append(eval.Errors, fmt.Sprintf("missing source hit %q", title))
+			}
 		}
 	}
 	if item.RequireCitation {
@@ -212,13 +238,32 @@ func buildRAGEvalSummary(results []RAGEvalResult) RAGEvalSummary {
 	vectorCount := 0
 	sqlFallbackCount := 0
 	citationHits := 0
+	topKHits := 0
+	answerableCount := 0
+	negativeCount := 0
+	negativePasses := 0
+	var citationErrorTotal float64
+	latencies := make([]int64, 0, len(results))
 	for _, result := range results {
-		recallTotal += result.RecallAtK
-		precisionTotal += result.PrecisionAtK
-		mrrTotal += result.MRR
-		ndcgTotal += result.NDCGAtK
-		if len(result.Hits) > 0 {
-			citationHits++
+		latencies = append(latencies, result.ElapsedMs)
+		if result.ExpectedNoAnswer {
+			negativeCount++
+			if result.NegativePass {
+				negativePasses++
+			}
+		} else {
+			answerableCount++
+			recallTotal += result.RecallAtK
+			precisionTotal += result.PrecisionAtK
+			mrrTotal += result.MRR
+			ndcgTotal += result.NDCGAtK
+			citationErrorTotal += result.CitationErrorRate
+			if result.TopKHit {
+				topKHits++
+			}
+			if len(result.Hits) > 0 {
+				citationHits++
+			}
 		}
 		switch result.Mode {
 		case "vector":
@@ -228,15 +273,54 @@ func buildRAGEvalSummary(results []RAGEvalResult) RAGEvalSummary {
 		}
 	}
 	count := float64(len(results))
+	answerable := float64(answerableCount)
 	return RAGEvalSummary{
-		RecallAtK:           recallTotal / count,
-		PrecisionAtK:        precisionTotal / count,
-		MRR:                 mrrTotal / count,
-		NDCGAtK:             ndcgTotal / count,
-		CitationHitRate:     float64(citationHits) / count,
+		AnswerableCases:     answerableCount,
+		NegativeCases:       negativeCount,
+		RecallAtK:           safeFloatDiv(recallTotal, answerable),
+		PrecisionAtK:        safeFloatDiv(precisionTotal, answerable),
+		MRR:                 safeFloatDiv(mrrTotal, answerable),
+		NDCGAtK:             safeFloatDiv(ndcgTotal, answerable),
+		TopKHitRate:         safeFloatDiv(float64(topKHits), answerable),
+		NegativePassRate:    safeFloatDiv(float64(negativePasses), float64(negativeCount)),
+		CitationHitRate:     safeFloatDiv(float64(citationHits), answerable),
+		CitationErrorRate:   safeFloatDiv(citationErrorTotal, answerable),
+		LatencyP50Ms:        percentileInt64(latencies, 0.50),
+		LatencyP95Ms:        percentileInt64(latencies, 0.95),
 		VectorCaseRate:      float64(vectorCount) / count,
 		SQLFallbackCaseRate: float64(sqlFallbackCount) / count,
 	}
+}
+
+func safeFloatDiv(total float64, count float64) float64 {
+	if count <= 0 {
+		return 0
+	}
+	return total / count
+}
+
+func percentileInt64(values []int64, p float64) int64 {
+	if len(values) == 0 {
+		return 0
+	}
+	items := append([]int64(nil), values...)
+	sort.Slice(items, func(i, j int) bool {
+		return items[i] < items[j]
+	})
+	if p <= 0 {
+		return items[0]
+	}
+	if p >= 1 {
+		return items[len(items)-1]
+	}
+	idx := int(math.Ceil(float64(len(items))*p)) - 1
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(items) {
+		idx = len(items) - 1
+	}
+	return items[idx]
 }
 
 func ragRelevantTitles(item RAGEvalCase) map[string]int {
@@ -352,6 +436,52 @@ func ragNDCGAtK(item RAGEvalCase, hits []RAGEvalHit) float64 {
 		return 0
 	}
 	return dcg / idcg
+}
+
+func ragTopKHit(item RAGEvalCase, hits []RAGEvalHit) bool {
+	relevance := ragRelevantTitles(item)
+	if len(relevance) == 0 {
+		return false
+	}
+	for _, hit := range hits {
+		if _, ok := relevance[hit.SourceTitle]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func ragCitationErrorRate(item RAGEvalCase, hits []RAGEvalHit) float64 {
+	if item.ExpectedNoAnswer || len(hits) == 0 {
+		return 0
+	}
+	relevance := ragRelevantTitles(item)
+	if len(relevance) == 0 {
+		return 0
+	}
+	errors := 0
+	for _, hit := range hits {
+		if _, ok := relevance[hit.SourceTitle]; !ok {
+			errors++
+		}
+	}
+	return float64(errors) / float64(len(hits))
+}
+
+func ragNegativePass(item RAGEvalCase, hits []RAGEvalHit) bool {
+	if !item.ExpectedNoAnswer {
+		return false
+	}
+	relevance := ragRelevantTitles(item)
+	for _, hit := range hits {
+		if _, ok := relevance[hit.SourceTitle]; ok {
+			return false
+		}
+		if hit.Score > 1 {
+			return false
+		}
+	}
+	return true
 }
 
 func openRAGEvalDB(index int) (*gorm.DB, error) {
@@ -535,7 +665,14 @@ func (idx *ragEvalVectorIndex) SearchChunks(ctx context.Context, query search.Co
 
 func lexicalVector(text string) []float32 {
 	lowered := strings.ToLower(text)
-	keywords := []string{"latency", "translation", "security", "budget", "pricing", "risk", "approval", "training"}
+	keywords := []string{
+		"latency", "translation", "security", "budget", "pricing", "risk", "approval", "training",
+		"retention", "audit", "billing", "handoff", "escalation", "compliance", "renewal", "pilot",
+		"websocket", "replay", "recording", "transcript", "search", "indexing", "onboarding", "sso",
+		"permissions", "incident", "migration", "analytics", "quota", "encryption", "customer", "support",
+		"deployment", "workspace", "knowledge", "agent", "workflow", "memory", "followup", "mobile",
+		"network", "turn", "storage", "legal", "privacy", "export", "refund", "invoice",
+	}
 	vector := make([]float32, len(keywords))
 	for i, keyword := range keywords {
 		vector[i] = float32(strings.Count(lowered, keyword))

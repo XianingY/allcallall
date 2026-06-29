@@ -1,62 +1,660 @@
 [
   {
-    "name": "vector_hit_security_budget",
+    "name": "vector_security_approval_budget",
     "query": "security approval budget risk",
     "use_vector": true,
     "sources": [
-      {
-        "title": "Security rollout note",
-        "text": "Security approval is the main risk. The customer needs a data retention answer before the budget window closes."
-      },
-      {
-        "title": "Training plan",
-        "text": "Training should cover agent handoff, translation quality review, and support escalation."
-      }
+      {"title": "Security approval budget note", "text": "Security approval is the main risk. The customer needs a data retention answer before the budget window closes."},
+      {"title": "Training enablement plan", "text": "Training should cover agent handoff, translation quality review, and support escalation."},
+      {"title": "Invoice operations memo", "text": "The invoice review focuses on refund timing and billing owner handoff."},
+      {"title": "Mobile rollout checklist", "text": "Mobile onboarding needs network testing and app store release coordination."}
     ],
-    "relevant_source_titles": [
-      "Security rollout note"
-    ],
-    "graded_relevance": {
-      "Security rollout note": 3
-    },
-    "expected_source_titles": [
-      "Security rollout note"
-    ],
+    "relevant_source_titles": ["Security approval budget note"],
+    "graded_relevance": {"Security approval budget note": 3},
+    "expected_source_titles": ["Security approval budget note"],
     "expected_retrieval_mode": "vector",
     "require_citation": true,
-    "required_snippets": [
-      "Security approval",
-      "budget window"
-    ]
+    "required_snippets": ["Security approval", "budget window"]
   },
   {
-    "name": "sql_fallback_pricing_latency",
-    "query": "pricing latency translation",
+    "name": "vector_retention_audit_compliance",
+    "query": "retention audit compliance legal",
+    "use_vector": true,
+    "sources": [
+      {"title": "Retention audit policy", "text": "The legal team requires retention audit evidence before compliance approval can be granted."},
+      {"title": "Support staffing note", "text": "Support escalation staffing changes are planned for the next renewal window."},
+      {"title": "Latency test note", "text": "The websocket latency check should run after deployment migration."},
+      {"title": "Training schedule", "text": "Customer onboarding training is scheduled for the workspace admins."}
+    ],
+    "relevant_source_titles": ["Retention audit policy"],
+    "graded_relevance": {"Retention audit policy": 3},
+    "expected_source_titles": ["Retention audit policy"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["retention audit", "compliance approval"]
+  },
+  {
+    "name": "vector_websocket_replay_mobile",
+    "query": "websocket replay mobile network",
+    "use_vector": true,
+    "sources": [
+      {"title": "Mobile websocket replay finding", "text": "Mobile clients need websocket replay after weak network reconnects to avoid missed support messages."},
+      {"title": "Budget planning note", "text": "The budget owner asked for pricing and renewal timing."},
+      {"title": "Recording export note", "text": "Recording export depends on storage retention and privacy approval."},
+      {"title": "Workflow memory memo", "text": "Agent workflow memory should capture followup commitments."}
+    ],
+    "relevant_source_titles": ["Mobile websocket replay finding"],
+    "graded_relevance": {"Mobile websocket replay finding": 3},
+    "expected_source_titles": ["Mobile websocket replay finding"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["websocket replay", "weak network"]
+  },
+  {
+    "name": "vector_recording_transcript_storage",
+    "query": "recording transcript storage privacy",
+    "use_vector": true,
+    "sources": [
+      {"title": "Recording transcript storage policy", "text": "Meeting recording transcript files must use approved storage and privacy controls before export."},
+      {"title": "Search indexing memo", "text": "Search indexing uses knowledge chunks and query ranking."},
+      {"title": "Customer renewal note", "text": "The customer renewal depends on pilot pricing acceptance."},
+      {"title": "Incident handoff", "text": "Support incident handoff requires escalation owner confirmation."}
+    ],
+    "relevant_source_titles": ["Recording transcript storage policy"],
+    "graded_relevance": {"Recording transcript storage policy": 3},
+    "expected_source_titles": ["Recording transcript storage policy"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["recording transcript", "privacy controls"]
+  },
+  {
+    "name": "vector_billing_invoice_refund",
+    "query": "billing invoice refund pricing",
+    "use_vector": true,
+    "sources": [
+      {"title": "Billing refund pricing note", "text": "Billing needs the invoice owner to confirm refund rules before final pricing is sent."},
+      {"title": "Network turn checklist", "text": "TURN network testing should run on restricted mobile networks."},
+      {"title": "Legal export plan", "text": "Legal export review is blocked on privacy language."},
+      {"title": "Agent memory plan", "text": "Agent memory captures workflow followup summaries."}
+    ],
+    "relevant_source_titles": ["Billing refund pricing note"],
+    "graded_relevance": {"Billing refund pricing note": 3},
+    "expected_source_titles": ["Billing refund pricing note"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["invoice owner", "refund rules"]
+  },
+  {
+    "name": "vector_support_escalation_handoff",
+    "query": "customer support escalation handoff",
+    "use_vector": true,
+    "sources": [
+      {"title": "Customer support escalation note", "text": "Customer support asked for an escalation handoff with named owners and next response time."},
+      {"title": "Analytics quota memo", "text": "Analytics quota tracking is owned by billing operations."},
+      {"title": "SSO permissions review", "text": "SSO permissions need audit evidence."},
+      {"title": "Recording retention checklist", "text": "Recording retention and storage cleanup need privacy approval."}
+    ],
+    "relevant_source_titles": ["Customer support escalation note"],
+    "graded_relevance": {"Customer support escalation note": 3},
+    "expected_source_titles": ["Customer support escalation note"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["escalation handoff", "next response"]
+  },
+  {
+    "name": "vector_deployment_migration_workspace",
+    "query": "deployment migration workspace onboarding",
+    "use_vector": true,
+    "sources": [
+      {"title": "Workspace migration deployment plan", "text": "Deployment migration for the workspace must finish before onboarding customer admins."},
+      {"title": "Pricing renewal note", "text": "Renewal pricing depends on pilot seat count."},
+      {"title": "Security risk memo", "text": "Security risk review is waiting for compliance evidence."},
+      {"title": "Transcript export note", "text": "Transcript export needs retention approval."}
+    ],
+    "relevant_source_titles": ["Workspace migration deployment plan"],
+    "graded_relevance": {"Workspace migration deployment plan": 3},
+    "expected_source_titles": ["Workspace migration deployment plan"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["Deployment migration", "onboarding customer admins"]
+  },
+  {
+    "name": "vector_agent_workflow_memory",
+    "query": "agent workflow memory followup",
+    "use_vector": true,
+    "sources": [
+      {"title": "Agent workflow memory design", "text": "The agent workflow should write memory and followup tasks only after approval."},
+      {"title": "Mobile network test", "text": "Mobile network latency requires TURN fallback testing."},
+      {"title": "Billing invoice memo", "text": "Invoice processing is waiting for refund policy review."},
+      {"title": "Knowledge import plan", "text": "Knowledge import supports URL and file ingestion."}
+    ],
+    "relevant_source_titles": ["Agent workflow memory design"],
+    "graded_relevance": {"Agent workflow memory design": 3},
+    "expected_source_titles": ["Agent workflow memory design"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["write memory", "after approval"]
+  },
+  {
+    "name": "vector_search_indexing_knowledge",
+    "query": "search indexing knowledge latency",
+    "use_vector": true,
+    "sources": [
+      {"title": "Knowledge search indexing latency", "text": "Knowledge search indexing latency should be measured before enabling the customer workspace."},
+      {"title": "Support handoff", "text": "Support handoff requires escalation ownership."},
+      {"title": "Legal privacy note", "text": "Legal privacy review is needed for recording export."},
+      {"title": "Agent workflow memo", "text": "Agent workflow approval controls memory writes."}
+    ],
+    "relevant_source_titles": ["Knowledge search indexing latency"],
+    "graded_relevance": {"Knowledge search indexing latency": 3},
+    "expected_source_titles": ["Knowledge search indexing latency"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["search indexing latency", "customer workspace"]
+  },
+  {
+    "name": "vector_sso_permissions_audit",
+    "query": "sso permissions audit compliance",
+    "use_vector": true,
+    "sources": [
+      {"title": "SSO permissions audit", "text": "SSO permissions require audit logs before compliance signoff."},
+      {"title": "Pilot renewal plan", "text": "Pilot renewal depends on customer pricing."},
+      {"title": "Websocket replay plan", "text": "Websocket replay protects mobile reconnects."},
+      {"title": "Storage cleanup note", "text": "Storage cleanup removes expired recording files."}
+    ],
+    "relevant_source_titles": ["SSO permissions audit"],
+    "graded_relevance": {"SSO permissions audit": 3},
+    "expected_source_titles": ["SSO permissions audit"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["SSO permissions", "compliance signoff"]
+  },
+  {
+    "name": "vector_encryption_privacy_export",
+    "query": "encryption privacy export legal",
+    "use_vector": true,
+    "sources": [
+      {"title": "Encryption privacy export review", "text": "Legal requires encryption and privacy review before transcript export is enabled."},
+      {"title": "Customer support plan", "text": "Customer support escalation needs owner assignment."},
+      {"title": "Analytics quota report", "text": "Analytics quota usage is tracked by billing."},
+      {"title": "Agent workflow note", "text": "Workflow approval protects write tools."}
+    ],
+    "relevant_source_titles": ["Encryption privacy export review"],
+    "graded_relevance": {"Encryption privacy export review": 3},
+    "expected_source_titles": ["Encryption privacy export review"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["encryption and privacy", "transcript export"]
+  },
+  {
+    "name": "vector_analytics_quota_budget",
+    "query": "analytics quota billing budget",
+    "use_vector": true,
+    "sources": [
+      {"title": "Analytics quota budget note", "text": "Analytics quota must be tied to billing budget limits before renewal."},
+      {"title": "Security approval memo", "text": "Security approval requires risk evidence."},
+      {"title": "Mobile latency finding", "text": "Mobile latency depends on network conditions."},
+      {"title": "Knowledge indexing plan", "text": "Knowledge indexing uses search workers."}
+    ],
+    "relevant_source_titles": ["Analytics quota budget note"],
+    "graded_relevance": {"Analytics quota budget note": 3},
+    "expected_source_titles": ["Analytics quota budget note"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["Analytics quota", "billing budget"]
+  },
+  {
+    "name": "vector_turn_network_mobile",
+    "query": "turn network mobile latency",
+    "use_vector": true,
+    "sources": [
+      {"title": "TURN mobile network latency", "text": "TURN fallback is required for mobile network latency in restricted customer sites."},
+      {"title": "Invoice refund plan", "text": "Invoice refund policy needs billing approval."},
+      {"title": "SSO compliance note", "text": "SSO compliance needs audit logs."},
+      {"title": "Recording transcript memo", "text": "Recording transcript storage has privacy constraints."}
+    ],
+    "relevant_source_titles": ["TURN mobile network latency"],
+    "graded_relevance": {"TURN mobile network latency": 3},
+    "expected_source_titles": ["TURN mobile network latency"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["TURN fallback", "restricted customer sites"]
+  },
+  {
+    "name": "vector_pilot_renewal_pricing",
+    "query": "pilot renewal pricing customer",
+    "use_vector": true,
+    "sources": [
+      {"title": "Pilot renewal pricing plan", "text": "The customer pilot renewal depends on pricing approval for the expanded seat count."},
+      {"title": "Workflow memory note", "text": "Workflow memory is updated after approval."},
+      {"title": "Storage retention memo", "text": "Storage retention is controlled by legal policy."},
+      {"title": "Support incident note", "text": "Support incident escalation needs handoff."}
+    ],
+    "relevant_source_titles": ["Pilot renewal pricing plan"],
+    "graded_relevance": {"Pilot renewal pricing plan": 3},
+    "expected_source_titles": ["Pilot renewal pricing plan"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["pilot renewal", "expanded seat count"]
+  },
+  {
+    "name": "vector_incident_support_risk",
+    "query": "incident support risk escalation",
+    "use_vector": true,
+    "sources": [
+      {"title": "Incident support risk note", "text": "Incident support risk is high until escalation ownership is assigned."},
+      {"title": "Knowledge search memo", "text": "Knowledge search indexing has latency metrics."},
+      {"title": "Billing analytics note", "text": "Billing analytics quota is reviewed monthly."},
+      {"title": "Onboarding workspace plan", "text": "Workspace onboarding follows deployment migration."}
+    ],
+    "relevant_source_titles": ["Incident support risk note"],
+    "graded_relevance": {"Incident support risk note": 3},
+    "expected_source_titles": ["Incident support risk note"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["Incident support risk", "escalation ownership"]
+  },
+  {
+    "name": "vector_recording_export_retention",
+    "query": "recording export storage retention",
+    "use_vector": true,
+    "sources": [
+      {"title": "Recording export retention plan", "text": "Recording export should be blocked until storage retention rules are confirmed."},
+      {"title": "Agent followup memo", "text": "Agent followup task creation requires approval."},
+      {"title": "Customer renewal note", "text": "Customer renewal pricing is under review."},
+      {"title": "SSO audit note", "text": "SSO audit evidence is needed for compliance."}
+    ],
+    "relevant_source_titles": ["Recording export retention plan"],
+    "graded_relevance": {"Recording export retention plan": 3},
+    "expected_source_titles": ["Recording export retention plan"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["Recording export", "storage retention rules"]
+  },
+  {
+    "name": "vector_knowledge_agent_workflow",
+    "query": "knowledge agent search workflow",
+    "use_vector": true,
+    "sources": [
+      {"title": "Knowledge agent workflow search", "text": "The knowledge agent workflow uses search citations before proposing write tools."},
+      {"title": "Mobile TURN checklist", "text": "Mobile TURN testing checks network latency."},
+      {"title": "Billing refund memo", "text": "Billing refund rules require invoice review."},
+      {"title": "Privacy legal note", "text": "Privacy legal approval gates export."}
+    ],
+    "relevant_source_titles": ["Knowledge agent workflow search"],
+    "graded_relevance": {"Knowledge agent workflow search": 3},
+    "expected_source_titles": ["Knowledge agent workflow search"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["search citations", "write tools"]
+  },
+  {
+    "name": "vector_training_onboarding_handoff",
+    "query": "training onboarding customer handoff",
+    "use_vector": true,
+    "sources": [
+      {"title": "Customer training handoff", "text": "Customer onboarding training needs a handoff from support to workspace admins."},
+      {"title": "Search indexing note", "text": "Search indexing latency should be tracked."},
+      {"title": "Security budget plan", "text": "Security budget approval is pending."},
+      {"title": "Recording transcript policy", "text": "Recording transcript retention is under review."}
+    ],
+    "relevant_source_titles": ["Customer training handoff"],
+    "graded_relevance": {"Customer training handoff": 3},
+    "expected_source_titles": ["Customer training handoff"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["onboarding training", "workspace admins"]
+  },
+  {
+    "name": "sql_pricing_pilot_renewal",
+    "query": "pricing pilot renewal approval",
     "use_vector": false,
     "sources": [
-      {
-        "title": "Pricing latency note",
-        "text": "Pricing depends on the pilot seat count. Latency and translation quality are the key acceptance criteria."
-      },
-      {
-        "title": "Unrelated onboarding",
-        "text": "The onboarding calendar includes training owners and regional enablement sessions."
-      }
+      {"title": "Pricing pilot renewal approval", "text": "Pricing for the pilot renewal requires approval from the commercial owner."},
+      {"title": "Mobile network checklist", "text": "Mobile TURN testing handles restricted networks."},
+      {"title": "Knowledge indexing memo", "text": "Knowledge indexing creates searchable chunks."},
+      {"title": "Legal privacy note", "text": "Legal privacy review is needed for export."}
     ],
-    "relevant_source_titles": [
-      "Pricing latency note"
-    ],
-    "graded_relevance": {
-      "Pricing latency note": 3
-    },
-    "expected_source_titles": [
-      "Pricing latency note"
-    ],
+    "relevant_source_titles": ["Pricing pilot renewal approval"],
+    "graded_relevance": {"Pricing pilot renewal approval": 3},
+    "expected_source_titles": ["Pricing pilot renewal approval"],
     "expected_retrieval_mode": "sql_fallback",
     "require_citation": true,
-    "required_snippets": [
-      "Pricing depends",
-      "Latency and translation"
-    ]
+    "required_snippets": ["pilot renewal", "commercial owner"]
+  },
+  {
+    "name": "sql_meeting_transcript_retention",
+    "query": "meeting transcript retention audit",
+    "use_vector": false,
+    "sources": [
+      {"title": "Meeting transcript retention audit", "text": "Meeting transcript retention audit evidence must be ready before customer review."},
+      {"title": "Billing invoice memo", "text": "Billing invoices are reviewed after refund decisions."},
+      {"title": "Agent workflow note", "text": "Agent workflow writes memory after approval."},
+      {"title": "Deployment migration plan", "text": "Deployment migration is scheduled for workspace onboarding."}
+    ],
+    "relevant_source_titles": ["Meeting transcript retention audit"],
+    "graded_relevance": {"Meeting transcript retention audit": 3},
+    "expected_source_titles": ["Meeting transcript retention audit"],
+    "expected_retrieval_mode": "sql_fallback",
+    "require_citation": true,
+    "required_snippets": ["retention audit evidence", "customer review"]
+  },
+  {
+    "name": "sql_mobile_network_turn",
+    "query": "mobile network turn latency",
+    "use_vector": false,
+    "sources": [
+      {"title": "Mobile network TURN latency", "text": "Mobile network latency requires TURN testing before field deployment."},
+      {"title": "Compliance audit memo", "text": "Compliance audit depends on security approval."},
+      {"title": "Customer support note", "text": "Customer support handoff needs owner assignment."},
+      {"title": "Knowledge search plan", "text": "Knowledge search uses indexed chunks."}
+    ],
+    "relevant_source_titles": ["Mobile network TURN latency"],
+    "graded_relevance": {"Mobile network TURN latency": 3},
+    "expected_source_titles": ["Mobile network TURN latency"],
+    "expected_retrieval_mode": "sql_fallback",
+    "require_citation": true,
+    "required_snippets": ["TURN testing", "field deployment"]
+  },
+  {
+    "name": "sql_knowledge_indexing_quota",
+    "query": "knowledge indexing search quota",
+    "use_vector": false,
+    "sources": [
+      {"title": "Knowledge indexing search quota", "text": "Knowledge indexing and search quota should be measured during the demo load test."},
+      {"title": "Recording storage policy", "text": "Recording storage retention is reviewed by legal."},
+      {"title": "Invoice pricing note", "text": "Invoice pricing approval belongs to billing."},
+      {"title": "SSO permission note", "text": "SSO permissions need admin consent."}
+    ],
+    "relevant_source_titles": ["Knowledge indexing search quota"],
+    "graded_relevance": {"Knowledge indexing search quota": 3},
+    "expected_source_titles": ["Knowledge indexing search quota"],
+    "expected_retrieval_mode": "sql_fallback",
+    "require_citation": true,
+    "required_snippets": ["search quota", "demo load test"]
+  },
+  {
+    "name": "sql_workflow_approval_followup",
+    "query": "workflow approval followup memory",
+    "use_vector": false,
+    "sources": [
+      {"title": "Workflow approval followup memory", "text": "Workflow approval must complete before followup tasks and memory writes are committed."},
+      {"title": "Websocket replay note", "text": "Websocket replay recovers missed messages."},
+      {"title": "Analytics budget note", "text": "Analytics budget is tied to billing quota."},
+      {"title": "Customer training plan", "text": "Customer training happens after onboarding."}
+    ],
+    "relevant_source_titles": ["Workflow approval followup memory"],
+    "graded_relevance": {"Workflow approval followup memory": 3},
+    "expected_source_titles": ["Workflow approval followup memory"],
+    "expected_retrieval_mode": "sql_fallback",
+    "require_citation": true,
+    "required_snippets": ["memory writes", "committed"]
+  },
+  {
+    "name": "sql_privacy_legal_export",
+    "query": "privacy legal export compliance",
+    "use_vector": false,
+    "sources": [
+      {"title": "Privacy legal export compliance", "text": "Privacy and legal teams must approve export compliance before transcript download."},
+      {"title": "Network latency note", "text": "Network latency is tested through TURN."},
+      {"title": "Agent search note", "text": "Agent search uses knowledge citations."},
+      {"title": "Support incident handoff", "text": "Support incident handoff is urgent."}
+    ],
+    "relevant_source_titles": ["Privacy legal export compliance"],
+    "graded_relevance": {"Privacy legal export compliance": 3},
+    "expected_source_titles": ["Privacy legal export compliance"],
+    "expected_retrieval_mode": "sql_fallback",
+    "require_citation": true,
+    "required_snippets": ["export compliance", "transcript download"]
+  },
+  {
+    "name": "sql_support_escalation_incident",
+    "query": "support escalation handoff incident",
+    "use_vector": false,
+    "sources": [
+      {"title": "Support escalation incident handoff", "text": "Support escalation for the incident needs a handoff owner and customer update."},
+      {"title": "Retention audit note", "text": "Retention audit evidence is under compliance review."},
+      {"title": "Pricing renewal memo", "text": "Pricing renewal depends on billing approval."},
+      {"title": "Search indexing plan", "text": "Search indexing has latency targets."}
+    ],
+    "relevant_source_titles": ["Support escalation incident handoff"],
+    "graded_relevance": {"Support escalation incident handoff": 3},
+    "expected_source_titles": ["Support escalation incident handoff"],
+    "expected_retrieval_mode": "sql_fallback",
+    "require_citation": true,
+    "required_snippets": ["handoff owner", "customer update"]
+  },
+  {
+    "name": "sql_billing_invoice_analytics",
+    "query": "billing invoice refund analytics",
+    "use_vector": false,
+    "sources": [
+      {"title": "Billing invoice refund analytics", "text": "Billing analytics should track invoice refund events by workspace and customer."},
+      {"title": "Agent workflow note", "text": "Agent workflow approval controls side effects."},
+      {"title": "Mobile network note", "text": "Mobile network testing checks latency."},
+      {"title": "Security compliance note", "text": "Security compliance review is pending."}
+    ],
+    "relevant_source_titles": ["Billing invoice refund analytics"],
+    "graded_relevance": {"Billing invoice refund analytics": 3},
+    "expected_source_titles": ["Billing invoice refund analytics"],
+    "expected_retrieval_mode": "sql_fallback",
+    "require_citation": true,
+    "required_snippets": ["invoice refund events", "workspace and customer"]
+  },
+  {
+    "name": "negative_quantum_roadmap_satellite",
+    "query": "quantum roadmap satellite",
+    "use_vector": true,
+    "sources": [
+      {"title": "Workspace admin handbook", "text": "Workspace admins manage onboarding checklists and support routing."},
+      {"title": "Invoice calendar", "text": "Billing owners review monthly invoices and refunds."},
+      {"title": "Meeting storage policy", "text": "Recording storage retention follows privacy requirements."}
+    ],
+    "expected_no_answer": true,
+    "expected_risk_flags": ["insufficient_context"]
+  },
+  {
+    "name": "negative_warehouse_robot_inventory",
+    "query": "warehouse robot inventory",
+    "use_vector": false,
+    "sources": [
+      {"title": "Customer support handbook", "text": "Support agents record escalation owners and next response dates."},
+      {"title": "Security audit checklist", "text": "Security reviewers collect compliance evidence."},
+      {"title": "Knowledge import guide", "text": "Knowledge imports accept URL and PDF files."}
+    ],
+    "expected_no_answer": true,
+    "expected_risk_flags": ["insufficient_context"]
+  },
+  {
+    "name": "negative_crypto_wallet_seed",
+    "query": "crypto wallet seed phrase",
+    "use_vector": true,
+    "sources": [
+      {"title": "Mobile reconnect guide", "text": "Mobile clients reconnect through websocket replay after network drops."},
+      {"title": "Agent memory guide", "text": "Agent memory stores approved followup summaries."},
+      {"title": "Legal export guide", "text": "Legal review is needed before transcript export."}
+    ],
+    "expected_no_answer": true,
+    "expected_risk_flags": ["insufficient_context"]
+  },
+  {
+    "name": "negative_restaurant_menu_allergy",
+    "query": "restaurant menu allergy",
+    "use_vector": false,
+    "sources": [
+      {"title": "Deployment checklist", "text": "Deployment migration should finish before workspace onboarding."},
+      {"title": "Pricing approval note", "text": "Pricing approval is owned by billing operations."},
+      {"title": "TURN test note", "text": "TURN testing covers restricted mobile networks."}
+    ],
+    "expected_no_answer": true,
+    "expected_risk_flags": ["insufficient_context"]
+  },
+  {
+    "name": "negative_airline_baggage_policy",
+    "query": "airline baggage policy",
+    "use_vector": true,
+    "sources": [
+      {"title": "Search index runbook", "text": "Search index workers process knowledge chunks asynchronously."},
+      {"title": "Support incident template", "text": "Support incidents require escalation notes and customer updates."},
+      {"title": "Retention policy memo", "text": "Retention policy controls recording storage cleanup."}
+    ],
+    "expected_no_answer": true,
+    "expected_risk_flags": ["insufficient_context"]
+  },
+  {
+    "name": "negative_medical_lab_result",
+    "query": "medical lab result",
+    "use_vector": false,
+    "sources": [
+      {"title": "Workflow approval guide", "text": "Workflow approval gates write tools and memory updates."},
+      {"title": "Invoice refund note", "text": "Invoice refund timing depends on billing review."},
+      {"title": "Customer onboarding plan", "text": "Customer onboarding includes admin training."}
+    ],
+    "expected_no_answer": true,
+    "expected_risk_flags": ["insufficient_context"]
+  },
+  {
+    "name": "negative_weather_forecast_city",
+    "query": "weather forecast city",
+    "use_vector": true,
+    "sources": [
+      {"title": "Privacy export memo", "text": "Privacy export approval is required for transcript downloads."},
+      {"title": "Analytics quota memo", "text": "Analytics quota is tracked by workspace."},
+      {"title": "Websocket replay memo", "text": "Websocket replay uses event sequence values."}
+    ],
+    "expected_no_answer": true,
+    "expected_risk_flags": ["insufficient_context"]
+  },
+  {
+    "name": "negative_stock_dividend_schedule",
+    "query": "stock dividend schedule",
+    "use_vector": false,
+    "sources": [
+      {"title": "Security compliance handbook", "text": "Security compliance evidence is gathered before approval."},
+      {"title": "Recording transcript handbook", "text": "Recording transcript storage follows retention rules."},
+      {"title": "Support handoff handbook", "text": "Support handoff lists escalation owners."}
+    ],
+    "expected_no_answer": true,
+    "expected_risk_flags": ["insufficient_context"]
+  },
+  {
+    "name": "precision_security_approval_distractors",
+    "query": "security approval audit risk",
+    "use_vector": true,
+    "sources": [
+      {"title": "Security approval audit risk source", "text": "Security approval audit risk is unresolved until compliance evidence and owner signoff are complete."},
+      {"title": "Security training distractor", "text": "Security training teaches admins how to use the workspace."},
+      {"title": "Approval workflow distractor", "text": "Approval workflow settings control followup task creation."},
+      {"title": "Audit logging distractor", "text": "Audit logging captures login and export events."},
+      {"title": "Risk register distractor", "text": "Risk register entries are reviewed every Friday."},
+      {"title": "Budget distractor", "text": "Budget planning covers renewal pricing."}
+    ],
+    "relevant_source_titles": ["Security approval audit risk source"],
+    "graded_relevance": {"Security approval audit risk source": 3},
+    "expected_source_titles": ["Security approval audit risk source"],
+    "distractor_source_titles": ["Security training distractor", "Approval workflow distractor", "Audit logging distractor", "Risk register distractor", "Budget distractor"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["owner signoff"]
+  },
+  {
+    "name": "precision_billing_invoice_distractors",
+    "query": "billing invoice refund pricing",
+    "use_vector": false,
+    "sources": [
+      {"title": "Billing invoice refund pricing source", "text": "Billing invoice pricing must be approved before the customer renewal quote is sent."},
+      {"title": "Billing dashboard distractor", "text": "Billing invoice refund pricing dashboard shows monthly usage but does not describe the renewal quote owner."},
+      {"title": "Invoice template distractor", "text": "Invoice template fields include tax and workspace id."},
+      {"title": "Refund timing distractor", "text": "Refund timing depends on finance review."},
+      {"title": "Pricing page distractor", "text": "Pricing page copy is updated by marketing."},
+      {"title": "Support distractor", "text": "Support handoff owners are listed separately."}
+    ],
+    "relevant_source_titles": ["Billing invoice refund pricing source"],
+    "graded_relevance": {"Billing invoice refund pricing source": 3},
+    "expected_source_titles": ["Billing invoice refund pricing source"],
+    "distractor_source_titles": ["Billing dashboard distractor", "Invoice template distractor", "Refund timing distractor", "Pricing page distractor", "Support distractor"],
+    "expected_retrieval_mode": "sql_fallback",
+    "require_citation": true,
+    "required_snippets": ["renewal quote"]
+  },
+  {
+    "name": "precision_recording_storage_distractors",
+    "query": "recording transcript storage retention",
+    "use_vector": true,
+    "sources": [
+      {"title": "Recording transcript storage retention source", "text": "Recording transcript storage retention must be confirmed before export links are shared."},
+      {"title": "Recording controls distractor", "text": "Recording controls include start and stop buttons."},
+      {"title": "Transcript editor distractor", "text": "Transcript editor highlights speaker labels."},
+      {"title": "Storage billing distractor", "text": "Storage billing is calculated per workspace."},
+      {"title": "Retention calendar distractor", "text": "Retention calendar reminders go to admins."},
+      {"title": "Mobile distractor", "text": "Mobile network tests use TURN fallback."}
+    ],
+    "relevant_source_titles": ["Recording transcript storage retention source"],
+    "graded_relevance": {"Recording transcript storage retention source": 3},
+    "expected_source_titles": ["Recording transcript storage retention source"],
+    "distractor_source_titles": ["Recording controls distractor", "Transcript editor distractor", "Storage billing distractor", "Retention calendar distractor", "Mobile distractor"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["export links"]
+  },
+  {
+    "name": "precision_agent_workflow_distractors",
+    "query": "agent workflow approval memory",
+    "use_vector": false,
+    "sources": [
+      {"title": "Agent workflow approval memory source", "text": "Workflow approval is required before memory updates are persisted."},
+      {"title": "Agent prompt distractor", "text": "Agent workflow approval memory prompt templates describe role behavior but not persistence rules."},
+      {"title": "Workflow graph distractor", "text": "Workflow graph rendering shows task status."},
+      {"title": "Approval inbox distractor", "text": "Approval inbox lists pending tool requests."},
+      {"title": "Memory cleanup distractor", "text": "Memory cleanup removes stale summaries."},
+      {"title": "Search distractor", "text": "Search indexing uses knowledge chunks."}
+    ],
+    "relevant_source_titles": ["Agent workflow approval memory source"],
+    "graded_relevance": {"Agent workflow approval memory source": 3},
+    "expected_source_titles": ["Agent workflow approval memory source"],
+    "distractor_source_titles": ["Agent prompt distractor", "Workflow graph distractor", "Approval inbox distractor", "Memory cleanup distractor", "Search distractor"],
+    "expected_retrieval_mode": "sql_fallback",
+    "require_citation": true,
+    "required_snippets": ["memory updates are persisted"]
+  },
+  {
+    "name": "precision_mobile_network_distractors",
+    "query": "mobile network turn latency",
+    "use_vector": true,
+    "sources": [
+      {"title": "Mobile network TURN latency source", "text": "Mobile network TURN latency must be measured before restricted-network rollout."},
+      {"title": "Mobile onboarding distractor", "text": "Mobile onboarding explains login and notification setup."},
+      {"title": "Network policy distractor", "text": "Network policy lists proxy requirements."},
+      {"title": "TURN server distractor", "text": "TURN server credentials rotate monthly."},
+      {"title": "Latency dashboard distractor", "text": "Latency dashboard charts p95 by region."},
+      {"title": "Billing distractor", "text": "Billing invoice approval is separate."}
+    ],
+    "relevant_source_titles": ["Mobile network TURN latency source"],
+    "graded_relevance": {"Mobile network TURN latency source": 3},
+    "expected_source_titles": ["Mobile network TURN latency source"],
+    "distractor_source_titles": ["Mobile onboarding distractor", "Network policy distractor", "TURN server distractor", "Latency dashboard distractor", "Billing distractor"],
+    "expected_retrieval_mode": "vector",
+    "require_citation": true,
+    "required_snippets": ["restricted-network rollout"]
+  },
+  {
+    "name": "precision_knowledge_search_distractors",
+    "query": "knowledge search indexing latency",
+    "use_vector": false,
+    "sources": [
+      {"title": "Knowledge search indexing latency source", "text": "Knowledge search indexing latency must stay within the demo p95 target."},
+      {"title": "Knowledge source distractor", "text": "Knowledge source records store import metadata."},
+      {"title": "Search UI distractor", "text": "Search UI displays snippets and citations."},
+      {"title": "Indexing queue distractor", "text": "Indexing queue retries failed chunk events."},
+      {"title": "Latency note distractor", "text": "Latency note tracks API response time."},
+      {"title": "Security distractor", "text": "Security audit approval is a separate workflow."}
+    ],
+    "relevant_source_titles": ["Knowledge search indexing latency source"],
+    "graded_relevance": {"Knowledge search indexing latency source": 3},
+    "expected_source_titles": ["Knowledge search indexing latency source"],
+    "distractor_source_titles": ["Knowledge source distractor", "Search UI distractor", "Indexing queue distractor", "Latency note distractor", "Security distractor"],
+    "expected_retrieval_mode": "sql_fallback",
+    "require_citation": true,
+    "required_snippets": ["demo p95 target"]
   }
 ]

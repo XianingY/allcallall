@@ -15,8 +15,8 @@ Use these as raw material. Pick 2-3 bullets and tune them for the target role.
 - Implemented an asynchronous explainable AI Agent run queue with persisted pending/running/ready/failed states, outbox-triggered worker execution, intermediate steps, tool-call records, scoped memory, idempotency keys, and backend-controlled tool execution.
 - Added Agent execution recovery with attempt counters and `lease_until`, allowing transient planner failures to retry and stale `running` runs to recover after worker crashes.
 - Added `AGENT_PROVIDER` selection with deterministic rules, mock structured-output, and configurable OpenAI-compatible planners, preserving stable tests while supporting LLM-backed planning with fallback metrics.
-- Built a deterministic regression harness plus black-box task eval for planner, RAG, workflow, and natural-language task paths; current fixture sets cover 2 planner cases, 2 RAG cases, 3 workflow cases, and 8 task-level cases.
-- Added RAG retrieval metrics and safety-oriented evaluation outputs, including citation hit rate, `Recall@K`, `Precision@K`, `MRR`, approval interception, and meeting-transcript grounding on the current fixture set.
+- Built a deterministic regression harness plus black-box task eval for planner, RAG, workflow, and natural-language task paths; current fixture sets cover 2 planner cases, 40 RAG cases, 3 workflow cases, and 8 task-level cases.
+- Added RAG retrieval metrics and safety-oriented evaluation outputs, including `Recall@K`, `Precision@K`, `MRR`, Top-K hit rate, negative/no-answer pass rate, citation error rate, p50/p95 latency, approval interception, and meeting-transcript grounding on the current fixture set.
 - Integrated Agent tools for writing collaboration messages, creating follow-up tasks, upserting memory, and persisting outbox events for durable async delivery.
 - Extended Agent context retrieval to include meeting transcript segments separately from 1:1 call transcript segments, improving source attribution for meeting summaries and follow-up reasoning.
 
@@ -34,6 +34,7 @@ Use these as raw material. Pick 2-3 bullets and tune them for the target role.
 ## Performance Evidence
 
 - Captured deterministic local Agent/outbox benchmark evidence: 25 queued runs, 25 ready runs, 0 failures, 75 processed outbox events, 175 tool calls, 75 indexed context chunks, 7.0 tool calls per run, and low-latency execute-run p95 on temporary SQLite.
+- Captured live local MySQL/Redis API QPS baseline at 20 concurrency for 60 seconds: `GET messages` 35,286 requests / 587.99 QPS / p95 63 ms, `POST message` 2,878 requests / 47.71 QPS / p95 574 ms, and `POST agent/runs` create/enqueue 4,258 requests / 70.81 QPS / p95 492 ms, all with 0% error rate.
 - Captured realtime replay benchmark evidence: 2000 persisted events, 100 replayed events, scoped replay correctness, monotonic IDs/sequences, and 3 ms write p95 on temporary SQLite.
 - Captured authenticated WebSocket replay evidence: 5 clients, 500 total replayed events, 0 upgrade/client errors, 0 duplicates, and 9 ms connect-to-last p95 against the real `/api/v1/chat/ws` path.
 

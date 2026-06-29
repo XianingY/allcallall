@@ -1,6 +1,6 @@
 # AllCallAll Agent Demo Eval Report
 
-- Generated at: `2026-06-18T15:38:19Z`
+- Generated at: `2026-06-25T06:38:26Z`
 - Planner provider: `rules`
 - Overall status: `pass`
 
@@ -9,7 +9,7 @@
 | Suite | Cases | Passed | Failed |
 | --- | ---: | ---: | ---: |
 | Planner | 2 | 2 | 0 |
-| RAG | 2 | 2 | 0 |
+| RAG | 40 | 40 | 0 |
 | Workflow | 3 | 3 | 0 |
 
 ## Planner Cases
@@ -19,11 +19,180 @@
 
 ## RAG Cases
 
-- `vector_hit_security_budget`: pass - mode `vector`, hits 2
-  - `Security rollout note` via `vector`: Security approval is the main risk. The customer needs a data retention answer before the budget window closes.
-  - `Training plan` via `vector`: Training should cover agent handoff, translation quality review, and support escalation.
-- `sql_fallback_pricing_latency`: pass - mode `sql_fallback`, hits 1
-  - `Pricing latency note` via `sql_fallback`: Pricing depends on the pilot seat count. Latency and translation quality are the key acceptance criteria.
+- `vector_security_approval_budget`: pass - mode `vector`, hits 4
+  - `Security approval budget note` via `vector`: Security approval is the main risk. The customer needs a data retention answer before the budget window closes.
+  - `Training enablement plan` via `vector`: Training should cover agent handoff, translation quality review, and support escalation.
+  - `Invoice operations memo` via `vector`: The invoice review focuses on refund timing and billing owner handoff.
+  - `Mobile rollout checklist` via `vector`: Mobile onboarding needs network testing and app store release coordination.
+- `vector_retention_audit_compliance`: pass - mode `vector`, hits 4
+  - `Retention audit policy` via `vector`: The legal team requires retention audit evidence before compliance approval can be granted.
+  - `Support staffing note` via `vector`: Support escalation staffing changes are planned for the next renewal window.
+  - `Latency test note` via `vector`: The websocket latency check should run after deployment migration.
+  - `Training schedule` via `vector`: Customer onboarding training is scheduled for the workspace admins.
+- `vector_websocket_replay_mobile`: pass - mode `vector`, hits 4
+  - `Mobile websocket replay finding` via `vector`: Mobile clients need websocket replay after weak network reconnects to avoid missed support messages.
+  - `Budget planning note` via `vector`: The budget owner asked for pricing and renewal timing.
+  - `Recording export note` via `vector`: Recording export depends on storage retention and privacy approval.
+  - `Workflow memory memo` via `vector`: Agent workflow memory should capture followup commitments.
+- `vector_recording_transcript_storage`: pass - mode `vector`, hits 4
+  - `Recording transcript storage policy` via `vector`: Meeting recording transcript files must use approved storage and privacy controls before export.
+  - `Search indexing memo` via `vector`: Search indexing uses knowledge chunks and query ranking.
+  - `Customer renewal note` via `vector`: The customer renewal depends on pilot pricing acceptance.
+  - `Incident handoff` via `vector`: Support incident handoff requires escalation owner confirmation.
+- `vector_billing_invoice_refund`: pass - mode `vector`, hits 4
+  - `Billing refund pricing note` via `vector`: Billing needs the invoice owner to confirm refund rules before final pricing is sent.
+  - `Network turn checklist` via `vector`: TURN network testing should run on restricted mobile networks.
+  - `Legal export plan` via `vector`: Legal export review is blocked on privacy language.
+  - `Agent memory plan` via `vector`: Agent memory captures workflow followup summaries.
+- `vector_support_escalation_handoff`: pass - mode `vector`, hits 4
+  - `Customer support escalation note` via `vector`: Customer support asked for an escalation handoff with named owners and next response time.
+  - `Analytics quota memo` via `vector`: Analytics quota tracking is owned by billing operations.
+  - `SSO permissions review` via `vector`: SSO permissions need audit evidence.
+  - `Recording retention checklist` via `vector`: Recording retention and storage cleanup need privacy approval.
+- `vector_deployment_migration_workspace`: pass - mode `vector`, hits 4
+  - `Workspace migration deployment plan` via `vector`: Deployment migration for the workspace must finish before onboarding customer admins.
+  - `Pricing renewal note` via `vector`: Renewal pricing depends on pilot seat count.
+  - `Security risk memo` via `vector`: Security risk review is waiting for compliance evidence.
+  - `Transcript export note` via `vector`: Transcript export needs retention approval.
+- `vector_agent_workflow_memory`: pass - mode `vector`, hits 4
+  - `Agent workflow memory design` via `vector`: The agent workflow should write memory and followup tasks only after approval.
+  - `Mobile network test` via `vector`: Mobile network latency requires TURN fallback testing.
+  - `Billing invoice memo` via `vector`: Invoice processing is waiting for refund policy review.
+  - `Knowledge import plan` via `vector`: Knowledge import supports URL and file ingestion.
+- `vector_search_indexing_knowledge`: pass - mode `vector`, hits 4
+  - `Knowledge search indexing latency` via `vector`: Knowledge search indexing latency should be measured before enabling the customer workspace.
+  - `Support handoff` via `vector`: Support handoff requires escalation ownership.
+  - `Legal privacy note` via `vector`: Legal privacy review is needed for recording export.
+  - `Agent workflow memo` via `vector`: Agent workflow approval controls memory writes.
+- `vector_sso_permissions_audit`: pass - mode `vector`, hits 4
+  - `SSO permissions audit` via `vector`: SSO permissions require audit logs before compliance signoff.
+  - `Pilot renewal plan` via `vector`: Pilot renewal depends on customer pricing.
+  - `Websocket replay plan` via `vector`: Websocket replay protects mobile reconnects.
+  - `Storage cleanup note` via `vector`: Storage cleanup removes expired recording files.
+- `vector_encryption_privacy_export`: pass - mode `vector`, hits 4
+  - `Encryption privacy export review` via `vector`: Legal requires encryption and privacy review before transcript export is enabled.
+  - `Agent workflow note` via `vector`: Workflow approval protects write tools.
+  - `Customer support plan` via `vector`: Customer support escalation needs owner assignment.
+  - `Analytics quota report` via `vector`: Analytics quota usage is tracked by billing.
+- `vector_analytics_quota_budget`: pass - mode `vector`, hits 4
+  - `Analytics quota budget note` via `vector`: Analytics quota must be tied to billing budget limits before renewal.
+  - `Security approval memo` via `vector`: Security approval requires risk evidence.
+  - `Mobile latency finding` via `vector`: Mobile latency depends on network conditions.
+  - `Knowledge indexing plan` via `vector`: Knowledge indexing uses search workers.
+- `vector_turn_network_mobile`: pass - mode `vector`, hits 4
+  - `TURN mobile network latency` via `vector`: TURN fallback is required for mobile network latency in restricted customer sites.
+  - `Invoice refund plan` via `vector`: Invoice refund policy needs billing approval.
+  - `SSO compliance note` via `vector`: SSO compliance needs audit logs.
+  - `Recording transcript memo` via `vector`: Recording transcript storage has privacy constraints.
+- `vector_pilot_renewal_pricing`: pass - mode `vector`, hits 4
+  - `Pilot renewal pricing plan` via `vector`: The customer pilot renewal depends on pricing approval for the expanded seat count.
+  - `Workflow memory note` via `vector`: Workflow memory is updated after approval.
+  - `Storage retention memo` via `vector`: Storage retention is controlled by legal policy.
+  - `Support incident note` via `vector`: Support incident escalation needs handoff.
+- `vector_incident_support_risk`: pass - mode `vector`, hits 4
+  - `Incident support risk note` via `vector`: Incident support risk is high until escalation ownership is assigned.
+  - `Knowledge search memo` via `vector`: Knowledge search indexing has latency metrics.
+  - `Billing analytics note` via `vector`: Billing analytics quota is reviewed monthly.
+  - `Onboarding workspace plan` via `vector`: Workspace onboarding follows deployment migration.
+- `vector_recording_export_retention`: pass - mode `vector`, hits 4
+  - `Recording export retention plan` via `vector`: Recording export should be blocked until storage retention rules are confirmed.
+  - `Agent followup memo` via `vector`: Agent followup task creation requires approval.
+  - `Customer renewal note` via `vector`: Customer renewal pricing is under review.
+  - `SSO audit note` via `vector`: SSO audit evidence is needed for compliance.
+- `vector_knowledge_agent_workflow`: pass - mode `vector`, hits 4
+  - `Knowledge agent workflow search` via `vector`: The knowledge agent workflow uses search citations before proposing write tools.
+  - `Privacy legal note` via `vector`: Privacy legal approval gates export.
+  - `Mobile TURN checklist` via `vector`: Mobile TURN testing checks network latency.
+  - `Billing refund memo` via `vector`: Billing refund rules require invoice review.
+- `vector_training_onboarding_handoff`: pass - mode `vector`, hits 4
+  - `Customer training handoff` via `vector`: Customer onboarding training needs a handoff from support to workspace admins.
+  - `Search indexing note` via `vector`: Search indexing latency should be tracked.
+  - `Security budget plan` via `vector`: Security budget approval is pending.
+  - `Recording transcript policy` via `vector`: Recording transcript retention is under review.
+- `sql_pricing_pilot_renewal`: pass - mode `sql_fallback`, hits 1
+  - `Pricing pilot renewal approval` via `sql_fallback`: Pricing for the pilot renewal requires approval from the commercial owner.
+- `sql_meeting_transcript_retention`: pass - mode `sql_fallback`, hits 1
+  - `Meeting transcript retention audit` via `sql_fallback`: Meeting transcript retention audit evidence must be ready before customer review.
+- `sql_mobile_network_turn`: pass - mode `sql_fallback`, hits 1
+  - `Mobile network TURN latency` via `sql_fallback`: Mobile network latency requires TURN testing before field deployment.
+- `sql_knowledge_indexing_quota`: pass - mode `sql_fallback`, hits 1
+  - `Knowledge indexing search quota` via `sql_fallback`: Knowledge indexing and search quota should be measured during the demo load test.
+- `sql_workflow_approval_followup`: pass - mode `sql_fallback`, hits 1
+  - `Workflow approval followup memory` via `sql_fallback`: Workflow approval must complete before followup tasks and memory writes are committed.
+- `sql_privacy_legal_export`: pass - mode `sql_fallback`, hits 1
+  - `Privacy legal export compliance` via `sql_fallback`: Privacy and legal teams must approve export compliance before transcript download.
+- `sql_support_escalation_incident`: pass - mode `sql_fallback`, hits 1
+  - `Support escalation incident handoff` via `sql_fallback`: Support escalation for the incident needs a handoff owner and customer update.
+- `sql_billing_invoice_analytics`: pass - mode `sql_fallback`, hits 1
+  - `Billing invoice refund analytics` via `sql_fallback`: Billing analytics should track invoice refund events by workspace and customer.
+- `negative_quantum_roadmap_satellite`: pass - mode `vector`, hits 3
+  - `Meeting storage policy` via `vector`: Recording storage retention follows privacy requirements.
+  - `Workspace admin handbook` via `vector`: Workspace admins manage onboarding checklists and support routing.
+  - `Invoice calendar` via `vector`: Billing owners review monthly invoices and refunds.
+- `negative_warehouse_robot_inventory`: pass - mode `sql_fallback`, hits 3
+  - `Knowledge import guide` via `sql_fallback`: Knowledge imports accept URL and PDF files.
+  - `Security audit checklist` via `sql_fallback`: Security reviewers collect compliance evidence.
+  - `Customer support handbook` via `sql_fallback`: Support agents record escalation owners and next response dates.
+- `negative_crypto_wallet_seed`: pass - mode `vector`, hits 3
+  - `Mobile reconnect guide` via `vector`: Mobile clients reconnect through websocket replay after network drops.
+  - `Agent memory guide` via `vector`: Agent memory stores approved followup summaries.
+  - `Legal export guide` via `vector`: Legal review is needed before transcript export.
+- `negative_restaurant_menu_allergy`: pass - mode `sql_fallback`, hits 3
+  - `TURN test note` via `sql_fallback`: TURN testing covers restricted mobile networks.
+  - `Pricing approval note` via `sql_fallback`: Pricing approval is owned by billing operations.
+  - `Deployment checklist` via `sql_fallback`: Deployment migration should finish before workspace onboarding.
+- `negative_airline_baggage_policy`: pass - mode `vector`, hits 3
+  - `Retention policy memo` via `vector`: Retention policy controls recording storage cleanup.
+  - `Search index runbook` via `vector`: Search index workers process knowledge chunks asynchronously.
+  - `Support incident template` via `vector`: Support incidents require escalation notes and customer updates.
+- `negative_medical_lab_result`: pass - mode `sql_fallback`, hits 3
+  - `Customer onboarding plan` via `sql_fallback`: Customer onboarding includes admin training.
+  - `Invoice refund note` via `sql_fallback`: Invoice refund timing depends on billing review.
+  - `Workflow approval guide` via `sql_fallback`: Workflow approval gates write tools and memory updates.
+- `negative_weather_forecast_city`: pass - mode `vector`, hits 3
+  - `Websocket replay memo` via `vector`: Websocket replay uses event sequence values.
+  - `Privacy export memo` via `vector`: Privacy export approval is required for transcript downloads.
+  - `Analytics quota memo` via `vector`: Analytics quota is tracked by workspace.
+- `negative_stock_dividend_schedule`: pass - mode `sql_fallback`, hits 3
+  - `Support handoff handbook` via `sql_fallback`: Support handoff lists escalation owners.
+  - `Recording transcript handbook` via `sql_fallback`: Recording transcript storage follows retention rules.
+  - `Security compliance handbook` via `sql_fallback`: Security compliance evidence is gathered before approval.
+- `precision_security_approval_distractors`: pass - mode `vector`, hits 5
+  - `Security approval audit risk source` via `vector`: Security approval audit risk is unresolved until compliance evidence and owner signoff are complete.
+  - `Risk register distractor` via `vector`: Risk register entries are reviewed every Friday.
+  - `Audit logging distractor` via `vector`: Audit logging captures login and export events.
+  - `Security training distractor` via `vector`: Security training teaches admins how to use the workspace.
+  - `Approval workflow distractor` via `vector`: Approval workflow settings control followup task creation.
+- `precision_billing_invoice_distractors`: pass - mode `sql_fallback`, hits 5
+  - `Billing dashboard distractor` via `sql_fallback`: Billing invoice refund pricing dashboard shows monthly usage but does not describe the renewal quote owner.
+  - `Billing invoice refund pricing source` via `sql_fallback`: Billing invoice pricing must be approved before the customer renewal quote is sent.
+  - `Pricing page distractor` via `sql_fallback`: Pricing page copy is updated by marketing.
+  - `Refund timing distractor` via `sql_fallback`: Refund timing depends on finance review.
+  - `Invoice template distractor` via `sql_fallback`: Invoice template fields include tax and workspace id.
+- `precision_recording_storage_distractors`: pass - mode `vector`, hits 5
+  - `Recording transcript storage retention source` via `vector`: Recording transcript storage retention must be confirmed before export links are shared.
+  - `Recording controls distractor` via `vector`: Recording controls include start and stop buttons.
+  - `Transcript editor distractor` via `vector`: Transcript editor highlights speaker labels.
+  - `Retention calendar distractor` via `vector`: Retention calendar reminders go to admins.
+  - `Storage billing distractor` via `vector`: Storage billing is calculated per workspace.
+- `precision_agent_workflow_distractors`: pass - mode `sql_fallback`, hits 5
+  - `Agent prompt distractor` via `sql_fallback`: Agent workflow approval memory prompt templates describe role behavior but not persistence rules.
+  - `Agent workflow approval memory source` via `sql_fallback`: Workflow approval is required before memory updates are persisted.
+  - `Memory cleanup distractor` via `sql_fallback`: Memory cleanup removes stale summaries.
+  - `Approval inbox distractor` via `sql_fallback`: Approval inbox lists pending tool requests.
+  - `Workflow graph distractor` via `sql_fallback`: Workflow graph rendering shows task status.
+- `precision_mobile_network_distractors`: pass - mode `vector`, hits 5
+  - `Mobile network TURN latency source` via `vector`: Mobile network TURN latency must be measured before restricted-network rollout.
+  - `Latency dashboard distractor` via `vector`: Latency dashboard charts p95 by region.
+  - `Network policy distractor` via `vector`: Network policy lists proxy requirements.
+  - `TURN server distractor` via `vector`: TURN server credentials rotate monthly.
+  - `Mobile onboarding distractor` via `vector`: Mobile onboarding explains login and notification setup.
+- `precision_knowledge_search_distractors`: pass - mode `sql_fallback`, hits 5
+  - `Knowledge search indexing latency source` via `sql_fallback`: Knowledge search indexing latency must stay within the demo p95 target.
+  - `Latency note distractor` via `sql_fallback`: Latency note tracks API response time.
+  - `Indexing queue distractor` via `sql_fallback`: Indexing queue retries failed chunk events.
+  - `Search UI distractor` via `sql_fallback`: Search UI displays snippets and citations.
+  - `Knowledge source distractor` via `sql_fallback`: Knowledge source records store import metadata.
 
 ## Workflow Cases
 

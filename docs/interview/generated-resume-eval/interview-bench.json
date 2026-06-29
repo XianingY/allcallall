@@ -1,5 +1,5 @@
 {
-  "started_at": "2026-06-19T13:15:48.107137Z",
+  "started_at": "2026-06-25T06:38:13.177708Z",
   "provider": "rules",
   "conversations": 25,
   "queued_runs": 25,
@@ -14,20 +14,20 @@
   "follow_up_tasks": 25,
   "agent_memories": 25,
   "agent_context_chunks": 75,
-  "total_duration_ms": 536,
+  "total_duration_ms": 1300,
   "queue_latency": {
     "count": 25,
-    "min_ms": 0,
-    "p50_ms": 1,
-    "p95_ms": 1,
-    "max_ms": 6
+    "min_ms": 2,
+    "p50_ms": 3,
+    "p95_ms": 5,
+    "max_ms": 7
   },
   "execute_run_latency": {
     "count": 25,
-    "min_ms": 7,
-    "p50_ms": 7,
-    "p95_ms": 12,
-    "max_ms": 16
+    "min_ms": 16,
+    "p50_ms": 25,
+    "p95_ms": 31,
+    "max_ms": 141
   },
   "counters": {
     "agent_memory_write_total": 25,

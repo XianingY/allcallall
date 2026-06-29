@@ -29,22 +29,29 @@ The eval fixture validates:
 
 | Metric | Value |
 | --- | ---: |
-| cases | 2 |
-| passed | 2 |
+| cases | 40 |
+| passed | 40 |
 | failed | 0 |
-| avg_latency_ms | 26.0 |
+| answerable_cases | 32 |
+| negative_cases | 8 |
+| top_k_hit_rate | 100% |
+| negative_pass_rate | 100% |
 | citation_hit_rate | 100% |
+| citation_error_rate | 57.2% |
+| latency_p50_ms | 83 |
+| latency_p95_ms | 181 |
 | recall_at_k | 1.00 |
-| precision_at_k | 0.75 |
-| mrr | 1.00 |
-| ndcg_at_k | 1.00 |
-| vector_case_rate | 50% |
-| sql_fallback_case_rate | 50% |
+| precision_at_k | 0.43 |
+| mrr | 0.97 |
+| ndcg_at_k | 0.98 |
+| vector_case_rate | 62.5% |
+| sql_fallback_case_rate | 37.5% |
 
 Interpretation:
 
-- The deterministic fixture proves both vector retrieval and SQL fallback retrieval remain regression-testable.
-- All current RAG cases return at least one cited supporting chunk.
+- The deterministic fixture proves vector retrieval, SQL fallback retrieval, distractor-document precision, and no-answer behavior remain regression-testable.
+- Negative/no-answer cases are tracked separately from answerable Recall/MRR so no-answer fixtures do not inflate or deflate IR metrics.
+- Citation error rate is intentionally tracked to avoid presenting citation presence as citation correctness.
 
 ### Task Eval
 
@@ -154,6 +161,53 @@ Interpretation:
 
 - The benchmark exercises the real `/api/v1/chat/ws` handler path through auth middleware and organization membership resolution.
 - It validates replay completeness for multiple clients without a long-running backend.
+
+### Core API QPS Benchmark
+
+Use `scripts/load/api-qps-bench.mjs` against a live local MySQL/Redis + Gin backend before adding QPS numbers to resume material.
+
+Latest measured snapshot:
+
+- Date: June 25, 2026
+- Git HEAD during run: `000e153` plus local benchmark/eval working-tree changes
+- Command: `node scripts/load/api-qps-bench.mjs`
+- Environment: isolated Docker MySQL 8.0 + Redis 7.2, live Gin backend on `:18080`, `mock_llm`, seeded interview organization/conversation
+- Report directory: `/tmp/allcallall-qps-20260625-145158`
+- Concurrency: `20`
+- Duration: `60` seconds per scenario
+
+| Scenario | Endpoint | Requests | QPS | p50 Latency | p95 Latency | p99 Latency | Error Rate | Status Counts |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `get_messages` | `GET /api/v1/conversations/:id/messages` | 35,286 | 587.99 | 29 ms | 63 ms | 113 ms | 0% | `200: 35286` |
+| `post_message` | `POST /api/v1/conversations/:id/messages` | 2,878 | 47.71 | 394 ms | 574 ms | 765 ms | 0% | `201: 2878` |
+| `post_agent_run` | `POST /api/v1/agent/runs` | 4,258 | 70.81 | 245 ms | 492 ms | 1138 ms | 0% | `202: 4258` |
+
+Interpretation:
+
+- `get_messages` is the cleanest read-path baseline and reached `587.99` QPS with p95 `63 ms`.
+- `post_message` includes synchronous DB write and outbox enqueue pressure, so it is materially slower than the read path.
+- `post_agent_run` measures run creation and queue enqueue only. It should not be described as Agent end-to-end throughput.
+- These numbers are local benchmark evidence only. Use the report directory, concurrency, duration, and environment notes whenever quoting them.
+
+Scenarios to run separately:
+
+| Scenario | Endpoint | Scope |
+| --- | --- | --- |
+| `get_messages` | `GET /api/v1/conversations/:id/messages` | Read-path latency/QPS |
+| `post_message` | `POST /api/v1/conversations/:id/messages` | Synchronous write + outbox enqueue pressure |
+| `post_agent_run` | `POST /api/v1/agent/runs` | Agent run create/enqueue QPS only |
+
+Required output fields:
+
+| Metric | Meaning |
+| --- | --- |
+| `requests` | Completed requests during the measured window |
+| `qps` | Completed requests divided by measured duration |
+| `latency_ms.p50/p95/p99` | Client-observed request latency |
+| `error_rate` | Non-2xx or timeout ratio |
+| `status_counts` | HTTP status distribution |
+
+Do not use `post_agent_run` QPS as Agent end-to-end throughput. Agent completion, tool calls, and outbox drain are measured by `interview-bench` or `agent-run-smoke.sh`.
 
 ## Live MySQL / Redis Checklist
 

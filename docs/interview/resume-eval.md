@@ -54,13 +54,14 @@ This path is not a production throughput claim and should not be presented as ex
 
 ## Resume-Safe Metrics
 
-As of the latest committed snapshot on June 19, 2026:
+As of the latest local snapshot after the expanded RAG fixture update:
 
 - Planner eval: current fixture set `2/2` passed, average estimated prompt tokens `337.5`
-- RAG eval: current fixture set `2/2` passed, `Recall@K=1.00`, `Precision@K=0.75`, `MRR=1.00`, citation hit rate `100%`
+- RAG eval: current fixture set `40/40` passed, with `32` answerable cases, `8` negative/no-answer cases, distractor documents, `Recall@K=1.00`, `Precision@K≈0.43`, `MRR≈0.97`, negative pass rate `100%`, and citation error rate tracked separately
 - Workflow eval: current fixture set `3/3` passed, approval interception rate `66.7%`, meeting transcript coverage `100%`
 - Black-box task eval: current fixture set `8/8` passed, used for task completion / tool intent / approval safety / grounding checks
-- Local Agent/outbox benchmark: `25/25` ready runs, `0` failed runs, latest embedded benchmark execute-run `p95=12 ms`, `7.0` tool calls per run, `3.0` context chunks per run
+- Local Agent/outbox benchmark: `25/25` ready runs, `0` failed runs, latest embedded benchmark records execute-run p95, `7.0` tool calls per run, and `3.0` context chunks per run
+- Live local API QPS snapshot: under isolated Docker MySQL/Redis, live Gin backend, `mock_llm`, 20 concurrency and 60 seconds per scenario, `GET messages` reached `587.99` QPS / p95 `63 ms`, `POST message` reached `47.71` QPS / p95 `574 ms`, and `POST agent/runs` create/enqueue reached `70.81` QPS / p95 `492 ms`, all with `0%` error rate
 
 When writing resume bullets, prefer the generated markdown snapshot plus one supporting raw artifact path instead of copying numbers by hand from multiple documents.
 
@@ -69,9 +70,10 @@ When writing resume bullets, prefer the generated markdown snapshot plus one sup
 Good examples:
 
 - Built a deterministic regression harness for planner, RAG, workflow, and task-level Agent paths; current local fixture sets are reproducible and used for regression checks.
-- Added measurable retrieval and safety checks, including RAG citation / IR metrics, meeting-transcript grounding, and approval interception for write tools.
+- Added measurable retrieval and safety checks, including RAG citation / IR metrics, no-answer negative cases, distractor-document precision checks, meeting-transcript grounding, and approval interception for write tools.
 - Added a black-box task-eval layer for natural-language task completion and kept manual UX scoring separate from reproducible benchmark artifacts.
 - Benchmarked the local Agent/outbox pipeline at `25/25` ready runs with `0` failures and low-latency execute-run p95 on temporary SQLite.
+- Measured core API local QPS on MySQL/Redis at 20 concurrency for 60 seconds, covering read, write + outbox enqueue, and Agent run create/enqueue paths; present these as local benchmark evidence, not production SLA.
 
 Avoid wording that implies:
 

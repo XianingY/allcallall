@@ -41,6 +41,7 @@ Scripts live in `scripts/load/`.
 - `scripts/load/realtime-replay-bench.sh`: shell wrapper around `cmd/realtime-replay-bench` for load-script consistency.
 - `go run ./cmd/chat-ws-replay-bench`: in-process authenticated Gin/WebSocket replay benchmark for `/api/v1/chat/ws`.
 - `scripts/load/chat-ws-replay-bench.sh`: shell wrapper around `cmd/chat-ws-replay-bench`.
+- `scripts/load/api-qps-bench.mjs`: live MySQL/Redis + Gin API benchmark for `GET messages`, `POST message`, and Agent run create/enqueue QPS.
 - `make interview-microservice-demo`: multi-process worker demo with API, Agent worker, outbox worker, and cleanup worker.
 - `cmd/user-service`: gRPC User Service for internal token validation and user lookup demos.
 - `cmd/data-worker`: Kafka consumer for `allcallall.room.settlements`.
@@ -132,6 +133,9 @@ System metrics:
 | Scenario | Concurrency | Duration | p95 Latency | Error Rate | Notes |
 | --- | ---: | ---: | ---: | ---: | --- |
 | Local Agent/outbox benchmark | 1 process | 536 ms | 12 ms execute-run | 0% | June 19, 2026 deterministic `rules` run, temporary SQLite |
+| Live GET messages API | 20 clients | 60 s | 63 ms | 0% | June 25, 2026 isolated Docker MySQL/Redis, `mock_llm`, 35,286 requests, 587.99 QPS |
+| Live POST message API | 20 clients | 60 s | 574 ms | 0% | June 25, 2026 isolated Docker MySQL/Redis, `mock_llm`, 2,878 requests, 47.71 QPS |
+| Live Agent run create/enqueue API | 20 clients | 60 s | 492 ms | 0% | June 25, 2026 isolated Docker MySQL/Redis, `mock_llm`, 4,258 requests, 70.81 QPS; not Agent end-to-end throughput |
 | Agent run creation | TBD | TBD | TBD | TBD | New idempotency key per request; expect `202 pending` |
 | Agent idempotency replay | TBD | TBD | TBD | TBD | Same key should not duplicate tool side effects |
 | Agent run backlog | TBD | TBD | TBD | TBD | Count `pending`/`running`/`failed` rows before and after worker drain |

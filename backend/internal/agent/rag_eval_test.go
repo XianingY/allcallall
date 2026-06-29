@@ -38,6 +38,9 @@ func TestRunRAGEvalIncludesIRSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load rag eval cases failed: %v", err)
 	}
+	if len(cases) != 40 {
+		t.Fatalf("expected 40 rag eval cases, got %d", len(cases))
+	}
 	report, err := RunRAGEval(context.Background(), cases)
 	if err != nil {
 		t.Fatalf("run rag eval failed: %v", err)
@@ -50,5 +53,19 @@ func TestRunRAGEvalIncludesIRSummary(t *testing.T) {
 	}
 	if report.Summary.PrecisionAtK <= 0 || report.Summary.NDCGAtK <= 0 {
 		t.Fatalf("expected precision/ndcg metrics: %+v", report.Summary)
+	}
+	if report.Summary.AnswerableCases != 32 || report.Summary.NegativeCases != 8 {
+		t.Fatalf("unexpected answerable/negative split: %+v", report.Summary)
+	}
+	if report.Summary.TopKHitRate <= 0 || report.Summary.NegativePassRate <= 0 {
+		t.Fatalf("expected top-k and negative metrics: %+v", report.Summary)
+	}
+	if report.Summary.LatencyP50Ms < 0 || report.Summary.LatencyP95Ms < report.Summary.LatencyP50Ms {
+		t.Fatalf("unexpected latency percentiles: %+v", report.Summary)
+	}
+	for _, result := range report.Results {
+		if result.ExpectedNoAnswer && (result.RecallAtK != 0 || result.MRR != 0) {
+			t.Fatalf("negative case should not contribute IR metrics: %+v", result)
+		}
 	}
 }
