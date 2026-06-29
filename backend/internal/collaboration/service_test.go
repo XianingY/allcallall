@@ -13,12 +13,12 @@ import (
 
 	"github.com/pion/webrtc/v4"
 	"github.com/rs/zerolog"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/media"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/storage"
+	"github.com/allcallall/backend/internal/testutil"
 	"github.com/allcallall/backend/internal/transcription"
 	"github.com/allcallall/backend/internal/user"
 )
@@ -67,47 +67,8 @@ func (retryableTranscriptionProvider) TranscribeFile(context.Context, transcript
 func newServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *user.Service) {
 	t.Helper()
 
-	dbPath := filepath.Join(t.TempDir(), "collaboration.db")
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite failed: %v", err)
-	}
-	if err := db.AutoMigrate(
-		&models.User{},
-		&models.Organization{},
-		&models.OrganizationMember{},
-		&models.OrganizationPolicy{},
-		&models.Team{},
-		&models.TeamMember{},
-		&models.OrganizationInvite{},
-		&models.Conversation{},
-		&models.ConversationNote{},
-		&models.ConversationMember{},
-		&models.Message{},
-		&models.MessageRead{},
-		&models.ChatEvent{},
-		&models.Attachment{},
-		&models.MessageReaction{},
-		&models.ConversationPin{},
-		&models.OrganizationAuditEvent{},
-		&models.CallRoom{},
-		&models.CallRoomMember{},
-		&models.CallRoomEvent{},
-		&models.RecordingSession{},
-		&models.RecordingFile{},
-		&models.RecordingTranscription{},
-		&models.MeetingTranscriptSegment{},
-		&models.RecordingConsent{},
-		&models.RecordingExport{},
-		&models.Pipeline{},
-		&models.PipelineStage{},
-		&models.Deal{},
-		&models.DealContact{},
-		&models.DealActivity{},
-		&models.EventOutbox{},
-	); err != nil {
-		t.Fatalf("auto migrate failed: %v", err)
-	}
+	db := testutil.OpenSQLite(t, "collaboration.db")
+	testutil.AutoMigrateAll(t, db)
 
 	userSvc := user.NewService(user.NewRepository(db))
 	svc := NewService(db, userSvc)

@@ -3,60 +3,20 @@ package agent
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/testutil"
 )
 
 func newWorkflowTestService(t *testing.T) (*Service, *gorm.DB) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "workflow.db")+"?_busy_timeout=5000"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite failed: %v", err)
-	}
-	if err := db.AutoMigrate(
-		&models.User{},
-		&models.Organization{},
-		&models.OrganizationMember{},
-		&models.Conversation{},
-		&models.ConversationMember{},
-		&models.ConversationNote{},
-		&models.Message{},
-		&models.Attachment{},
-		&models.MessageReaction{},
-		&models.ConversationPin{},
-		&models.CallRoom{},
-		&models.CallFollowup{},
-		&models.CallTranscriptSegment{},
-		&models.RecordingTranscription{},
-		&models.MeetingTranscriptSegment{},
-		&models.ContactProfile{},
-		&models.FollowUpTask{},
-		&models.AgentRun{},
-		&models.AgentStep{},
-		&models.AgentToolCall{},
-		&models.AgentMemory{},
-		&models.AgentContextChunk{},
-		&models.AgentPromptVersion{},
-		&models.ToolSchemaVersion{},
-		&models.WorkflowRun{},
-		&models.WorkflowTask{},
-		&models.WorkflowHistoryEvent{},
-		&models.WorkflowSignal{},
-		&models.WorkflowTimer{},
-		&models.AgentMessage{},
-		&models.ToolPolicy{},
-		&models.ToolApproval{},
-		&models.EventOutbox{},
-	); err != nil {
-		t.Fatalf("auto migrate failed: %v", err)
-	}
+	db := testutil.OpenSQLite(t, "workflow.db")
+	testutil.AutoMigrateAll(t, db)
 	return NewService(db).WithPlanner(RulesPlanner{}), db
 }
 

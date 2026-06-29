@@ -4,56 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/testutil"
 	"github.com/allcallall/backend/internal/trace"
 )
 
 func newAgentServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *metrics.CounterStore) {
 	t.Helper()
 
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "agent.db")), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite failed: %v", err)
-	}
-	if err := db.AutoMigrate(
-		&models.User{},
-		&models.Conversation{},
-		&models.ConversationMember{},
-		&models.ConversationNote{},
-		&models.Message{},
-		&models.Attachment{},
-		&models.MessageReaction{},
-		&models.ConversationPin{},
-		&models.AgentRun{},
-		&models.AgentStep{},
-		&models.AgentToolCall{},
-		&models.AgentMemory{},
-		&models.AgentContextChunk{},
-		&models.AgentPromptVersion{},
-		&models.ToolSchemaVersion{},
-		&models.FollowUpTask{},
-		&models.CallRoom{},
-		&models.CallFollowup{},
-		&models.CallTranscriptSegment{},
-		&models.RecordingTranscription{},
-		&models.MeetingTranscriptSegment{},
-		&models.ContactProfile{},
-		&models.EventOutbox{},
-		&models.ChatEvent{},
-	); err != nil {
-		t.Fatalf("auto migrate failed: %v", err)
-	}
+	db := testutil.OpenSQLite(t, "agent.db")
+	testutil.AutoMigrateAll(t, db)
 
 	counters := metrics.NewCounterStore()
 	return NewService(db, counters), db, counters
