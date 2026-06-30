@@ -2,7 +2,7 @@
 
 This directory is the maintained documentation set for AllCallAll. The current project positioning is:
 
-**AI-powered realtime collaboration backend for backend systems and AI Agent engineering interviews.**
+**Enterprise realtime collaboration system for full-stack, backend systems, and AI Agent engineering interviews.**
 
 Historical status reports, temporary migration notes, and duplicated setup guides should not be treated as implementation authority. If a document conflicts with current code, prefer the root README, backend README, and the interview/system design docs.
 
@@ -21,6 +21,7 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 - [AI Agent Design](./interview/ai-agent-design.md): Agent runs, tools, approvals, memory, and RAG.
 - [Python Agent Runtime](./interview/python-agent-runtime.md): LangGraph runtime split, Go/Python boundary, tool bridge, and Python eval.
 - [AI Agent JD Fit](./interview/ai-portfolio-jd-fit.md): maps LangGraph, LangChain, Rerank, LlamaIndex, prompt engineering, and eval evidence to AI Agent JD requirements.
+- [Tencent Full-Stack JD Fit](./interview/tencent-fullstack-jd-fit.md): maps React/Vite, Go/Gin, MySQL, Redis, Node.js tooling, admin dashboard, and performance evidence to Tencent full-stack JD requirements.
 - [Agent RAG Current State](./interview/agent-rag-current-state.md): retrieval implementation notes.
 - [Agent Demo Eval Report](./interview/agent-demo-report.md): reproducible planner, RAG, and workflow eval report.
 - [Resume Eval](./interview/resume-eval.md): resume-safe KPI summary and generation command.

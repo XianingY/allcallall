@@ -1,12 +1,13 @@
 # AllCallAll
 
-AllCallAll is a backend engineering portfolio project for an **AI-powered realtime collaboration system**. It is built around Go, Gin, Gorm/MySQL, Redis, WebSocket/WebRTC, recording storage, asynchronous workers, Elasticsearch search, and AI Agent workflows.
+AllCallAll is a full-stack engineering portfolio project for an **enterprise realtime collaboration and AI-assisted management system**. It is built around React/Vite, Go, Gin, Gorm/MySQL, Redis, WebSocket/WebRTC, recording storage, asynchronous workers, Elasticsearch search, and AI Agent workflows.
 
-The strongest project story is not a commercial app launch. The repo demonstrates how a realtime collaboration backend can evolve from a modular monolith into extracted worker/service boundaries while keeping a primary Web app, native Expo mobile app, and Electron shell available.
+The strongest project story is not a commercial app launch. The repo demonstrates how an enterprise collaboration product can evolve from a modular monolith into a maintainable full-stack system with generated API contracts, an admin dashboard, realtime collaboration, performance gates, extracted worker/service boundaries, a primary Web app, native Expo mobile app, and Electron shell.
 
 ## Current Positioning
 
 - **Realtime collaboration**: organizations, conversations, messages, notes, durable WebSocket replay, room state, WebRTC signaling, and recording sessions.
+- **Enterprise admin console**: organization overview, member/invite/team/policy/audit management, admin summary API, Redis-backed dashboard cache, and reproducible dashboard/message-list benchmarks.
 - **AI Agent system**: ReAct-style single-agent runs, workflow/DAG-style multi-agent tasks, tool calling, approvals, persisted traces, memory, and conversation-aware context retrieval. Workflow presets can optionally run in a Python FastAPI + LangGraph runtime while Go remains the source of truth for data, permissions, approvals, audit, and writes.
 - **Meeting recording transcription**: recording stop can enqueue `recording.transcription.requested`; the provider abstraction supports mock and OpenAI-compatible ASR paths and stores `MeetingTranscriptSegment` rows for Agent retrieval.
 - **Hybrid retrieval**: conversation context plus external knowledge sources, BM25/vector search where Elasticsearch is configured, and Go-layer reranking/chunk assembly.
@@ -95,8 +96,11 @@ make rag-eval
 make rerank-eval
 make python-agent-eval
 make ai-portfolio-eval
+make dashboard-bench
 make realtime-replay-bench
 make chat-ws-replay-bench
+make web-contract-check
+make web-performance-check
 ```
 
 `make run-backend` is retained as a compatibility alias for the API server.
@@ -196,6 +200,7 @@ Start with:
 - [Quick Start](docs/getting-started/quick-start.md)
 - [Configuration](docs/configuration/configuration.md)
 - [Interview README](docs/interview/README.md)
+- [Tencent Full-Stack JD Fit](docs/interview/tencent-fullstack-jd-fit.md)
 - [System Design](docs/interview/system-design.md)
 - [AI Agent Design](docs/interview/ai-agent-design.md)
 - [API Surface](docs/interview/api-surface.md)
@@ -212,6 +217,7 @@ Web:
 
 ```bash
 cd web && npm run typecheck && npm run lint && npm test && npm run build
+cd web && npm run contract:check && npm run bundle:budget
 ```
 
 Mobile:

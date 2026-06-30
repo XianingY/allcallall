@@ -1,11 +1,14 @@
 # AllCallAll Interview Positioning
 
-AllCallAll is positioned as an AI-powered realtime collaboration backend project for backend engineering interviews. Treat product, legal, and billing surfaces as supporting domain data. The interview story should stay focused on distributed backend design, realtime systems, reliability, and an explainable AI Agent workflow.
+AllCallAll is positioned as an enterprise realtime collaboration project for full-stack, backend systems, and AI Agent engineering interviews. For full-stack roles, lead with the Web admin console, generated API contract, Go/Gin backend, MySQL/Redis data paths, realtime collaboration, tests, and performance gates. For AI roles, shift emphasis to Agent orchestration, RAG, citations, and approval safety.
 
-## Why This Project Fits Backend Roles
+## Why This Project Fits Full-Stack / Backend Roles
 
+- Full-stack product surface: React/Vite Web app, organization admin dashboard, generated OpenAPI client, responsive workspace, and browser meeting/transcript/Agent Lab flows.
 - Realtime systems: WebSocket event replay, room state patching, WebRTC signaling, and recording lifecycle events.
 - Data modeling: organizations, conversations, rooms, recordings, recording transcription jobs, transcript segments, refresh sessions, event logs, outbox events, and Agent execution records.
+- Database/cache engineering: MySQL-backed business data, Redis-backed tickets/rate limits/presence/cache, admin summary cache invalidation, and local benchmark evidence.
+- Engineering quality: contract check, bundle budget check, Vitest/MSW/Playwright, Go package tests, benchmarks, Docker Compose, and maintained docs.
 - Reliability: request IDs propagated through HTTP, Agent runs, and outbox workers; metrics; cleanup workers; S3-compatible recording storage; idempotent webhook/session handling; and an outbox worker.
 - Security: organization-scoped access control, refresh session rotation, support-token protected internal APIs, and no raw media persistence by default.
 - AI Agent readiness: deterministic rules-based Agent v1 with run state, steps, tool calls, memory, idempotency, outbox, conversation write-back, and meeting transcript retrieval.
@@ -18,6 +21,7 @@ AllCallAll is positioned as an AI-powered realtime collaboration backend project
 - [Bounded Agentic RAG](agentic-rag.md): Agentic retrieval planning, evidence pack, sufficiency gate, tool boundary, and eval positioning.
 - [Python Agent Runtime](python-agent-runtime.md): LangGraph runtime split, Go/Python boundary, tool bridge, and Python eval.
 - [AI Agent JD Fit](ai-portfolio-jd-fit.md): JD capability mapping for LangGraph, LangChain, Rerank, LlamaIndex, prompt engineering, and eval.
+- [Tencent Full-Stack JD Fit](tencent-fullstack-jd-fit.md): JD capability mapping for React/Vite, Go/Gin, MySQL, Redis, Node.js tooling, admin dashboard, and performance evidence.
 - [Microservice Evolution](microservice-evolution.md): modular monolith to microservice-ready worker migration path.
 - [gRPC, Kafka, and Elasticsearch Evolution](grpc-kafka-es-evolution.md): synchronous service split, async settlement pipeline, and message search index.
 - [Worker Runtime](worker-runtime.md): API-embedded workers, standalone worker commands, event ownership, and failure semantics.

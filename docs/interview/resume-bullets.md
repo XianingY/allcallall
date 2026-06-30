@@ -10,6 +10,15 @@ Use these as raw material. Pick 2-3 bullets and tune them for the target role.
 - Delivered `message.created` outbox fan-out into per-recipient WebSocket replay records with dedup keys, so Agent-generated system messages and user messages share the same reconnect path.
 - Implemented refresh session hardening with HttpOnly refresh cookies, token rotation, suspicious refresh reuse tracking, logout-all, and support-side session inspection.
 
+## Full-Stack / Enterprise Web
+
+- Built a primary React + Vite + TypeScript Web app for an enterprise collaboration workspace, covering authentication, organization management, conversations, meetings, recordings/transcripts, Agent Lab, approvals, and responsive desktop/mobile browser layouts.
+- Added an organization admin console with overview metrics, members, invites, teams, policies, and audit tabs, backed by a Go/Gin summary API and OpenAPI-generated Web client types.
+- Implemented organization-scoped admin summary caching with Redis short TTL, explicit invalidation on member/invite/team/conversation/message mutations, Prometheus-style hit/miss/latency counters, and reproducible local benchmarks.
+- Added Node.js engineering gates for the Web app: OpenAPI contract drift checks, Vite bundle budget checks, lazy/manual chunk splitting, and Make targets for repeatable CI-style validation.
+- Improved collaboration workspace UX with message cursor pagination, lightweight windowed rendering for long conversations, optimistic chat interactions, replies, reactions, pins, attachments, and durable WebSocket replay.
+- Built the project as a full-stack enterprise management system first, with AI Agent meeting recap and approval-gated write-back as product enhancements rather than a standalone black-box Agent demo.
+
 ## AI Agent Engineering
 
 - Implemented an asynchronous explainable AI Agent run queue with persisted pending/running/ready/failed states, outbox-triggered worker execution, intermediate steps, tool-call records, scoped memory, idempotency keys, and backend-controlled tool execution.
@@ -40,10 +49,11 @@ Use these as raw material. Pick 2-3 bullets and tune them for the target role.
 ## Performance Evidence
 
 - Captured deterministic local Agent/outbox benchmark evidence: 25 queued runs, 25 ready runs, 0 failures, 75 processed outbox events, 175 tool calls, 75 indexed context chunks, 7.0 tool calls per run, and low-latency execute-run p95 on temporary SQLite.
+- Captured enterprise dashboard benchmark evidence: organization admin summary DB path around 162 us/op, Redis cache-hit path around 71 us/op, and long conversation message page around 280 us/op on a local SQLite/miniredis functional benchmark.
 - Captured live local MySQL/Redis API QPS baseline at 20 concurrency for 60 seconds: `GET messages` 35,286 requests / 587.99 QPS / p95 63 ms, `POST message` 2,878 requests / 47.71 QPS / p95 574 ms, and `POST agent/runs` create/enqueue 4,258 requests / 70.81 QPS / p95 492 ms, all with 0% error rate.
 - Captured realtime replay benchmark evidence: 2000 persisted events, 100 replayed events, scoped replay correctness, monotonic IDs/sequences, and 3 ms write p95 on temporary SQLite.
 - Captured authenticated WebSocket replay evidence: 5 clients, 500 total replayed events, 0 upgrade/client errors, 0 duplicates, and 9 ms connect-to-last p95 against the real `/api/v1/chat/ws` path.
 
 ## Interview Short Pitch
 
-AllCallAll is a Go backend engineering portfolio project that combines realtime collaboration, WebRTC meeting infrastructure, durable event replay, recording storage/transcription, secure session management, and an explainable AI Agent pipeline. The project demonstrates backend system design rather than product launch or UI polish.
+AllCallAll is a full-stack enterprise collaboration portfolio project that combines a React/Vite Web admin workspace, Go/Gin + MySQL/Redis backend services, WebSocket/WebRTC realtime collaboration, recording/transcription, reproducible benchmarks, and an explainable AI Agent pipeline. For full-stack roles, lead with the enterprise management workflow and engineering quality; for AI roles, emphasize Agent orchestration, RAG, citations, and approval boundaries.
