@@ -12,6 +12,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "generate:api": "openapi-typescript ../docs/api/openapi.yaml -o src/api/schema.d.ts",
+    "contract:check": "node ../scripts/web/openapi-contract-check.mjs",
+    "bundle:budget": "node ../scripts/web/bundle-budget.mjs",
     "e2e": "playwright test"
   },
   "dependencies": {

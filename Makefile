@@ -3,7 +3,7 @@
 
 PYTHON ?= python3
 
-.PHONY: help setup build-android build-ios clean test run-api run-agent-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench interview-microservice-demo agent-runtime-test python-agent-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench
+.PHONY: help setup build-android build-ios clean test run-api run-agent-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench interview-microservice-demo agent-runtime-test python-agent-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check
 
 # Default target
 help:
@@ -47,6 +47,8 @@ help:
 	@echo "  make interview-bench  - Run local Agent/outbox benchmark"
 	@echo "  make realtime-replay-bench - Run local realtime replay benchmark"
 	@echo "  make chat-ws-replay-bench - Run authenticated chat WebSocket replay benchmark"
+	@echo "  make web-contract-check - Verify OpenAPI and generated Web types are synchronized"
+	@echo "  make web-performance-check - Build Web and enforce bundle budgets"
 	@echo ""
 	@echo "Clean:"
 	@echo "  make clean            - Clean all build artifacts"
@@ -242,6 +244,14 @@ chat-ws-replay-bench:
 	@echo "Running authenticated chat WebSocket replay benchmark..."
 	@mkdir -p /tmp/allcallall-go-cache
 	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/chat-ws-replay-bench -events 2000 -recipients 10 -replay-window 120 -replay-limit 100 -clients 5
+
+web-contract-check:
+	@echo "Checking Web OpenAPI contract..."
+	cd web && npm run contract:check
+
+web-performance-check:
+	@echo "Checking Web bundle budget..."
+	cd web && npm run build && npm run bundle:budget
 
 # ===========================
 # Development Commands
