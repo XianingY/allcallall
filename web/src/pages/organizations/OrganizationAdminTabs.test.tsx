@@ -1,9 +1,11 @@
 import type { UseQueryResult } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Organization, OrganizationAdminSummary, OrganizationMember, OrganizationTeam } from "@/api/identity";
-import { Overview } from "@/pages/organizations/OrganizationAdminTabs";
+import { MembersTab, Overview } from "@/pages/organizations/OrganizationAdminTabs";
 
 const active: Organization = {
   id: 1,
@@ -100,7 +102,14 @@ const query = (data: OrganizationAdminSummary | undefined, state: "success" | "l
   refetch: vi.fn(),
 }) as unknown as UseQueryResult<OrganizationAdminSummary>;
 
+const memberQuery = (data: OrganizationMember[]) => ({ data, error: null, isError: false, isLoading: false, refetch: vi.fn() }) as unknown as UseQueryResult<OrganizationMember[]>;
+
 afterEach(() => cleanup());
+
+function renderWithQueryClient(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
 
 describe("Organization overview dashboard", () => {
   it("renders admin summary metrics and recent activity", () => {
@@ -118,5 +127,19 @@ describe("Organization overview dashboard", () => {
 
     expect(screen.getByText("管理员仪表盘仅 owner/admin 可查看")).toBeInTheDocument();
     expect(screen.queryByText("待审批工具")).not.toBeInTheDocument();
+  });
+
+  it("filters organization members by search text", () => {
+    const data = [
+      members[0],
+      { ...members[0], id: 2, user_id: 8, email: "alice@example.com", display_name: "Alice", role: "admin" as const },
+      { ...members[0], id: 3, user_id: 9, email: "bob@example.com", display_name: "Bob", role: "member" as const },
+    ];
+    renderWithQueryClient(<MembersTab orgId={1} canManage currentUserId={7} members={memberQuery(data)} refresh={vi.fn()} />);
+
+    expect(screen.getByText("Bob")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("搜索"), { target: { value: "alice" } });
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.queryByText("Bob")).not.toBeInTheDocument();
   });
 });

@@ -44,6 +44,7 @@ import { PageError, PageLoading } from "@/components/PageState";
 import { useOrganization } from "@/organizations/OrganizationContext";
 import { formatTime } from "@/pages/collaboration/InboxFormat";
 import { MessageBubble, Metric, NewConversationDialog } from "@/pages/collaboration/InboxParts";
+import { windowMessages } from "@/pages/collaboration/messageWindow";
 
 const messageQueryKey = (orgId?: number, conversationId?: number | null) => ["organizations", orgId, "conversations", conversationId, "messages"] as const;
 
@@ -82,6 +83,7 @@ export function InboxPage() {
     const pages = messages.data?.pages ?? [];
     return pages.slice().reverse().flatMap((page) => page.messages);
   }, [messages.data?.pages]);
+  const messageWindow = useMemo(() => windowMessages(messageItems), [messageItems]);
   const activeTypingUsers = useMemo(() => Object.entries(typingUsers).filter(([id, until]) => Number(id) !== user?.id && until > Date.now()).map(([id]) => Number(id)), [typingUsers, user?.id]);
 
   useEffect(() => {
@@ -162,7 +164,8 @@ export function InboxPage() {
         {pins.data?.length ? <div className="pinned-strip">{pins.data.slice(0, 3).map((message) => <button key={message.id} onClick={() => document.getElementById(`message-${message.id}`)?.scrollIntoView({ block: "center" })}><Pin size={13} /><span>{message.body || "已撤回消息"}</span></button>)}</div> : null}
         <div className="message-stream">
           {messages.hasNextPage && <button className="button-secondary load-older" disabled={messages.isFetchingNextPage} onClick={() => void messages.fetchNextPage()}>加载更早消息</button>}
-          {messages.isLoading ? <PageLoading /> : messages.isError ? <PageError error={messages.error} retry={() => void messages.refetch()} /> : messageItems.length ? messageItems.map((message) => <MessageBubble key={message.id} message={message} currentUserId={user?.id} onReply={setReplyTo} onEdit={(item) => { setEditing(item); setComposer(item.body); }} onAction={(action, item, emoji) => messageAction.mutate({ action, message: item, emoji })} />) : <div className="pane-empty"><span>还没有消息</span></div>}
+          {messageWindow.hiddenCount > 0 && <div className="windowed-message-note">已折叠 {messageWindow.hiddenCount} 条较早消息，使用搜索或继续加载定位历史内容。</div>}
+          {messages.isLoading ? <PageLoading /> : messages.isError ? <PageError error={messages.error} retry={() => void messages.refetch()} /> : messageItems.length ? messageWindow.visible.map((message) => <MessageBubble key={message.id} message={message} currentUserId={user?.id} onReply={setReplyTo} onEdit={(item) => { setEditing(item); setComposer(item.body); }} onAction={(action, item, emoji) => messageAction.mutate({ action, message: item, emoji })} />) : <div className="pane-empty"><span>还没有消息</span></div>}
           {activeTypingUsers.length ? <div className="typing-line">对方正在输入...</div> : null}
         </div>
         <form className="message-composer beta-composer" onSubmit={(event) => { event.preventDefault(); if (composer.trim() || attachments.length) send.mutate(); }}>
