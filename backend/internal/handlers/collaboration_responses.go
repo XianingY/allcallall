@@ -23,6 +23,46 @@ type organizationPolicyResponse struct {
 	RecordingExportAllowed bool   `json:"recording_export_allowed"`
 }
 
+type organizationAdminSummaryResponse struct {
+	Counts            organizationAdminSummaryCountsResponse `json:"counts"`
+	RecentMeetings    []organizationRecentMeetingResponse    `json:"recent_meetings"`
+	RecentRecordings  []organizationRecentRecordingResponse  `json:"recent_recordings"`
+	RecentAuditEvents []organizationAuditEventResponse       `json:"recent_audit_events"`
+}
+
+type organizationAdminSummaryCountsResponse struct {
+	MemberCount           int64 `json:"member_count"`
+	TeamCount             int64 `json:"team_count"`
+	PendingInviteCount    int64 `json:"pending_invite_count"`
+	OpenConversationCount int64 `json:"open_conversation_count"`
+	PendingApprovalCount  int64 `json:"pending_approval_count"`
+}
+
+type organizationRecentMeetingResponse struct {
+	RoomID         uint64     `json:"room_id"`
+	ConversationID *uint64    `json:"conversation_id,omitempty"`
+	Title          string     `json:"title"`
+	Status         string     `json:"status"`
+	StartedAt      *time.Time `json:"started_at,omitempty"`
+	EndedAt        *time.Time `json:"ended_at,omitempty"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+type organizationRecentRecordingResponse struct {
+	RecordingSessionID        uint64     `json:"recording_session_id"`
+	RoomID                    uint64     `json:"room_id"`
+	ConversationID            *uint64    `json:"conversation_id,omitempty"`
+	RoomTitle                 string     `json:"room_title"`
+	RecordingStatus           string     `json:"recording_status"`
+	TranscriptionStatus       string     `json:"transcription_status"`
+	TranscriptionProvider     string     `json:"transcription_provider,omitempty"`
+	TranscriptionSegmentCount int        `json:"transcription_segment_count"`
+	TranscriptionError        string     `json:"transcription_error,omitempty"`
+	StartedAt                 *time.Time `json:"started_at,omitempty"`
+	StoppedAt                 *time.Time `json:"stopped_at,omitempty"`
+	UpdatedAt                 time.Time  `json:"updated_at"`
+}
+
 type organizationInviteResponse struct {
 	ID             uint64     `json:"id"`
 	OrganizationID uint64     `json:"organization_id"`

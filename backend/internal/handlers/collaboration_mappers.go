@@ -28,6 +28,54 @@ func toOrganizationPolicyResponse(policy models.OrganizationPolicy) organization
 	}
 }
 
+func toOrganizationAdminSummaryResponse(item collaboration.OrganizationAdminSummary) organizationAdminSummaryResponse {
+	meetings := make([]organizationRecentMeetingResponse, 0, len(item.RecentMeetings))
+	for _, meeting := range item.RecentMeetings {
+		meetings = append(meetings, organizationRecentMeetingResponse{
+			RoomID:         meeting.RoomID,
+			ConversationID: meeting.ConversationID,
+			Title:          meeting.Title,
+			Status:         meeting.Status,
+			StartedAt:      meeting.StartedAt,
+			EndedAt:        meeting.EndedAt,
+			UpdatedAt:      meeting.UpdatedAt,
+		})
+	}
+	recordings := make([]organizationRecentRecordingResponse, 0, len(item.RecentRecordings))
+	for _, recording := range item.RecentRecordings {
+		recordings = append(recordings, organizationRecentRecordingResponse{
+			RecordingSessionID:        recording.RecordingSessionID,
+			RoomID:                    recording.RoomID,
+			ConversationID:            recording.ConversationID,
+			RoomTitle:                 recording.RoomTitle,
+			RecordingStatus:           recording.RecordingStatus,
+			TranscriptionStatus:       recording.TranscriptionStatus,
+			TranscriptionProvider:     recording.TranscriptionProvider,
+			TranscriptionSegmentCount: recording.TranscriptionSegmentCount,
+			TranscriptionError:        recording.TranscriptionError,
+			StartedAt:                 recording.StartedAt,
+			StoppedAt:                 recording.StoppedAt,
+			UpdatedAt:                 recording.UpdatedAt,
+		})
+	}
+	events := make([]organizationAuditEventResponse, 0, len(item.RecentAuditEvents))
+	for _, event := range item.RecentAuditEvents {
+		events = append(events, toOrganizationAuditEventResponse(event))
+	}
+	return organizationAdminSummaryResponse{
+		Counts: organizationAdminSummaryCountsResponse{
+			MemberCount:           item.Counts.MemberCount,
+			TeamCount:             item.Counts.TeamCount,
+			PendingInviteCount:    item.Counts.PendingInviteCount,
+			OpenConversationCount: item.Counts.OpenConversationCount,
+			PendingApprovalCount:  item.Counts.PendingApprovalCount,
+		},
+		RecentMeetings:    meetings,
+		RecentRecordings:  recordings,
+		RecentAuditEvents: events,
+	}
+}
+
 func toOrganizationInviteResponse(item models.OrganizationInvite) organizationInviteResponse {
 	return organizationInviteResponse{
 		ID:             item.ID,

@@ -404,6 +404,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{organizationId}/admin/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Return enterprise admin dashboard metrics for an organization. */
+        get: operations["getOrganizationAdminSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/invites/{code}/accept": {
         parameters: {
             query?: never;
@@ -568,6 +585,58 @@ export interface components {
             recording_mode: "off" | "admin_opt_in" | "forced_for_team_meetings";
             recording_storage_days: number;
             recording_export_allowed: boolean;
+        };
+        OrganizationAdminSummary: {
+            counts: components["schemas"]["OrganizationAdminSummaryCounts"];
+            recent_meetings: components["schemas"]["OrganizationRecentMeeting"][];
+            recent_recordings: components["schemas"]["OrganizationRecentRecording"][];
+            recent_audit_events: components["schemas"]["OrganizationAuditEvent"][];
+        };
+        OrganizationAdminSummaryCounts: {
+            /** Format: int64 */
+            member_count: number;
+            /** Format: int64 */
+            team_count: number;
+            /** Format: int64 */
+            pending_invite_count: number;
+            /** Format: int64 */
+            open_conversation_count: number;
+            /** Format: int64 */
+            pending_approval_count: number;
+        };
+        OrganizationRecentMeeting: {
+            /** Format: int64 */
+            room_id: number;
+            /** Format: int64 */
+            conversation_id?: number | null;
+            title: string;
+            status: string;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            ended_at?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        OrganizationRecentRecording: {
+            /** Format: int64 */
+            recording_session_id: number;
+            /** Format: int64 */
+            room_id: number;
+            /** Format: int64 */
+            conversation_id?: number | null;
+            room_title: string;
+            recording_status: string;
+            transcription_status: string;
+            transcription_provider?: string;
+            transcription_segment_count: number;
+            transcription_error?: string;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            stopped_at?: string | null;
+            /** Format: date-time */
+            updated_at: string;
         };
         OrganizationAuditEvent: {
             /** Format: int64 */
@@ -1229,15 +1298,13 @@ export interface components {
             knowledge_source_id?: number;
             version?: number;
             retrieval_mode?: string;
+            score: number;
             bm25_rank?: number;
             vector_rank?: number;
             rrf_score?: number;
-            bm25_score?: number;
-            vector_score?: number;
             rerank_score?: number;
             rerank_reason?: string;
             final_rank?: number;
-            score: number;
             /** Format: int64 */
             recording_session_id?: number;
             /** Format: int64 */
@@ -2017,6 +2084,31 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    getOrganizationAdminSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Organization admin dashboard summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        summary: components["schemas"]["OrganizationAdminSummary"];
+                    };
+                };
+            };
+            403: components["responses"]["Error"];
         };
     };
     acceptOrganizationInvite: {

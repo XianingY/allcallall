@@ -422,6 +422,133 @@ func TestServiceOrganizationAdminLifecycle(t *testing.T) {
 	}
 }
 
+func TestServiceGetOrganizationAdminSummary(t *testing.T) {
+	svc, db, _ := newServiceTestEnv(t)
+	ctx := context.Background()
+
+	owner := createTestUser(t, db, "summary-owner@example.com", "Owner")
+	admin := createTestUser(t, db, "summary-admin@example.com", "Admin")
+	member := createTestUser(t, db, "summary-member@example.com", "Member")
+	org, err := svc.CreateOrganization(ctx, owner.ID, "Summary Org")
+	if err != nil {
+		t.Fatalf("create organization failed: %v", err)
+	}
+	addOrgMember(t, db, org.ID, admin.ID, models.OrganizationRoleAdmin)
+	addOrgMember(t, db, org.ID, member.ID, models.OrganizationRoleMember)
+
+	if _, err := svc.GetOrganizationAdminSummary(ctx, org.ID, member.ID); !errors.Is(err, ErrOrganizationAccessDenied) {
+		t.Fatalf("expected member summary access denied, got %v", err)
+	}
+	empty, err := svc.GetOrganizationAdminSummary(ctx, org.ID, admin.ID)
+	if err != nil {
+		t.Fatalf("admin summary failed: %v", err)
+	}
+	if empty.Counts.MemberCount != 3 || empty.Counts.TeamCount != 1 {
+		t.Fatalf("unexpected empty summary counts: %+v", empty.Counts)
+	}
+	if len(empty.RecentMeetings) != 0 || len(empty.RecentRecordings) != 0 {
+		t.Fatalf("expected no recent meeting artifacts, got meetings=%d recordings=%d", len(empty.RecentMeetings), len(empty.RecentRecordings))
+	}
+
+	if _, err := svc.CreateOrganizationInvite(ctx, org.ID, owner.ID, OrganizationInviteInput{TargetEmail: "pending-summary@example.com"}); err != nil {
+		t.Fatalf("create invite failed: %v", err)
+	}
+	if _, err := svc.CreateTeam(ctx, org.ID, owner.ID, TeamInput{Name: "Support"}); err != nil {
+		t.Fatalf("create team failed: %v", err)
+	}
+	conversation := models.Conversation{
+		OrganizationID: org.ID,
+		Type:           models.ConversationTypeChannel,
+		Title:          "Customer Escalation",
+		Status:         models.ConversationStatusOpen,
+		Priority:       models.ConversationPriorityHigh,
+		CreatedBy:      owner.ID,
+	}
+	if err := db.Create(&conversation).Error; err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+	resolved := models.Conversation{
+		OrganizationID: org.ID,
+		Type:           models.ConversationTypeChannel,
+		Title:          "Resolved",
+		Status:         models.ConversationStatusResolved,
+		Priority:       models.ConversationPriorityNormal,
+		CreatedBy:      owner.ID,
+	}
+	if err := db.Create(&resolved).Error; err != nil {
+		t.Fatalf("create resolved conversation failed: %v", err)
+	}
+	now := time.Now()
+	room := models.CallRoom{
+		OrganizationID: org.ID,
+		ConversationID: &conversation.ID,
+		Title:          "Weekly Sync",
+		Status:         models.RoomStatusEnded,
+		CreatedBy:      owner.ID,
+		StartedAt:      &now,
+		EndedAt:        &now,
+	}
+	if err := db.Create(&room).Error; err != nil {
+		t.Fatalf("create room failed: %v", err)
+	}
+	recording := models.RecordingSession{
+		OrganizationID: org.ID,
+		RoomID:         room.ID,
+		StartedBy:      owner.ID,
+		Status:         models.RecordingStatusStopped,
+		StartedAt:      &now,
+		StoppedAt:      &now,
+	}
+	if err := db.Create(&recording).Error; err != nil {
+		t.Fatalf("create recording failed: %v", err)
+	}
+	if err := db.Create(&models.RecordingTranscription{
+		OrganizationID:     org.ID,
+		ConversationID:     &conversation.ID,
+		RoomID:             room.ID,
+		RecordingSessionID: recording.ID,
+		Status:             models.RecordingTranscriptionStatusReady,
+		Provider:           "mock",
+		SegmentCount:       3,
+		CompletedAt:        &now,
+	}).Error; err != nil {
+		t.Fatalf("create transcription failed: %v", err)
+	}
+	if err := db.Create(&models.ToolApproval{
+		WorkflowRunID:  1,
+		TaskID:         1,
+		OrganizationID: org.ID,
+		ToolCallID:     "summary-tool-call",
+		ToolName:       "create_follow_up",
+		Status:         models.ToolApprovalStatusPending,
+		RequestedBy:    owner.ID,
+		RequestedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create approval failed: %v", err)
+	}
+
+	summary, err := svc.GetOrganizationAdminSummary(ctx, org.ID, owner.ID)
+	if err != nil {
+		t.Fatalf("owner summary failed: %v", err)
+	}
+	if summary.Counts.MemberCount != 3 ||
+		summary.Counts.TeamCount != 2 ||
+		summary.Counts.PendingInviteCount != 1 ||
+		summary.Counts.OpenConversationCount != 1 ||
+		summary.Counts.PendingApprovalCount != 1 {
+		t.Fatalf("unexpected summary counts: %+v", summary.Counts)
+	}
+	if len(summary.RecentMeetings) != 1 || summary.RecentMeetings[0].RoomID != room.ID {
+		t.Fatalf("unexpected meetings: %+v", summary.RecentMeetings)
+	}
+	if len(summary.RecentRecordings) != 1 || summary.RecentRecordings[0].TranscriptionStatus != models.RecordingTranscriptionStatusReady || summary.RecentRecordings[0].TranscriptionSegmentCount != 3 {
+		t.Fatalf("unexpected recordings: %+v", summary.RecentRecordings)
+	}
+	if len(summary.RecentAuditEvents) == 0 || len(summary.RecentAuditEvents) > 10 {
+		t.Fatalf("expected capped audit events, got %d", len(summary.RecentAuditEvents))
+	}
+}
+
 func addOrgMember(t *testing.T, db *gorm.DB, organizationID, userID uint64, role string) {
 	t.Helper()
 	if err := db.Exec(

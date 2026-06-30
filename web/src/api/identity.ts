@@ -8,6 +8,7 @@ export type OrganizationInvite = components["schemas"]["OrganizationInvite"];
 export type OrganizationTeam = components["schemas"]["OrganizationTeam"];
 export type OrganizationAuditEvent = components["schemas"]["OrganizationAuditEvent"];
 export type OrganizationPolicy = components["schemas"]["OrganizationPolicy"];
+export type OrganizationAdminSummary = components["schemas"]["OrganizationAdminSummary"];
 export type AuthResponse = components["schemas"]["AuthResponse"];
 export type LegalInfo = components["schemas"]["LegalInfo"];
 export type RefreshSession = components["schemas"]["RefreshSession"];
@@ -43,6 +44,7 @@ export const listOrganizations = () => apiRequest<{ organizations: Organization[
 export const createOrganization = (name: string) => apiRequest<{ organization: Organization }>("/organizations", { method: "POST", body: JSON.stringify({ name }) }).then((value) => value.organization);
 export const switchOrganization = (id: number) => apiRequest<{ organization: Organization }>(`/organizations/${id}/switch`, { method: "POST" }).then((value) => value.organization);
 export const acceptOrganizationInvite = (code: string) => apiRequest<{ invite: { organization_id: number } }>(`/organizations/invites/${encodeURIComponent(code)}/accept`, { method: "POST" });
+export const getOrganizationAdminSummary = (id: number) => apiRequest<{ summary: OrganizationAdminSummary }>(`/organizations/${id}/admin/summary`).then((value) => value.summary);
 export const listOrganizationMembers = (id: number) => apiRequest<{ members: OrganizationMember[] }>(`/organizations/${id}/members`).then((value) => value.members);
 export const updateOrganizationMember = (id: number, userId: number, role: string) => apiRequest<{ member: OrganizationMember }>(`/organizations/${id}/members/${userId}`, { method: "PATCH", body: JSON.stringify({ role }) }).then((value) => value.member);
 export const removeOrganizationMember = (id: number, userId: number) => apiRequest<void>(`/organizations/${id}/members/${userId}`, { method: "DELETE" });

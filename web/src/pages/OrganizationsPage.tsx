@@ -3,6 +3,7 @@ import { Plus } from "lucide-react";
 import { useState } from "react";
 
 import {
+  getOrganizationAdminSummary,
   getOrganizationPolicy,
   listOrganizationAuditEvents,
   listOrganizationInvites,
@@ -32,6 +33,7 @@ export function OrganizationsPage() {
   const teams = useQuery({ queryKey: ["organizations", orgId, "teams"], queryFn: () => listOrganizationTeams(orgId!), enabled: Boolean(orgId) });
   const policy = useQuery({ queryKey: ["organizations", orgId, "policy"], queryFn: () => getOrganizationPolicy(orgId!), enabled: Boolean(orgId) });
   const audit = useQuery({ queryKey: ["organizations", orgId, "audit"], queryFn: () => listOrganizationAuditEvents(orgId!), enabled: Boolean(orgId) });
+  const summary = useQuery({ queryKey: ["organizations", orgId, "admin-summary"], queryFn: () => getOrganizationAdminSummary(orgId!), enabled: Boolean(orgId && canManage) });
   const refreshOrgAdmin = () => {
     void queryClient.invalidateQueries({ queryKey: ["organizations", orgId] });
   };
@@ -47,7 +49,7 @@ export function OrganizationsPage() {
       </aside>
       <main className="panel panel-body org-admin-main">
         <div className="org-tabs">{organizationTabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{tabLabel(item)}</button>)}</div>
-        {!orgId ? <div className="pane-empty">请选择组织</div> : tab === "overview" ? <Overview active={activeOrganization} members={members.data ?? []} teams={teams.data ?? []} currentUserId={user?.id} /> : tab === "members" ? <MembersTab orgId={orgId} canManage={canManage} currentUserId={user?.id} members={members} refresh={refreshOrgAdmin} /> : tab === "invites" ? <InvitesTab orgId={orgId} canManage={canManage} invites={invites} teams={teams.data ?? []} refresh={refreshOrgAdmin} /> : tab === "teams" ? <TeamsTab orgId={orgId} canManage={canManage} members={members.data ?? []} teams={teams} refresh={refreshOrgAdmin} /> : tab === "policies" ? <PoliciesTab orgId={orgId} canManage={canManage} policy={policy} refresh={refreshOrgAdmin} /> : <AuditTab audit={audit} />}
+        {!orgId ? <div className="pane-empty">请选择组织</div> : tab === "overview" ? <Overview active={activeOrganization} canManage={canManage} members={members.data ?? []} teams={teams.data ?? []} currentUserId={user?.id} summary={summary} /> : tab === "members" ? <MembersTab orgId={orgId} canManage={canManage} currentUserId={user?.id} members={members} refresh={refreshOrgAdmin} /> : tab === "invites" ? <InvitesTab orgId={orgId} canManage={canManage} invites={invites} teams={teams.data ?? []} refresh={refreshOrgAdmin} /> : tab === "teams" ? <TeamsTab orgId={orgId} canManage={canManage} members={members.data ?? []} teams={teams} refresh={refreshOrgAdmin} /> : tab === "policies" ? <PoliciesTab orgId={orgId} canManage={canManage} policy={policy} refresh={refreshOrgAdmin} /> : <AuditTab audit={audit} />}
       </main>
     </div>
   </div>;

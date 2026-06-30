@@ -46,6 +46,7 @@ func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGrou
 	protected.POST("/organizations", h.handleCreateOrganization)
 	protected.GET("/organizations", h.handleListOrganizations)
 	protected.POST("/organizations/:id/switch", h.handleSwitchOrganization)
+	protected.GET("/organizations/:id/admin/summary", h.handleGetOrganizationAdminSummary)
 	protected.GET("/organizations/:id/members", h.handleListOrganizationMembers)
 	protected.PATCH("/organizations/:id/members/:userId", h.handleUpdateOrganizationMember)
 	protected.DELETE("/organizations/:id/members/:userId", h.handleRemoveOrganizationMember)
@@ -184,6 +185,19 @@ func (h *CollaborationHandler) handleSwitchOrganization(c *gin.Context) {
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"organization": toOrganizationResponse(*org, role)})
+}
+
+func (h *CollaborationHandler) handleGetOrganizationAdminSummary(c *gin.Context) {
+	claims, orgID, ok := h.organizationRouteParams(c)
+	if !ok {
+		return
+	}
+	summary, err := h.service.GetOrganizationAdminSummary(c.Request.Context(), orgID, claims.UserID)
+	if err != nil {
+		JSONError(c, http.StatusForbidden, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"summary": toOrganizationAdminSummaryResponse(*summary)})
 }
 
 func (h *CollaborationHandler) handleCreateOrganizationInvite(c *gin.Context) {

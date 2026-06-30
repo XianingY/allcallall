@@ -48,6 +48,117 @@ type OrganizationAuditEventView struct {
 	ActorDisplayName string `json:"actor_display_name"`
 }
 
+type OrganizationAdminSummary struct {
+	Counts            OrganizationAdminSummaryCounts    `json:"counts"`
+	RecentMeetings    []OrganizationRecentMeetingView   `json:"recent_meetings"`
+	RecentRecordings  []OrganizationRecentRecordingView `json:"recent_recordings"`
+	RecentAuditEvents []OrganizationAuditEventView      `json:"recent_audit_events"`
+}
+
+type OrganizationAdminSummaryCounts struct {
+	MemberCount           int64 `json:"member_count"`
+	TeamCount             int64 `json:"team_count"`
+	PendingInviteCount    int64 `json:"pending_invite_count"`
+	OpenConversationCount int64 `json:"open_conversation_count"`
+	PendingApprovalCount  int64 `json:"pending_approval_count"`
+}
+
+type OrganizationRecentMeetingView struct {
+	RoomID         uint64     `json:"room_id"`
+	ConversationID *uint64    `json:"conversation_id"`
+	Title          string     `json:"title"`
+	Status         string     `json:"status"`
+	StartedAt      *time.Time `json:"started_at"`
+	EndedAt        *time.Time `json:"ended_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+type OrganizationRecentRecordingView struct {
+	RecordingSessionID        uint64     `json:"recording_session_id"`
+	RoomID                    uint64     `json:"room_id"`
+	ConversationID            *uint64    `json:"conversation_id"`
+	RoomTitle                 string     `json:"room_title"`
+	RecordingStatus           string     `json:"recording_status"`
+	TranscriptionStatus       string     `json:"transcription_status"`
+	TranscriptionProvider     string     `json:"transcription_provider"`
+	TranscriptionSegmentCount int        `json:"transcription_segment_count"`
+	TranscriptionError        string     `json:"transcription_error"`
+	StartedAt                 *time.Time `json:"started_at"`
+	StoppedAt                 *time.Time `json:"stopped_at"`
+	UpdatedAt                 time.Time  `json:"updated_at"`
+}
+
+func (s *Service) GetOrganizationAdminSummary(ctx context.Context, organizationID, userID uint64) (*OrganizationAdminSummary, error) {
+	if _, err := s.requireOrganizationAdmin(ctx, organizationID, userID); err != nil {
+		return nil, err
+	}
+	summary := &OrganizationAdminSummary{}
+	if err := s.db.WithContext(ctx).Model(&models.OrganizationMember{}).
+		Where("organization_id = ?", organizationID).
+		Count(&summary.Counts.MemberCount).Error; err != nil {
+		return nil, err
+	}
+	if err := s.db.WithContext(ctx).Model(&models.Team{}).
+		Where("organization_id = ?", organizationID).
+		Count(&summary.Counts.TeamCount).Error; err != nil {
+		return nil, err
+	}
+	if err := s.db.WithContext(ctx).Model(&models.OrganizationInvite{}).
+		Where("organization_id = ? AND status = ?", organizationID, models.InvitationStatusPending).
+		Count(&summary.Counts.PendingInviteCount).Error; err != nil {
+		return nil, err
+	}
+	if err := s.db.WithContext(ctx).Model(&models.Conversation{}).
+		Where("organization_id = ? AND status = ?", organizationID, models.ConversationStatusOpen).
+		Count(&summary.Counts.OpenConversationCount).Error; err != nil {
+		return nil, err
+	}
+	if err := s.db.WithContext(ctx).Model(&models.ToolApproval{}).
+		Where("organization_id = ? AND status = ?", organizationID, models.ToolApprovalStatusPending).
+		Count(&summary.Counts.PendingApprovalCount).Error; err != nil {
+		return nil, err
+	}
+	if err := s.db.WithContext(ctx).
+		Table("call_rooms").
+		Select("id AS room_id, conversation_id, title, status, started_at, ended_at, updated_at").
+		Where("organization_id = ?", organizationID).
+		Order("updated_at DESC, id DESC").
+		Limit(5).
+		Scan(&summary.RecentMeetings).Error; err != nil {
+		return nil, err
+	}
+	if err := s.db.WithContext(ctx).
+		Table("recording_sessions").
+		Select(strings.Join([]string{
+			"recording_sessions.id AS recording_session_id",
+			"recording_sessions.room_id AS room_id",
+			"call_rooms.conversation_id AS conversation_id",
+			"call_rooms.title AS room_title",
+			"recording_sessions.status AS recording_status",
+			"COALESCE(recording_transcriptions.status, '') AS transcription_status",
+			"COALESCE(recording_transcriptions.provider, '') AS transcription_provider",
+			"COALESCE(recording_transcriptions.segment_count, 0) AS transcription_segment_count",
+			"COALESCE(recording_transcriptions.error_message, '') AS transcription_error",
+			"recording_sessions.started_at AS started_at",
+			"recording_sessions.stopped_at AS stopped_at",
+			"recording_sessions.updated_at AS updated_at",
+		}, ", ")).
+		Joins("JOIN call_rooms ON call_rooms.id = recording_sessions.room_id").
+		Joins("LEFT JOIN recording_transcriptions ON recording_transcriptions.recording_session_id = recording_sessions.id").
+		Where("recording_sessions.organization_id = ?", organizationID).
+		Order("recording_sessions.updated_at DESC, recording_sessions.id DESC").
+		Limit(5).
+		Scan(&summary.RecentRecordings).Error; err != nil {
+		return nil, err
+	}
+	events, err := s.ListOrganizationAuditEvents(ctx, organizationID, userID, 10)
+	if err != nil {
+		return nil, err
+	}
+	summary.RecentAuditEvents = events
+	return summary, nil
+}
+
 func (s *Service) ListOrganizationMembers(ctx context.Context, organizationID, userID uint64) ([]OrganizationMemberView, error) {
 	if _, _, err := s.ResolveOrganization(ctx, userID, organizationID); err != nil {
 		return nil, err

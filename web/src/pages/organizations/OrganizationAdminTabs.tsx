@@ -1,5 +1,5 @@
 import { useMutation, type UseQueryResult } from "@tanstack/react-query";
-import { Building2, MailPlus, Plus, RefreshCw, Shield, Trash2, Users, X } from "lucide-react";
+import { Building2, CalendarClock, FileAudio, MailPlus, MessageSquare, Plus, RefreshCw, Shield, ShieldCheck, Trash2, Users, X } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -14,6 +14,7 @@ import {
   updateOrganizationMember,
   updateOrganizationPolicy,
   type Organization,
+  type OrganizationAdminSummary,
   type OrganizationMember,
   type OrganizationTeam,
 } from "@/api/identity";
@@ -22,12 +23,42 @@ import { PageError, PageLoading } from "@/components/PageState";
 
 export type Tab = "overview" | "members" | "invites" | "teams" | "policies" | "audit";
 
-export function Overview({ active, members, teams, currentUserId }: { active: Organization | null; members: OrganizationMember[]; teams: OrganizationTeam[]; currentUserId?: number }) {
+export function Overview({ active, canManage, members, teams, currentUserId, summary }: { active: Organization | null; canManage: boolean; members: OrganizationMember[]; teams: OrganizationTeam[]; currentUserId?: number; summary: UseQueryResult<OrganizationAdminSummary> }) {
   const me = members.find((item) => item.user_id === currentUserId);
-  return <div className="org-overview-grid">
-    <article><Building2 size={18} /><span>当前组织</span><strong>{active?.name}</strong><small>{active?.slug}</small></article>
-    <article><Users size={18} /><span>成员</span><strong>{members.length}</strong><small>我的角色：{me?.role || active?.role}</small></article>
-    <article><Shield size={18} /><span>团队</span><strong>{teams.length}</strong><small>默认团队随组织创建</small></article>
+  const counts = summary.data?.counts;
+  if (!canManage) {
+    return <div className="form-stack">
+      <div className="org-overview-grid">
+        <article><Building2 size={18} /><span>当前组织</span><strong>{active?.name}</strong><small>{active?.slug}</small></article>
+        <article><Users size={18} /><span>成员</span><strong>{members.length}</strong><small>我的角色：{me?.role || active?.role}</small></article>
+        <article><Shield size={18} /><span>团队</span><strong>{teams.length}</strong><small>默认团队随组织创建</small></article>
+      </div>
+      <div className="pane-empty">管理员仪表盘仅 owner/admin 可查看</div>
+    </div>;
+  }
+  if (summary.isLoading) return <PageLoading />;
+  if (summary.isError) return <PageError error={summary.error} retry={() => void summary.refetch()} />;
+  return <div className="org-dashboard">
+    <div className="org-overview-grid">
+      <article><Building2 size={18} /><span>当前组织</span><strong>{active?.name}</strong><small>{active?.slug}</small></article>
+      <article><Users size={18} /><span>成员</span><strong>{counts?.member_count ?? members.length}</strong><small>我的角色：{me?.role || active?.role}</small></article>
+      <article><Shield size={18} /><span>团队</span><strong>{counts?.team_count ?? teams.length}</strong><small>包含默认 General 团队</small></article>
+      <article><MailPlus size={18} /><span>待处理邀请</span><strong>{counts?.pending_invite_count ?? 0}</strong><small>pending invites</small></article>
+      <article><MessageSquare size={18} /><span>开放会话</span><strong>{counts?.open_conversation_count ?? 0}</strong><small>status=open</small></article>
+      <article><ShieldCheck size={18} /><span>待审批工具</span><strong>{counts?.pending_approval_count ?? 0}</strong><small>Agent write approvals</small></article>
+    </div>
+    <section className="org-dashboard-section">
+      <h2>最近会议</h2>
+      {summary.data?.recent_meetings.length ? <div className="list-stack">{summary.data.recent_meetings.map((meeting) => <div className="data-row" key={meeting.room_id}><div><strong>{meeting.title}</strong><small>Room #{meeting.room_id} · {dateOnly(meeting.updated_at)}</small><small>{meeting.started_at ? `started ${dateOnly(meeting.started_at)}` : "尚未开始"}</small></div><span className={`transcription-badge status-${meeting.status}`}>{meeting.status}</span></div>)}</div> : <div className="inline-empty">暂无会议记录</div>}
+    </section>
+    <section className="org-dashboard-section">
+      <h2>录音与转写</h2>
+      {summary.data?.recent_recordings.length ? <div className="list-stack">{summary.data.recent_recordings.map((recording) => <div className="data-row" key={recording.recording_session_id}><div><strong><FileAudio size={15} />{recording.room_title}</strong><small>Recording #{recording.recording_session_id} · {recording.recording_status}</small><small>{recording.transcription_segment_count} segments · {recording.transcription_provider || "provider pending"}</small>{recording.transcription_error && <small className="text-danger">{recording.transcription_error}</small>}</div><span className={`transcription-badge status-${recording.transcription_status || "pending"}`}>{recording.transcription_status || "pending"}</span></div>)}</div> : <div className="inline-empty">暂无录音或转写任务</div>}
+    </section>
+    <section className="org-dashboard-section">
+      <h2>最近审计</h2>
+      {summary.data?.recent_audit_events.length ? <div className="list-stack">{summary.data.recent_audit_events.map((event) => <div className="data-row" key={event.id}><div><strong><CalendarClock size={15} />{event.action}</strong><small>{event.target_type} #{event.target_id} · {event.actor_display_name || event.actor_email}</small><small>{dateOnly(event.created_at)}</small></div></div>)}</div> : <div className="inline-empty">暂无管理事件</div>}
+    </section>
   </div>;
 }
 

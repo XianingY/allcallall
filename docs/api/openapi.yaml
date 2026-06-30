@@ -224,6 +224,24 @@ paths:
         '200':
           description: Selected organization.
           content: { application/json: { schema: { type: object, required: [organization], properties: { organization: { $ref: '#/components/schemas/Organization' } } } } }
+  /organizations/{organizationId}/admin/summary:
+    get:
+      operationId: getOrganizationAdminSummary
+      summary: Return enterprise admin dashboard metrics for an organization.
+      parameters:
+        - { name: organizationId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Organization admin dashboard summary.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [summary]
+                properties:
+                  summary: { $ref: '#/components/schemas/OrganizationAdminSummary' }
+        '403':
+          $ref: '#/components/responses/Error'
   /organizations/invites/{code}/accept:
     post:
       operationId: acceptOrganizationInvite
@@ -377,6 +395,56 @@ components:
         recording_mode: { type: string, enum: [off, admin_opt_in, forced_for_team_meetings] }
         recording_storage_days: { type: integer }
         recording_export_allowed: { type: boolean }
+    OrganizationAdminSummary:
+      type: object
+      required: [counts, recent_meetings, recent_recordings, recent_audit_events]
+      properties:
+        counts: { $ref: '#/components/schemas/OrganizationAdminSummaryCounts' }
+        recent_meetings:
+          type: array
+          items: { $ref: '#/components/schemas/OrganizationRecentMeeting' }
+        recent_recordings:
+          type: array
+          items: { $ref: '#/components/schemas/OrganizationRecentRecording' }
+        recent_audit_events:
+          type: array
+          items: { $ref: '#/components/schemas/OrganizationAuditEvent' }
+    OrganizationAdminSummaryCounts:
+      type: object
+      required: [member_count, team_count, pending_invite_count, open_conversation_count, pending_approval_count]
+      properties:
+        member_count: { type: integer, format: int64 }
+        team_count: { type: integer, format: int64 }
+        pending_invite_count: { type: integer, format: int64 }
+        open_conversation_count: { type: integer, format: int64 }
+        pending_approval_count: { type: integer, format: int64 }
+    OrganizationRecentMeeting:
+      type: object
+      required: [room_id, title, status, updated_at]
+      properties:
+        room_id: { type: integer, format: int64 }
+        conversation_id: { type: [integer, 'null'], format: int64 }
+        title: { type: string }
+        status: { type: string }
+        started_at: { type: [string, 'null'], format: date-time }
+        ended_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: string, format: date-time }
+    OrganizationRecentRecording:
+      type: object
+      required: [recording_session_id, room_id, room_title, recording_status, transcription_status, transcription_segment_count, updated_at]
+      properties:
+        recording_session_id: { type: integer, format: int64 }
+        room_id: { type: integer, format: int64 }
+        conversation_id: { type: [integer, 'null'], format: int64 }
+        room_title: { type: string }
+        recording_status: { type: string }
+        transcription_status: { type: string }
+        transcription_provider: { type: string }
+        transcription_segment_count: { type: integer }
+        transcription_error: { type: string }
+        started_at: { type: [string, 'null'], format: date-time }
+        stopped_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: string, format: date-time }
     OrganizationAuditEvent:
       type: object
       required: [id, organization_id, actor_user_id, actor_email, actor_display_name, action, target_type, target_id, created_at]
@@ -951,6 +1019,12 @@ components:
         version: { type: integer }
         retrieval_mode: { type: string }
         score: { type: number }
+        bm25_rank: { type: integer }
+        vector_rank: { type: integer }
+        rrf_score: { type: number }
+        rerank_score: { type: number }
+        rerank_reason: { type: string }
+        final_rank: { type: integer }
         recording_session_id: { type: integer, format: int64 }
         recording_file_id: { type: integer, format: int64 }
         transcript_segment_id: { type: integer, format: int64 }
