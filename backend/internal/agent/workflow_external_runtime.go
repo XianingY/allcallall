@@ -18,6 +18,7 @@ import (
 
 const (
 	WorkflowRuntimeGo              = "go"
+	WorkflowRuntimeLegacyGo        = "legacy_go"
 	WorkflowRuntimePythonLangGraph = "python_langgraph"
 	defaultPythonRuntimeBaseURL    = "http://127.0.0.1:8090"
 	defaultPythonRuntimeTimeoutSec = 60
@@ -30,11 +31,17 @@ type WorkflowRuntime interface {
 	RunWorkflow(ctx context.Context, input WorkflowRuntimeRequest) (WorkflowRuntimeResponse, error)
 }
 
+type AgentRuntime interface {
+	Name() string
+	RunAgent(ctx context.Context, input WorkflowRuntimeRequest) (WorkflowRuntimeResponse, error)
+}
+
 type WorkflowRuntimeRequest struct {
 	RequestID          string                        `json:"request_id,omitempty"`
 	OrganizationID     uint64                        `json:"organization_id"`
 	UserID             uint64                        `json:"user_id"`
 	ConversationID     uint64                        `json:"conversation_id"`
+	AgentRunID         uint64                        `json:"agent_run_id,omitempty"`
 	WorkflowRunID      uint64                        `json:"workflow_run_id"`
 	Preset             string                        `json:"preset"`
 	Goal               string                        `json:"goal"`
@@ -186,17 +193,32 @@ func NewPythonLangGraphRuntimeFromEnv() *PythonLangGraphRuntime {
 
 func normalizeWorkflowRuntime(raw string) string {
 	switch strings.TrimSpace(strings.ToLower(raw)) {
-	case "", WorkflowRuntimeGo:
-		return WorkflowRuntimeGo
 	case WorkflowRuntimePythonLangGraph:
 		return WorkflowRuntimePythonLangGraph
+	case WorkflowRuntimeGo, WorkflowRuntimeLegacyGo:
+		return WorkflowRuntimeLegacyGo
+	case "":
+		return WorkflowRuntimeLegacyGo
 	default:
-		return WorkflowRuntimeGo
+		return WorkflowRuntimeLegacyGo
+	}
+}
+
+func normalizeWorkflowRuntimeForDisplay(raw string) string {
+	switch strings.TrimSpace(strings.ToLower(raw)) {
+	case WorkflowRuntimePythonLangGraph:
+		return WorkflowRuntimePythonLangGraph
+	case WorkflowRuntimeGo, WorkflowRuntimeLegacyGo:
+		return WorkflowRuntimeLegacyGo
+	case "":
+		return WorkflowRuntimeLegacyGo
+	default:
+		return WorkflowRuntimeLegacyGo
 	}
 }
 
 func WorkflowRuntimeFromEnvName() string {
-	return normalizeWorkflowRuntime(os.Getenv("AGENT_RUNTIME"))
+	return normalizeWorkflowRuntimeForDisplay(os.Getenv("AGENT_RUNTIME"))
 }
 
 func (r *PythonLangGraphRuntime) Name() string {
@@ -225,6 +247,47 @@ func (r *PythonLangGraphRuntime) RunWorkflow(ctx context.Context, input Workflow
 		return WorkflowRuntimeResponse{}, fmt.Errorf("unsupported workflow preset for python runtime: %s", input.Preset)
 	}
 	endpoint := r.baseURL + "/v1/workflows/" + url.PathEscape(preset) + "/run"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
+	if err != nil {
+		return WorkflowRuntimeResponse{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return WorkflowRuntimeResponse{}, fmt.Errorf("python langgraph runtime unavailable: %w", err)
+	}
+	defer resp.Body.Close()
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if readErr != nil {
+		return WorkflowRuntimeResponse{}, readErr
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return WorkflowRuntimeResponse{}, fmt.Errorf("python langgraph runtime returned %d: %s", resp.StatusCode, compactSnippet(string(body), 500))
+	}
+	var output WorkflowRuntimeResponse
+	if err := json.Unmarshal(body, &output); err != nil {
+		return WorkflowRuntimeResponse{}, fmt.Errorf("decode python langgraph runtime response: %w", err)
+	}
+	if strings.EqualFold(output.Status, models.WorkflowRunStatusFailed) {
+		if strings.TrimSpace(output.Error) == "" {
+			output.Error = "python langgraph runtime failed"
+		}
+		return WorkflowRuntimeResponse{}, fmt.Errorf("%s", output.Error)
+	}
+	return output, nil
+}
+
+func (r *PythonLangGraphRuntime) RunAgent(ctx context.Context, input WorkflowRuntimeRequest) (WorkflowRuntimeResponse, error) {
+	input.Preset = "react_general"
+	return r.run(ctx, "/v1/agents/react/run", input)
+}
+
+func (r *PythonLangGraphRuntime) run(ctx context.Context, path string, input WorkflowRuntimeRequest) (WorkflowRuntimeResponse, error) {
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return WorkflowRuntimeResponse{}, err
+	}
+	endpoint := r.baseURL + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 	if err != nil {
 		return WorkflowRuntimeResponse{}, err

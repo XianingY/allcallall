@@ -204,7 +204,7 @@ func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, 
 		ConversationID:    in.ConversationID,
 		IdempotencyKey:    idempotencyKey,
 		RequestID:         trace.RequestID(ctx),
-		Source:            s.planner.Name(),
+		Source:            s.agentRunSource(),
 		Role:              role,
 		Status:            models.AgentRunStatusPending,
 		PromptVersion:     CurrentWorkflowPromptVersion,
@@ -242,6 +242,13 @@ func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, 
 		s.metrics.Inc("agent_run_queued_total")
 	}
 	return s.buildRunResult(ctx, run)
+}
+
+func (s *Service) agentRunSource() string {
+	if s.shouldUseExternalAgentRuntime() {
+		return WorkflowRuntimePythonLangGraph
+	}
+	return s.planner.Name()
 }
 
 func (s *Service) findRunByIdempotencyKey(ctx context.Context, organizationID, userID, conversationID uint64, key string) (*models.AgentRun, error) {
@@ -351,10 +358,16 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (result *RunResu
 	if goal == "" {
 		goal = "summarize_conversation_next_steps"
 	}
-	if s.planner.Name() == models.AgentRunSourceOpenAICompatible {
-		result, resultErr = s.executeReActRun(ctx, run, goal)
+	if s.shouldUseExternalAgentRuntime() {
+		result, resultErr = s.executeAgentRunWithExternalRuntime(ctx, run, goal)
+		if resultErr != nil && !workflowRuntimeStrictFromEnv() {
+			if s.metrics != nil {
+				s.metrics.Inc("agent_runtime_fallback_total")
+			}
+			result, resultErr = s.executeLegacyAgentRun(ctx, run, goal)
+		}
 	} else {
-		result, resultErr = s.executeRulesRun(ctx, run, goal)
+		result, resultErr = s.executeLegacyAgentRun(ctx, run, goal)
 	}
 	if resultErr != nil {
 		failedAt := time.Now().UTC()
@@ -378,6 +391,13 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (result *RunResu
 	}
 	span.End(nil)
 	return result, nil
+}
+
+func (s *Service) executeLegacyAgentRun(ctx context.Context, run models.AgentRun, goal string) (*RunResult, error) {
+	if s.planner.Name() == models.AgentRunSourceOpenAICompatible {
+		return s.executeReActRun(ctx, run, goal)
+	}
+	return s.executeRulesRun(ctx, run, goal)
 }
 
 func (s *Service) executeRulesRun(ctx context.Context, run models.AgentRun, goal string) (*RunResult, error) {

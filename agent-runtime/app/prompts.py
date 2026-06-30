@@ -15,6 +15,7 @@ class PromptSpec:
 
 
 PROMPT_VERSIONS = {
+    "react_general": "react_general_v1",
     "meeting_brief": "meeting_brief_v1",
     "risk_review": "risk_review_v1",
     "follow_up_planner": "follow_up_planner_v1",

@@ -21,6 +21,8 @@ from .models import (
     RoleResult,
     ToolProposal,
     TraceEvent,
+    AgentRunRequest,
+    AgentRunResponse,
     WorkflowRequest,
     WorkflowResponse,
 )
@@ -67,11 +69,13 @@ CREATE_FOLLOW_UP_TASK = "create_follow_up_task"
 UPSERT_MEMORY = "upsert_agent_memory"
 
 WORKFLOW_MEETING_BRIEF = "meeting_brief"
+WORKFLOW_REACT_GENERAL = "react_general"
 WORKFLOW_RISK_REVIEW = "risk_review"
 WORKFLOW_FOLLOW_UP_PLANNER = "follow_up_planner"
 WORKFLOW_CONTEXT_QA = "context_qa"
 
 SUPPORTED_WORKFLOWS = {
+    WORKFLOW_REACT_GENERAL,
     WORKFLOW_MEETING_BRIEF,
     WORKFLOW_RISK_REVIEW,
     WORKFLOW_FOLLOW_UP_PLANNER,
@@ -85,6 +89,10 @@ WORKFLOW_ALIASES = {
 
 def run_meeting_brief(request: MeetingBriefRequest) -> MeetingBriefResponse:
     return run_workflow(request.model_copy(update={"preset": WORKFLOW_MEETING_BRIEF}))
+
+
+def run_react_agent(request: AgentRunRequest) -> AgentRunResponse:
+    return run_workflow(request.model_copy(update={"preset": WORKFLOW_REACT_GENERAL}))
 
 
 def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
@@ -764,6 +772,25 @@ def build_retrieval_plan(request: WorkflowRequest, config: AgenticRAGConfig, ena
                 rationale="Supplement risks with policy or knowledge evidence.",
             )
         )
+    elif request.preset == WORKFLOW_REACT_GENERAL:
+        candidates.append(
+            RetrievalPlanStep(
+                step=1,
+                query=f"{goal} conversation notes transcript knowledge",
+                source_scope="all",
+                tool_name=READ_TOOL_CONTEXT_CHUNKS,
+                rationale="General ReAct runs should inspect scoped conversation context first.",
+            )
+        )
+        candidates.append(
+            RetrievalPlanStep(
+                step=2,
+                query=f"{goal} knowledge policy reference",
+                source_scope="knowledge",
+                tool_name=READ_TOOL_KNOWLEDGE_CHUNKS,
+                rationale="Refine with knowledge evidence when the conversation context is insufficient.",
+            )
+        )
     else:
         candidates.append(
             RetrievalPlanStep(
@@ -1078,6 +1105,10 @@ def synthesize_summary(request: WorkflowRequest, snippets: list[str]) -> str:
         if snippets:
             return "Context QA: 基于已检索上下文回答：" + snippets[0][:180]
         return "Context QA: 当前上下文不足，无法给出有依据的回答。"
+    if request.preset == WORKFLOW_REACT_GENERAL:
+        if snippets:
+            return "ReAct Agent: 基于会话上下文完成自然语言任务：" + snippets[0][:180]
+        return "ReAct Agent: 当前缺少可引用上下文，建议补充会话消息、会议转写或知识库内容。"
     if request.preset == WORKFLOW_RISK_REVIEW:
         if snippets:
             return "Risk Review: 已基于会议转写和会话上下文提取风险：" + snippets[0][:180]
@@ -1096,6 +1127,8 @@ def synthesize_summary(request: WorkflowRequest, snippets: list[str]) -> str:
 def synthesize_next_step(request: WorkflowRequest) -> str:
     if request.preset == WORKFLOW_CONTEXT_QA:
         return "If the answer is insufficient, add more meeting transcript or knowledge context before retrying."
+    if request.preset == WORKFLOW_REACT_GENERAL:
+        return "Review the grounded answer and approve any proposed write-back before applying side effects."
     return "Review the cited evidence, then approve the proposed write-back if it is accurate."
 
 
@@ -1203,12 +1236,13 @@ def workflow_tool_proposals(
 ) -> list[ToolProposal]:
     if request.preset == WORKFLOW_CONTEXT_QA:
         return []
+    subject = runtime_subject_id(request)
     proposals = [
         ToolProposal(
             tool_name=WRITE_CONVERSATION_MESSAGE,
             arguments=message_arguments,
             reason=f"Write the grounded {request.preset} result back to the conversation after human approval.",
-            idempotency_key=f"workflow:{request.workflow_run_id}:write_conversation_message:{request.preset}",
+            idempotency_key=f"{subject}:write_conversation_message:{request.preset}",
         )
     ]
     if request.preset == WORKFLOW_FOLLOW_UP_PLANNER:
@@ -1221,7 +1255,7 @@ def workflow_tool_proposals(
                     "next_step": base.get("next_step", "") or "Follow up on the meeting commitments.",
                 },
                 reason="Create a concrete follow-up task only after human approval.",
-                idempotency_key=f"workflow:{request.workflow_run_id}:create_follow_up_task",
+                idempotency_key=f"{subject}:create_follow_up_task",
             )
         )
         memory_key = "follow_up_commitments"
@@ -1234,7 +1268,13 @@ def workflow_tool_proposals(
             tool_name=UPSERT_MEMORY,
             arguments={**base, "key": memory_key},
             reason=f"Persist {request.preset} output as scoped Agent memory after approval.",
-            idempotency_key=f"workflow:{request.workflow_run_id}:upsert_conversation_memory:{memory_key}",
+            idempotency_key=f"{subject}:upsert_conversation_memory:{memory_key}",
         )
     )
     return proposals
+
+
+def runtime_subject_id(request: WorkflowRequest) -> str:
+    if request.agent_run_id:
+        return f"agent:{request.agent_run_id}"
+    return f"workflow:{request.workflow_run_id}"

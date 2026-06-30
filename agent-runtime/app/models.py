@@ -85,6 +85,7 @@ class MeetingBriefRequest(BaseModel):
     organization_id: int
     user_id: int
     conversation_id: int
+    agent_run_id: int = 0
     workflow_run_id: int
     preset: str = "meeting_brief"
     goal: str
@@ -233,6 +234,8 @@ class MeetingBriefResponse(BaseModel):
 
 WorkflowRequest = MeetingBriefRequest
 WorkflowResponse = MeetingBriefResponse
+AgentRunRequest = MeetingBriefRequest
+AgentRunResponse = MeetingBriefResponse
 
 
 class WorkflowEvalCase(BaseModel):

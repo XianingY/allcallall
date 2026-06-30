@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from app.eval_runner import run_eval
-from app.graph import run_meeting_brief, run_workflow
+from app.graph import run_meeting_brief, run_react_agent, run_workflow
 from app.grounding import check_grounding
 from app.llamaindex_adapter import run_fixture_retrieval
 from app.models import Citation, ContextChunk, MeetingBriefRequest, MeetingTranscriptSegment, WorkflowRequest
@@ -151,6 +151,37 @@ def test_runtime_supports_risk_review_follow_up_and_context_qa() -> None:
     qa = run_workflow(base.model_copy(update={"preset": "context_qa", "goal": "安全审批是什么？"}))
     assert qa.status == "ready"
     assert not qa.proposed_tool_calls
+
+
+def test_react_agent_runtime_uses_python_langgraph_schema() -> None:
+    response = run_react_agent(
+        WorkflowRequest(
+            organization_id=1,
+            user_id=7,
+            conversation_id=42,
+            agent_run_id=103,
+            workflow_run_id=0,
+            preset="react_general",
+            goal="请总结当前会话并给出下一步。",
+            context_chunks=[
+                ContextChunk(
+                    chunk_id="msg-1",
+                    source_type="message",
+                    source_id="1",
+                    title="Message",
+                    snippet="客户要求跟进安全审批，并确认预算截止日期。",
+                    score=10,
+                    retrieval_mode="rules",
+                )
+            ],
+        )
+    )
+
+    assert response.runtime == "python_langgraph"
+    assert response.prompt_version == "react_general_v1"
+    assert response.summary.startswith("ReAct Agent")
+    assert response.proposed_tool_calls
+    assert all(item.idempotency_key.startswith("agent:103:") for item in response.proposed_tool_calls)
 
 
 def test_context_qa_guard_when_context_is_missing() -> None:
