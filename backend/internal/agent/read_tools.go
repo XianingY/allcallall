@@ -102,7 +102,7 @@ func (s *Service) ExecuteReadOnlyTool(ctx context.Context, organizationID, userI
 		return mustJSONString(map[string]any{"chunks": chunks, "count": len(chunks)}), nil
 	case ToolQueryMeetingTranscriptSegments:
 		limit := intFromToolParam(params["limit"], 5)
-		chunks := readToolContextChunks(conversationCtx.ContextChunks, limit, contextChunkSourceMeetingTranscript)
+		chunks := readToolContextChunks(conversationCtx.ContextChunks, limit, ContextChunkSourceMeetingTranscript)
 		return mustJSONString(map[string]any{"chunks": chunks, "count": len(chunks)}), nil
 	case ToolQueryRecentFollowups:
 		limit := intFromToolParam(params["limit"], 5)
@@ -152,7 +152,7 @@ func readToolContextChunkPayload(item RetrievedContextChunk) map[string]any {
 		"title":          retrievedChunkTitle(item),
 		"score":          item.Score,
 		"retrieval_mode": item.RetrievalMode,
-		"snippet":        compactSnippet(retrievedChunkContent(item), 180),
+		"snippet":        CompactSnippet(retrievedChunkContent(item), 180),
 		"created_at":     retrievedChunkUpdatedAt(item).Format(time.RFC3339),
 	}
 	if item.FallbackReason != "" {

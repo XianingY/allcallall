@@ -30,7 +30,7 @@ type CommercialHandler struct {
 	verify     *mail.VerificationCodeService
 	mail       *mail.Service
 	rateLimits *ratelimit.Service
-	metrics    *metrics.CounterStore
+	metrics    metrics.Recorder
 }
 
 type entitlementResponse struct {
@@ -114,7 +114,7 @@ func NewCommercialHandler(
 	verify *mail.VerificationCodeService,
 	mailSvc *mail.Service,
 	rateLimits *ratelimit.Service,
-	counters *metrics.CounterStore,
+	counters metrics.Recorder,
 ) *CommercialHandler {
 	return &CommercialHandler{
 		logger:     log.With().Str("component", "commercial_handler").Logger(),

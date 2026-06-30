@@ -133,7 +133,7 @@ func (r *fakeMeetingBriefRuntime) RunWorkflow(ctx context.Context, input Workflo
 	iteration := 1
 	citation := Citation{
 		ChunkID:             "segment-1",
-		SourceType:          contextChunkSourceMeetingTranscript,
+		SourceType:          ContextChunkSourceMeetingTranscript,
 		SourceID:            "1",
 		Title:               "Meeting transcript",
 		SourceTitle:         "Meeting transcript",
@@ -502,23 +502,23 @@ func TestWorkflowRoleBoundedReActUsesReadToolsAndMeetingTranscript(t *testing.T)
 	if searcher == nil {
 		t.Fatalf("searcher task missing")
 	}
-	if iterations := roleReActIterationCount(*searcher); iterations == 0 || iterations > 3 {
+	if iterations := RoleReActIterationCount(*searcher); iterations == 0 || iterations > 3 {
 		t.Fatalf("unexpected searcher bounded iterations: %d", iterations)
 	}
-	if !roleReActTraceHasTool(*searcher, ToolQueryContextChunks) {
+	if !RoleReActTraceHasTool(*searcher, ToolQueryContextChunks) {
 		t.Fatalf("expected searcher to call query_context_chunks")
 	}
-	if !roleReActTraceContainsSource(*searcher, contextChunkSourceMeetingTranscript) {
+	if !roleReActTraceContainsSource(*searcher, ContextChunkSourceMeetingTranscript) {
 		t.Fatalf("expected searcher citations to include meeting transcript")
 	}
 	risk := workflowTaskByName(paused.Tasks, models.WorkflowTaskRiskAnalyst)
 	if risk == nil {
 		t.Fatalf("risk task missing")
 	}
-	if iterations := roleReActIterationCount(*risk); iterations == 0 || iterations > 2 {
+	if iterations := RoleReActIterationCount(*risk); iterations == 0 || iterations > 2 {
 		t.Fatalf("unexpected risk bounded iterations: %d", iterations)
 	}
-	if !roleReActTraceHasTool(*risk, ToolQueryContextChunks) || !roleReActTraceHasTool(*risk, ToolQueryRecentMeetings) {
+	if !RoleReActTraceHasTool(*risk, ToolQueryContextChunks) || !RoleReActTraceHasTool(*risk, ToolQueryRecentMeetings) {
 		t.Fatalf("expected risk analyst to call bounded read tools")
 	}
 	for _, approval := range paused.Approvals {

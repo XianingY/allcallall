@@ -18,12 +18,12 @@ import (
 type EmailHandler struct {
 	logger                  zerolog.Logger
 	verificationCodeService *mail.VerificationCodeService
-	metrics                 *metrics.CounterStore
+	metrics                 metrics.Recorder
 	rateLimits              *ratelimit.Service
 }
 
 type EmailHandlerOptions struct {
-	Metrics *metrics.CounterStore
+	Metrics metrics.Recorder
 	Limits  *ratelimit.Service
 }
 

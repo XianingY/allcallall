@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/allcallall/backend/internal/agent"
+	"github.com/allcallall/backend/internal/evals"
 	"github.com/allcallall/backend/internal/resumeeval"
 )
 
@@ -48,20 +49,20 @@ func main() {
 
 func runRerankEval(args []string) error {
 	fs := flag.NewFlagSet("rerank-eval", flag.ContinueOnError)
-	fixturePath := fs.String("fixture", agent.DefaultRerankEvalFixture, "RAG rerank eval fixture")
+	fixturePath := fs.String("fixture", evals.DefaultRerankEvalFixture, "RAG rerank eval fixture")
 	outDir := fs.String("out", "../docs/interview/generated-rerank-eval", "directory for rerank eval artifacts")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	cases, err := agent.LoadRAGEvalCases(*fixturePath)
+	cases, err := evals.LoadRAGEvalCases(*fixturePath)
 	if err != nil {
 		return err
 	}
-	report, err := agent.RunRerankEval(context.Background(), cases)
+	report, err := evals.RunRerankEval(context.Background(), cases)
 	if err != nil {
 		return err
 	}
-	if err := agent.WriteRerankEvalArtifacts(*outDir, report); err != nil {
+	if err := evals.WriteRerankEvalArtifacts(*outDir, report); err != nil {
 		return err
 	}
 	fmt.Printf("wrote rerank eval report to %s\n", *outDir)
@@ -77,15 +78,15 @@ func runAIPortfolioEval(args []string) error {
 	fs := flag.NewFlagSet("ai-portfolio-eval", flag.ContinueOnError)
 	provider := fs.String("provider", defaultProvider(), "planner provider: rules, mock_llm, openai_compatible")
 	outDir := fs.String("out", "../docs/interview/generated-ai-portfolio-eval", "directory for AI portfolio eval artifacts")
-	plannerFixture := fs.String("planner-fixture", agent.DefaultPlannerEvalFixture, "planner eval fixture")
-	ragFixture := fs.String("rag-fixture", agent.DefaultRAGEvalFixture, "RAG eval fixture")
-	rerankFixture := fs.String("rerank-fixture", agent.DefaultRerankEvalFixture, "RAG rerank eval fixture")
-	workflowFixture := fs.String("workflow-fixture", agent.DefaultWorkflowEvalFixture, "workflow eval fixture")
+	plannerFixture := fs.String("planner-fixture", evals.DefaultPlannerEvalFixture, "planner eval fixture")
+	ragFixture := fs.String("rag-fixture", evals.DefaultRAGEvalFixture, "RAG eval fixture")
+	rerankFixture := fs.String("rerank-fixture", evals.DefaultRerankEvalFixture, "RAG rerank eval fixture")
+	workflowFixture := fs.String("workflow-fixture", evals.DefaultWorkflowEvalFixture, "workflow eval fixture")
 	pythonReportPath := fs.String("python-report", "../agent-runtime/evals/reports/python-agent-eval.json", "optional Python runtime eval report")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	demo, err := agent.RunDemoEvalReport(context.Background(), agent.DemoEvalOptions{
+	demo, err := evals.RunDemoEvalReport(context.Background(), evals.DemoEvalOptions{
 		Provider:        *provider,
 		PlannerFixture:  *plannerFixture,
 		RAGFixture:      *ragFixture,
@@ -94,11 +95,11 @@ func runAIPortfolioEval(args []string) error {
 	if err != nil {
 		return err
 	}
-	ragCases, err := agent.LoadRAGEvalCases(*rerankFixture)
+	ragCases, err := evals.LoadRAGEvalCases(*rerankFixture)
 	if err != nil {
 		return err
 	}
-	rerank, err := agent.RunRerankEval(context.Background(), ragCases)
+	rerank, err := evals.RunRerankEval(context.Background(), ragCases)
 	if err != nil {
 		return err
 	}
@@ -140,10 +141,10 @@ func runResumeEval(args []string) error {
 	fs := flag.NewFlagSet("resume-eval", flag.ContinueOnError)
 	provider := fs.String("provider", defaultProvider(), "planner provider: rules, mock_llm, openai_compatible")
 	outDir := fs.String("out", "../docs/interview/generated-resume-eval", "directory for resume-oriented eval artifacts")
-	plannerFixture := fs.String("planner-fixture", agent.DefaultPlannerEvalFixture, "planner eval fixture")
-	ragFixture := fs.String("rag-fixture", agent.DefaultRAGEvalFixture, "RAG eval fixture")
-	workflowFixture := fs.String("workflow-fixture", agent.DefaultWorkflowEvalFixture, "workflow eval fixture")
-	taskFixture := fs.String("task-fixture", agent.DefaultTaskEvalFixture, "task eval fixture")
+	plannerFixture := fs.String("planner-fixture", evals.DefaultPlannerEvalFixture, "planner eval fixture")
+	ragFixture := fs.String("rag-fixture", evals.DefaultRAGEvalFixture, "RAG eval fixture")
+	workflowFixture := fs.String("workflow-fixture", evals.DefaultWorkflowEvalFixture, "workflow eval fixture")
+	taskFixture := fs.String("task-fixture", evals.DefaultTaskEvalFixture, "task eval fixture")
 	taskRuntime := fs.String("task-runtime", defaultAgentRuntime(), "task eval workflow runtime: go or python_langgraph")
 	benchConversations := fs.Int("bench-conversations", 25, "number of interview bench conversations")
 	benchBatchSize := fs.Int("bench-batch-size", 50, "interview bench outbox batch size")
@@ -177,17 +178,17 @@ func runResumeEval(args []string) error {
 
 func runTaskEval(args []string) error {
 	fs := flag.NewFlagSet("task-eval", flag.ContinueOnError)
-	fixturePath := fs.String("fixture", agent.DefaultTaskEvalFixture, "task eval fixture")
+	fixturePath := fs.String("fixture", evals.DefaultTaskEvalFixture, "task eval fixture")
 	outDir := fs.String("out", "", "optional directory for task eval artifacts")
 	runtime := fs.String("runtime", defaultAgentRuntime(), "workflow runtime: go or python_langgraph")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	cases, err := agent.LoadAgentTaskEvalCases(*fixturePath)
+	cases, err := evals.LoadAgentTaskEvalCases(*fixturePath)
 	if err != nil {
 		return err
 	}
-	report, err := agent.RunAgentTaskEvalWithOptions(context.Background(), cases, agent.AgentTaskEvalOptions{Runtime: *runtime})
+	report, err := evals.RunAgentTaskEvalWithOptions(context.Background(), cases, evals.AgentTaskEvalOptions{Runtime: *runtime})
 	if err != nil {
 		return err
 	}
@@ -195,7 +196,7 @@ func runTaskEval(args []string) error {
 		if err := os.MkdirAll(*outDir, 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(*outDir, "task-eval.md"), []byte(agent.FormatAgentTaskEvalMarkdown(report)), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(*outDir, "task-eval.md"), []byte(evals.FormatAgentTaskEvalMarkdown(report)), 0o644); err != nil {
 			return err
 		}
 		raw, err := json.MarshalIndent(report, "", "  ")
@@ -220,13 +221,13 @@ func runEval(args []string) error {
 	fs := flag.NewFlagSet("eval", flag.ContinueOnError)
 	provider := fs.String("provider", defaultProvider(), "planner provider: rules, mock_llm, openai_compatible")
 	outDir := fs.String("out", "/tmp/allcallall-agent-demo-report", "directory for JSON and Markdown report artifacts")
-	plannerFixture := fs.String("planner-fixture", agent.DefaultPlannerEvalFixture, "planner eval fixture")
-	ragFixture := fs.String("rag-fixture", agent.DefaultRAGEvalFixture, "RAG eval fixture")
-	workflowFixture := fs.String("workflow-fixture", agent.DefaultWorkflowEvalFixture, "workflow eval fixture")
+	plannerFixture := fs.String("planner-fixture", evals.DefaultPlannerEvalFixture, "planner eval fixture")
+	ragFixture := fs.String("rag-fixture", evals.DefaultRAGEvalFixture, "RAG eval fixture")
+	workflowFixture := fs.String("workflow-fixture", evals.DefaultWorkflowEvalFixture, "workflow eval fixture")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	report, err := agent.RunDemoEvalReport(context.Background(), agent.DemoEvalOptions{
+	report, err := evals.RunDemoEvalReport(context.Background(), evals.DemoEvalOptions{
 		Provider:        *provider,
 		PlannerFixture:  *plannerFixture,
 		RAGFixture:      *ragFixture,
@@ -235,7 +236,7 @@ func runEval(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := agent.WriteDemoEvalArtifacts(*outDir, report); err != nil {
+	if err := evals.WriteDemoEvalArtifacts(*outDir, report); err != nil {
 		return err
 	}
 	fmt.Printf("wrote eval report to %s\n", *outDir)
@@ -310,7 +311,7 @@ func loadOptionalJSON(path string) any {
 	return decoded
 }
 
-func formatAIPortfolioMarkdown(demo agent.DemoEvalReport, rerank agent.RAGEvalReport, pythonReport any) string {
+func formatAIPortfolioMarkdown(demo evals.DemoEvalReport, rerank evals.RAGEvalReport, pythonReport any) string {
 	var b strings.Builder
 	b.WriteString("# AllCallAll AI Portfolio Eval\n\n")
 	b.WriteString("This report groups the evidence useful for AI Agent / AI application interviews. It separates deterministic regression, retrieval/rerank quality, and black-box task completion so the numbers are not overstated.\n\n")

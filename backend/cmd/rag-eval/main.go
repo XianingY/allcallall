@@ -7,19 +7,19 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/allcallall/backend/internal/agent"
+	"github.com/allcallall/backend/internal/evals"
 )
 
 func main() {
-	fixturePath := flag.String("fixture", agent.DefaultRAGEvalFixture, "path to RAG eval cases JSON")
+	fixturePath := flag.String("fixture", evals.DefaultRAGEvalFixture, "path to RAG eval cases JSON")
 	flag.Parse()
 
-	cases, err := agent.LoadRAGEvalCases(*fixturePath)
+	cases, err := evals.LoadRAGEvalCases(*fixturePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "load rag eval cases failed: %v\n", err)
 		os.Exit(2)
 	}
-	report, err := agent.RunRAGEval(context.Background(), cases)
+	report, err := evals.RunRAGEval(context.Background(), cases)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "run rag eval failed: %v\n", err)
 		os.Exit(2)

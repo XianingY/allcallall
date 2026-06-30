@@ -27,7 +27,7 @@ func (s *Service) executeCollectContextTask(ctx context.Context, run models.Work
 			"rooms":                    len(conversationCtx.Rooms),
 			"retrieved_context_chunks": len(conversationCtx.ContextChunks),
 			"meeting_context":          conversationCtx.MeetingContext,
-			"memory_keys":              uniqueStrings(memoryKeys),
+			"memory_keys":              UniqueStrings(memoryKeys),
 			"citations":                citations,
 		}
 		return output, s.createAgentMessage(ctx, run, &task.ID, "workflow", "planner", models.AgentMessageTypeTaskInput, output, "collect_context")
@@ -147,7 +147,7 @@ func (s *Service) runWorkflowRoleAgent(ctx context.Context, run models.WorkflowR
 		result.ActionItems = nil
 		result.RiskFlags = nil
 		for _, item := range conversationCtx.ContextChunks {
-			result.Snippets = append(result.Snippets, compactSnippet(retrievedChunkContent(item), 160))
+			result.Snippets = append(result.Snippets, CompactSnippet(retrievedChunkContent(item), 160))
 			if len(result.Snippets) >= 5 {
 				break
 			}

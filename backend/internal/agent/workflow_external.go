@@ -130,7 +130,7 @@ func buildWorkflowRuntimeRequest(run models.WorkflowRun, conversationCtx *conver
 			SourceID:      fmt.Sprintf("%d", retrievedChunkSourceID(chunk)),
 			SourceTitle:   retrievedChunkTitle(chunk),
 			Title:         retrievedChunkTitle(chunk),
-			Snippet:       compactSnippet(retrievedChunkContent(chunk), 300),
+			Snippet:       CompactSnippet(retrievedChunkContent(chunk), 300),
 			Score:         chunk.Score,
 			RetrievalMode: chunk.RetrievalMode,
 			RerankScore:   chunk.RerankScore,
@@ -150,9 +150,9 @@ func buildWorkflowRuntimeRequest(run models.WorkflowRun, conversationCtx *conver
 }
 
 func (s *Service) persistExternalRuntimeOutput(ctx context.Context, run models.WorkflowRun, conversationCtx *conversationContext, response WorkflowRuntimeResponse) error {
-	runtimeName := firstNonEmptyString(response.Runtime, s.workflowRuntime.Name())
+	runtimeName := FirstNonEmptyString(response.Runtime, s.workflowRuntime.Name())
 	if err := s.db.WithContext(ctx).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
-		"workflow_version": firstNonEmptyString(run.WorkflowVersion, "meeting_agent_langgraph_v1"),
+		"workflow_version": FirstNonEmptyString(run.WorkflowVersion, "meeting_agent_langgraph_v1"),
 		"state_json": workflowStateJSON(run, map[string]any{
 			"phase":               "runtime_completed",
 			"preset":              workflowPresetFromRun(run),
@@ -300,8 +300,8 @@ func externalRoleResultMap(response WorkflowRuntimeResponse) map[string]workflow
 	return out
 }
 
-func runtimeTraceToRoleTrace(events []WorkflowRuntimeTrace) []roleReActTraceEvent {
-	out := make([]roleReActTraceEvent, 0, len(events))
+func runtimeTraceToRoleTrace(events []WorkflowRuntimeTrace) []RoleReActTraceEvent {
+	out := make([]RoleReActTraceEvent, 0, len(events))
 	for _, item := range events {
 		if strings.TrimSpace(item.ToolName) == "" {
 			continue
@@ -310,7 +310,7 @@ func runtimeTraceToRoleTrace(events []WorkflowRuntimeTrace) []roleReActTraceEven
 		if item.Iteration != nil {
 			iteration = *item.Iteration
 		}
-		out = append(out, roleReActTraceEvent{
+		out = append(out, RoleReActTraceEvent{
 			Iteration:   iteration,
 			Role:        item.Role,
 			Thought:     item.Thought,
@@ -358,7 +358,7 @@ func workflowRuntimeAgenticRAGFromEnv() WorkflowRuntimeAgenticRAG {
 	return WorkflowRuntimeAgenticRAG{
 		Enabled:            envBool("PY_AGENT_ENABLE_AGENTIC_RAG", false),
 		MaxSteps:           envInt("PY_AGENT_RAG_MAX_RETRIEVAL_STEPS", 3),
-		AllowedSourceTypes: []string{contextChunkSourceMeetingTranscript, "knowledge", "conversation", contextChunkSourceMessage, contextChunkSourceNote, contextChunkSourceFollowup, contextChunkSourceMemory, contextChunkSourceContactProfile},
+		AllowedSourceTypes: []string{ContextChunkSourceMeetingTranscript, "knowledge", "conversation", contextChunkSourceMessage, contextChunkSourceNote, contextChunkSourceFollowup, contextChunkSourceMemory, contextChunkSourceContactProfile},
 		MinConfidence:      envFloat("PY_AGENT_RAG_MIN_CONFIDENCE", 0.6),
 	}
 }

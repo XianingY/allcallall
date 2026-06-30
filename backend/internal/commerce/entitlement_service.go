@@ -1,6 +1,8 @@
 package commerce
 
 import (
+	"github.com/allcallall/backend/internal/metrics"
+
 	"context"
 	"errors"
 	"strings"
@@ -33,11 +35,11 @@ type UsageSnapshot struct {
 // EntitlementService handles entitlement checks, tier resolution, and usage tracking.
 type EntitlementService struct {
 	repo    *Repository
-	metrics counterRecorder
+	metrics metrics.Recorder
 }
 
 // NewEntitlementService creates a new EntitlementService.
-func NewEntitlementService(repo *Repository, metrics counterRecorder) *EntitlementService {
+func NewEntitlementService(repo *Repository, metrics metrics.Recorder) *EntitlementService {
 	return &EntitlementService{repo: repo, metrics: metrics}
 }
 

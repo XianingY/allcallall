@@ -166,7 +166,7 @@ type PythonLangGraphRuntime struct {
 }
 
 func NewWorkflowRuntimeFromEnv() WorkflowRuntime {
-	switch normalizeWorkflowRuntime(os.Getenv("AGENT_RUNTIME")) {
+	switch NormalizeWorkflowRuntime(os.Getenv("AGENT_RUNTIME")) {
 	case WorkflowRuntimePythonLangGraph:
 		return NewPythonLangGraphRuntimeFromEnv()
 	default:
@@ -191,7 +191,7 @@ func NewPythonLangGraphRuntimeFromEnv() *PythonLangGraphRuntime {
 	}
 }
 
-func normalizeWorkflowRuntime(raw string) string {
+func NormalizeWorkflowRuntime(raw string) string {
 	switch strings.TrimSpace(strings.ToLower(raw)) {
 	case WorkflowRuntimePythonLangGraph:
 		return WorkflowRuntimePythonLangGraph
@@ -204,7 +204,7 @@ func normalizeWorkflowRuntime(raw string) string {
 	}
 }
 
-func normalizeWorkflowRuntimeForDisplay(raw string) string {
+func NormalizeWorkflowRuntimeForDisplay(raw string) string {
 	switch strings.TrimSpace(strings.ToLower(raw)) {
 	case WorkflowRuntimePythonLangGraph:
 		return WorkflowRuntimePythonLangGraph
@@ -218,7 +218,7 @@ func normalizeWorkflowRuntimeForDisplay(raw string) string {
 }
 
 func WorkflowRuntimeFromEnvName() string {
-	return normalizeWorkflowRuntimeForDisplay(os.Getenv("AGENT_RUNTIME"))
+	return NormalizeWorkflowRuntimeForDisplay(os.Getenv("AGENT_RUNTIME"))
 }
 
 func (r *PythonLangGraphRuntime) Name() string {
@@ -262,7 +262,7 @@ func (r *PythonLangGraphRuntime) RunWorkflow(ctx context.Context, input Workflow
 		return WorkflowRuntimeResponse{}, readErr
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return WorkflowRuntimeResponse{}, fmt.Errorf("python langgraph runtime returned %d: %s", resp.StatusCode, compactSnippet(string(body), 500))
+		return WorkflowRuntimeResponse{}, fmt.Errorf("python langgraph runtime returned %d: %s", resp.StatusCode, CompactSnippet(string(body), 500))
 	}
 	var output WorkflowRuntimeResponse
 	if err := json.Unmarshal(body, &output); err != nil {
@@ -303,7 +303,7 @@ func (r *PythonLangGraphRuntime) run(ctx context.Context, path string, input Wor
 		return WorkflowRuntimeResponse{}, readErr
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return WorkflowRuntimeResponse{}, fmt.Errorf("python langgraph runtime returned %d: %s", resp.StatusCode, compactSnippet(string(body), 500))
+		return WorkflowRuntimeResponse{}, fmt.Errorf("python langgraph runtime returned %d: %s", resp.StatusCode, CompactSnippet(string(body), 500))
 	}
 	var output WorkflowRuntimeResponse
 	if err := json.Unmarshal(body, &output); err != nil {

@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 # 项目根目录
 PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 INFRA_DIR="$PROJECT_ROOT/infra"
-ENV_FILE="$INFRA_DIR/.env"  # 使用 infra 目录下的符号链接
+ENV_FILE="$PROJECT_ROOT/.env"  # 使用 infra 目录下的符号链接
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}AllCallAll 服务启动脚本${NC}"

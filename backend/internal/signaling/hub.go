@@ -36,7 +36,7 @@ type Hub struct {
 	fcmManager  *fcm.Manager
 	commercial  *commerce.Service
 	collab      *collaboration.Service
-	metrics     *metrics.CounterStore
+	metrics     metrics.Recorder
 
 	mu      sync.RWMutex
 	clients map[string]map[*client]struct{}
@@ -108,7 +108,7 @@ func (h *Hub) WithFCMManager(fcmMgr *fcm.Manager) {
 }
 
 // WithCommercialService attaches commercialization service to signaling flows.
-func (h *Hub) WithCommercialService(service *commerce.Service, counters *metrics.CounterStore) {
+func (h *Hub) WithCommercialService(service *commerce.Service, counters metrics.Recorder) {
 	h.commercial = service
 	h.metrics = counters
 	h.logger.Info().Msg("commercial service attached to signaling hub")
@@ -519,7 +519,9 @@ func (h *Hub) removeClient(cl *client) {
 		}
 	}
 	close(cl.send)
-	_ = cl.conn.Close()
+	if cl.conn != nil {
+		_ = cl.conn.Close()
+	}
 	h.logger.Info().Str("email", cl.email).Msg("client disconnected")
 }
 

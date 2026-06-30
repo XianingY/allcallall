@@ -1,6 +1,8 @@
 package events
 
 import (
+	"github.com/allcallall/backend/internal/metrics"
+
 	"context"
 	"errors"
 	"strconv"
@@ -17,16 +19,13 @@ var ErrOutboxHandlerNotFound = errors.New("outbox handler not found")
 
 type Handler func(ctx context.Context, event models.EventOutbox) error
 
-type metricRecorder interface {
-	Inc(name string)
-	Set(name string, value int64)
-}
+
 
 type Processor struct {
 	store       *Store
 	handlers    map[string]Handler
 	events      []string
-	metrics     metricRecorder
+	metrics     metrics.Recorder
 	batchSize   int
 	maxAttempts int
 	retryDelay  time.Duration
@@ -35,10 +34,10 @@ type Processor struct {
 	mu          sync.RWMutex
 }
 
-func NewProcessor(store *Store, counters ...metricRecorder) *Processor {
-	var metrics metricRecorder
-	if len(counters) > 0 {
-		metrics = counters[0]
+func NewProcessor(store *Store, recorders ...metrics.Recorder) *Processor {
+	var metrics metrics.Recorder
+	if len(recorders) > 0 {
+		metrics = recorders[0]
 	}
 	return &Processor{
 		store:       store,

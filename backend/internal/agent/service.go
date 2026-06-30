@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"github.com/allcallall/backend/internal/metrics"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -28,10 +30,7 @@ const (
 	agentRunLeaseDuration = 5 * time.Minute
 )
 
-type counterRecorder interface {
-	Inc(name string)
-	Add(name string, delta int64)
-}
+
 
 type ChunkIndexer interface {
 	IndexChunk(ctx context.Context, doc search.ContextChunkDocument) error
@@ -48,7 +47,7 @@ type KnowledgeRetriever interface {
 
 type Service struct {
 	db                 *gorm.DB
-	metrics            counterRecorder
+	metrics            metrics.Recorder
 	planner            Planner
 	outbox             *events.Store
 	indexer            ChunkIndexer
@@ -113,10 +112,10 @@ type conversationMemoryInput struct {
 	SourceRefID uint64
 }
 
-func NewService(db *gorm.DB, counters ...counterRecorder) *Service {
-	var metrics counterRecorder
-	if len(counters) > 0 {
-		metrics = counters[0]
+func NewService(db *gorm.DB, recorders ...metrics.Recorder) *Service {
+	var metrics metrics.Recorder
+	if len(recorders) > 0 {
+		metrics = recorders[0]
 	}
 	reranker, _ := search.NewRerankerFromEnv()
 	return &Service{
@@ -873,7 +872,7 @@ func (s *Service) recordContextToolCalls(ctx context.Context, run models.AgentRu
 			"title":          retrievedChunkTitle(item),
 			"score":          item.Score,
 			"retrieval_mode": item.RetrievalMode,
-			"snippet":        compactSnippet(retrievedChunkContent(item), 180),
+			"snippet":        CompactSnippet(retrievedChunkContent(item), 180),
 			"created_at":     retrievedChunkUpdatedAt(item).Format(time.RFC3339),
 		}
 		if item.BM25Rank > 0 {
@@ -1193,7 +1192,7 @@ func joinMessageBodies(messages []models.Message) string {
 	return strings.Join(items, " ")
 }
 
-func compactSnippet(value string, max int) string {
+func CompactSnippet(value string, max int) string {
 	value = strings.Join(strings.Fields(value), " ")
 	runes := []rune(value)
 	if len(runes) <= max {
@@ -1205,7 +1204,7 @@ func compactSnippet(value string, max int) string {
 	return string(runes[:max-3]) + "..."
 }
 
-func uniqueStrings(items []string) []string {
+func UniqueStrings(items []string) []string {
 	seen := make(map[string]struct{}, len(items))
 	out := make([]string, 0, len(items))
 	for _, item := range items {
@@ -1264,4 +1263,9 @@ func extractCallIDsFromMessages(messages []models.Message) []string {
 		out = append(out, callID)
 	}
 	return out
+}
+
+// DB returns the underlying gorm.DB.
+func (s *Service) DB() *gorm.DB {
+	return s.db
 }

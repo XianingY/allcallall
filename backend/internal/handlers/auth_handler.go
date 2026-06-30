@@ -33,7 +33,7 @@ type AuthHandler struct {
 	commerce              *commerce.Service
 	collaboration         *collaboration.Service
 	rateLimits            *ratelimit.Service
-	metrics               *metrics.CounterStore
+	metrics               metrics.Recorder
 }
 
 type AuthHandlerOptions struct {
@@ -41,7 +41,7 @@ type AuthHandlerOptions struct {
 	Collaboration   *collaboration.Service
 	RefreshSessions *auth.RefreshSessionService
 	RateLimits      *ratelimit.Service
-	Metrics         *metrics.CounterStore
+	Metrics         metrics.Recorder
 }
 
 // NewAuthHandler 构造函数

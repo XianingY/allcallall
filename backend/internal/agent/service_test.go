@@ -375,7 +375,7 @@ func TestRecordRAGRuntimeBridgeQueryMetrics(t *testing.T) {
 }
 
 func TestCompactSnippetKeepsUTF8Valid(t *testing.T) {
-	got := compactSnippet("AI 协作助手已生成跟进建议", 8)
+	got := CompactSnippet("AI 协作助手已生成跟进建议", 8)
 	if strings.ContainsRune(got, '\uFFFD') {
 		t.Fatalf("snippet contains replacement rune: %q", got)
 	}
@@ -496,13 +496,13 @@ func TestConversationRAGIndexesBusinessSourcesAndReturnsCitations(t *testing.T) 
 		if citation.Title == "" || citation.Snippet == "" {
 			t.Fatalf("citation missing title/snippet: %+v", citation)
 		}
-		if citation.SourceType == contextChunkSourceMeetingTranscript {
+		if citation.SourceType == ContextChunkSourceMeetingTranscript {
 			if citation.RecordingSessionID == nil || *citation.RecordingSessionID != 202 || citation.TranscriptSegmentID == nil || citation.StartMS == nil || citation.EndMS == nil {
 				t.Fatalf("meeting transcript citation missing deep-link metadata: %+v", citation)
 			}
 		}
 	}
-	for _, sourceType := range []string{contextChunkSourceMeetingTranscript, contextChunkSourceFollowup, contextChunkSourceContactProfile, contextChunkSourceTranscript} {
+	for _, sourceType := range []string{ContextChunkSourceMeetingTranscript, contextChunkSourceFollowup, contextChunkSourceContactProfile, contextChunkSourceTranscript} {
 		if !sourceTypes[sourceType] {
 			t.Fatalf("missing citation source %s in %+v", sourceType, result.Citations)
 		}
@@ -516,7 +516,7 @@ func TestConversationRAGIndexesBusinessSourcesAndReturnsCitations(t *testing.T) 
 	for _, chunk := range chunks {
 		indexed[chunk.SourceType] = true
 	}
-	for _, sourceType := range []string{contextChunkSourceMessage, contextChunkSourceNote, contextChunkSourceFollowup, contextChunkSourceContactProfile, contextChunkSourceTranscript, contextChunkSourceMeetingTranscript} {
+	for _, sourceType := range []string{contextChunkSourceMessage, contextChunkSourceNote, contextChunkSourceFollowup, contextChunkSourceContactProfile, contextChunkSourceTranscript, ContextChunkSourceMeetingTranscript} {
 		if !indexed[sourceType] {
 			t.Fatalf("missing indexed source %s in %+v", sourceType, indexed)
 		}

@@ -1,6 +1,8 @@
 package commerce
 
 import (
+	"github.com/allcallall/backend/internal/metrics"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -68,11 +70,11 @@ func normalizeFollowUpTaskStatus(status string) (string, error) {
 // FollowUpService manages call follow-ups and follow-up tasks.
 type FollowUpService struct {
 	repo    *Repository
-	metrics counterRecorder
+	metrics metrics.Recorder
 }
 
 // NewFollowUpService creates a new FollowUpService.
-func NewFollowUpService(repo *Repository, metrics counterRecorder) *FollowUpService {
+func NewFollowUpService(repo *Repository, metrics metrics.Recorder) *FollowUpService {
 	return &FollowUpService{repo: repo, metrics: metrics}
 }
 

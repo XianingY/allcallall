@@ -12,6 +12,7 @@ import { VerifyEmailPage } from "@/pages/auth/VerifyEmailPage";
 import { SettingsLayout } from "@/pages/settings/SettingsLayout";
 import { BlockedSettingsPage, DangerSettingsPage, LegalSettingsPage, NotificationSettingsPage, PasswordSettingsPage, PreferencesSettingsPage, ProfileSettingsPage, SessionsSettingsPage } from "@/pages/settings/SettingsPages";
 import { InboxPage } from "@/pages/collaboration/InboxPage";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const AgentLabPage = lazy(() => import("@/pages/agent/AgentLabPage").then((module) => ({ default: module.AgentLabPage })));
 const KnowledgePage = lazy(() => import("@/pages/knowledge/KnowledgePage").then((module) => ({ default: module.KnowledgePage })));
@@ -28,48 +29,52 @@ const RecordingTranscriptPage = lazy(() => import("@/pages/recordings/RecordingT
 const BillingSettingsPage = lazy(() => import("@/pages/settings/BillingSettingsPage").then((module) => ({ default: module.BillingSettingsPage })));
 
 export function App() {
-  return <Suspense fallback={<PageLoading />}>
-    <Routes>
-      <Route element={<AnonymousRoute />}>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-        <Route path="/verify-email" element={<VerifyEmailPage />} />
-        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-      </Route>
-      <Route path="/invite/:code" element={<InvitePage />} />
-      <Route element={<ProtectedRoute />}>
-        <Route element={<AppShell />}>
-          <Route path="/agent-lab" element={<AgentLabPage />} />
-          <Route path="/knowledge" element={<KnowledgePage />} />
-          <Route path="/inbox" element={<InboxPage />} />
-          <Route path="/conversations/:conversationId" element={<InboxPage />} />
-          <Route path="/contacts" element={<ContactsPage />} />
-          <Route path="/follow-ups" element={<FollowUpsPage />} />
-          <Route path="/calls" element={<CallHistoryPage />} />
-          <Route path="/deals" element={<DealsPage />} />
-          <Route path="/deals/:dealId" element={<DealDetailPage />} />
-          <Route path="/meetings" element={<MeetingsPage />} />
-          <Route path="/recordings" element={<RecordingsPage />} />
-          <Route path="/recordings/:recordingId" element={<RecordingTranscriptPage />} />
-          <Route path="/organizations" element={<OrganizationsPage />} />
-          <Route path="/settings" element={<SettingsLayout />}>
-            <Route index element={<Navigate to="profile" replace />} />
-            <Route path="profile" element={<ProfileSettingsPage />} />
-            <Route path="password" element={<PasswordSettingsPage />} />
-            <Route path="sessions" element={<SessionsSettingsPage />} />
-            <Route path="blocked" element={<BlockedSettingsPage />} />
-            <Route path="notifications" element={<NotificationSettingsPage />} />
-            <Route path="billing" element={<BillingSettingsPage />} />
-            <Route path="preferences" element={<PreferencesSettingsPage />} />
-            <Route path="legal" element={<LegalSettingsPage />} />
-            <Route path="danger" element={<DangerSettingsPage />} />
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={<PageLoading />}>
+        <Routes>
+          <Route element={<AnonymousRoute />}>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/verify-email" element={<VerifyEmailPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           </Route>
-          <Route index element={<Navigate to="/inbox" replace />} />
-        </Route>
-        <Route path="/meetings/:roomId/preflight" element={<MeetingPreflightPage />} />
-        <Route path="/meetings/:roomId" element={<MeetingRoomPage />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/inbox" replace />} />
-    </Routes>
-  </Suspense>;
+          <Route path="/invite/:code" element={<InvitePage />} />
+          <Route element={<ProtectedRoute />}>
+            <Route element={<AppShell />}>
+              <Route path="/agent-lab" element={<AgentLabPage />} />
+              <Route path="/knowledge" element={<KnowledgePage />} />
+              <Route path="/inbox" element={<InboxPage />} />
+              <Route path="/conversations/:conversationId" element={<InboxPage />} />
+              <Route path="/contacts" element={<ContactsPage />} />
+              <Route path="/follow-ups" element={<FollowUpsPage />} />
+              <Route path="/calls" element={<CallHistoryPage />} />
+              <Route path="/deals" element={<DealsPage />} />
+              <Route path="/deals/:dealId" element={<DealDetailPage />} />
+              <Route path="/meetings" element={<MeetingsPage />} />
+              <Route path="/recordings" element={<RecordingsPage />} />
+              <Route path="/recordings/:recordingId" element={<RecordingTranscriptPage />} />
+              <Route path="/organizations" element={<OrganizationsPage />} />
+              <Route path="/settings" element={<SettingsLayout />}>
+                <Route index element={<Navigate to="profile" replace />} />
+                <Route path="profile" element={<ProfileSettingsPage />} />
+                <Route path="password" element={<PasswordSettingsPage />} />
+                <Route path="sessions" element={<SessionsSettingsPage />} />
+                <Route path="blocked" element={<BlockedSettingsPage />} />
+                <Route path="notifications" element={<NotificationSettingsPage />} />
+                <Route path="billing" element={<BillingSettingsPage />} />
+                <Route path="preferences" element={<PreferencesSettingsPage />} />
+                <Route path="legal" element={<LegalSettingsPage />} />
+                <Route path="danger" element={<DangerSettingsPage />} />
+              </Route>
+              <Route index element={<Navigate to="/inbox" replace />} />
+            </Route>
+            <Route path="/meetings/:roomId/preflight" element={<MeetingPreflightPage />} />
+            <Route path="/meetings/:roomId" element={<MeetingRoomPage />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/inbox" replace />} />
+        </Routes>
+      </Suspense>
+    </ErrorBoundary>
+  );
 }

@@ -1,0 +1,60 @@
+[
+  {
+    "name": "high_priority_handoff",
+    "goal": "prepare a reliable customer support handoff",
+    "conversation_title": "APAC onboarding escalation",
+    "status": "open",
+    "priority": "high",
+    "assignee_user_id": 7,
+    "notes": [
+      "Customer asked to schedule next call tomorrow and confirm owner."
+    ],
+    "messages": [
+      "Please prepare risk summary before the next call."
+    ],
+    "memories": [
+      "{\"summary\":\"Previous run detected timezone coordination risk.\"}"
+    ],
+    "required_summary_substrings": [
+      "APAC onboarding escalation",
+      "high"
+    ],
+    "required_next_step_substrings": [
+      "会议"
+    ],
+    "required_risk_flags": [
+      "high_priority_thread"
+    ],
+    "forbidden_risk_flags": [
+      "unassigned_conversation",
+      "insufficient_context"
+    ],
+    "min_action_items": 3,
+    "require_non_empty_summary": true,
+    "require_non_empty_next_step": true
+  },
+  {
+    "name": "thin_unassigned_context",
+    "goal": "summarize sparse thread risk",
+    "conversation_title": "New LATAM support thread",
+    "status": "open",
+    "priority": "normal",
+    "notes": [],
+    "messages": [],
+    "memories": [],
+    "required_summary_substrings": [
+      "New LATAM support thread",
+      "normal"
+    ],
+    "required_next_step_substrings": [
+      "owner"
+    ],
+    "required_risk_flags": [
+      "unassigned_conversation",
+      "insufficient_context"
+    ],
+    "min_action_items": 3,
+    "require_non_empty_summary": true,
+    "require_non_empty_next_step": true
+  }
+]

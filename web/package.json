@@ -11,12 +11,13 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "generate:api": "openapi-typescript ../docs/api/openapi.yaml -o src/api/schema.d.ts",
+    "generate:api": "openapi-typescript ../docs/api/openapi.yaml -o ../packages/api-types/schema.d.ts",
     "contract:check": "node ../scripts/web/openapi-contract-check.mjs",
     "bundle:budget": "node ../scripts/web/bundle-budget.mjs",
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@allcallall/api-types": "*",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-alert-dialog": "1.1.6",
     "@radix-ui/react-dialog": "1.1.6",

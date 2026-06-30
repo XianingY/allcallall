@@ -1,6 +1,8 @@
 package commerce
 
 import (
+	"github.com/allcallall/backend/internal/metrics"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,10 +24,7 @@ var (
 	ErrFollowupNotFound          = errors.New("call follow-up not found")
 )
 
-type counterRecorder interface {
-	Inc(name string)
-	Add(name string, delta int64)
-}
+
 
 // Service is the coordinator that delegates to focused sub-services.
 // All callers continue to use *Service for backward compatibility.
@@ -40,14 +39,14 @@ type Service struct {
 	blockAbuse  *BlockAbuseService
 }
 
-func NewService(db *gorm.DB, metrics ...counterRecorder) *Service {
-	return NewServiceWithRepository(NewRepository(db), metrics...)
+func NewService(db *gorm.DB, recorders ...metrics.Recorder) *Service {
+	return NewServiceWithRepository(NewRepository(db), recorders...)
 }
 
-func NewServiceWithRepository(repo *Repository, metrics ...counterRecorder) *Service {
-	var recorder counterRecorder
-	if len(metrics) > 0 {
-		recorder = metrics[0]
+func NewServiceWithRepository(repo *Repository, recorders ...metrics.Recorder) *Service {
+	var recorder metrics.Recorder
+	if len(recorders) > 0 {
+		recorder = recorders[0]
 	}
 
 	entitlement := NewEntitlementService(repo, recorder)

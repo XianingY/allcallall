@@ -15,7 +15,7 @@ type roleReActConfig struct {
 	AllowedTools  []string
 }
 
-type roleReActTraceEvent struct {
+type RoleReActTraceEvent struct {
 	Iteration   int            `json:"iteration"`
 	Role        string         `json:"role"`
 	Thought     string         `json:"thought"`
@@ -75,7 +75,7 @@ func (s *Service) runBoundedRoleReAct(ctx context.Context, run models.WorkflowRu
 			return workflowRoleResult{}, fmt.Errorf("role %s attempted disallowed tool %s", role, toolName)
 		}
 		inputJSON := mustJSONString(toolInput)
-		traceEvent := roleReActTraceEvent{
+		traceEvent := RoleReActTraceEvent{
 			Iteration: iteration,
 			Role:      role,
 			Thought:   thought,
@@ -107,7 +107,7 @@ func (s *Service) runBoundedRoleReAct(ctx context.Context, run models.WorkflowRu
 			"tool_name":   toolName,
 			"input":       toolInput,
 			"observation": toolObservation,
-			"output":      compactSnippet(output, 900),
+			"output":      CompactSnippet(output, 900),
 		}, fmt.Sprintf("%s:react:%d:observe", role, iteration)); err != nil {
 			return workflowRoleResult{}, err
 		}
@@ -220,7 +220,7 @@ func roleReActShouldStop(role string, iteration int, maxIterations int, citation
 		if iteration >= 2 && len(citations) > 0 {
 			return true
 		}
-		return strings.Contains(observation, contextChunkSourceMeetingTranscript)
+		return strings.Contains(observation, ContextChunkSourceMeetingTranscript)
 	}
 	if role == models.WorkflowTaskRiskAnalyst {
 		return iteration >= 2
@@ -236,12 +236,12 @@ func summarizeReadOnlyToolOutput(toolName string, output string) string {
 			Count  int             `json:"count"`
 		}
 		if err := json.Unmarshal([]byte(output), &payload); err != nil {
-			return compactSnippet(output, 260)
+			return CompactSnippet(output, 260)
 		}
 		parts := make([]string, 0, len(payload.Chunks)+1)
 		parts = append(parts, fmt.Sprintf("%d chunks", payload.Count))
 		for _, chunk := range payload.Chunks {
-			parts = append(parts, fmt.Sprintf("%s:%s", chunk.SourceType, compactSnippet(chunk.Snippet, 90)))
+			parts = append(parts, fmt.Sprintf("%s:%s", chunk.SourceType, CompactSnippet(chunk.Snippet, 90)))
 		}
 		return strings.Join(parts, " | ")
 	case ToolQueryRecentMeetings:
@@ -254,7 +254,7 @@ func summarizeReadOnlyToolOutput(toolName string, output string) string {
 			Count int `json:"count"`
 		}
 		if err := json.Unmarshal([]byte(output), &payload); err != nil {
-			return compactSnippet(output, 260)
+			return CompactSnippet(output, 260)
 		}
 		parts := []string{fmt.Sprintf("%d recent meetings", payload.Count)}
 		for _, room := range payload.Rooms {
@@ -262,7 +262,7 @@ func summarizeReadOnlyToolOutput(toolName string, output string) string {
 		}
 		return strings.Join(parts, " | ")
 	default:
-		return compactSnippet(output, 260)
+		return CompactSnippet(output, 260)
 	}
 }
 
@@ -284,7 +284,7 @@ func citationsFromReadOnlyToolOutput(toolName string, output string) []Citation 
 		if sourceType == "" || sourceID == "" || snippet == "" {
 			continue
 		}
-		title := firstNonEmptyString(chunk.SourceTitle, chunk.Title, sourceType+" #"+sourceID)
+		title := FirstNonEmptyString(chunk.SourceTitle, chunk.Title, sourceType+" #"+sourceID)
 		out = append(out, Citation{
 			ChunkID:       strings.TrimSpace(fmt.Sprint(chunk.ChunkID)),
 			SourceType:    sourceType,
@@ -312,7 +312,7 @@ func snippetsFromReadOnlyToolOutput(toolName string, output string) []string {
 	out := make([]string, 0, len(payload.Chunks))
 	for _, chunk := range payload.Chunks {
 		if snippet := strings.TrimSpace(chunk.Snippet); snippet != "" {
-			out = append(out, compactSnippet(snippet, 160))
+			out = append(out, CompactSnippet(snippet, 160))
 		}
 	}
 	return out
@@ -332,7 +332,7 @@ func roleReActFinalAnswer(role string, run models.WorkflowRun, conversationCtx *
 	case models.WorkflowTaskSearcher:
 		summary := fmt.Sprintf("Bounded ReAct searcher completed %d read-tool iteration(s) and found %d grounded citation(s).", len(result.ReactTrace), len(result.Citations))
 		if len(result.Snippets) > 0 {
-			summary += " Key evidence: " + compactSnippet(result.Snippets[0], 120)
+			summary += " Key evidence: " + CompactSnippet(result.Snippets[0], 120)
 		}
 		return summary, nil, "", nil
 	case models.WorkflowTaskRiskAnalyst:
@@ -350,16 +350,16 @@ func roleReActFinalAnswer(role string, run models.WorkflowRun, conversationCtx *
 			flags = append(flags, "high_priority_thread")
 		}
 		summary := fmt.Sprintf("Risk analyst inspected context with %d bounded read-tool iteration(s).", len(result.ReactTrace))
-		return summary, nil, "", uniqueStrings(flags)
+		return summary, nil, "", UniqueStrings(flags)
 	default:
 		return "", nil, "", nil
 	}
 }
 
-func roleReActIterationCount(task models.WorkflowTask) int {
+func RoleReActIterationCount(task models.WorkflowTask) int {
 	var payload struct {
 		Result struct {
-			ReactTrace []roleReActTraceEvent `json:"react_trace"`
+			ReactTrace []RoleReActTraceEvent `json:"react_trace"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(task.OutputJSON), &payload); err != nil {
@@ -368,10 +368,10 @@ func roleReActIterationCount(task models.WorkflowTask) int {
 	return len(payload.Result.ReactTrace)
 }
 
-func roleReActTraceHasTool(task models.WorkflowTask, toolName string) bool {
+func RoleReActTraceHasTool(task models.WorkflowTask, toolName string) bool {
 	var payload struct {
 		Result struct {
-			ReactTrace []roleReActTraceEvent `json:"react_trace"`
+			ReactTrace []RoleReActTraceEvent `json:"react_trace"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(task.OutputJSON), &payload); err != nil {
@@ -403,7 +403,7 @@ func roleReActTraceContainsSource(task models.WorkflowTask, sourceType string) b
 }
 
 func roleReActMaxIterationString(task models.WorkflowTask) string {
-	count := roleReActIterationCount(task)
+	count := RoleReActIterationCount(task)
 	if count == 0 {
 		return ""
 	}

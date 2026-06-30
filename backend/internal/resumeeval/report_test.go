@@ -1,28 +1,29 @@
 package resumeeval
 
 import (
+	"github.com/allcallall/backend/internal/evals"
 	"testing"
 
-	"github.com/allcallall/backend/internal/agent"
+	
 	"github.com/allcallall/backend/internal/interviewbench"
 )
 
 func TestBuildSummary(t *testing.T) {
 	summary := buildSummary(
-		agent.DemoEvalReport{
+		evals.DemoEvalReport{
 			Provider: "rules",
-			Planner: agent.EvalReport{
+			Planner: evals.EvalReport{
 				Cases:  2,
 				Passed: 2,
-				Results: []agent.EvalResult{
+				Results: []evals.EvalResult{
 					{EstimatedPromptTokens: 100},
 					{EstimatedPromptTokens: 200},
 				},
 			},
-			RAG: agent.RAGEvalReport{
+			RAG: evals.RAGEvalReport{
 				Cases:  2,
 				Passed: 2,
-				Summary: agent.RAGEvalSummary{
+				Summary: evals.RAGEvalSummary{
 					CitationHitRate:     1,
 					RecallAtK:           1,
 					PrecisionAtK:        0.75,
@@ -31,11 +32,11 @@ func TestBuildSummary(t *testing.T) {
 					VectorCaseRate:      0.5,
 					SQLFallbackCaseRate: 0.5,
 				},
-				Results: []agent.RAGEvalResult{
+				Results: []evals.RAGEvalResult{
 					{
 						Mode:      "vector",
 						ElapsedMs: 40,
-						Hits: []agent.RAGEvalHit{
+						Hits: []evals.RAGEvalHit{
 							{SourceTitle: "A", Snippet: "snippet"},
 							{SourceTitle: "B", Snippet: "snippet"},
 						},
@@ -43,26 +44,26 @@ func TestBuildSummary(t *testing.T) {
 					{
 						Mode:      "sql_fallback",
 						ElapsedMs: 60,
-						Hits: []agent.RAGEvalHit{
+						Hits: []evals.RAGEvalHit{
 							{SourceTitle: "C", Snippet: "snippet"},
 						},
 					},
 				},
 			},
-			Workflow: agent.WorkflowEvalReport{
+			Workflow: evals.WorkflowEvalReport{
 				Cases:  3,
 				Passed: 3,
-				Results: []agent.WorkflowEvalResult{
+				Results: []evals.WorkflowEvalResult{
 					{Name: "a", Status: "ready", Approvals: 3, Passed: true},
 					{Name: "b", Status: "failed", Approvals: 0, Passed: true},
 					{Name: "c", Status: "ready", Approvals: 3, Passed: true},
 				},
 			},
 		},
-		agent.AgentTaskEvalReport{
+		evals.AgentTaskEvalReport{
 			Cases:  4,
 			Passed: 4,
-			Summary: agent.AgentTaskEvalSummary{
+			Summary: evals.AgentTaskEvalSummary{
 				TaskSuccessRate:      1,
 				ToolIntentMatchRate:  0.75,
 				ApprovalSafetyRate:   1,
@@ -80,7 +81,7 @@ func TestBuildSummary(t *testing.T) {
 			QueueLatency:       interviewbench.LatencyStats{P95Ms: 1},
 			ExecuteRunLatency:  interviewbench.LatencyStats{P95Ms: 7},
 		},
-		[]agent.WorkflowEvalCase{
+		[]evals.WorkflowEvalCase{
 			{Name: "c", RequiredCitationTypes: []string{"meeting_transcript"}},
 		},
 	)

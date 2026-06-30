@@ -133,8 +133,8 @@ func (MockLLMPlanner) Plan(ctx context.Context, input PlannerInput) (PlannerOutp
 	if err := json.Unmarshal([]byte(raw), &output); err != nil {
 		return PlannerOutput{}, err
 	}
-	output.ActionItems = uniqueStrings(output.ActionItems)
-	output.RiskFlags = uniqueStrings(output.RiskFlags)
+	output.ActionItems = UniqueStrings(output.ActionItems)
+	output.RiskFlags = UniqueStrings(output.RiskFlags)
 	if strings.TrimSpace(output.Summary) == "" || strings.TrimSpace(output.NextStep) == "" {
 		return PlannerOutput{}, ErrPlannerUnavailable
 	}
@@ -183,26 +183,26 @@ func BuildPlannerPrompt(input PlannerInput) (PlannerPrompt, error) {
 func buildPromptContextJSON(input PlannerInput) (string, error) {
 	notes := make([]string, 0, len(input.Notes))
 	for _, note := range input.Notes {
-		notes = append(notes, compactSnippet(note.Body, 160))
+		notes = append(notes, CompactSnippet(note.Body, 160))
 	}
 	messages := make([]map[string]any, 0, len(input.Messages))
 	for _, message := range input.Messages {
 		messages = append(messages, map[string]any{
 			"type": message.Type,
-			"body": compactSnippet(message.Body, 160),
+			"body": CompactSnippet(message.Body, 160),
 		})
 	}
 	rooms := make([]map[string]any, 0, len(input.Rooms))
 	for _, room := range input.Rooms {
 		rooms = append(rooms, map[string]any{
 			"id":     room.ID,
-			"title":  compactSnippet(room.Title, 80),
+			"title":  CompactSnippet(room.Title, 80),
 			"status": room.Status,
 		})
 	}
 	memories := make([]string, 0, len(input.Memories))
 	for _, memory := range input.Memories {
-		memories = append(memories, compactSnippet(memory.ValueJSON, 180))
+		memories = append(memories, CompactSnippet(memory.ValueJSON, 180))
 	}
 	contextChunks := make([]map[string]any, 0, len(input.ContextChunks))
 	for _, item := range input.ContextChunks {
@@ -212,7 +212,7 @@ func buildPromptContextJSON(input PlannerInput) (string, error) {
 			"title":          retrievedChunkTitle(item),
 			"score":          item.Score,
 			"retrieval_mode": item.RetrievalMode,
-			"content":        compactSnippet(retrievedChunkContent(item), 220),
+			"content":        CompactSnippet(retrievedChunkContent(item), 220),
 		}
 		if item.BM25Rank > 0 {
 			payload["bm25_rank"] = item.BM25Rank
@@ -306,14 +306,14 @@ func buildRulesOutput(input PlannerInput) (string, []string, string, []string) {
 	}
 	summary := fmt.Sprintf("%s 当前状态为 %s，优先级为 %s。", title, conv.Status, conv.Priority)
 	if len(input.ContextChunks) > 0 {
-		summary += " 检索上下文：" + compactSnippet(input.ContextChunks[0].Chunk.Content, 96)
+		summary += " 检索上下文：" + CompactSnippet(input.ContextChunks[0].Chunk.Content, 96)
 	} else if len(input.Notes) > 0 {
-		summary += " 最近内部备注：" + compactSnippet(input.Notes[0].Body, 96)
+		summary += " 最近内部备注：" + CompactSnippet(input.Notes[0].Body, 96)
 	} else if len(input.Messages) > 0 {
-		summary += " 最近消息：" + compactSnippet(input.Messages[0].Body, 96)
+		summary += " 最近消息：" + CompactSnippet(input.Messages[0].Body, 96)
 	}
 	if len(input.Rooms) > 0 {
-		summary += fmt.Sprintf(" 最近会议：%s（%s）。", compactSnippet(input.Rooms[0].Title, 48), input.Rooms[0].Status)
+		summary += fmt.Sprintf(" 最近会议：%s（%s）。", CompactSnippet(input.Rooms[0].Title, 48), input.Rooms[0].Status)
 	}
 	if input.MeetingContext.TranscriptSegmentCount > 0 {
 		summary += fmt.Sprintf(" 已加载最近会议 %d 条 final transcript。", input.MeetingContext.TranscriptSegmentCount)
@@ -363,5 +363,5 @@ func buildRulesOutput(input PlannerInput) (string, []string, string, []string) {
 		summary = "Context QA: " + summary
 		nextStep = "如答案依据不足，请补充会议转写或知识库材料后重试。"
 	}
-	return summary, uniqueStrings(actionItems), nextStep, uniqueStrings(riskFlags)
+	return summary, UniqueStrings(actionItems), nextStep, UniqueStrings(riskFlags)
 }

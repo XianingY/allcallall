@@ -1,0 +1,9 @@
+{
+  "name": "allcallall-root",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "web",
+    "mobile"
+  ]
+}

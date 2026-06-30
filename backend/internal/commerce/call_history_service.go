@@ -1,6 +1,8 @@
 package commerce
 
 import (
+	"github.com/allcallall/backend/internal/metrics"
+
 	"context"
 	"errors"
 	"strings"
@@ -22,12 +24,12 @@ type CallHistoryEntry struct {
 // CallHistoryService manages call sessions, transcripts, and call history.
 type CallHistoryService struct {
 	repo      *Repository
-	metrics   counterRecorder
+	metrics   metrics.Recorder
 	followups followupGenerator
 }
 
 // NewCallHistoryService creates a new CallHistoryService.
-func NewCallHistoryService(repo *Repository, metrics counterRecorder, followups followupGenerator) *CallHistoryService {
+func NewCallHistoryService(repo *Repository, metrics metrics.Recorder, followups followupGenerator) *CallHistoryService {
 	return &CallHistoryService{repo: repo, metrics: metrics, followups: followups}
 }
 

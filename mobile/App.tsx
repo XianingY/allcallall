@@ -22,6 +22,7 @@ import {
   parseInvitationCodeFromURL,
   parseRoomIdFromURL,
 } from "./src/utils/invitations";
+import { ErrorBoundary } from "./src/components/ErrorBoundary";
 
 const linking: LinkingOptions<RootStackParamList> = {
   prefixes: ["allcallall://"],
@@ -103,25 +104,27 @@ const App = () => {
 
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <OrganizationProvider>
-          <CommercialProvider>
-            <FollowUpProvider>
-              <SettingsProvider>
-                <RoomCallProvider>
-                  <SignalingProvider>
-                    <NavigationContainer ref={navigationRef} linking={linking}>
-                      <AppNavigator />
-                      <CallOverlay />
-                      <StatusBar style="auto" />
-                    </NavigationContainer>
-                  </SignalingProvider>
-                </RoomCallProvider>
-              </SettingsProvider>
-            </FollowUpProvider>
-          </CommercialProvider>
-        </OrganizationProvider>
-      </AuthProvider>
+      <ErrorBoundary>
+        <AuthProvider>
+          <OrganizationProvider>
+            <CommercialProvider>
+              <FollowUpProvider>
+                <SettingsProvider>
+                  <RoomCallProvider>
+                    <SignalingProvider>
+                      <NavigationContainer ref={navigationRef} linking={linking}>
+                        <AppNavigator />
+                        <CallOverlay />
+                        <StatusBar style="auto" />
+                      </NavigationContainer>
+                    </SignalingProvider>
+                  </RoomCallProvider>
+                </SettingsProvider>
+              </FollowUpProvider>
+            </CommercialProvider>
+          </OrganizationProvider>
+        </AuthProvider>
+      </ErrorBoundary>
     </SafeAreaProvider>
   );
 };

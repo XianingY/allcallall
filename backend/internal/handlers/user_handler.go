@@ -27,13 +27,13 @@ type UserHandler struct {
 	contacts *contact.Service
 	commerce *commerce.Service
 	limits   *ratelimit.Service
-	metrics  *metrics.CounterStore
+	metrics  metrics.Recorder
 }
 
 type UserHandlerOptions struct {
 	Commerce *commerce.Service
 	Limits   *ratelimit.Service
-	Metrics  *metrics.CounterStore
+	Metrics  metrics.Recorder
 }
 
 // NewUserHandler 构造函数

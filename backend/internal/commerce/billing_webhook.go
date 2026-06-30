@@ -1,6 +1,8 @@
 package commerce
 
 import (
+	"github.com/allcallall/backend/internal/metrics"
+
 	"context"
 	"errors"
 	"fmt"
@@ -37,11 +39,11 @@ type RevenueCatWebhook struct {
 // BillingWebhookService processes RevenueCat billing webhooks and updates entitlements.
 type BillingWebhookService struct {
 	repo    *Repository
-	metrics counterRecorder
+	metrics metrics.Recorder
 }
 
 // NewBillingWebhookService creates a new BillingWebhookService.
-func NewBillingWebhookService(repo *Repository, metrics counterRecorder) *BillingWebhookService {
+func NewBillingWebhookService(repo *Repository, metrics metrics.Recorder) *BillingWebhookService {
 	return &BillingWebhookService{repo: repo, metrics: metrics}
 }
 

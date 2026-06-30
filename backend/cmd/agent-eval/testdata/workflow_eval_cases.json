@@ -1,0 +1,144 @@
+[
+  {
+    "name": "approval_parallel_merge_tool_commit",
+    "goal": "Summarize the pilot risk and commit approved follow-up actions.",
+    "messages": [
+      "Customer needs pricing confirmation, latency review, and security approval before pilot launch."
+    ],
+    "notes": [
+      "Internal note: budget window closes this month; prepare a clear owner and next meeting."
+    ],
+    "approve_all": true,
+    "expected_status": "ready",
+    "expected_tasks": [
+      "collect_context",
+      "decompose",
+      "searcher",
+      "summarizer",
+      "risk_analyst",
+      "merge",
+      "propose_tools",
+      "approval",
+      "commit_result"
+    ],
+    "expected_approval_tools": [
+      "write_conversation_message",
+      "create_follow_up_task",
+      "upsert_agent_memory"
+    ],
+    "expected_executed_tools": [
+      "write_conversation_message",
+      "create_follow_up_task",
+      "upsert_agent_memory"
+    ],
+    "required_message_types": [
+      "task_input",
+      "agent_result",
+      "tool_request",
+      "tool_result"
+    ],
+    "required_roles": [
+      "searcher",
+      "summarizer",
+      "risk_analyst",
+      "merge"
+    ]
+  },
+  {
+    "name": "tool_policy_denies_write",
+    "goal": "Try to commit a workflow result when write tools are denied.",
+    "messages": [
+      "Customer asks for a next step, but write-back should be blocked by policy."
+    ],
+    "notes": [
+      "Internal note: use policy deny to verify the workflow fails before approval creation."
+    ],
+    "denied_tools": [
+      "write_conversation_message"
+    ],
+    "approve_all": false,
+    "expected_status": "failed",
+    "expected_tasks": [
+      "collect_context",
+      "decompose",
+      "searcher",
+      "summarizer",
+      "risk_analyst",
+      "merge"
+    ],
+    "required_message_types": [
+      "task_input",
+      "agent_result"
+    ],
+    "required_roles": [
+      "searcher",
+      "summarizer",
+      "risk_analyst"
+    ],
+    "expected_error_contains": "denied by policy"
+  },
+  {
+    "name": "meeting_brief_bounded_react_transcript",
+    "preset": "meeting_brief",
+    "goal": "Generate a meeting recap with grounded citations from the latest recording transcript.",
+    "messages": [
+      "Team asks the Agent to recap the latest hardware review meeting and identify launch risks."
+    ],
+    "notes": [
+      "Internal note: leadership wants the recap grounded in the recording transcript, not only chat messages."
+    ],
+    "meeting_transcripts": [
+      "会议录音转写：无人车硬件评审确认传感器供应存在两周交付风险，质量团队需要在周五前完成回归测试，供应链需要同步备选供应商。",
+      "会议录音转写：测试负责人要求复盘行动项，明确 owner，并在下次会议前提交风险缓解方案。"
+    ],
+    "approve_all": true,
+    "expected_status": "ready",
+    "expected_tasks": [
+      "collect_context",
+      "decompose",
+      "searcher",
+      "summarizer",
+      "risk_analyst",
+      "merge",
+      "propose_tools",
+      "approval",
+      "commit_result"
+    ],
+    "expected_approval_tools": [
+      "write_conversation_message",
+      "upsert_agent_memory"
+    ],
+    "expected_executed_tools": [
+      "write_conversation_message",
+      "upsert_agent_memory"
+    ],
+    "required_message_types": [
+      "task_input",
+      "agent_result",
+      "tool_request",
+      "tool_result"
+    ],
+    "required_roles": [
+      "searcher",
+      "summarizer",
+      "risk_analyst",
+      "merge"
+    ],
+    "required_citation_source_types": [
+      "meeting_transcript"
+    ],
+    "required_role_tools": {
+      "searcher": [
+        "query_context_chunks"
+      ],
+      "risk_analyst": [
+        "query_context_chunks",
+        "query_recent_meetings"
+      ]
+    },
+    "max_role_iterations": {
+      "searcher": 3,
+      "risk_analyst": 2
+    }
+  }
+]

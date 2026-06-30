@@ -219,7 +219,7 @@ func (p OpenAICompatiblePlanner) callChatCompletions(ctx context.Context, prompt
 		return "", nil, fmt.Errorf("%w: read response: %v", ErrPlannerUnavailable, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", nil, fmt.Errorf("%w: status %d: %s", ErrPlannerUnavailable, resp.StatusCode, compactSnippet(string(respBody), 240))
+		return "", nil, fmt.Errorf("%w: status %d: %s", ErrPlannerUnavailable, resp.StatusCode, CompactSnippet(string(respBody), 240))
 	}
 	var decoded struct {
 		Choices []struct {
@@ -339,8 +339,8 @@ func decodePlannerOutput(raw string) (PlannerOutput, error) {
 	}
 	output.Summary = strings.TrimSpace(output.Summary)
 	output.NextStep = strings.TrimSpace(output.NextStep)
-	output.ActionItems = uniqueStrings(output.ActionItems)
-	output.RiskFlags = uniqueStrings(output.RiskFlags)
+	output.ActionItems = UniqueStrings(output.ActionItems)
+	output.RiskFlags = UniqueStrings(output.RiskFlags)
 	if output.Summary == "" || output.NextStep == "" {
 		return PlannerOutput{}, fmt.Errorf("%w: incomplete planner output", ErrPlannerUnavailable)
 	}
@@ -350,7 +350,7 @@ func decodePlannerOutput(raw string) (PlannerOutput, error) {
 func (p OpenAICompatiblePlanner) handleStreamingResponse(ctx context.Context, resp *http.Response, onToken func(context.Context, string)) (string, []models.AgentToolCall, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return "", nil, fmt.Errorf("%w: status %d: %s", ErrPlannerUnavailable, resp.StatusCode, compactSnippet(string(respBody), 240))
+		return "", nil, fmt.Errorf("%w: status %d: %s", ErrPlannerUnavailable, resp.StatusCode, CompactSnippet(string(respBody), 240))
 	}
 
 	var builder strings.Builder

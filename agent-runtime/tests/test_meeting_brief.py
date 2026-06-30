@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from app.eval_runner import run_eval
-from app.graph import run_meeting_brief, run_react_agent, run_workflow
+from app.main import run_meeting_brief, run_react_agent, run_workflow
 from app.grounding import check_grounding
 from app.llamaindex_adapter import run_fixture_retrieval
 from app.models import Citation, ContextChunk, MeetingBriefRequest, MeetingTranscriptSegment, WorkflowRequest

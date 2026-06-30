@@ -186,8 +186,8 @@ func mergeWorkflowRoleResults(results []workflowRoleResult) workflowRoleResult {
 			}
 		}
 	}
-	merged.ActionItems = uniqueStrings(merged.ActionItems)
-	merged.RiskFlags = uniqueStrings(merged.RiskFlags)
+	merged.ActionItems = UniqueStrings(merged.ActionItems)
+	merged.RiskFlags = UniqueStrings(merged.RiskFlags)
 	merged.Citations = dedupeCitations(merged.Citations)
 	if strings.TrimSpace(merged.Summary) == "" {
 		merged.Summary = "Workflow Agent completed the requested analysis."

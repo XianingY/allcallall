@@ -1,0 +1,56 @@
+[
+  {
+    "name": "rerank_promotes_title_grounded_policy",
+    "query": "security approval blocker",
+    "use_vector": false,
+    "sources": [
+      {
+        "title": "Generic Security Log",
+        "text": "security security approval approval logistics update without blocker details."
+      },
+      {
+        "title": "Security Approval Blocker",
+        "text": "Legal review is blocking release approval; owner needs to confirm by Friday."
+      },
+      {
+        "title": "Budget Note",
+        "text": "Budget planning note unrelated to the security approval blocker."
+      }
+    ],
+    "expected_source_titles": ["Security Approval Blocker"],
+    "relevant_source_titles": ["Security Approval Blocker"],
+    "graded_relevance": {
+      "Security Approval Blocker": 3
+    },
+    "expected_retrieval_mode": "sql_fallback",
+    "require_citation": true,
+    "required_snippets": ["Legal review"]
+  },
+  {
+    "name": "rerank_prefers_actionable_followup_evidence",
+    "query": "customer follow up owner deadline",
+    "use_vector": false,
+    "sources": [
+      {
+        "title": "Customer Chatter",
+        "text": "customer customer follow up follow up general discussion and repeated keywords."
+      },
+      {
+        "title": "Customer Follow Up Owner Deadline",
+        "text": "Alice owns the follow-up and must send the revised rollout plan before Friday."
+      },
+      {
+        "title": "Internal Status",
+        "text": "Internal workspace maintenance notes."
+      }
+    ],
+    "expected_source_titles": ["Customer Follow Up Owner Deadline"],
+    "relevant_source_titles": ["Customer Follow Up Owner Deadline"],
+    "graded_relevance": {
+      "Customer Follow Up Owner Deadline": 3
+    },
+    "expected_retrieval_mode": "sql_fallback",
+    "require_citation": true,
+    "required_snippets": ["Alice owns"]
+  }
+]

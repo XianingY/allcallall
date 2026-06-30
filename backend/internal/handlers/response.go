@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/allcallall/backend/internal/apperror"
 	"github.com/allcallall/backend/internal/trace"
 )
 
@@ -32,6 +33,16 @@ func JSONErrorWithCode(c *gin.Context, status int, code string, message string) 
 		"request_id": requestID,
 		"success":    false,
 	})
+}
+
+// JSONAppError automatically maps an error to the appropriate JSONErrorWithCode response.
+func JSONAppError(c *gin.Context, err error) {
+	if appErr, ok := err.(*apperror.AppError); ok {
+		JSONErrorWithCode(c, appErr.HTTPStatus, appErr.Code, appErr.Message)
+		return
+	}
+	// Fallback for unhandled errors
+	JSONErrorWithCode(c, http.StatusInternalServerError, apperror.ErrCodeInternalServerError, err.Error())
 }
 
 func defaultErrorCode(status int) string {

@@ -122,7 +122,7 @@ func appendRuntimeConversationContext(request *WorkflowRuntimeRequest, conversat
 			SourceID:      fmt.Sprintf("%d", retrievedChunkSourceID(chunk)),
 			SourceTitle:   retrievedChunkTitle(chunk),
 			Title:         retrievedChunkTitle(chunk),
-			Snippet:       compactSnippet(retrievedChunkContent(chunk), 300),
+			Snippet:       CompactSnippet(retrievedChunkContent(chunk), 300),
 			Score:         chunk.Score,
 			RetrievalMode: chunk.RetrievalMode,
 			RerankScore:   chunk.RerankScore,

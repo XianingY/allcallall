@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/allcallall/backend/internal/agent"
+	"github.com/allcallall/backend/internal/evals"
 	"github.com/allcallall/backend/internal/interviewbench"
 )
 
@@ -29,8 +30,8 @@ type Report struct {
 	Provider    string                    `json:"provider"`
 	TaskRuntime string                    `json:"task_runtime"`
 	Summary     Summary                   `json:"summary"`
-	Eval        agent.DemoEvalReport      `json:"eval"`
-	TaskEval    agent.AgentTaskEvalReport `json:"task_eval"`
+	Eval        evals.DemoEvalReport      `json:"eval"`
+	TaskEval    evals.AgentTaskEvalReport `json:"task_eval"`
 	Benchmark   interviewbench.Output     `json:"benchmark"`
 }
 
@@ -91,7 +92,7 @@ type BenchmarkSummary struct {
 
 func Run(ctx context.Context, opts Options) (Report, error) {
 	opts = opts.withDefaults()
-	evalReport, err := agent.RunDemoEvalReport(ctx, agent.DemoEvalOptions{
+	evalReport, err := evals.RunDemoEvalReport(ctx, evals.DemoEvalOptions{
 		Provider:        opts.Provider,
 		PlannerFixture:  opts.PlannerFixture,
 		RAGFixture:      opts.RAGFixture,
@@ -100,11 +101,11 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	taskCases, err := agent.LoadAgentTaskEvalCases(opts.TaskFixture)
+	taskCases, err := evals.LoadAgentTaskEvalCases(opts.TaskFixture)
 	if err != nil {
 		return Report{}, err
 	}
-	taskReport, err := agent.RunAgentTaskEvalWithOptions(ctx, taskCases, agent.AgentTaskEvalOptions{Runtime: opts.TaskRuntime})
+	taskReport, err := evals.RunAgentTaskEvalWithOptions(ctx, taskCases, evals.AgentTaskEvalOptions{Runtime: opts.TaskRuntime})
 	if err != nil {
 		return Report{}, err
 	}
@@ -116,7 +117,7 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	workflowCases, err := agent.LoadWorkflowEvalCases(opts.WorkflowFixture)
+	workflowCases, err := evals.LoadWorkflowEvalCases(opts.WorkflowFixture)
 	if err != nil {
 		return Report{}, err
 	}
@@ -139,13 +140,13 @@ func WriteArtifacts(outDir string, report Report) error {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err
 	}
-	if err := agent.WriteDemoEvalArtifacts(outDir, report.Eval); err != nil {
+	if err := evals.WriteDemoEvalArtifacts(outDir, report.Eval); err != nil {
 		return err
 	}
 	if err := writeJSON(filepath.Join(outDir, "task-eval.json"), report.TaskEval); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(outDir, "task-eval.md"), []byte(agent.FormatAgentTaskEvalMarkdown(report.TaskEval)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, "task-eval.md"), []byte(evals.FormatAgentTaskEvalMarkdown(report.TaskEval)), 0o644); err != nil {
 		return err
 	}
 	if err := writeJSON(filepath.Join(outDir, "interview-bench.json"), report.Benchmark); err != nil {
@@ -204,7 +205,7 @@ func FormatMarkdown(report Report) string {
 	return b.String()
 }
 
-func buildSummary(eval agent.DemoEvalReport, taskEval agent.AgentTaskEvalReport, bench interviewbench.Output, workflowCases []agent.WorkflowEvalCase) Summary {
+func buildSummary(eval evals.DemoEvalReport, taskEval evals.AgentTaskEvalReport, bench interviewbench.Output, workflowCases []evals.WorkflowEvalCase) Summary {
 	return Summary{
 		Regression: RegressionSummary{
 			PlannerCases:                eval.Planner.Cases,
@@ -255,7 +256,7 @@ func buildSummary(eval agent.DemoEvalReport, taskEval agent.AgentTaskEvalReport,
 	}
 }
 
-func avgPlannerTokens(results []agent.EvalResult) float64 {
+func avgPlannerTokens(results []evals.EvalResult) float64 {
 	if len(results) == 0 {
 		return 0
 	}
@@ -266,7 +267,7 @@ func avgPlannerTokens(results []agent.EvalResult) float64 {
 	return float64(total) / float64(len(results))
 }
 
-func avgRAGLatency(results []agent.RAGEvalResult) float64 {
+func avgRAGLatency(results []evals.RAGEvalResult) float64 {
 	if len(results) == 0 {
 		return 0
 	}
@@ -277,7 +278,7 @@ func avgRAGLatency(results []agent.RAGEvalResult) float64 {
 	return float64(total) / float64(len(results))
 }
 
-func avgRAGHits(results []agent.RAGEvalResult) float64 {
+func avgRAGHits(results []evals.RAGEvalResult) float64 {
 	if len(results) == 0 {
 		return 0
 	}
@@ -288,7 +289,7 @@ func avgRAGHits(results []agent.RAGEvalResult) float64 {
 	return float64(total) / float64(len(results))
 }
 
-func workflowReadyRate(results []agent.WorkflowEvalResult) float64 {
+func workflowReadyRate(results []evals.WorkflowEvalResult) float64 {
 	if len(results) == 0 {
 		return 0
 	}
@@ -301,7 +302,7 @@ func workflowReadyRate(results []agent.WorkflowEvalResult) float64 {
 	return float64(count) / float64(len(results))
 }
 
-func workflowApprovalRate(results []agent.WorkflowEvalResult) float64 {
+func workflowApprovalRate(results []evals.WorkflowEvalResult) float64 {
 	if len(results) == 0 {
 		return 0
 	}
@@ -314,7 +315,7 @@ func workflowApprovalRate(results []agent.WorkflowEvalResult) float64 {
 	return float64(count) / float64(len(results))
 }
 
-func workflowAvgApprovals(results []agent.WorkflowEvalResult) float64 {
+func workflowAvgApprovals(results []evals.WorkflowEvalResult) float64 {
 	if len(results) == 0 {
 		return 0
 	}
@@ -325,10 +326,10 @@ func workflowAvgApprovals(results []agent.WorkflowEvalResult) float64 {
 	return float64(total) / float64(len(results))
 }
 
-func workflowMeetingTranscriptCoverage(results []agent.WorkflowEvalResult, cases []agent.WorkflowEvalCase) float64 {
+func workflowMeetingTranscriptCoverage(results []evals.WorkflowEvalResult, cases []evals.WorkflowEvalCase) float64 {
 	required := 0
 	covered := 0
-	caseIndex := make(map[string]agent.WorkflowEvalCase, len(cases))
+	caseIndex := make(map[string]evals.WorkflowEvalCase, len(cases))
 	for _, item := range cases {
 		caseIndex[item.Name] = item
 	}
@@ -390,16 +391,16 @@ func (opts Options) withDefaults() Options {
 		opts.Provider = "rules"
 	}
 	if strings.TrimSpace(opts.PlannerFixture) == "" {
-		opts.PlannerFixture = agent.DefaultPlannerEvalFixture
+		opts.PlannerFixture = evals.DefaultPlannerEvalFixture
 	}
 	if strings.TrimSpace(opts.RAGFixture) == "" {
-		opts.RAGFixture = agent.DefaultRAGEvalFixture
+		opts.RAGFixture = evals.DefaultRAGEvalFixture
 	}
 	if strings.TrimSpace(opts.WorkflowFixture) == "" {
-		opts.WorkflowFixture = agent.DefaultWorkflowEvalFixture
+		opts.WorkflowFixture = evals.DefaultWorkflowEvalFixture
 	}
 	if strings.TrimSpace(opts.TaskFixture) == "" {
-		opts.TaskFixture = agent.DefaultTaskEvalFixture
+		opts.TaskFixture = evals.DefaultTaskEvalFixture
 	}
 	if strings.TrimSpace(opts.TaskRuntime) == "" {
 		opts.TaskRuntime = agent.WorkflowRuntimeGo

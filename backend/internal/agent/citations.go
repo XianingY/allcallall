@@ -50,7 +50,7 @@ func buildCitationsFromContextChunks(chunks []RetrievedContextChunk) []Citation 
 			SourceID:      fmt.Sprintf("%d", retrievedChunkSourceID(item)),
 			SourceTitle:   retrievedChunkTitle(item),
 			Title:         retrievedChunkTitle(item),
-			Snippet:       compactSnippet(retrievedChunkContent(item), 220),
+			Snippet:       CompactSnippet(retrievedChunkContent(item), 220),
 			RetrievalMode: item.RetrievalMode,
 			BM25Rank:      item.BM25Rank,
 			VectorRank:    item.VectorRank,

@@ -18,7 +18,7 @@ func (h *AuthHandler) allowAuthRequest(c *gin.Context, scope, account string, li
 	return allowRateLimitedRequest(c, h.rateLimits, h.metrics, scope, account, limit, window)
 }
 
-func allowRateLimitedRequest(c *gin.Context, limits *ratelimit.Service, counters *metrics.CounterStore, scope, account string, limit int64, window time.Duration) bool {
+func allowRateLimitedRequest(c *gin.Context, limits *ratelimit.Service, counters metrics.Recorder, scope, account string, limit int64, window time.Duration) bool {
 	if limits == nil {
 		return true
 	}

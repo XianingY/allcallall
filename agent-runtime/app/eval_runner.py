@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from .graphs import run_workflow
+from .main import run_workflow
 from .models import (
     WorkflowEvalCase,
     WorkflowEvalCaseResult,

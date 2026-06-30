@@ -33,10 +33,7 @@ type EventPublisher interface {
 	PublishToUser(ctx context.Context, event RealtimeEventRecord) error
 }
 
-type counterRecorder interface {
-	Inc(name string)
-	Add(name string, delta int64)
-}
+
 
 type redisCacheClient interface {
 	Get(ctx context.Context, key string) *redis.StringCmd
@@ -50,7 +47,7 @@ type Service struct {
 	publisher           EventPublisher
 	media               *media.Engine
 	storage             storage.RecordingStorage
-	metrics             counterRecorder
+	metrics             metrics.Recorder
 	adminSummaryCache   redisCacheClient
 	outbox              *events.Store
 	transcriber         transcription.Provider
@@ -95,7 +92,7 @@ func (s *Service) WithTranscriptionProvider(provider transcription.Provider) {
 	s.transcriber = provider
 }
 
-func (s *Service) WithMetrics(counters counterRecorder) {
+func (s *Service) WithMetrics(counters metrics.Recorder) {
 	if counters != nil {
 		s.metrics = counters
 	}

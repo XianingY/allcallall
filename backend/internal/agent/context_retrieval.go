@@ -22,7 +22,7 @@ const (
 	contextChunkSourceFollowup          = "followup"
 	contextChunkSourceContactProfile    = "contact_profile"
 	contextChunkSourceTranscript        = "transcript"
-	contextChunkSourceMeetingTranscript = "meeting_transcript"
+	ContextChunkSourceMeetingTranscript = "meeting_transcript"
 	defaultContextChunkLimit            = 8
 )
 
@@ -87,7 +87,7 @@ func (s *Service) refreshConversationContextChunks(ctx context.Context, conversa
 		}
 	}
 	for _, segment := range conversationCtx.MeetingTranscriptSegments {
-		if err := s.upsertContextChunk(ctx, organizationID, conversationID, contextChunkSourceMeetingTranscript, segment.ID, buildMeetingTranscriptContextContent(segment), 0); err != nil {
+		if err := s.upsertContextChunk(ctx, organizationID, conversationID, ContextChunkSourceMeetingTranscript, segment.ID, buildMeetingTranscriptContextContent(segment), 0); err != nil {
 			return err
 		}
 	}
@@ -197,7 +197,7 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, convers
 			OrganizationID: conv.OrganizationID,
 			ConversationID: conv.ID,
 			SourceTypes: []string{
-				contextChunkSourceMeetingTranscript,
+				ContextChunkSourceMeetingTranscript,
 				contextChunkSourceTranscript,
 				contextChunkSourceFollowup,
 				contextChunkSourceMemory,
@@ -233,7 +233,7 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, convers
 								UpdatedAt:      res.UpdatedAt,
 							},
 							Score:         hybridConversationChunkScore(res),
-							RetrievalMode: firstNonEmptyString(res.RetrievalMode, models.RAGRetrievalModeVector),
+							RetrievalMode: FirstNonEmptyString(res.RetrievalMode, models.RAGRetrievalModeVector),
 							BM25Rank:      res.BM25Rank,
 							VectorRank:    res.VectorRank,
 							RRFScore:      res.RRFScore,
@@ -269,7 +269,7 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, convers
 								UpdatedAt:      res.UpdatedAt,
 							},
 							Score:         hybridConversationChunkScore(res),
-							RetrievalMode: firstNonEmptyString(res.RetrievalMode, models.RAGRetrievalModeBM25),
+							RetrievalMode: FirstNonEmptyString(res.RetrievalMode, models.RAGRetrievalModeBM25),
 							BM25Rank:      res.BM25Rank,
 							VectorRank:    res.VectorRank,
 							RRFScore:      res.RRFScore,
@@ -445,7 +445,7 @@ func hybridConversationChunkScore(result search.ContextChunkSearchResult) int {
 
 func conversationSourcePriority(item RetrievedContextChunk) int {
 	switch retrievedChunkSourceType(item) {
-	case contextChunkSourceMeetingTranscript:
+	case ContextChunkSourceMeetingTranscript:
 		return 7
 	case contextChunkSourceTranscript:
 		return 6
@@ -528,7 +528,7 @@ func meetingTranscriptToRetrievedContextChunk(segment models.MeetingTranscriptSe
 		Chunk: models.AgentContextChunk{
 			OrganizationID: segment.OrganizationID,
 			ConversationID: segment.ConversationID,
-			SourceType:     contextChunkSourceMeetingTranscript,
+			SourceType:     ContextChunkSourceMeetingTranscript,
 			SourceID:       segment.ID,
 			Content:        buildMeetingTranscriptContextContent(segment),
 			CreatedAt:      segment.CreatedAt,
@@ -548,7 +548,7 @@ func hydrateMeetingTranscriptChunks(chunks []RetrievedContextChunk, segments []m
 		byID[segment.ID] = segment
 	}
 	for index := range chunks {
-		if chunks[index].MeetingTranscript != nil || retrievedChunkSourceType(chunks[index]) != contextChunkSourceMeetingTranscript {
+		if chunks[index].MeetingTranscript != nil || retrievedChunkSourceType(chunks[index]) != ContextChunkSourceMeetingTranscript {
 			continue
 		}
 		chunks[index].MeetingTranscript = byID[retrievedChunkSourceID(chunks[index])]
@@ -616,7 +616,7 @@ func retrievedChunkRerankID(item RetrievedContextChunk) string {
 	return retrievedChunkKey(item)
 }
 
-func firstNonEmptyString(values ...string) string {
+func FirstNonEmptyString(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
 			return value
@@ -639,7 +639,7 @@ func contextChunkTitle(chunk models.AgentContextChunk) string {
 		return fmt.Sprintf("Contact profile #%d", chunk.SourceID)
 	case contextChunkSourceTranscript:
 		return fmt.Sprintf("Transcript segment #%d", chunk.SourceID)
-	case contextChunkSourceMeetingTranscript:
+	case ContextChunkSourceMeetingTranscript:
 		return fmt.Sprintf("Meeting transcript segment #%d", chunk.SourceID)
 	default:
 		return fmt.Sprintf("%s #%d", chunk.SourceType, chunk.SourceID)
@@ -733,7 +733,7 @@ func scoreContextChunk(tokens []string, chunk models.AgentContextChunk) int {
 	if chunk.SourceType == contextChunkSourceFollowup && score > 0 {
 		score += 2
 	}
-	if chunk.SourceType == contextChunkSourceMeetingTranscript && score > 0 {
+	if chunk.SourceType == ContextChunkSourceMeetingTranscript && score > 0 {
 		score += 3
 	}
 	if chunk.SourceType == contextChunkSourceContactProfile && score > 0 {

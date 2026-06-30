@@ -66,7 +66,7 @@ type workflowRoleResult struct {
 	RiskFlags   []string              `json:"risk_flags,omitempty"`
 	Citations   []Citation            `json:"citations,omitempty"`
 	Snippets    []string              `json:"snippets,omitempty"`
-	ReactTrace  []roleReActTraceEvent `json:"react_trace,omitempty"`
+	ReactTrace  []RoleReActTraceEvent `json:"react_trace,omitempty"`
 }
 
 type workflowToolRequest struct {

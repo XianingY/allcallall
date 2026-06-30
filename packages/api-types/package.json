@@ -1,0 +1,7 @@
+{
+  "name": "@allcallall/api-types",
+  "version": "1.0.0",
+  "description": "Shared API types for AllCallAll",
+  "main": "index.ts",
+  "types": "index.ts"
+}
