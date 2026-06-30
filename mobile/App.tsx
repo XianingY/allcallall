@@ -4,6 +4,7 @@ import { LinkingOptions, NavigationContainer } from "@react-navigation/native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Linking } from "react-native";
+import './src/i18n';
 
 import { AuthProvider } from "./src/context/AuthContext";
 import { CommercialProvider } from "./src/context/CommercialContext";

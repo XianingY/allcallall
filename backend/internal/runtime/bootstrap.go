@@ -28,7 +28,7 @@ func OpenMigratedDB(cfg *config.Config, log zerolog.Logger) (*gorm.DB, func(), e
 		return nil, nil, err
 	}
 	if AutoMigrateEnabledFromEnv() {
-		if err := AutoMigrate(db); err != nil {
+		if err := RunMigrations(db); err != nil {
 			cleanup()
 			return nil, nil, err
 		}

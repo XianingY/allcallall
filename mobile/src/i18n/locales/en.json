@@ -1,0 +1,13 @@
+{
+  "welcome": "Welcome to AllCallAll",
+  "login": "Login",
+  "logout": "Logout",
+  "settings": "Settings",
+  "call": {
+    "start": "Start Call",
+    "end": "End Call",
+    "accept": "Accept",
+    "reject": "Reject",
+    "incoming": "Incoming Call"
+  }
+}

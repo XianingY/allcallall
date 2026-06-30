@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"github.com/joho/godotenv"
 
 	"github.com/allcallall/backend/internal/agent"
@@ -61,6 +62,7 @@ func main() {
 	gin.SetMode(mode)
 
 	engine := server.NewEngine(appLogger, counterStore)
+	engine.Use(otelgin.Middleware("allcallall-backend"))
 	engine.Use(server.CORSMiddleware(server.CORSConfig{
 		AllowedOrigins: server.DefaultCORSOrigins(os.Getenv("CORS_ALLOWED_ORIGINS")),
 	}))

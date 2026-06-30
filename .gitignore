@@ -228,3 +228,4 @@ third_party/espeak-ng/build/
 mobile/android/app/src/main/assets/models/**/*.bin
 mobile/android/app/src/main/assets/models/**/*.onnx
 mobile/android/app/src/main/assets/models/**/*.spm
+node_modules/

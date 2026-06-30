@@ -12,6 +12,9 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/commerce"
@@ -50,6 +53,7 @@ type SignalMessage struct {
 	CallID  string          `json:"call_id,omitempty"`
 	To      string          `json:"to"`
 	From    string          `json:"from"`
+	Trace   string          `json:"traceparent,omitempty"` // Distributed tracing
 	Payload json.RawMessage `json:"payload"`
 }
 
@@ -177,6 +181,20 @@ func (h *Hub) handleIncoming(ctx context.Context, fromClient *client, data []byt
 	if err := json.Unmarshal(data, &msg); err != nil {
 		return fmt.Errorf("decode message: %w", err)
 	}
+
+	// Extract trace context
+	var tracer = otel.Tracer("signaling")
+	if msg.Trace != "" {
+		carrier := propagation.MapCarrier{"traceparent": msg.Trace}
+		ctx = otel.GetTextMapPropagator().Extract(ctx, carrier)
+	}
+	ctx, span := tracer.Start(ctx, "Hub.handleIncoming", trace.WithAttributes())
+	defer span.End()
+
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	msg.Trace = carrier["traceparent"]
+
 	msg.From = fromClient.email
 	if msg.Type != TypeClientPing && msg.To == "" {
 		return fmt.Errorf("missing target 'to'")
@@ -250,6 +268,20 @@ func (h *Hub) HandleHTTPMessage(ctx context.Context, fromEmail string, data []by
 	if err := json.Unmarshal(data, &msg); err != nil {
 		return fmt.Errorf("decode message: %w", err)
 	}
+
+	// Extract trace context
+	var tracer = otel.Tracer("signaling")
+	if msg.Trace != "" {
+		carrier := propagation.MapCarrier{"traceparent": msg.Trace}
+		ctx = otel.GetTextMapPropagator().Extract(ctx, carrier)
+	}
+	ctx, span := tracer.Start(ctx, "Hub.HandleHTTPMessage", trace.WithAttributes())
+	defer span.End()
+
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	msg.Trace = carrier["traceparent"]
+
 	msg.From = fromEmail
 	if msg.Type != TypeClientPing && msg.To == "" {
 		return fmt.Errorf("missing target 'to'")
