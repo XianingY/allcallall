@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import math
-import re
+
+from shared.scoring import rules_score_rag, tokenize
+from shared.utils import chunk_key
 
 from .models import (
     AgenticRetrievalRequest,
@@ -16,10 +18,10 @@ from .models import (
 
 
 def rerank(query: str, chunks: list[ContextChunk], top_k: int = 8) -> RerankResponse:
-    tokens = tokenize(query)
+    tokens = tokenize(query, remove_stopwords=True)
     scored: list[tuple[float, ContextChunk]] = []
     for index, chunk in enumerate(chunks):
-        score, reason = rules_score(chunk, tokens, index)
+        score, reason = rules_score_rag(chunk, tokens, index)
         scored.append((score, chunk.model_copy(update={"rerank_score": score, "rerank_reason": reason})))
     scored.sort(key=lambda item: item[0], reverse=True)
     ranked = [
@@ -78,7 +80,7 @@ def agentic_retrieve(request: AgenticRetrievalRequest, chunks: list[ContextChunk
 
 
 def grounding_check(answer: str, citations: list[ContextChunk]) -> GroundingCheckResponse:
-    tokens = tokenize(answer)
+    tokens = tokenize(answer, remove_stopwords=True)
     evidence = " ".join(chunk.snippet for chunk in citations).lower()
     if not tokens:
         return GroundingCheckResponse(grounded=False, unsupported_claims=["empty_answer"], coverage=0)
@@ -154,46 +156,3 @@ def estimate_confidence(chunks: list[ContextChunk], required_source_types: list[
         if source_type in sources:
             confidence += 0.12
     return min(confidence, 1.0)
-
-
-def rules_score(chunk: ContextChunk, tokens: list[str], original_index: int) -> tuple[float, str]:
-    text = f"{chunk.title} {chunk.source_title} {chunk.snippet}".lower()
-    overlap = sum(1 for token in tokens if token in text)
-    source_boost = {
-        "meeting_transcript": 6.0,
-        "knowledge": 5.0,
-        "message": 2.0,
-        "note": 2.0,
-        "followup": 2.0,
-        "memory": 1.5,
-    }.get(chunk.source_type, 0.0)
-    score = overlap * 10.0 + source_boost + max(chunk.score, 0) / 100.0 - original_index * 0.01
-    return score, f"rules overlap={overlap} source={chunk.source_type}"
-
-
-def tokenize(text: str) -> list[str]:
-    out: list[str] = []
-    seen: set[str] = set()
-    stopwords = {
-        "a",
-        "an",
-        "and",
-        "are",
-        "for",
-        "the",
-        "to",
-        "with",
-        "what",
-        "which",
-    }
-    for token in re.split(r"[^0-9A-Za-z\u4e00-\u9fff]+", text.lower()):
-        token = token.strip()
-        if len(token) < 2 or token in seen or token in stopwords:
-            continue
-        seen.add(token)
-        out.append(token)
-    return out
-
-
-def chunk_key(chunk: ContextChunk) -> str:
-    return chunk.chunk_id or f"{chunk.source_type}:{chunk.source_id}"

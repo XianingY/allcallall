@@ -4,31 +4,19 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from shared.models import (
+    ContextChunk,
+    ContextSufficiency,
+    EvidencePack,
+    RetrievalAttempt,
+)
 
-class ContextChunk(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    chunk_id: str = ""
-    source_type: str
-    source_id: str
-    source_title: str = ""
-    title: str = ""
-    snippet: str
-    score: int = 0
-    retrieval_mode: str = ""
-    bm25_rank: int = 0
-    vector_rank: int = 0
-    rrf_score: float = 0
-    bm25_score: float = 0
-    vector_score: float = 0
-    rerank_score: float = 0
-    rerank_reason: str = ""
-    final_rank: int = 0
-    recording_session_id: int | None = None
-    recording_file_id: int | None = None
-    transcript_segment_id: int | None = None
-    start_ms: int | None = None
-    end_ms: int | None = None
+__all__ = [
+    "ContextChunk",
+    "ContextSufficiency",
+    "EvidencePack",
+    "RetrievalAttempt",
+]
 
 
 class RetrievalQueryRequest(BaseModel):
@@ -74,31 +62,6 @@ class RerankResponse(BaseModel):
 class AgenticRetrievalRequest(RetrievalQueryRequest):
     max_steps: int = 3
     min_confidence: float = 0.6
-
-
-class RetrievalAttempt(BaseModel):
-    step: int
-    query: str
-    source_types: list[str] = Field(default_factory=list)
-    hit_count: int = 0
-    selected_chunk_ids: list[str] = Field(default_factory=list)
-    confidence: float = 0
-    observation: str = ""
-
-
-class EvidencePack(BaseModel):
-    selected_chunk_ids: list[str] = Field(default_factory=list)
-    source_types: list[str] = Field(default_factory=list)
-    confidence: float = 0
-    snippets: list[str] = Field(default_factory=list)
-    citations: list[ContextChunk] = Field(default_factory=list)
-
-
-class ContextSufficiency(BaseModel):
-    sufficient: bool = False
-    confidence: float = 0
-    reason: str = ""
-    missing_info: list[str] = Field(default_factory=list)
 
 
 class AgenticRetrievalResponse(BaseModel):
