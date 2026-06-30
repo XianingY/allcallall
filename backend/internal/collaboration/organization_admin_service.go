@@ -88,10 +88,37 @@ type OrganizationRecentRecordingView struct {
 	UpdatedAt                 time.Time  `json:"updated_at"`
 }
 
+const organizationAdminSummaryCacheTTL = 30 * time.Second
+
 func (s *Service) GetOrganizationAdminSummary(ctx context.Context, organizationID, userID uint64) (*OrganizationAdminSummary, error) {
 	if _, err := s.requireOrganizationAdmin(ctx, organizationID, userID); err != nil {
 		return nil, err
 	}
+	start := time.Now()
+	defer func() {
+		if s.metrics != nil {
+			s.metrics.Inc("admin_summary_latency_ms_count")
+			s.metrics.Add("admin_summary_latency_ms_sum", time.Since(start).Milliseconds())
+		}
+	}()
+	if summary, ok := s.getCachedOrganizationAdminSummary(ctx, organizationID); ok {
+		if s.metrics != nil {
+			s.metrics.Inc("admin_summary_cache_hit_total")
+		}
+		return summary, nil
+	}
+	if s.metrics != nil {
+		s.metrics.Inc("admin_summary_cache_miss_total")
+	}
+	summary, err := s.loadOrganizationAdminSummary(ctx, organizationID, userID)
+	if err != nil {
+		return nil, err
+	}
+	s.setCachedOrganizationAdminSummary(ctx, organizationID, summary)
+	return summary, nil
+}
+
+func (s *Service) loadOrganizationAdminSummary(ctx context.Context, organizationID, userID uint64) (*OrganizationAdminSummary, error) {
 	summary := &OrganizationAdminSummary{}
 	if err := s.db.WithContext(ctx).Model(&models.OrganizationMember{}).
 		Where("organization_id = ?", organizationID).
@@ -159,6 +186,43 @@ func (s *Service) GetOrganizationAdminSummary(ctx context.Context, organizationI
 	return summary, nil
 }
 
+func (s *Service) getCachedOrganizationAdminSummary(ctx context.Context, organizationID uint64) (*OrganizationAdminSummary, bool) {
+	if s.adminSummaryCache == nil {
+		return nil, false
+	}
+	raw, err := s.adminSummaryCache.Get(ctx, organizationAdminSummaryCacheKey(organizationID)).Result()
+	if err != nil {
+		return nil, false
+	}
+	var summary OrganizationAdminSummary
+	if err := json.Unmarshal([]byte(raw), &summary); err != nil {
+		return nil, false
+	}
+	return &summary, true
+}
+
+func (s *Service) setCachedOrganizationAdminSummary(ctx context.Context, organizationID uint64, summary *OrganizationAdminSummary) {
+	if s.adminSummaryCache == nil || summary == nil {
+		return
+	}
+	raw, err := json.Marshal(summary)
+	if err != nil {
+		return
+	}
+	_ = s.adminSummaryCache.Set(ctx, organizationAdminSummaryCacheKey(organizationID), raw, organizationAdminSummaryCacheTTL).Err()
+}
+
+func (s *Service) invalidateOrganizationAdminSummary(ctx context.Context, organizationID uint64) {
+	if s.adminSummaryCache == nil {
+		return
+	}
+	_ = s.adminSummaryCache.Del(ctx, organizationAdminSummaryCacheKey(organizationID)).Err()
+}
+
+func organizationAdminSummaryCacheKey(organizationID uint64) string {
+	return fmt.Sprintf("allcallall:organization:%d:admin_summary:v1", organizationID)
+}
+
 func (s *Service) ListOrganizationMembers(ctx context.Context, organizationID, userID uint64) ([]OrganizationMemberView, error) {
 	if _, _, err := s.ResolveOrganization(ctx, userID, organizationID); err != nil {
 		return nil, err
@@ -212,6 +276,7 @@ func (s *Service) UpdateOrganizationMember(ctx context.Context, organizationID, 
 	if err != nil {
 		return nil, err
 	}
+	s.invalidateOrganizationAdminSummary(ctx, organizationID)
 	return s.getOrganizationMemberView(ctx, organizationID, targetUserID)
 }
 
@@ -232,7 +297,7 @@ func (s *Service) RemoveOrganizationMember(ctx context.Context, organizationID, 
 			return err
 		}
 	}
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("organization_id = ? AND user_id = ?", organizationID, targetUserID).Delete(&models.OrganizationMember{}).Error; err != nil {
 			return err
 		}
@@ -243,6 +308,10 @@ func (s *Service) RemoveOrganizationMember(ctx context.Context, organizationID, 
 			"role": target.Role,
 		})
 	})
+	if err == nil {
+		s.invalidateOrganizationAdminSummary(ctx, organizationID)
+	}
+	return err
 }
 
 func (s *Service) ListOrganizationInvites(ctx context.Context, organizationID, userID uint64) ([]models.OrganizationInvite, error) {
@@ -276,6 +345,7 @@ func (s *Service) ResendOrganizationInvite(ctx context.Context, organizationID, 
 	if err != nil {
 		return nil, err
 	}
+	s.invalidateOrganizationAdminSummary(ctx, organizationID)
 	return &invite, nil
 }
 
@@ -290,12 +360,16 @@ func (s *Service) RevokeOrganizationInvite(ctx context.Context, organizationID, 
 	if invite.Status == models.InvitationStatusAccepted {
 		return errors.New("accepted invite cannot be revoked")
 	}
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&models.OrganizationInvite{}).Where("id = ?", inviteID).Updates(map[string]any{"status": models.InvitationStatusRevoked, "updated_at": time.Now()}).Error; err != nil {
 			return err
 		}
 		return s.recordOrganizationAuditTx(ctx, tx, organizationID, actorID, "organization.invite.revoked", "invite", strconv.FormatUint(inviteID, 10), map[string]any{"target_email": invite.TargetEmail})
 	})
+	if err == nil {
+		s.invalidateOrganizationAdminSummary(ctx, organizationID)
+	}
+	return err
 }
 
 func (s *Service) ListTeams(ctx context.Context, organizationID, userID uint64) ([]TeamView, error) {
@@ -344,6 +418,7 @@ func (s *Service) CreateTeam(ctx context.Context, organizationID, actorID uint64
 	if err != nil {
 		return nil, err
 	}
+	s.invalidateOrganizationAdminSummary(ctx, organizationID)
 	return s.getTeamView(ctx, organizationID, actorID, team.ID)
 }
 
@@ -366,6 +441,7 @@ func (s *Service) UpdateTeam(ctx context.Context, organizationID, actorID, teamI
 	if err != nil {
 		return nil, err
 	}
+	s.invalidateOrganizationAdminSummary(ctx, organizationID)
 	return s.getTeamView(ctx, organizationID, actorID, teamID)
 }
 
@@ -377,7 +453,7 @@ func (s *Service) DeleteTeam(ctx context.Context, organizationID, actorID, teamI
 	if err := s.db.WithContext(ctx).Where("organization_id = ? AND id = ?", organizationID, teamID).Take(&team).Error; err != nil {
 		return err
 	}
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("team_id = ?", teamID).Delete(&models.TeamMember{}).Error; err != nil {
 			return err
 		}
@@ -386,6 +462,10 @@ func (s *Service) DeleteTeam(ctx context.Context, organizationID, actorID, teamI
 		}
 		return s.recordOrganizationAuditTx(ctx, tx, organizationID, actorID, "organization.team.deleted", "team", strconv.FormatUint(teamID, 10), map[string]any{"name": team.Name})
 	})
+	if err == nil {
+		s.invalidateOrganizationAdminSummary(ctx, organizationID)
+	}
+	return err
 }
 
 func (s *Service) ListTeamMembers(ctx context.Context, organizationID, userID, teamID uint64) ([]TeamMemberView, error) {
@@ -425,6 +505,7 @@ func (s *Service) AddTeamMember(ctx context.Context, organizationID, actorID, te
 	if err != nil {
 		return nil, err
 	}
+	s.invalidateOrganizationAdminSummary(ctx, organizationID)
 	return s.getTeamView(ctx, organizationID, actorID, teamID)
 }
 
@@ -444,6 +525,7 @@ func (s *Service) RemoveTeamMember(ctx context.Context, organizationID, actorID,
 	if err != nil {
 		return nil, err
 	}
+	s.invalidateOrganizationAdminSummary(ctx, organizationID)
 	return s.getTeamView(ctx, organizationID, actorID, teamID)
 }
 

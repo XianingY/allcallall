@@ -96,6 +96,7 @@ func main() {
 	userSvc := user.NewService(userRepo, user.WithPushDeviceSupport())
 	collaborationSvc := collaboration.NewService(db, userSvc)
 	collaborationSvc.WithMetrics(counterStore)
+	collaborationSvc.WithAdminSummaryCache(redisClient)
 	outboxStore := events.NewStore(db)
 	collaborationSvc.WithOutbox(outboxStore)
 	agentSvc := agent.NewService(db, counterStore)

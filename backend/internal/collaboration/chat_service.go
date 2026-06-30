@@ -96,6 +96,7 @@ func (s *Service) CreateMessage(ctx context.Context, organizationID, userID, con
 	if err := s.PublishMessageCreatedFromOutbox(ctx, message.ID); err != nil {
 		return nil, err
 	}
+	s.invalidateOrganizationAdminSummary(ctx, organizationID)
 	return record, nil
 }
 
@@ -133,6 +134,7 @@ func (s *Service) EditMessage(ctx context.Context, organizationID, userID, conve
 		return nil, err
 	}
 	s.publishConversationEvent(ctx, organizationID, conversationID, "message.updated", record)
+	s.invalidateOrganizationAdminSummary(ctx, organizationID)
 	return record, nil
 }
 
@@ -166,6 +168,7 @@ func (s *Service) DeleteMessage(ctx context.Context, organizationID, userID, con
 		return nil, err
 	}
 	s.publishConversationEvent(ctx, organizationID, conversationID, "message.deleted", record)
+	s.invalidateOrganizationAdminSummary(ctx, organizationID)
 	return record, nil
 }
 

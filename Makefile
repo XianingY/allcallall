@@ -3,7 +3,7 @@
 
 PYTHON ?= python3
 
-.PHONY: help setup build-android build-ios clean test run-api run-agent-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench interview-microservice-demo agent-runtime-test python-agent-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check
+.PHONY: help setup build-android build-ios clean test run-api run-agent-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check
 
 # Default target
 help:
@@ -33,6 +33,7 @@ help:
 	@echo "  make interview-live-suite - Run MySQL/Redis live interview smoke suite"
 	@echo "  make interview-load-suite - Generate local interview load suite artifacts"
 	@echo "  make interview-microservice-demo - Run API + standalone worker demo"
+	@echo "  make dashboard-bench - Run enterprise dashboard and message-list benchmarks"
 	@echo "  make agent-eval       - Run deterministic Agent eval harness"
 	@echo "  make agent-runtime-test - Run Python Agent Runtime tests and checks"
 	@echo "  make python-agent-eval - Run Python LangGraph task eval fixtures"
@@ -234,6 +235,11 @@ interview-bench:
 	@echo "Running local Agent/outbox benchmark..."
 	@mkdir -p /tmp/allcallall-go-cache
 	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/interview-bench -conversations 25 -batch-size 50
+
+dashboard-bench:
+	@echo "Running enterprise dashboard and message-list benchmarks..."
+	@mkdir -p /tmp/allcallall-go-cache
+	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go test -run '^$$' -bench 'Benchmark(GetOrganizationAdminSummary|ListMessages)' ./internal/collaboration
 
 realtime-replay-bench:
 	@echo "Running local realtime replay benchmark..."

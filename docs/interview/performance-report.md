@@ -37,6 +37,7 @@ Portfolio focus:
 Scripts live in `scripts/load/`.
 
 - `go run ./cmd/interview-bench`: local SQLite benchmark for Agent run creation, outbox drain, tool-call side effects, and metric counters. This is the fastest interview-safe evidence command because it does not require MySQL, Redis, or external model credentials.
+- `make dashboard-bench`: local Go benchmark for the enterprise organization summary aggregation path, Redis cache-hit path, and long conversation message cursor reads.
 - `go run ./cmd/realtime-replay-bench`: local SQLite benchmark for durable realtime event writes, recipient-scoped `since_id` replay, replay limits, and sequence monotonicity.
 - `scripts/load/realtime-replay-bench.sh`: shell wrapper around `cmd/realtime-replay-bench` for load-script consistency.
 - `go run ./cmd/chat-ws-replay-bench`: in-process authenticated Gin/WebSocket replay benchmark for `/api/v1/chat/ws`.
@@ -79,6 +80,10 @@ Backend `/api/v1/metrics`:
 - `recording_storage_write_fail_total`
 - `room_settlement_published_total` if enabled in the current build
 - `search_message_index_requested_total` if enabled in the current build
+- `admin_summary_cache_hit_total`
+- `admin_summary_cache_miss_total`
+- `admin_summary_latency_ms_sum`
+- `admin_summary_latency_ms_count`
 
 Database checks:
 
@@ -132,7 +137,8 @@ System metrics:
 
 | Scenario | Concurrency | Duration | p95 Latency | Error Rate | Notes |
 | --- | ---: | ---: | ---: | ---: | --- |
-| Local Agent/outbox benchmark | 1 process | 536 ms | 12 ms execute-run | 0% | June 19, 2026 deterministic `rules` run, temporary SQLite |
+| Local Agent/outbox benchmark | 1 process | 321 ms | 6 ms execute-run | 0% | June 30, 2026 deterministic `rules` run, temporary SQLite |
+| Local admin summary benchmark | 1 process | Go benchmark | 71 us/op cache hit | 0% | June 30, 2026 temporary SQLite + miniredis; DB path 162 us/op |
 | Live GET messages API | 20 clients | 60 s | 63 ms | 0% | June 25, 2026 isolated Docker MySQL/Redis, `mock_llm`, 35,286 requests, 587.99 QPS |
 | Live POST message API | 20 clients | 60 s | 574 ms | 0% | June 25, 2026 isolated Docker MySQL/Redis, `mock_llm`, 2,878 requests, 47.71 QPS |
 | Live Agent run create/enqueue API | 20 clients | 60 s | 492 ms | 0% | June 25, 2026 isolated Docker MySQL/Redis, `mock_llm`, 4,258 requests, 70.81 QPS; not Agent end-to-end throughput |
@@ -152,7 +158,7 @@ System metrics:
 
 ## Latest Local Agent Benchmark Snapshot
 
-Measured locally on June 19, 2026 (Asia/Shanghai) with temporary SQLite. Treat this as a functional benchmark and interview demo baseline, not a production load-test result.
+Measured locally on June 30, 2026 (Asia/Shanghai) with temporary SQLite. Treat this as a functional benchmark and interview demo baseline, not a production load-test result.
 
 Command:
 
@@ -173,9 +179,9 @@ Result summary:
 | failed_outbox_events | 0 |
 | agent_tool_calls | 175 |
 | agent_context_chunks | 75 |
-| total_duration_ms | 536 |
+| total_duration_ms | 321 |
 | queue_latency_p95_ms | 1 |
-| execute_run_latency_p95_ms | 12 |
+| execute_run_latency_p95_ms | 6 |
 | outbox_publish_total | 75 |
 
 Notes:
@@ -183,6 +189,30 @@ Notes:
 - Each completed run records seven auditable tool calls: three structured context tools, one RAG-lite context retrieval tool, and three mutating side-effect tools.
 - The RAG-lite path indexes notes, messages, and meeting-aware context into `agent_context_chunks` and retrieves bounded Top-K snippets before planning.
 - Mutating tool orchestration is now isolated in `backend/internal/agent/tool_executor.go`, so this benchmark covers the extracted executor boundary as well as the async run queue and outbox path.
+
+## Latest Enterprise Dashboard Benchmark Snapshot
+
+Measured locally on June 30, 2026 (Asia/Shanghai) with temporary SQLite and miniredis. Treat this as a functional benchmark for the enterprise admin dashboard query path and cache behavior, not a production load-test result.
+
+Command:
+
+```bash
+make dashboard-bench
+```
+
+Result summary:
+
+| Benchmark | ns/op | Approx latency | B/op | allocs/op |
+| --- | ---: | ---: | ---: | ---: |
+| `BenchmarkGetOrganizationAdminSummary` | 162,092 | 162 us | 74,095 | 1,014 |
+| `BenchmarkGetOrganizationAdminSummaryCacheHit` | 71,485 | 71 us | 24,431 | 207 |
+| `BenchmarkListMessages` | 279,993 | 280 us | 138,142 | 2,224 |
+
+Notes:
+
+- The summary cache is scoped by organization ID with a short TTL and explicit invalidation on organization member, invite, team, conversation, and message mutations.
+- The cache-hit path reduced local summary benchmark latency by about 55.9% and allocation count by about 79.6% in this fixture.
+- `/api/v1/metrics` exposes cache hit/miss and latency counters so an interviewer can inspect whether the optimization is actually active in a running server.
 
 ## Latest Deterministic Resume Eval Snapshot
 

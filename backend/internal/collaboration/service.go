@@ -6,7 +6,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/events"
@@ -36,6 +38,12 @@ type counterRecorder interface {
 	Add(name string, delta int64)
 }
 
+type redisCacheClient interface {
+	Get(ctx context.Context, key string) *redis.StringCmd
+	Set(ctx context.Context, key string, value any, expiration time.Duration) *redis.StatusCmd
+	Del(ctx context.Context, keys ...string) *redis.IntCmd
+}
+
 type Service struct {
 	db                  *gorm.DB
 	users               *user.Service
@@ -43,6 +51,7 @@ type Service struct {
 	media               *media.Engine
 	storage             storage.RecordingStorage
 	metrics             counterRecorder
+	adminSummaryCache   redisCacheClient
 	outbox              *events.Store
 	transcriber         transcription.Provider
 	maxRoomParticipants int
@@ -89,6 +98,12 @@ func (s *Service) WithTranscriptionProvider(provider transcription.Provider) {
 func (s *Service) WithMetrics(counters counterRecorder) {
 	if counters != nil {
 		s.metrics = counters
+	}
+}
+
+func (s *Service) WithAdminSummaryCache(client redisCacheClient) {
+	if client != nil {
+		s.adminSummaryCache = client
 	}
 }
 

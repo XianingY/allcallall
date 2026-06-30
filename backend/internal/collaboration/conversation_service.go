@@ -240,6 +240,7 @@ func (s *Service) CreateConversation(ctx context.Context, organizationID, userID
 	if err != nil {
 		return nil, err
 	}
+	s.invalidateOrganizationAdminSummary(ctx, organizationID)
 	return conv, nil
 }
 
@@ -298,6 +299,7 @@ func (s *Service) UpdateConversation(ctx context.Context, organizationID, userID
 	}
 	changes := buildConversationPatchChanges(summary, plan.ChangedFields)
 	s.publishConversationPatchUpdate(ctx, organizationID, conversationID, changes)
+	s.invalidateOrganizationAdminSummary(ctx, organizationID)
 	return &summary, nil
 }
 

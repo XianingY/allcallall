@@ -64,7 +64,7 @@ func (retryableTranscriptionProvider) TranscribeFile(context.Context, transcript
 	}
 }
 
-func newServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *user.Service) {
+func newServiceTestEnv(t testing.TB) (*Service, *gorm.DB, *user.Service) {
 	t.Helper()
 
 	db := testutil.OpenSQLite(t, "collaboration.db")
@@ -83,7 +83,7 @@ func newServiceTestEnv(t *testing.T) (*Service, *gorm.DB, *user.Service) {
 	return svc, db, userSvc
 }
 
-func createTestUser(t *testing.T, db *gorm.DB, email, displayName string) models.User {
+func createTestUser(t testing.TB, db *gorm.DB, email, displayName string) models.User {
 	t.Helper()
 	item := models.User{
 		Email:        email,
@@ -549,7 +549,7 @@ func TestServiceGetOrganizationAdminSummary(t *testing.T) {
 	}
 }
 
-func addOrgMember(t *testing.T, db *gorm.DB, organizationID, userID uint64, role string) {
+func addOrgMember(t testing.TB, db *gorm.DB, organizationID, userID uint64, role string) {
 	t.Helper()
 	if err := db.Exec(
 		"INSERT INTO organization_members (organization_id, user_id, role, joined_at, created_at, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",

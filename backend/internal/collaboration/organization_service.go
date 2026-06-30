@@ -182,6 +182,7 @@ func (s *Service) CreateOrganizationInvite(ctx context.Context, organizationID, 
 	if err != nil {
 		return nil, err
 	}
+	s.invalidateOrganizationAdminSummary(ctx, organizationID)
 	return invite, nil
 }
 
@@ -236,6 +237,7 @@ func (s *Service) AcceptOrganizationInvite(ctx context.Context, code string, use
 	if err != nil {
 		return nil, err
 	}
+	s.invalidateOrganizationAdminSummary(ctx, invite.OrganizationID)
 	return &invite, nil
 }
 
@@ -282,5 +284,6 @@ func (s *Service) UpdateOrganizationPolicy(ctx context.Context, organizationID, 
 	}); err != nil {
 		return nil, err
 	}
+	s.invalidateOrganizationAdminSummary(ctx, organizationID)
 	return &policy, nil
 }
