@@ -311,6 +311,40 @@ func TestAgentHandlerInternalReadToolBridgeRequiresTokenAndExecutesReadTool(t *t
 	}
 }
 
+func TestAgentHandlerInternalRetrievalQueryUsesReadToolBridge(t *testing.T) {
+	handler, _, conversation := newAgentHandlerTestEnv(t)
+	router := newRouterWithClaims(nil, handler.RegisterInternalRoutes)
+	t.Setenv("AGENT_RUNTIME_TOOL_TOKEN", "test-runtime-token")
+
+	body, _ := json.Marshal(map[string]any{
+		"organization_id": conversation.OrganizationID,
+		"user_id":         uint64(7),
+		"conversation_id": conversation.ID,
+		"query":           "security approval",
+		"source_types":    []string{"meeting_transcript"},
+		"top_k":           3,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/agent/retrieval/query", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-runtime-token")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	expectHandlerStatus(t, rec, http.StatusOK)
+
+	var response struct {
+		ToolName string `json:"tool_name"`
+		Count    int    `json:"count"`
+		Chunks   []any  `json:"chunks"`
+	}
+	decodeBody(t, rec.Body.Bytes(), &response)
+	if response.ToolName != agent.ToolQueryMeetingTranscriptSegments {
+		t.Fatalf("unexpected retrieval tool: %+v", response)
+	}
+	if response.Chunks == nil {
+		t.Fatalf("expected chunks field in response: %+v", response)
+	}
+}
+
 func TestAgentHandlerStreamsRunEvents(t *testing.T) {
 	handler, _, conversation := newAgentHandlerTestEnv(t)
 	router := newRouterWithClaims(&auth.Claims{UserID: 7, Email: "owner@example.com"}, handler.RegisterProtectedRoutes)

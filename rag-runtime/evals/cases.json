@@ -1,0 +1,78 @@
+[
+  {
+    "name": "meeting recap uses transcript evidence",
+    "query": "Summarize the launch risk discussed in the meeting",
+    "required_source_types": ["meeting_transcript"],
+    "expected_top_source_type": "meeting_transcript",
+    "chunks": [
+      {
+        "chunk_id": "mt-1",
+        "source_type": "meeting_transcript",
+        "source_id": "segment-101",
+        "source_title": "Launch meeting transcript",
+        "snippet": "The team agreed the launch risk is the delayed supplier approval. Alice owns the mitigation action item.",
+        "score": 92,
+        "transcript_segment_id": 101,
+        "start_ms": 12000,
+        "end_ms": 26000
+      },
+      {
+        "chunk_id": "kb-1",
+        "source_type": "knowledge",
+        "source_id": "doc-11",
+        "source_title": "Supplier policy",
+        "snippet": "Supplier approvals should be completed before launch readiness review.",
+        "score": 84
+      },
+      {
+        "chunk_id": "msg-1",
+        "source_type": "message",
+        "source_id": "message-12",
+        "source_title": "General conversation",
+        "snippet": "Reminder to update the weekly notes.",
+        "score": 20
+      }
+    ]
+  },
+  {
+    "name": "knowledge policy outranks distractor message",
+    "query": "What is the approval policy for supplier launch readiness?",
+    "required_source_types": ["knowledge"],
+    "expected_top_source_type": "knowledge",
+    "chunks": [
+      {
+        "chunk_id": "msg-2",
+        "source_type": "message",
+        "source_id": "message-21",
+        "source_title": "Chat",
+        "snippet": "Someone mentioned approval but did not include the supplier launch readiness policy.",
+        "score": 75
+      },
+      {
+        "chunk_id": "kb-2",
+        "source_type": "knowledge",
+        "source_id": "doc-22",
+        "source_title": "Launch readiness approval policy",
+        "snippet": "Supplier launch readiness requires QA signoff, owner approval, and rollback plan review.",
+        "score": 88
+      }
+    ]
+  },
+  {
+    "name": "insufficient context is conservative",
+    "query": "Which legal clause blocks the external data transfer?",
+    "required_source_types": ["knowledge"],
+    "expected_top_source_type": "",
+    "insufficient_context": true,
+    "chunks": [
+      {
+        "chunk_id": "msg-3",
+        "source_type": "message",
+        "source_id": "message-31",
+        "source_title": "Unrelated chat",
+        "snippet": "The team will meet tomorrow to review design sketches.",
+        "score": 10
+      }
+    ]
+  }
+]
