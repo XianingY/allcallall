@@ -8,9 +8,9 @@ The strongest project story is not a commercial app launch. The repo demonstrate
 
 - **Realtime collaboration**: organizations, conversations, messages, notes, durable WebSocket replay, room state, WebRTC signaling, and recording sessions.
 - **Enterprise admin console**: organization overview, member/invite/team/policy/audit management, admin summary API, Redis-backed dashboard cache, and reproducible dashboard/message-list benchmarks.
-- **AI Agent system**: ReAct-style single-agent runs, workflow/DAG-style multi-agent tasks, tool calling, approvals, persisted traces, memory, and conversation-aware context retrieval. Workflow presets can optionally run in a Python FastAPI + LangGraph runtime while Go remains the source of truth for data, permissions, approvals, audit, and writes.
+- **AI Agent system**: ReAct-style single-agent runs, workflow/DAG-style multi-agent tasks, tool calling, approvals, persisted traces, memory, and conversation-aware context retrieval. Beta/demo Compose defaults to a Python FastAPI + LangGraph Agent Runtime while Go remains the source of truth for data, permissions, approvals, audit, and writes.
 - **Meeting recording transcription**: recording stop can enqueue `recording.transcription.requested`; the provider abstraction supports mock and OpenAI-compatible ASR paths and stores `MeetingTranscriptSegment` rows for Agent retrieval.
-- **Hybrid retrieval**: conversation context plus external knowledge sources, BM25/vector search where Elasticsearch is configured, and Go-layer reranking/chunk assembly.
+- **Hybrid retrieval**: conversation context plus external knowledge sources, BM25/vector search where Elasticsearch is configured, Go-layer reranking/chunk assembly, and an optional Python RAG Runtime for Agentic retrieval orchestration, rerank, evidence packs, and grounding checks.
 - **Async reliability**: MySQL outbox, claim/lease workers, retries, idempotency keys, and Prometheus-style counters.
 - **Extractable runtime**: API server can run embedded workers locally, or split into User Service, Agent Worker, Outbox Worker, Data Worker, Search Worker, and Cleanup Worker.
 - **Primary Web surface**: `web/` is the main browser client, covering auth, organizations, collaboration, chat, calls, meetings, recordings, transcripts, Agent Lab, knowledge, approvals, billing settings, Web Push, and responsive layouts.
@@ -23,7 +23,8 @@ Realtime translation code is still present for compatibility, but the mobile UI 
 
 ```text
 backend/     Go backend: API, auth, collaboration, Agent, search, storage, workers
-agent-runtime/ Python FastAPI + LangGraph runtime, provider adapters, tool bridge client, and evals
+agent-runtime/ Python FastAPI + LangGraph Agent runtime, provider adapters, tool bridge client, and evals
+rag-runtime/ Python FastAPI RAG runtime for Agentic retrieval, rerank, grounding, and evals
 web/         Primary React + Vite + TypeScript Web application
 mobile/      Expo React Native app for native Android/iOS
 desktop/     Electron shell wrapping the Web client
@@ -86,6 +87,8 @@ make run-outbox-worker
 make run-data-worker
 make run-search-worker
 make run-cleanup-worker
+make run-agent-runtime
+make run-rag-runtime
 
 # Deterministic interview/demo harnesses
 make beta-seed
@@ -95,6 +98,8 @@ make agent-eval
 make rag-eval
 make rerank-eval
 make python-agent-eval
+make python-rag-eval
+make ai-agent-jd-eval
 make ai-portfolio-eval
 make dashboard-bench
 make realtime-replay-bench
@@ -119,8 +124,9 @@ Common backend variables:
 - `AGENT_PROVIDER=rules|mock_llm|openai_compatible`: Agent planner/provider selection.
 - `AGENT_PROVIDER_STRICT=true`: required for Beta/production when using a real provider; disables silent fallback to `rules`.
 - `RAG_RERANK_ENABLED=true`, `RAG_RERANK_PROVIDER=rules|cross_encoder_compatible`: optional post-retrieval rerank over BM25/vector/RRF candidates.
-- `AGENT_RUNTIME=go|python_langgraph`: workflow orchestration runtime. Default is `go`; `python_langgraph` supports `meeting_brief`, `risk_review`, `follow_up_planner`, and `context_qa`.
+- `AGENT_RUNTIME=python_langgraph|legacy_go`: Agent orchestration runtime. Compose/Beta demo defaults to `python_langgraph`; bare Go processes without this env still use the legacy in-process runtime. `go` is accepted as a legacy alias.
 - `PY_AGENT_RUNTIME_BASE_URL`: Python LangGraph runtime URL, defaulting to `http://127.0.0.1:8090` locally and `http://agent-runtime:8090` in Compose.
+- `PY_RAG_RUNTIME_BASE_URL`: Python RAG Runtime URL, defaulting to `http://rag-runtime:8091` in Compose when Agentic RAG calls are enabled.
 - `PY_AGENT_RUNTIME_TIMEOUT_SEC`, `PY_AGENT_RUNTIME_STRICT`: timeout and strict failure behavior for the Python runtime.
 - `AGENT_RUNTIME_TOOL_TOKEN`: shared token that protects the Go read-only tool bridge for Python runtime calls.
 - `PY_AGENT_PROVIDER=rules|openai_compatible`: Python runtime provider selection.
@@ -128,6 +134,8 @@ Common backend variables:
 - `PY_AGENT_PROMPT_VERSION`, `PY_AGENT_ENABLE_GROUNDING_CHECK`: Python prompt-template and grounding-check controls.
 - `PY_AGENT_ENABLE_AGENTIC_RAG=false`, `PY_AGENT_RAG_MAX_RETRIEVAL_STEPS=3`, `PY_AGENT_RAG_MIN_CONFIDENCE=0.6`: bounded Agentic RAG planning/refinement controls.
 - `PY_AGENT_TOOL_BRIDGE_BASE_URL`, `PY_AGENT_TOOL_BRIDGE_TOKEN`: Python runtime access to Go-owned read-only tools.
+- `PY_RAG_TOOL_BRIDGE_BASE_URL`, `PY_RAG_TOOL_BRIDGE_TOKEN`: Python RAG Runtime access to the Go internal authorized retrieval bridge.
+- `PY_RAG_RERANK_PROVIDER=rules|cross_encoder_compatible`, `PY_RAG_TOP_K`, `PY_RAG_MAX_STEPS`, `PY_RAG_MIN_CONFIDENCE`: Python RAG Runtime retrieval and rerank controls.
 - `EMBEDDED_WORKERS=0|1`: controls API-process workers.
 - `FCM_SERVICE_ACCOUNT_PATH`: enables Firebase Admin SDK push delivery.
 - `RECORDING_STORAGE_DRIVER=local|s3`: recording storage driver.

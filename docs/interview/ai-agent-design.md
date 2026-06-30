@@ -149,7 +149,7 @@ Each role iteration records a plan and observation in `agent_messages`, and the 
 
 ### Python LangGraph Runtime
 
-Selected workflow presets can run through the optional Python Agent Runtime:
+Beta/demo Agent runs can use the Python Agent Runtime as the primary orchestration path:
 
 ```bash
 AGENT_RUNTIME=python_langgraph
@@ -157,20 +157,20 @@ PY_AGENT_RUNTIME_BASE_URL=http://127.0.0.1:8090
 PY_AGENT_RUNTIME_STRICT=true
 ```
 
-Current Python-supported presets are `meeting_brief`, `risk_review`, `follow_up_planner`, and `context_qa`. The split is intentionally narrow:
+Current Python-supported presets are `react_general`, `meeting_brief`, `risk_review`, `follow_up_planner`, and `context_qa`. The split is intentionally narrow:
 
 - Go remains the source of truth for auth, organization membership, conversation state, meeting transcripts, tool schemas, policy, approval records, audit history, and final side effects.
-- Python owns Agent orchestration: workflow registry, LangGraph DAG execution, provider adapters, versioned prompts, retrieval/rerank trace, grounding checks, bounded ReAct-style read reasoning inside `searcher` and `risk_analyst`, structured trace events, citations, and write-tool proposals.
+- Python owns Agent orchestration: ReAct runs, workflow registry, LangGraph DAG execution, provider adapters, versioned prompts, calls to the Python RAG Runtime, retrieval/rerank trace, grounding checks, bounded read reasoning inside roles, structured trace events, citations, and write-tool proposals.
 - Python can call Go-owned read-only tools through an internal token-protected tool bridge (`AGENT_RUNTIME_TOOL_TOKEN` / `PY_AGENT_TOOL_BRIDGE_TOKEN`). If the bridge is not configured, Python uses the context preloaded by Go.
 - Python does not write the main database and does not execute write tools. Returned proposals become `tool_approvals` in Go and must pass the existing approval path before `commit_result`.
 - `PY_AGENT_PROVIDER=rules` is deterministic for eval; `PY_AGENT_PROVIDER=openai_compatible` uses an OpenAI-compatible `/chat/completions` provider with JSON structured output and explicit error classification.
 
 ### Bounded Agentic RAG
 
-The Python runtime can optionally enable bounded Agentic RAG with `PY_AGENT_ENABLE_AGENTIC_RAG=true`. This does not replace the Go Hybrid RAG or rerank layer. Instead, it controls retrieval strategy above that layer:
+The Python runtime can optionally enable bounded Agentic RAG with `PY_AGENT_ENABLE_AGENTIC_RAG=true` and `PY_RAG_RUNTIME_BASE_URL=http://127.0.0.1:8091`. This does not replace the Go Hybrid RAG or rerank layer. Instead, the Python RAG Runtime controls retrieval strategy above that layer:
 
 - `retrieval_planner` creates source-specific retrieval steps for meeting transcript, knowledge, and conversation context.
-- `retrieval_loop` runs at most three read-only tool calls through the Go bridge and records `rag.plan`, `rag.tool_call`, `rag.observe`, and `rag.refine` events.
+- `retrieval_loop` runs at most three read-only retrieval steps, preferably through `rag-runtime`, which then calls the Go internal retrieval bridge and records `rag.plan`, `rag.tool_call`, `rag.observe`, and `rag.refine` events.
 - `evidence_pack` selects final citations and keeps source coverage, confidence, and rejected count.
 - `sufficiency_gate` blocks write-tool proposals when evidence is missing, so unsupported answers remain conservative.
 
@@ -263,8 +263,10 @@ make rag-eval
 make rerank-eval
 make workflow-eval
 make python-agent-eval
+make python-rag-eval
+make ai-agent-jd-eval
 make agent-demo-report
 make ai-portfolio-eval
 ```
 
-The eval harnesses run deterministic planner, RAG, rerank, workflow, and Python LangGraph task cases without external credentials. Workflow eval includes a meeting recap case that verifies bounded role ReAct retrieves `meeting_transcript` citations while read tools bypass human approval and write tools still require it. Python eval writes `agent-runtime/evals/reports/python-agent-eval.{json,md}` and separately checks task success, citation grounding, tool intent, approval safety, prompt schema presence, grounding-check trace, and unsupported-claim guarding.
+The eval harnesses run deterministic planner, RAG, rerank, workflow, Python LangGraph task cases, and Python RAG Runtime cases without external credentials. Workflow eval includes a meeting recap case that verifies bounded role ReAct retrieves `meeting_transcript` citations while read tools bypass human approval and write tools still require it. Python eval writes `agent-runtime/evals/reports/python-agent-eval.{json,md}`, `rag-runtime/evals/reports/python-rag-eval.{json,md}`, and `docs/interview/generated-ai-agent-jd-eval/ai-agent-jd-eval.{json,md}`.

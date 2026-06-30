@@ -32,7 +32,7 @@
 | ES vector | 已接入 | `allcallall_context_chunks` 使用 `dense_vector`、`index=true`、`cosine`，查询用 `cosineSimilarity` | ES 在本项目中承担向量数据库角色，不另引 Milvus/Pinecone |
 | Rerank | 已接入 | 检索后有显式 `Reranker` 抽象，支持 deterministic `rules` 和 `cross_encoder_compatible` HTTP provider；citation/tool output 带 `rerank_score/rerank_reason/final_rank` | 默认关闭；真实 cross-encoder 服务需要外部部署 |
 | 引用/citation | 可点击 | citation 返回 chunk/source/origin/conversation/version/retrieval_mode/BM25/vector/RRF/rerank metadata/score/snippet；Web 可打开知识源 preview 或 URL | 消息/备注回源目前先回到 conversation 维度，细粒度滚动定位未做 |
-| Eval | 本地可跑 | `cmd/agent-eval`、`cmd/rag-eval`、`allcallallctl rerank-eval`、Python `eval_runner` 和 `ai-portfolio-eval` 覆盖 deterministic regression、retrieval/rerank quality、task completion | 没有真实生产数据集，不把 fixture 结果包装成线上效果 |
+| Eval | 本地可跑 | `cmd/agent-eval`、`cmd/rag-eval`、`allcallallctl rerank-eval`、Python Agent/RAG `eval_runner`、`ai-agent-jd-eval` 和 `ai-portfolio-eval` 覆盖 deterministic regression、retrieval/rerank quality、task completion | 没有真实生产数据集，不把 fixture 结果包装成线上效果 |
 | SSE/trace | 可展示 | 前端通过 SSE 看 run/step/tool 事件，结果页也可从持久化 trace 回放 | token 级流式在当前 tool-calling 模式下基本不会触发 |
 
 ## 运行架构
@@ -51,7 +51,9 @@ flowchart LR
   AgentSvc --> Embed["OpenAI-compatible\nembeddings"]
   AgentSvc --> ES["Elasticsearch\nBM25/vector/RRF"]
   AgentSvc --> Rerank["Reranker\nrules / cross-encoder-compatible"]
-  API --> PyRuntime["Python FastAPI + LangGraph\nprompt/rerank/grounding/eval"]
+  API --> PyRuntime["Python FastAPI + LangGraph\nprompt/workflow/trace/eval"]
+  PyRuntime --> PyRAG["Python RAG Runtime\nagentic retrieval/rerank/grounding"]
+  PyRAG --> AgentSvc
   AgentSvc --> Redis["Redis Pub/Sub\nagent_run:{id}:stream"]
   API --> SSE["SSE events"]
   SSE --> Web

@@ -10,7 +10,7 @@ This is the Go backend for AllCallAll: realtime collaboration, meeting rooms, re
 - Durable WebSocket collaboration replay through `chat_events`.
 - WebRTC signaling, meeting room state, recording lifecycle, and local/S3-compatible recording storage.
 - Recording-end transcription through `recording.transcription.requested`, `RecordingTranscription`, and `MeetingTranscriptSegment`.
-- Agent runs with persisted steps, tool calls, memory, approvals, RAG context chunks, and workflow/DAG execution.
+- Agent runs with persisted steps, tool calls, memory, approvals, RAG context chunks, workflow/DAG execution, and Python runtime adapters.
 - MySQL outbox with claim/lease/retry/idempotency semantics.
 - Optional gRPC User Service, Kafka-compatible settlement pipeline, and Elasticsearch search/read model.
 
@@ -77,8 +77,9 @@ Core variables:
 - `RAG_RERANK_ENABLED=true`
 - `RAG_RERANK_PROVIDER=rules|cross_encoder_compatible`
 - `RAG_RERANK_BASE_URL`, `RAG_RERANK_MODEL`, `RAG_RERANK_TIMEOUT_SEC`
-- `AGENT_RUNTIME=go|python_langgraph`; default `go`. `python_langgraph` can route `meeting_brief`, `risk_review`, `follow_up_planner`, and `context_qa` to the Python LangGraph service while keeping Go-owned data access, tool approval, audit, and write execution.
+- `AGENT_RUNTIME=python_langgraph|legacy_go`; Compose/Beta demo defaults to `python_langgraph`, while bare Go processes without the env still use the legacy in-process runtime. `go` is accepted as a legacy alias. `python_langgraph` routes ReAct runs and supported workflows to the Python LangGraph service while keeping Go-owned data access, tool approval, audit, and write execution.
 - `PY_AGENT_RUNTIME_BASE_URL=http://127.0.0.1:8090`
+- `PY_RAG_RUNTIME_BASE_URL=http://127.0.0.1:8091`
 - `PY_AGENT_RUNTIME_TIMEOUT_SEC=60`
 - `PY_AGENT_RUNTIME_STRICT=true`
 - `AGENT_RUNTIME_TOOL_TOKEN`: bearer token required by the internal read-only tool bridge.
@@ -87,6 +88,8 @@ Core variables:
 - `PY_AGENT_PROMPT_VERSION`, `PY_AGENT_ENABLE_GROUNDING_CHECK`
 - `PY_AGENT_ENABLE_AGENTIC_RAG=false`, `PY_AGENT_RAG_MAX_RETRIEVAL_STEPS=3`, `PY_AGENT_RAG_MIN_CONFIDENCE=0.6`
 - `PY_AGENT_TOOL_BRIDGE_BASE_URL`, `PY_AGENT_TOOL_BRIDGE_TOKEN`
+- `PY_RAG_TOOL_BRIDGE_BASE_URL`, `PY_RAG_TOOL_BRIDGE_TOKEN`
+- `PY_RAG_RERANK_PROVIDER=rules|cross_encoder_compatible`, `PY_RAG_TOP_K`, `PY_RAG_MAX_STEPS`, `PY_RAG_MIN_CONFIDENCE`
 - `EMBEDDED_WORKERS=0|1`
 
 Recording and transcription:
@@ -119,7 +122,7 @@ Infra extensions:
 - `ELASTICSEARCH_INDEX=allcallall_messages`
 - `FCM_SERVICE_ACCOUNT_PATH=/path/firebase-service-account.json`
 
-Beta provider rule: use `AGENT_PROVIDER=openai_compatible`, `AGENT_PROVIDER_STRICT=true`, `TRANSCRIPTION_PROVIDER=openai_compatible`, and real ASR/LLM credentials for product validation. Use `rules`, `mock_llm`, and `TRANSCRIPTION_PROVIDER=mock` only for deterministic eval, local development, or seed-data demos.
+Beta provider rule: use `AGENT_RUNTIME=python_langgraph`, `PY_AGENT_PROVIDER=openai_compatible`, `PY_AGENT_PROVIDER_STRICT=true`, `TRANSCRIPTION_PROVIDER=openai_compatible`, and real ASR/LLM credentials for product validation. Use `rules`, `mock_llm`, `legacy_go`, and `TRANSCRIPTION_PROVIDER=mock` only for deterministic eval, local development, fallback, or seed-data demos.
 
 ## Important API Areas
 

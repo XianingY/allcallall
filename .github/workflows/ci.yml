@@ -91,6 +91,58 @@ jobs:
           INTEGRATION_ELASTICSEARCH_URL: http://127.0.0.1:9200
         run: go test -tags=integration ./internal/integration
 
+  agent-runtime:
+    name: Python Agent Runtime
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: agent-runtime/pyproject.toml
+      - name: Install
+        working-directory: agent-runtime
+        run: pip install -e ".[dev]"
+      - name: Test
+        working-directory: agent-runtime
+        run: pytest
+      - name: Lint
+        working-directory: agent-runtime
+        run: ruff check .
+      - name: Typecheck
+        working-directory: agent-runtime
+        run: mypy .
+      - name: Eval
+        working-directory: agent-runtime
+        run: python -m app.eval_runner --out /tmp/allcallall-python-agent-eval
+
+  rag-runtime:
+    name: Python RAG Runtime
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: rag-runtime/pyproject.toml
+      - name: Install
+        working-directory: rag-runtime
+        run: pip install -e ".[dev]"
+      - name: Test
+        working-directory: rag-runtime
+        run: pytest
+      - name: Lint
+        working-directory: rag-runtime
+        run: ruff check .
+      - name: Typecheck
+        working-directory: rag-runtime
+        run: mypy .
+      - name: Eval
+        working-directory: rag-runtime
+        run: python -m app.eval_runner --out /tmp/allcallall-python-rag-eval
+
   mobile:
     name: Mobile
     runs-on: ubuntu-latest

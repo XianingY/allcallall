@@ -11,9 +11,11 @@ flowchart TD
     C --> P["Python LangGraph Runtime"]
     P --> RP["retrieval_planner"]
     RP --> RL["retrieval_loop max 3"]
-    RL --> T["Go read-tool bridge"]
+    RL --> PRAG["Python RAG Runtime"]
+    PRAG --> T["Go internal retrieval bridge"]
     T --> RAG["Hybrid RAG + Rerank"]
-    RAG --> RL
+    RAG --> PRAG
+    PRAG --> RL
     RL --> EP["evidence_pack"]
     EP --> SG["sufficiency_gate"]
     SG --> SYN["synthesize / risk review / context QA"]
@@ -29,7 +31,7 @@ The Python runtime can plan retrieval and call read-only tools, but it cannot re
 - `retrieval_loop` executes at most three read-only retrieval steps, observes hit quality, and refines the next query when evidence coverage is below threshold.
 - `evidence_pack` keeps the final selected citations, snippets, source types, rejected count, and confidence.
 - `sufficiency_gate` blocks unsupported synthesis from producing side-effect proposals when evidence is missing.
-- Existing BM25/vector/RRF/rerank remains the retriever. Agentic RAG controls retrieval strategy above that layer rather than replacing it.
+- Existing BM25/vector/RRF/rerank remains the Go-owned retriever and source-of-truth data path. The Python RAG Runtime controls retrieval strategy above that layer rather than replacing it.
 
 ## Tool Boundary
 
@@ -53,7 +55,9 @@ Write tools remain approval-only:
 - `PY_AGENT_ENABLE_AGENTIC_RAG=false`: default off for conservative Beta behavior.
 - `PY_AGENT_RAG_MAX_RETRIEVAL_STEPS=3`: hard cap for bounded retrieval.
 - `PY_AGENT_RAG_MIN_CONFIDENCE=0.6`: confidence threshold before stopping refinement.
-- `AGENT_RUNTIME=python_langgraph`: routes supported workflow presets to the Python runtime.
+- `AGENT_RUNTIME=python_langgraph`: Compose/Beta demo routes ReAct and supported workflow presets to the Python runtime.
+- `PY_RAG_RUNTIME_BASE_URL=http://rag-runtime:8091`: enables the Agent runtime to delegate retrieval planning/rerank/grounding to the RAG microservice.
+- `PY_RAG_TOOL_BRIDGE_BASE_URL` and `PY_RAG_TOOL_BRIDGE_TOKEN`: let the RAG Runtime call Go's internal authorized retrieval bridge.
 
 ## Eval Positioning
 

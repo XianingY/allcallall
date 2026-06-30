@@ -11,7 +11,7 @@ AllCallAll is positioned as an enterprise realtime collaboration project for ful
 - Engineering quality: contract check, bundle budget check, Vitest/MSW/Playwright, Go package tests, benchmarks, Docker Compose, and maintained docs.
 - Reliability: request IDs propagated through HTTP, Agent runs, and outbox workers; metrics; cleanup workers; S3-compatible recording storage; idempotent webhook/session handling; and an outbox worker.
 - Security: organization-scoped access control, refresh session rotation, support-token protected internal APIs, and no raw media persistence by default.
-- AI Agent readiness: deterministic rules-based Agent v1 with run state, steps, tool calls, memory, idempotency, outbox, conversation write-back, and meeting transcript retrieval.
+- AI Agent readiness: Python FastAPI + LangGraph Beta/demo runtime, deterministic rules provider for eval, run state, steps, tool calls, memory, idempotency, outbox, conversation write-back, meeting transcript retrieval, and approval-gated side effects.
 
 ## Document Map
 
@@ -88,6 +88,8 @@ The command prints organization, conversation, room, and Agent run IDs. It creat
 
 `AGENT_PROVIDER=rules` is the default and the safest interview demo mode. `AGENT_PROVIDER=mock_llm` demonstrates prompt construction and structured-output parsing without external credentials. `AGENT_PROVIDER=openai_compatible` calls a configured Chat Completions-compatible endpoint when `AGENT_OPENAI_BASE_URL` and `AGENT_OPENAI_MODEL` are set; otherwise service execution falls back to `rules` and records fallback metrics.
 
+For the Python-first Agent demo, run `make run-agent-runtime`, `make run-rag-runtime`, and set `AGENT_RUNTIME=python_langgraph`. Use `PY_AGENT_PROVIDER=rules` for deterministic local eval and `PY_AGENT_PROVIDER=openai_compatible` only when real credentials are available.
+
 ## Local Benchmark Command
 
 For a database-free interview demo, run the Agent + outbox pipeline against a temporary SQLite database:
@@ -109,6 +111,9 @@ make task-eval
 make rerank-eval
 make agent-demo-report
 make resume-eval
+make python-agent-eval
+make python-rag-eval
+make ai-agent-jd-eval
 make ai-portfolio-eval
 ```
 

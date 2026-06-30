@@ -7,7 +7,7 @@ Use this together with:
 - [Agent UX Eval](agent-ux-eval.md) for the reproducible-vs-manual evidence split
 - [Resume Eval](resume-eval.md) for the current generated KPI snapshot
 
-Run the same fixture set against the default Go runtime or the optional Python LangGraph runtime:
+Run the same fixture set against the legacy Go runtime or the Python LangGraph runtime:
 
 ```bash
 cd backend

@@ -103,8 +103,9 @@ services:
       AGENT_OPENAI_BASE_URL: "${AGENT_OPENAI_BASE_URL:-}"
       AGENT_OPENAI_API_KEY: "${AGENT_OPENAI_API_KEY:-}"
       AGENT_OPENAI_MODEL: "${AGENT_OPENAI_MODEL:-}"
-      AGENT_RUNTIME: "${AGENT_RUNTIME:-go}"
+      AGENT_RUNTIME: "${AGENT_RUNTIME:-python_langgraph}"
       PY_AGENT_RUNTIME_BASE_URL: "${PY_AGENT_RUNTIME_BASE_URL:-http://agent-runtime:8090}"
+      PY_RAG_RUNTIME_BASE_URL: "${PY_RAG_RUNTIME_BASE_URL:-http://rag-runtime:8091}"
       PY_AGENT_RUNTIME_TIMEOUT_SEC: "${PY_AGENT_RUNTIME_TIMEOUT_SEC:-60}"
       PY_AGENT_RUNTIME_STRICT: "${PY_AGENT_RUNTIME_STRICT:-true}"
       AGENT_RUNTIME_TOOL_TOKEN: "${AGENT_RUNTIME_TOOL_TOKEN:-}"
@@ -134,12 +135,34 @@ services:
       PY_AGENT_OPENAI_MODEL: "${PY_AGENT_OPENAI_MODEL:-}"
       PY_AGENT_TOOL_BRIDGE_BASE_URL: "${PY_AGENT_TOOL_BRIDGE_BASE_URL:-http://backend:8080}"
       PY_AGENT_TOOL_BRIDGE_TOKEN: "${AGENT_RUNTIME_TOOL_TOKEN:-}"
+      PY_RAG_RUNTIME_BASE_URL: "${PY_RAG_RUNTIME_BASE_URL:-http://rag-runtime:8091}"
       PY_AGENT_RUNTIME_PORT: "8090"
     restart: unless-stopped
     networks:
       - allcallall_network
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health', timeout=2)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  rag-runtime:
+    build:
+      context: ../rag-runtime
+      dockerfile: Dockerfile
+    environment:
+      PY_RAG_RERANK_PROVIDER: "${PY_RAG_RERANK_PROVIDER:-rules}"
+      PY_RAG_TOOL_BRIDGE_BASE_URL: "${PY_RAG_TOOL_BRIDGE_BASE_URL:-http://backend:8080}"
+      PY_RAG_TOOL_BRIDGE_TOKEN: "${AGENT_RUNTIME_TOOL_TOKEN:-}"
+      PY_RAG_TOP_K: "${PY_RAG_TOP_K:-8}"
+      PY_RAG_MAX_STEPS: "${PY_RAG_MAX_STEPS:-3}"
+      PY_RAG_MIN_CONFIDENCE: "${PY_RAG_MIN_CONFIDENCE:-0.6}"
+      PY_RAG_RUNTIME_PORT: "8091"
+    restart: unless-stopped
+    networks:
+      - allcallall_network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8091/health', timeout=2)"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -4,7 +4,7 @@ This page is the interview-facing explanation for the Python Agent Runtime.
 
 ## What Changed
 
-AllCallAll keeps the Go backend as the business source of truth, but extracts selected Agent orchestration into `agent-runtime/`, a Python FastAPI + LangGraph service.
+AllCallAll keeps the Go backend as the business source of truth, but makes `agent-runtime/` the Beta/demo Agent intelligence layer: a Python FastAPI + LangGraph service for ReAct runs, workflow DAGs, prompt/provider adapters, trace, citations, and write-tool proposals.
 
 The Python runtime currently supports:
 
@@ -12,13 +12,18 @@ The Python runtime currently supports:
 - `risk_review`
 - `follow_up_planner`
 - `context_qa`
+- `react_general`
 
 The runtime exposes:
 
 - `GET /health`
+- `GET /v1/capabilities`
 - `GET /v1/workflows`
+- `POST /v1/agents/react/run`
 - `POST /v1/workflows/{preset}/run`
 - `POST /v1/workflows/meeting-brief/run` for compatibility
+
+`rag-runtime/` is a separate Python FastAPI service for Agentic retrieval orchestration, rerank, evidence packs, grounding checks, and RAG eval. The Agent runtime calls it through `PY_RAG_RUNTIME_BASE_URL` when configured.
 
 ## Boundary
 
@@ -37,8 +42,9 @@ Python owns:
 - LangGraph DAG orchestration
 - bounded ReAct role loops
 - retrieval/rerank orchestration over Go-supplied context chunks
+- calls to the separate Python RAG Runtime when `PY_RAG_RUNTIME_BASE_URL` is configured
 - prompt/provider adapter logic
-- versioned prompt templates such as `meeting_brief_v1`, `risk_review_v1`, `follow_up_planner_v1`, and `context_qa_v1`
+- versioned prompt templates such as `react_general_v1`, `meeting_brief_v2`, `risk_review_v1`, `follow_up_planner_v1`, and `context_qa_v1`
 - citation grounding checks
 - structured trace events
 - citation and proposal generation
@@ -48,6 +54,11 @@ Python can call Go read-only tools through the internal bridge:
 
 - Go: `AGENT_RUNTIME_TOOL_TOKEN`
 - Python: `PY_AGENT_TOOL_BRIDGE_BASE_URL`, `PY_AGENT_TOOL_BRIDGE_TOKEN`
+
+The RAG Runtime uses its own bridge variables:
+
+- `PY_RAG_TOOL_BRIDGE_BASE_URL`
+- `PY_RAG_TOOL_BRIDGE_TOKEN`
 
 Write tools are never executed by Python. Python returns proposals such as `write_conversation_message`, `create_follow_up_task`, and `upsert_agent_memory`; Go converts them into pending approvals.
 
@@ -66,6 +77,8 @@ Run:
 
 ```bash
 make python-agent-eval
+make python-rag-eval
+make ai-agent-jd-eval
 make rerank-eval
 make ai-portfolio-eval
 ```
@@ -74,6 +87,9 @@ Output:
 
 - `agent-runtime/evals/reports/python-agent-eval.json`
 - `agent-runtime/evals/reports/python-agent-eval.md`
+- `rag-runtime/evals/reports/python-rag-eval.json`
+- `rag-runtime/evals/reports/python-rag-eval.md`
+- `docs/interview/generated-ai-agent-jd-eval/ai-agent-jd-eval.md`
 - `docs/interview/generated-rerank-eval/rerank-eval.json`
 - `docs/interview/generated-ai-portfolio-eval/ai-portfolio-eval.md`
 
@@ -93,4 +109,4 @@ These are regression and demonstration metrics, not open-domain model-quality cl
 
 ## Resume-Safe Wording
 
-> Extracted a Python FastAPI + LangGraph Agent Runtime for selected workflow presets while keeping Go as the business source of truth for auth, data, tool authorization, approvals, audit, and writes; supported Workflow DAG + bounded ReAct role loops, versioned prompts, retrieval/rerank trace, citation grounding, approval-only write proposals, and deterministic task-level eval.
+> Made Python FastAPI + LangGraph the Beta/demo Agent orchestration runtime and split out a Python RAG Runtime, while keeping Go as the business source of truth for auth, data, tool authorization, approvals, audit, and writes; supported Workflow DAG + bounded ReAct, prompt registry, Agentic RAG, rerank/grounding trace, approval-only write proposals, and deterministic task-level eval.
