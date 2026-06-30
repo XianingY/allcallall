@@ -91,57 +91,19 @@ jobs:
           INTEGRATION_ELASTICSEARCH_URL: http://127.0.0.1:9200
         run: go test -tags=integration ./internal/integration
 
-  agent-runtime:
-    name: Python Agent Runtime
+  agent-runtime-image:
+    name: Python Agent Runtime Image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: agent-runtime/pyproject.toml
-      - name: Install
-        working-directory: agent-runtime
-        run: pip install -e ".[dev]"
-      - name: Test
-        working-directory: agent-runtime
-        run: pytest
-      - name: Lint
-        working-directory: agent-runtime
-        run: ruff check .
-      - name: Typecheck
-        working-directory: agent-runtime
-        run: mypy .
-      - name: Eval
-        working-directory: agent-runtime
-        run: python -m app.eval_runner --out /tmp/allcallall-python-agent-eval
+      - name: Check published image
+        run: docker manifest inspect ghcr.io/xianingy/allcallall-agent-runtime/agent-runtime:v0.1.0 >/tmp/agent-runtime-manifest.json
 
-  rag-runtime:
-    name: Python RAG Runtime
+  rag-runtime-image:
+    name: Python RAG Runtime Image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: rag-runtime/pyproject.toml
-      - name: Install
-        working-directory: rag-runtime
-        run: pip install -e ".[dev]"
-      - name: Test
-        working-directory: rag-runtime
-        run: pytest
-      - name: Lint
-        working-directory: rag-runtime
-        run: ruff check .
-      - name: Typecheck
-        working-directory: rag-runtime
-        run: mypy .
-      - name: Eval
-        working-directory: rag-runtime
-        run: python -m app.eval_runner --out /tmp/allcallall-python-rag-eval
+      - name: Check published image
+        run: docker manifest inspect ghcr.io/xianingy/allcallall-agent-runtime/rag-runtime:v0.1.0 >/tmp/rag-runtime-manifest.json
 
   mobile:
     name: Mobile
@@ -152,9 +114,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: mobile/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Install
-        working-directory: mobile
+        working-directory: .
         run: npm ci
       - name: Unit tests
         working-directory: mobile
@@ -175,9 +137,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Install
-        working-directory: web
+        working-directory: .
         run: npm ci
       - name: Generate API types
         working-directory: web
@@ -226,10 +188,10 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Install
         if: ${{ env.WEB_SMOKE_BASE_URL != '' }}
-        working-directory: web
+        working-directory: .
         run: npm ci
       - name: Install Playwright Chromium
         if: ${{ env.WEB_SMOKE_BASE_URL != '' }}

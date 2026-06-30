@@ -13,14 +13,15 @@ jobs:
       run:
         working-directory: web
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Use Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v5
       with:
-        node-version: '20'
+        node-version: '24'
         cache: 'npm'
-        cache-dependency-path: web/package-lock.json
+        cache-dependency-path: package-lock.json
     - name: Install dependencies
+      working-directory: .
       run: npm ci
     - name: Type Check
       run: npm run typecheck --if-present || npx tsc --noEmit
@@ -33,14 +34,15 @@ jobs:
       run:
         working-directory: mobile
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Use Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v5
       with:
-        node-version: '20'
+        node-version: '24'
         cache: 'npm'
-        cache-dependency-path: mobile/package-lock.json
+        cache-dependency-path: package-lock.json
     - name: Install dependencies
+      working-directory: .
       run: npm ci
     - name: Type Check
       run: npm run typecheck --if-present || npx tsc --noEmit
