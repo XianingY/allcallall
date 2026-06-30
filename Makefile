@@ -2,8 +2,10 @@
 # Common commands for development
 
 PYTHON ?= python3
+AGENT_RUNTIME_PYTHON ?= $(PYTHON)
+RAG_RUNTIME_PYTHON ?= $(PYTHON)
 
-.PHONY: help setup build-android build-ios clean test run-api run-agent-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check
+.PHONY: help setup build-android build-ios clean test run-api run-agent-runtime run-rag-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval python-rag-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval ai-agent-jd-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check
 
 # Default target
 help:
@@ -21,6 +23,7 @@ help:
 	@echo "  make run-backend      - Start backend server"
 	@echo "  make run-api          - Start API server (EMBEDDED_WORKERS configurable)"
 	@echo "  make run-agent-runtime - Start Python LangGraph Agent Runtime"
+	@echo "  make run-rag-runtime - Start Python RAG Runtime"
 	@echo "  make run-user-service - Start standalone gRPC User Service"
 	@echo "  make run-agent-worker - Start standalone Agent worker"
 	@echo "  make run-outbox-worker - Start standalone Outbox worker"
@@ -37,6 +40,7 @@ help:
 	@echo "  make agent-eval       - Run deterministic Agent eval harness"
 	@echo "  make agent-runtime-test - Run Python Agent Runtime tests and checks"
 	@echo "  make python-agent-eval - Run Python LangGraph task eval fixtures"
+	@echo "  make python-rag-eval - Run Python RAG Runtime eval fixtures"
 	@echo "  make rag-eval         - Run deterministic RAG retrieval eval harness"
 	@echo "  make rerank-eval      - Run RAG rerank eval with baseline comparison"
 	@echo "  make workflow-eval    - Run deterministic Workflow multi-agent eval harness"
@@ -44,6 +48,7 @@ help:
 	@echo "  make agent-demo-report - Generate combined Agent/RAG/Workflow demo report"
 	@echo "  make resume-eval      - Generate resume-oriented Agent KPI artifacts"
 	@echo "  make ai-portfolio-eval - Generate AI Agent portfolio evidence bundle"
+	@echo "  make ai-agent-jd-eval - Generate Python Agent + RAG JD evidence bundle"
 	@echo "  make mcp-tool-server  - Start MCP-compatible read-only tool server"
 	@echo "  make interview-bench  - Run local Agent/outbox benchmark"
 	@echo "  make realtime-replay-bench - Run local realtime replay benchmark"
@@ -98,6 +103,10 @@ run-api:
 run-agent-runtime:
 	@echo "Starting Python LangGraph Agent Runtime..."
 	cd agent-runtime && uvicorn app.main:app --reload --port $${PY_AGENT_RUNTIME_PORT:-8090}
+
+run-rag-runtime:
+	@echo "Starting Python RAG Runtime..."
+	cd rag-runtime && uvicorn app.main:app --reload --port $${PY_RAG_RUNTIME_PORT:-8091}
 
 run-user-service:
 	@echo "Starting standalone gRPC User Service..."
@@ -209,7 +218,11 @@ agent-runtime-test:
 
 python-agent-eval:
 	@echo "Running Python LangGraph Agent Runtime eval..."
-	cd agent-runtime && $(PYTHON) -m app.eval_runner --out evals/reports
+	cd agent-runtime && $(AGENT_RUNTIME_PYTHON) -m app.eval_runner --out evals/reports
+
+python-rag-eval:
+	@echo "Running Python RAG Runtime eval..."
+	cd rag-runtime && $(RAG_RUNTIME_PYTHON) -m app.eval_runner --out evals/reports
 
 agent-demo-report:
 	@echo "Generating combined Agent demo report..."
@@ -224,8 +237,13 @@ resume-eval:
 ai-portfolio-eval:
 	@echo "Generating AI Agent portfolio eval bundle..."
 	@mkdir -p /tmp/allcallall-go-cache
-	cd agent-runtime && $(PYTHON) -m app.eval_runner --out evals/reports
+	cd agent-runtime && $(AGENT_RUNTIME_PYTHON) -m app.eval_runner --out evals/reports
+	cd rag-runtime && $(RAG_RUNTIME_PYTHON) -m app.eval_runner --out evals/reports
 	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/allcallallctl ai-portfolio-eval -provider $${AGENT_PROVIDER:-rules} -out ../docs/interview/generated-ai-portfolio-eval
+
+ai-agent-jd-eval: python-agent-eval python-rag-eval
+	@echo "Generating AI Agent JD eval bundle..."
+	$(PYTHON) scripts/ai_agent_jd_eval.py --out docs/interview/generated-ai-agent-jd-eval
 
 mcp-tool-server:
 	@echo "Starting MCP-compatible read-only tool server..."

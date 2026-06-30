@@ -1,0 +1,53 @@
+{
+  "scope": "deterministic local eval bundle for AI Agent JD interview evidence",
+  "interpretation_note": "Regression/eval evidence for current fixtures; not an open-domain production quality claim.",
+  "agent_runtime": {
+    "runtime": "python_langgraph",
+    "provider": "rules",
+    "summary": {
+      "total_cases": 9,
+      "passed_cases": 9,
+      "task_success_rate": 1.0,
+      "citation_grounding_rate": 1.0,
+      "tool_intent_match_rate": 1.0,
+      "approval_safety_rate": 1.0,
+      "unsupported_claim_guard_rate": 1.0,
+      "prompt_schema_valid_rate": 1.0,
+      "grounding_check_rate": 0.8888888888888888,
+      "retrieval_refinement_success_rate": 1.0,
+      "citation_coverage_rate": 1.0,
+      "max_iteration_compliance_rate": 1.0,
+      "unnecessary_tool_call_rate": 1.0
+    }
+  },
+  "rag_runtime": {
+    "runtime": "python_rag",
+    "provider": "rules",
+    "summary": {
+      "total_cases": 3,
+      "passed_cases": 3,
+      "rerank_top_match_rate": 1.0,
+      "grounding_pass_rate": 1.0,
+      "sufficiency_pass_rate": 1.0,
+      "retrieval_refinement_success_rate": 1.0
+    }
+  },
+  "jd_mapping": [
+    {
+      "jd_requirement": "Agent framework usage and secondary development",
+      "project_evidence": "Python FastAPI Agent Runtime uses LangGraph workflow nodes, bounded ReAct role loops, prompt registry, trace events, and tool proposals."
+    },
+    {
+      "jd_requirement": "LLM calling and prompt engineering",
+      "project_evidence": "OpenAI-compatible provider adapter supports structured JSON output; deterministic rules provider keeps eval reproducible."
+    },
+    {
+      "jd_requirement": "Knowledge base, embedding, hybrid retrieval, rerank",
+      "project_evidence": "Go owns authorized business retrieval; Python RAG Runtime adds agentic retrieval orchestration, rerank, grounding check, and fixture eval."
+    },
+    {
+      "jd_requirement": "AI product landing in business scenarios",
+      "project_evidence": "Meeting recap, risk review, follow-up planning, and context QA all run against collaboration context with citation and approval boundaries."
+    }
+  ]
+}
