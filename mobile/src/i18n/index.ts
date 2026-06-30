@@ -1,5 +1,5 @@
 import i18n from 'i18next';
-import { initReactI18n } from 'react-i18next';
+import { initReactI18next } from 'react-i18next';
 import { getLocales } from 'expo-localization';
 
 import en from './locales/en.json';
@@ -15,7 +15,7 @@ const deviceLanguage = getLocales()[0]?.languageCode ?? 'zh';
 const initialLang = deviceLanguage.startsWith('zh') ? 'zh' : 'en';
 
 i18n
-  .use(initReactI18n)
+  .use(initReactI18next)
   .init({
     resources,
     lng: initialLang,
