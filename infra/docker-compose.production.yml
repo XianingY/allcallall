@@ -125,9 +125,7 @@ services:
       retries: 3
 
   agent-runtime:
-    build:
-      context: ../agent-runtime
-      dockerfile: Dockerfile
+    image: "${PY_AGENT_RUNTIME_IMAGE:-ghcr.io/xianingy/allcallall-agent-runtime/agent-runtime:v0.1.0}"
     environment:
       PY_AGENT_PROVIDER: "${PY_AGENT_PROVIDER:-rules}"
       PY_AGENT_OPENAI_BASE_URL: "${PY_AGENT_OPENAI_BASE_URL:-}"
@@ -147,9 +145,7 @@ services:
       retries: 3
 
   rag-runtime:
-    build:
-      context: ../rag-runtime
-      dockerfile: Dockerfile
+    image: "${PY_RAG_RUNTIME_IMAGE:-ghcr.io/xianingy/allcallall-agent-runtime/rag-runtime:v0.1.0}"
     environment:
       PY_RAG_RERANK_PROVIDER: "${PY_RAG_RERANK_PROVIDER:-rules}"
       PY_RAG_TOOL_BRIDGE_BASE_URL: "${PY_RAG_TOOL_BRIDGE_BASE_URL:-http://backend:8080}"

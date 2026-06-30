@@ -1,0 +1,12 @@
+services:
+  agent-runtime:
+    build:
+      context: ../../allcallall-agent-runtime
+      dockerfile: services/agent-runtime/Dockerfile
+    image: allcallall-agent-runtime:local
+
+  rag-runtime:
+    build:
+      context: ../../allcallall-agent-runtime
+      dockerfile: services/rag-runtime/Dockerfile
+    image: allcallall-rag-runtime:local

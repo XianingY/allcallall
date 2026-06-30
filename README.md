@@ -22,9 +22,7 @@ Realtime translation code is still present for compatibility, but the mobile UI 
 ## Repository Map
 
 ```text
-backend/     Go backend: API, auth, collaboration, Agent, search, storage, workers
-agent-runtime/ Python FastAPI + LangGraph Agent runtime, provider adapters, tool bridge client, and evals
-rag-runtime/ Python FastAPI RAG runtime for Agentic retrieval, rerank, grounding, and evals
+backend/     Go backend: API, auth, collaboration, Agent adapters, search, storage, workers
 web/         Primary React + Vite + TypeScript Web application
 mobile/      Expo React Native app for native Android/iOS
 desktop/     Electron shell wrapping the Web client
@@ -32,6 +30,10 @@ infra/       Docker Compose local stack and optional interview infra profiles
 scripts/     Development, smoke, seed, and benchmark scripts
 docs/        Current docs, interview docs, deployment notes, and selected references
 ```
+
+The Python Agent/RAG runtime source has been split into
+[`XianingY/allcallall-agent-runtime`](https://github.com/XianingY/allcallall-agent-runtime).
+AllCallAll integrates it over HTTP and Docker images; Go remains the source of truth for product data, permissions, approvals, audit, and write execution.
 
 ## Fast Start
 
@@ -127,6 +129,7 @@ Common backend variables:
 - `AGENT_RUNTIME=python_langgraph|legacy_go`: Agent orchestration runtime. Compose/Beta demo defaults to `python_langgraph`; bare Go processes without this env still use the legacy in-process runtime. `go` is accepted as a legacy alias.
 - `PY_AGENT_RUNTIME_BASE_URL`: Python LangGraph runtime URL, defaulting to `http://127.0.0.1:8090` locally and `http://agent-runtime:8090` in Compose.
 - `PY_RAG_RUNTIME_BASE_URL`: Python RAG Runtime URL, defaulting to `http://rag-runtime:8091` in Compose when Agentic RAG calls are enabled.
+- `PY_AGENT_RUNTIME_IMAGE`, `PY_RAG_RUNTIME_IMAGE`: Docker image overrides. Compose defaults to `ghcr.io/xianingy/allcallall-agent-runtime/{agent-runtime,rag-runtime}:v0.1.0`.
 - `PY_AGENT_RUNTIME_TIMEOUT_SEC`, `PY_AGENT_RUNTIME_STRICT`: timeout and strict failure behavior for the Python runtime.
 - `AGENT_RUNTIME_TOOL_TOKEN`: shared token that protects the Go read-only tool bridge for Python runtime calls.
 - `PY_AGENT_PROVIDER=rules|openai_compatible`: Python runtime provider selection.

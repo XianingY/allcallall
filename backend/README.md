@@ -80,6 +80,7 @@ Core variables:
 - `AGENT_RUNTIME=python_langgraph|legacy_go`; Compose/Beta demo defaults to `python_langgraph`, while bare Go processes without the env still use the legacy in-process runtime. `go` is accepted as a legacy alias. `python_langgraph` routes ReAct runs and supported workflows to the Python LangGraph service while keeping Go-owned data access, tool approval, audit, and write execution.
 - `PY_AGENT_RUNTIME_BASE_URL=http://127.0.0.1:8090`
 - `PY_RAG_RUNTIME_BASE_URL=http://127.0.0.1:8091`
+- `PY_AGENT_RUNTIME_IMAGE`, `PY_RAG_RUNTIME_IMAGE`: Docker image overrides for the external runtime project. Compose defaults to `ghcr.io/xianingy/allcallall-agent-runtime/agent-runtime:v0.1.0` and `ghcr.io/xianingy/allcallall-agent-runtime/rag-runtime:v0.1.0`.
 - `PY_AGENT_RUNTIME_TIMEOUT_SEC=60`
 - `PY_AGENT_RUNTIME_STRICT=true`
 - `AGENT_RUNTIME_TOOL_TOKEN`: bearer token required by the internal read-only tool bridge.

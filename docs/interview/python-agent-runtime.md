@@ -4,7 +4,7 @@ This page is the interview-facing explanation for the Python Agent Runtime.
 
 ## What Changed
 
-AllCallAll keeps the Go backend as the business source of truth, but makes `agent-runtime/` the Beta/demo Agent intelligence layer: a Python FastAPI + LangGraph service for ReAct runs, workflow DAGs, prompt/provider adapters, trace, citations, and write-tool proposals.
+AllCallAll keeps the Go backend as the business source of truth, but makes the external [`allcallall-agent-runtime`](https://github.com/XianingY/allcallall-agent-runtime) project the Beta/demo Agent intelligence layer: a Python FastAPI + LangGraph service for ReAct runs, workflow DAGs, prompt/provider adapters, trace, citations, and write-tool proposals.
 
 The Python runtime currently supports:
 
@@ -23,7 +23,7 @@ The runtime exposes:
 - `POST /v1/workflows/{preset}/run`
 - `POST /v1/workflows/meeting-brief/run` for compatibility
 
-`rag-runtime/` is a separate Python FastAPI service for Agentic retrieval orchestration, rerank, evidence packs, grounding checks, and RAG eval. The Agent runtime calls it through `PY_RAG_RUNTIME_BASE_URL` when configured.
+The same external runtime repository also ships a separate Python RAG Runtime service for Agentic retrieval orchestration, rerank, evidence packs, grounding checks, and RAG eval. The Agent runtime calls it through `PY_RAG_RUNTIME_BASE_URL` when configured.
 
 ## Boundary
 
@@ -85,10 +85,10 @@ make ai-portfolio-eval
 
 Output:
 
-- `agent-runtime/evals/reports/python-agent-eval.json`
-- `agent-runtime/evals/reports/python-agent-eval.md`
-- `rag-runtime/evals/reports/python-rag-eval.json`
-- `rag-runtime/evals/reports/python-rag-eval.md`
+- `services/agent-runtime/evals/reports/python-agent-eval.json`
+- `services/agent-runtime/evals/reports/python-agent-eval.md`
+- `services/rag-runtime/evals/reports/python-rag-eval.json`
+- `services/rag-runtime/evals/reports/python-rag-eval.md`
 - `docs/interview/generated-ai-agent-jd-eval/ai-agent-jd-eval.md`
 - `docs/interview/generated-rerank-eval/rerank-eval.json`
 - `docs/interview/generated-ai-portfolio-eval/ai-portfolio-eval.md`
@@ -103,7 +103,7 @@ Current deterministic fixture scope:
 - prompt schema / prompt version presence
 - grounding-check trace presence
 
-`agent-runtime/app/llamaindex_adapter.py` is an eval-only adapter for comparing a LlamaIndex retrieval baseline on fixture documents. It does not replace the Go knowledge store, because production retrieval still needs organization isolation, source metadata, approval boundaries, and auditability.
+`services/agent-runtime/allcallall_agent_runtime/llamaindex_adapter.py` in the external runtime repository is an eval-only adapter for comparing a LlamaIndex retrieval baseline on fixture documents. It does not replace the Go knowledge store, because production retrieval still needs organization isolation, source metadata, approval boundaries, and auditability.
 
 These are regression and demonstration metrics, not open-domain model-quality claims.
 
