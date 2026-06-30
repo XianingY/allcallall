@@ -42,7 +42,7 @@ var (
 )
 
 type Service struct {
-	db      *gorm.DB
+	repo    *Repository
 	metrics counterRecorder
 }
 
@@ -56,7 +56,15 @@ func NewService(db *gorm.DB, metrics ...counterRecorder) *Service {
 	if len(metrics) > 0 {
 		recorder = metrics[0]
 	}
-	return &Service{db: db, metrics: recorder}
+	return &Service{repo: NewRepository(db), metrics: recorder}
+}
+
+func NewServiceWithRepository(repo *Repository, metrics ...counterRecorder) *Service {
+	var recorder counterRecorder
+	if len(metrics) > 0 {
+		recorder = metrics[0]
+	}
+	return &Service{repo: repo, metrics: recorder}
 }
 
 var allowedReportCategories = map[string]struct{}{
@@ -110,54 +118,24 @@ func (s *Service) CurrentLegal() LegalDocumentSet {
 }
 
 func (s *Service) AcceptLegal(ctx context.Context, userID uint64) error {
-	now := time.Now().UTC()
-	record := &models.LegalAcceptance{
-		UserID:         userID,
-		TermsVersion:   legalTermsVersion,
-		PrivacyVersion: legalPrivacyVersion,
-		AcceptedAt:     now,
-	}
-
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var existing models.LegalAcceptance
-		err := tx.Where("user_id = ?", userID).Take(&existing).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return tx.Create(record).Error
-		}
-		if err != nil {
-			return err
-		}
-		existing.TermsVersion = legalTermsVersion
-		existing.PrivacyVersion = legalPrivacyVersion
-		existing.AcceptedAt = now
-		return tx.Save(&existing).Error
-	})
+	return s.repo.UpsertLegalAcceptance(ctx, userID, legalTermsVersion, legalPrivacyVersion)
 }
 
 func (s *Service) GetLegalAcceptance(ctx context.Context, userID uint64) (*models.LegalAcceptance, error) {
-	var record models.LegalAcceptance
-	if err := s.db.WithContext(ctx).Where("user_id = ?", userID).Take(&record).Error; err != nil {
-		return nil, err
-	}
-	return &record, nil
+	return s.repo.GetLegalAcceptance(ctx, userID)
 }
 
 func (s *Service) EnsureDefaultEntitlement(ctx context.Context, userID uint64) (*models.UserEntitlement, error) {
 	now := time.Now().UTC()
-	var entitlement models.UserEntitlement
-	err := s.db.WithContext(ctx).
-		Where("user_id = ? AND entitlement = ?", userID, models.EntitlementPremium).
-		Where("status = ?", "active").
-		Order("updated_at DESC").
-		Take(&entitlement).Error
+	entitlement, err := s.repo.GetActivePremiumEntitlement(ctx, userID)
 	if err == nil {
-		return &entitlement, nil
+		return entitlement, nil
 	}
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
 
-	entitlement = models.UserEntitlement{
+	entitlement = &models.UserEntitlement{
 		UserID:       userID,
 		Entitlement:  models.EntitlementFree,
 		Tier:         models.EntitlementFree,
@@ -166,15 +144,15 @@ func (s *Service) EnsureDefaultEntitlement(ctx context.Context, userID uint64) (
 		LastSyncedAt: &now,
 	}
 
-	if err := s.db.WithContext(ctx).Where("user_id = ? AND entitlement = ?", userID, models.EntitlementFree).FirstOrCreate(&entitlement).Error; err != nil {
+	if err := s.repo.FirstOrCreateFreeEntitlement(ctx, entitlement); err != nil {
 		return nil, err
 	}
-	return &entitlement, nil
+	return entitlement, nil
 }
 
 func (s *Service) GetEntitlements(ctx context.Context, userID uint64) ([]models.UserEntitlement, error) {
-	var entitlements []models.UserEntitlement
-	if err := s.db.WithContext(ctx).Where("user_id = ?", userID).Order("updated_at DESC").Find(&entitlements).Error; err != nil {
+	entitlements, err := s.repo.GetEntitlements(ctx, userID)
+	if err != nil {
 		return nil, err
 	}
 	if len(entitlements) == 0 {
@@ -276,10 +254,7 @@ func normalizeFollowUpTaskStatus(status string) (string, error) {
 }
 
 func (s *Service) lookupUsageLedgerUnits(ctx context.Context, userID uint64, key string) (int64, error) {
-	var ledger models.UsageLedger
-	err := s.db.WithContext(ctx).
-		Where("user_id = ? AND feature = ? AND period_key = ?", userID, translationUsageFeature, key).
-		Take(&ledger).Error
+	ledger, err := s.repo.GetUsageLedger(ctx, userID, translationUsageFeature, key)
 	if err == nil {
 		return ledger.Units, nil
 	}
@@ -287,10 +262,7 @@ func (s *Service) lookupUsageLedgerUnits(ctx context.Context, userID uint64, key
 		return 0, err
 	}
 
-	var legacy models.UsageLedger
-	legacyErr := s.db.WithContext(ctx).
-		Where("user_id = ? AND feature = ? AND period_key = ?", userID, "translation_minutes", key).
-		Take(&legacy).Error
+	legacy, legacyErr := s.repo.GetUsageLedger(ctx, userID, "translation_minutes", key)
 	if legacyErr == nil {
 		return legacy.Units * 60, nil
 	}
@@ -334,31 +306,27 @@ func (s *Service) GetUsage(ctx context.Context, userID uint64) ([]UsageSnapshot,
 	}, nil
 }
 
-func (s *Service) consumeTranslationSecondsTx(tx *gorm.DB, userID uint64, deltaSeconds int64, key string) error {
+func (s *Service) consumeTranslationSecondsTx(ctx context.Context, userID uint64, deltaSeconds int64, key string) error {
 	if deltaSeconds <= 0 {
 		return nil
 	}
 
-	var ledger models.UsageLedger
-	err := tx.Where("user_id = ? AND feature = ? AND period_key = ?", userID, translationUsageFeature, key).
-		First(&ledger).Error
+	ledger, err := s.repo.GetUsageLedger(ctx, userID, translationUsageFeature, key)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		legacyUnits := int64(0)
-		var legacy models.UsageLedger
-		legacyErr := tx.Where("user_id = ? AND feature = ? AND period_key = ?", userID, "translation_minutes", key).
-			Take(&legacy).Error
+		legacy, legacyErr := s.repo.GetUsageLedger(ctx, userID, "translation_minutes", key)
 		if legacyErr == nil {
 			legacyUnits = legacy.Units * 60
 		} else if legacyErr != nil && !errors.Is(legacyErr, gorm.ErrRecordNotFound) {
 			return legacyErr
 		}
-		ledger = models.UsageLedger{
+		ledger = &models.UsageLedger{
 			UserID:    userID,
 			Feature:   translationUsageFeature,
 			PeriodKey: key,
 			Units:     legacyUnits,
 		}
-		if err := tx.Create(&ledger).Error; err != nil {
+		if err := s.repo.FirstOrCreateUsageLedger(ctx, ledger); err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -369,7 +337,7 @@ func (s *Service) consumeTranslationSecondsTx(tx *gorm.DB, userID uint64, deltaS
 		return ErrTranslationQuotaExhausted
 	}
 	ledger.Units += deltaSeconds
-	return tx.Save(&ledger).Error
+	return s.repo.SaveUsageLedger(ctx, ledger)
 }
 
 func (s *Service) ConsumeTranslationMinutes(ctx context.Context, userID uint64, delta int64) error {
@@ -389,8 +357,8 @@ func (s *Service) ConsumeTranslationSeconds(ctx context.Context, userID uint64, 
 	}
 
 	key := periodKey(time.Now().UTC())
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return s.consumeTranslationSecondsTx(tx, userID, deltaSeconds, key)
+	return s.repo.RunInTransaction(ctx, func(tx *gorm.DB) error {
+		return s.consumeTranslationSecondsTx(ctx, userID, deltaSeconds, key)
 	})
 }
 
@@ -412,8 +380,8 @@ func (s *Service) RecordTranslationUsageSlice(ctx context.Context, userID uint64
 	key := periodKey(time.UnixMilli(eventTimestampMS).UTC())
 	charged := false
 
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		slice := models.TranslationUsageSlice{
+	err = s.repo.RunInTransaction(ctx, func(tx *gorm.DB) error {
+		slice := &models.TranslationUsageSlice{
 			UserID:           userID,
 			CallID:           callID,
 			SliceIndex:       sliceIndex,
@@ -422,12 +390,11 @@ func (s *Service) RecordTranslationUsageSlice(ctx context.Context, userID uint64
 			Tier:             tier,
 		}
 
-		result := tx.Where("user_id = ? AND call_id = ? AND slice_index = ?", userID, callID, sliceIndex).
-			FirstOrCreate(&slice)
-		if result.Error != nil {
-			return result.Error
+		rowsAffected, createErr := s.repo.FirstOrCreateTranslationUsageSlice(ctx, slice)
+		if createErr != nil {
+			return createErr
 		}
-		if result.RowsAffected == 0 {
+		if rowsAffected == 0 {
 			return nil
 		}
 
@@ -436,7 +403,7 @@ func (s *Service) RecordTranslationUsageSlice(ctx context.Context, userID uint64
 			return nil
 		}
 
-		return s.consumeTranslationSecondsTx(tx, userID, translationSliceSeconds, key)
+		return s.consumeTranslationSecondsTx(ctx, userID, translationSliceSeconds, key)
 	})
 	if err != nil {
 		return false, err
@@ -459,10 +426,7 @@ func (s *Service) RegisterCallInvite(ctx context.Context, callID string, caller 
 		LastEventAt:       now,
 	}
 
-	return s.db.WithContext(ctx).
-		Where("call_id = ?", callID).
-		Assign(record).
-		FirstOrCreate(record).Error
+	return s.repo.RegisterCallInvite(ctx, record)
 }
 
 func (s *Service) RecordTranscriptSegment(ctx context.Context, segment models.CallTranscriptSegment) error {
@@ -475,7 +439,7 @@ func (s *Service) RecordTranscriptSegment(ctx context.Context, segment models.Ca
 	if segment.TimestampMS <= 0 {
 		segment.TimestampMS = time.Now().UnixMilli()
 	}
-	return s.db.WithContext(ctx).Create(&segment).Error
+	return s.repo.CreateTranscriptSegment(ctx, &segment)
 }
 
 func (s *Service) MarkFollowupSecondCallCompleted(ctx context.Context, userID, peerUserID uint64, callID string, completedAt time.Time) error {
@@ -484,30 +448,19 @@ func (s *Service) MarkFollowupSecondCallCompleted(ctx context.Context, userID, p
 	}
 	callID = strings.TrimSpace(callID)
 	windowStart := completedAt.Add(-7 * 24 * time.Hour)
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var count int64
-		query := tx.Model(&models.CallSession{}).
-			Where("started_at >= ?", windowStart).
-			Where("status IN ?", []string{models.CallStatusAnswered, models.CallStatusEnded})
-		if callID != "" {
-			query = query.Where("call_id <> ?", callID)
-		}
-		if err := query.Where(
-			"(caller_id = ? AND callee_id = ?) OR (caller_id = ? AND callee_id = ?)",
-			userID, peerUserID, peerUserID, userID,
-		).Count(&count).Error; err != nil {
+	return s.repo.RunInTransaction(ctx, func(tx *gorm.DB) error {
+		count, err := s.repo.CountRecentCallsBetweenUsers(ctx, userID, peerUserID, windowStart, callID)
+		if err != nil {
 			return err
 		}
 		if count == 0 {
 			return nil
 		}
-		return tx.Model(&models.FollowUpTask{}).
-			Where("user_id = ? AND peer_user_id = ? AND type = ? AND status = ?", userID, peerUserID, models.FollowupTaskTypeCallback, models.FollowupTaskStatusOpen).
-			Updates(map[string]any{
-				"status":       models.FollowupTaskStatusDone,
-				"completed_at": completedAt.UTC(),
-				"updated_at":   completedAt.UTC(),
-			}).Error
+		return s.repo.UpdateFollowUpTasksByUserPeerType(ctx, userID, peerUserID, models.FollowupTaskTypeCallback, models.FollowupTaskStatusOpen, map[string]any{
+			"status":       models.FollowupTaskStatusDone,
+			"completed_at": completedAt.UTC(),
+			"updated_at":   completedAt.UTC(),
+		})
 	})
 }
 
@@ -527,7 +480,7 @@ func (s *Service) UpdateCallStatus(ctx context.Context, callID string, status st
 	case models.CallStatusEnded, models.CallStatusRejected, models.CallStatusMissed, models.CallStatusFailed:
 		updates["ended_at"] = now
 	}
-	if err := s.db.WithContext(ctx).Model(&models.CallSession{}).Where("call_id = ?", callID).Updates(updates).Error; err != nil {
+	if err := s.repo.UpdateCallStatus(ctx, callID, updates); err != nil {
 		return err
 	}
 	if status == models.CallStatusEnded || status == models.CallStatusRejected || status == models.CallStatusMissed || status == models.CallStatusFailed {
@@ -541,12 +494,7 @@ func (s *Service) ListCallHistory(ctx context.Context, userID uint64, days int) 
 		days = 30
 	}
 	since := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
-	var sessions []models.CallSession
-	err := s.db.WithContext(ctx).
-		Where("(caller_id = ? OR callee_id = ?) AND started_at >= ?", userID, userID, since).
-		Order("started_at DESC").
-		Limit(100).
-		Find(&sessions).Error
+	sessions, err := s.repo.ListCallSessionsByUser(ctx, userID, since)
 	if err != nil || len(sessions) == 0 {
 		return []CallHistoryEntry{}, err
 	}
@@ -555,19 +503,16 @@ func (s *Service) ListCallHistory(ctx context.Context, userID uint64, days int) 
 	for _, session := range sessions {
 		callIDs = append(callIDs, session.CallID)
 	}
-	var followups []models.CallFollowup
-	if err := s.db.WithContext(ctx).Where("call_id IN ? AND user_id = ?", callIDs, userID).Find(&followups).Error; err != nil {
+	followups, err := s.repo.GetCallFollowupsByCalls(ctx, callIDs, userID)
+	if err != nil {
 		return nil, err
 	}
 	followupMap := make(map[string]models.CallFollowup, len(followups))
 	for _, item := range followups {
 		followupMap[item.CallID] = item
 	}
-	var tasks []models.FollowUpTask
-	if err := s.db.WithContext(ctx).
-		Where("call_id IN ? AND user_id = ? AND status IN ?", callIDs, userID, []string{models.FollowupTaskStatusOpen, models.FollowupTaskStatusSnoozed}).
-		Order("due_at ASC").
-		Find(&tasks).Error; err != nil {
+	tasks, err := s.repo.GetFollowUpTasksByCalls(ctx, callIDs, userID, []string{models.FollowupTaskStatusOpen, models.FollowupTaskStatusSnoozed})
+	if err != nil {
 		return nil, err
 	}
 	taskMap := make(map[string]models.FollowUpTask, len(tasks))
@@ -602,29 +547,20 @@ func (s *Service) CreateBlock(ctx context.Context, blockerID, blockedUserID uint
 		BlockerID:     blockerID,
 		BlockedUserID: blockedUserID,
 	}
-	return s.db.WithContext(ctx).Where("blocker_id = ? AND blocked_user_id = ?", blockerID, blockedUserID).
-		FirstOrCreate(block).Error
+	return s.repo.FirstOrCreateUserBlock(ctx, block)
 }
 
 func (s *Service) RemoveBlock(ctx context.Context, blockerID, blockedUserID uint64) error {
-	return s.db.WithContext(ctx).
-		Where("blocker_id = ? AND blocked_user_id = ?", blockerID, blockedUserID).
-		Delete(&models.UserBlock{}).Error
+	return s.repo.DeleteUserBlock(ctx, blockerID, blockedUserID)
 }
 
 func (s *Service) ListBlocks(ctx context.Context, blockerID uint64) ([]models.UserBlock, error) {
-	var blocks []models.UserBlock
-	if err := s.db.WithContext(ctx).Where("blocker_id = ?", blockerID).Find(&blocks).Error; err != nil {
-		return nil, err
-	}
-	return blocks, nil
+	return s.repo.ListUserBlocks(ctx, blockerID)
 }
 
 func (s *Service) AreUsersBlocked(ctx context.Context, userA, userB uint64) (bool, error) {
-	var count int64
-	if err := s.db.WithContext(ctx).Model(&models.UserBlock{}).
-		Where("(blocker_id = ? AND blocked_user_id = ?) OR (blocker_id = ? AND blocked_user_id = ?)", userA, userB, userB, userA).
-		Count(&count).Error; err != nil {
+	count, err := s.repo.CountUserBlocksBetweenUsers(ctx, userA, userB)
+	if err != nil {
 		return false, err
 	}
 	return count > 0, nil
@@ -642,7 +578,7 @@ func (s *Service) CreateReport(ctx context.Context, reporterID, reportedUserID u
 		Details:        strings.TrimSpace(details),
 		Status:         "open",
 	}
-	return s.db.WithContext(ctx).Create(report).Error
+	return s.repo.CreateAbuseReport(ctx, report)
 }
 
 type RevenueCatWebhook struct {
@@ -673,14 +609,16 @@ func (s *Service) HandleRevenueCatWebhook(ctx context.Context, payload RevenueCa
 		PayloadJSON: string(raw),
 	}
 
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("event_id = ?", eventID).Take(&models.BillingWebhookEvent{}).Error; err == nil {
+	return s.repo.RunInTransaction(ctx, func(tx *gorm.DB) error {
+		existingEvent, err := s.repo.GetBillingWebhookEvent(ctx, eventID)
+		if err == nil {
 			return ErrWebhookAlreadyProcessed
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
+		_ = existingEvent
 
-		if err := tx.Create(eventRecord).Error; err != nil {
+		if err := s.repo.CreateBillingWebhookEvent(ctx, eventRecord); err != nil {
 			return err
 		}
 
@@ -742,10 +680,9 @@ func (s *Service) HandleRevenueCatWebhook(ctx context.Context, payload RevenueCa
 		}
 
 		if entitlementName != models.EntitlementFree && status != "" {
-			var existing models.UserEntitlement
-			err := tx.Where("user_id = ? AND entitlement = ?", userID, entitlementName).Take(&existing).Error
+			existing, err := s.repo.GetEntitlementByType(ctx, userID, entitlementName)
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				existing = models.UserEntitlement{
+				existing = &models.UserEntitlement{
 					UserID:      userID,
 					Entitlement: entitlementName,
 				}
@@ -758,13 +695,13 @@ func (s *Service) HandleRevenueCatWebhook(ctx context.Context, payload RevenueCa
 			existing.Status = status
 			existing.ExpiresAt = expiresAt
 			existing.LastSyncedAt = &now
-			if err := tx.Save(&existing).Error; err != nil {
+			if err := s.repo.SaveEntitlement(ctx, existing); err != nil {
 				return err
 			}
 		}
 
 		eventRecord.ProcessedAt = &now
-		return tx.Save(eventRecord).Error
+		return s.repo.SaveBillingWebhookEvent(ctx, eventRecord)
 	})
 }
 
@@ -830,11 +767,8 @@ func (s *Service) ListSupportReports(ctx context.Context, limit int) ([]SupportR
 		limit = 50
 	}
 
-	var reports []models.AbuseReport
-	if err := s.db.WithContext(ctx).
-		Order("created_at DESC").
-		Limit(limit).
-		Find(&reports).Error; err != nil {
+	reports, err := s.repo.ListAbuseReports(ctx, limit)
+	if err != nil {
 		return nil, err
 	}
 	if len(reports) == 0 {
@@ -854,8 +788,8 @@ func (s *Service) ListSupportReports(ctx context.Context, limit int) ([]SupportR
 		}
 	}
 
-	var users []models.User
-	if err := s.db.WithContext(ctx).Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+	users, err := s.repo.GetUsersByIDs(ctx, userIDs)
+	if err != nil {
 		return nil, err
 	}
 	userMap := make(map[uint64]models.User, len(users))
@@ -879,8 +813,8 @@ func (s *Service) ListSupportReports(ctx context.Context, limit int) ([]SupportR
 }
 
 func (s *Service) GetSupportUserSummary(ctx context.Context, userID uint64) (*SupportUserSummary, error) {
-	var userModel models.User
-	if err := s.db.WithContext(ctx).Where("id = ?", userID).Take(&userModel).Error; err != nil {
+	userModel, err := s.repo.GetUser(ctx, userID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -900,31 +834,21 @@ func (s *Service) GetSupportUserSummary(ctx context.Context, userID uint64) (*Su
 	if err != nil {
 		return nil, err
 	}
-	var reports []models.AbuseReport
-	if err := s.db.WithContext(ctx).
-		Where("reporter_id = ? OR reported_user_id = ?", userID, userID).
-		Order("created_at DESC").
-		Limit(50).
-		Find(&reports).Error; err != nil {
+	reports, err := s.repo.ListAbuseReportsByUser(ctx, userID, 50)
+	if err != nil {
 		return nil, err
 	}
 	refreshSessions, err := s.getSupportRefreshSessionSummary(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	var deletionAudit models.DeletionAudit
-	var deletionAuditPtr *models.DeletionAudit
-	if err := s.db.WithContext(ctx).
-		Where("user_id = ?", userID).
-		Order("deleted_at DESC").
-		Take(&deletionAudit).Error; err == nil {
-		deletionAuditPtr = &deletionAudit
-	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	deletionAuditPtr, err := s.repo.GetLatestDeletionAudit(ctx, userID)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
 
 	return &SupportUserSummary{
-		User:            userModel,
+		User:            *userModel,
 		Entitlements:    entitlements,
 		Usage:           usage,
 		RecentCalls:     calls,
@@ -937,46 +861,41 @@ func (s *Service) GetSupportUserSummary(ctx context.Context, userID uint64) (*Su
 
 func (s *Service) getSupportRefreshSessionSummary(ctx context.Context, userID uint64) (SupportRefreshSessionSummary, error) {
 	now := time.Now().UTC()
-	sessions := func() *gorm.DB {
-		return s.db.WithContext(ctx).Model(&models.RefreshSession{}).Where("user_id = ?", userID)
-	}
-
 	var summary SupportRefreshSessionSummary
-	if err := sessions().Where("revoked_at IS NULL AND expires_at > ?", now).Count(&summary.ActiveCount).Error; err != nil {
-		return summary, err
-	}
-	if err := sessions().Where("revoked_at IS NOT NULL").Count(&summary.RevokedCount).Error; err != nil {
-		return summary, err
-	}
-	if err := sessions().Where("revoked_at IS NULL AND expires_at <= ?", now).Count(&summary.ExpiredCount).Error; err != nil {
-		return summary, err
-	}
 
-	var aggregate struct {
-		InvalidUseCount int64
-	}
-	if err := sessions().
-		Select("COALESCE(SUM(invalid_use_count), 0) AS invalid_use_count").
-		Scan(&aggregate).Error; err != nil {
+	activeCount, err := s.repo.CountActiveRefreshSessions(ctx, userID, now)
+	if err != nil {
 		return summary, err
 	}
-	summary.InvalidUseCount = aggregate.InvalidUseCount
+	summary.ActiveCount = activeCount
 
-	var latestInvalid models.RefreshSession
-	if err := sessions().
-		Where("last_invalid_use_at IS NOT NULL").
-		Order("last_invalid_use_at DESC").
-		Take(&latestInvalid).Error; err == nil {
+	revokedCount, err := s.repo.CountRevokedRefreshSessions(ctx, userID)
+	if err != nil {
+		return summary, err
+	}
+	summary.RevokedCount = revokedCount
+
+	expiredCount, err := s.repo.CountExpiredRefreshSessions(ctx, userID, now)
+	if err != nil {
+		return summary, err
+	}
+	summary.ExpiredCount = expiredCount
+
+	invalidUseCount, err := s.repo.SumInvalidUseCountRefreshSessions(ctx, userID)
+	if err != nil {
+		return summary, err
+	}
+	summary.InvalidUseCount = invalidUseCount
+
+	latestInvalid, err := s.repo.GetLatestInvalidRefreshSession(ctx, userID)
+	if err == nil {
 		summary.LastInvalidUseAt = latestInvalid.LastInvalidUseAt
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return summary, err
 	}
 
-	var recent []models.RefreshSession
-	if err := sessions().
-		Order("updated_at DESC, id DESC").
-		Limit(10).
-		Find(&recent).Error; err != nil {
+	recent, err := s.repo.ListRecentRefreshSessions(ctx, userID, 10)
+	if err != nil {
 		return summary, err
 	}
 	summary.Recent = make([]SupportRefreshSessionRecord, 0, len(recent))
@@ -1025,64 +944,48 @@ func (s *Service) RevokeSupportRefreshSessions(ctx context.Context, userID uint6
 	if userID == 0 {
 		return nil, gorm.ErrRecordNotFound
 	}
-	query := s.db.WithContext(ctx).Model(&models.RefreshSession{}).
-		Where("user_id = ? AND revoked_at IS NULL", userID)
-	if sessionID != nil {
-		if *sessionID == 0 {
-			return nil, gorm.ErrRecordNotFound
-		}
-		query = query.Where("id = ?", *sessionID)
+	if sessionID != nil && *sessionID == 0 {
+		return nil, gorm.ErrRecordNotFound
 	}
 	now := time.Now().UTC()
-	result := query.Updates(map[string]any{
-		"revoked_at":   now,
-		"last_used_at": now,
-	})
-	if result.Error != nil {
-		return nil, result.Error
+	revokedSessions, err := s.repo.RevokeRefreshSessions(ctx, userID, sessionID, now)
+	if err != nil {
+		return nil, err
 	}
 	return &SupportRefreshSessionRevocation{
 		UserID:          userID,
 		SessionID:       sessionID,
-		RevokedSessions: result.RowsAffected,
+		RevokedSessions: revokedSessions,
 	}, nil
 }
 
 func (s *Service) GetSupportCall(ctx context.Context, callID string) (*SupportCallDetails, error) {
-	var call models.CallSession
-	if err := s.db.WithContext(ctx).Where("call_id = ?", strings.TrimSpace(callID)).Take(&call).Error; err != nil {
+	call, err := s.repo.GetCallSession(ctx, strings.TrimSpace(callID))
+	if err != nil {
 		return nil, err
 	}
-	var slices []models.TranslationUsageSlice
-	if err := s.db.WithContext(ctx).
-		Where("call_id = ?", strings.TrimSpace(callID)).
-		Order("slice_index ASC").
-		Find(&slices).Error; err != nil {
+	slices, err := s.repo.GetTranslationUsageSlicesByCall(ctx, strings.TrimSpace(callID))
+	if err != nil {
 		return nil, err
 	}
-	var transcripts []models.CallTranscriptSegment
-	if err := s.db.WithContext(ctx).
-		Where("call_id = ?", strings.TrimSpace(callID)).
-		Order("timestamp_ms ASC").
-		Find(&transcripts).Error; err != nil {
+	transcripts, err := s.repo.GetTranscriptSegmentsByCall(ctx, strings.TrimSpace(callID))
+	if err != nil {
 		return nil, err
 	}
-	var followup models.CallFollowup
-	var followupPtr *models.CallFollowup
-	if err := s.db.WithContext(ctx).Where("call_id = ?", strings.TrimSpace(callID)).Order("user_id ASC").Take(&followup).Error; err == nil {
-		followupPtr = &followup
-	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	followupPtr, err := s.repo.GetCallFollowupByCall(ctx, strings.TrimSpace(callID))
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
 	var tasks []models.FollowUpTask
-	if err := s.db.WithContext(ctx).
-		Where("call_id = ?", strings.TrimSpace(callID)).
-		Order("created_at DESC").
-		Find(&tasks).Error; err != nil {
+	if err := s.repo.RunInTransaction(ctx, func(tx *gorm.DB) error {
+		var taskErr error
+		tasks, taskErr = s.repo.GetFollowUpTasksByCalls(ctx, []string{strings.TrimSpace(callID)}, 0, nil)
+		return taskErr
+	}); err != nil {
 		return nil, err
 	}
 	return &SupportCallDetails{
-		Call:               call,
+		Call:               *call,
 		TranslationSlices:  slices,
 		TranscriptSegments: transcripts,
 		Followup:           followupPtr,
@@ -1099,35 +1002,30 @@ func (s *Service) GetFollowup(ctx context.Context, userID uint64, callID string)
 	if callID == "" {
 		return nil, ErrFollowupNotFound
 	}
-	var followup models.CallFollowup
-	if err := s.db.WithContext(ctx).
-		Where("call_id = ? AND user_id = ?", callID, userID).
-		Take(&followup).Error; err != nil {
+	followup, err := s.repo.GetCallFollowup(ctx, callID, userID)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrFollowupNotFound
 		}
 		return nil, err
 	}
 	var tasks []models.FollowUpTask
-	if err := s.db.WithContext(ctx).
-		Where("call_id = ? AND user_id = ?", callID, userID).
-		Order("created_at DESC").
-		Find(&tasks).Error; err != nil {
+	if err := s.repo.RunInTransaction(ctx, func(tx *gorm.DB) error {
+		var taskErr error
+		tasks, taskErr = s.repo.GetFollowUpTasksByCalls(ctx, []string{callID}, userID, nil)
+		return taskErr
+	}); err != nil {
 		return nil, err
 	}
 	return &FollowupResponse{
-		Followup: &followup,
+		Followup: followup,
 		Tasks:    tasks,
 	}, nil
 }
 
 func (s *Service) ListFollowUpTasks(ctx context.Context, userID uint64) ([]FollowUpListItem, error) {
-	var tasks []models.FollowUpTask
-	if err := s.db.WithContext(ctx).
-		Where("user_id = ?", userID).
-		Order("created_at DESC").
-		Limit(100).
-		Find(&tasks).Error; err != nil {
+	tasks, err := s.repo.ListFollowUpTasksByUser(ctx, userID)
+	if err != nil {
 		return nil, err
 	}
 	if len(tasks) == 0 {
@@ -1154,7 +1052,18 @@ func (s *Service) ListFollowUpTasks(ctx context.Context, userID uint64) ([]Follo
 	callMap := make(map[string]models.CallSession)
 	if len(callIDs) > 0 {
 		var calls []models.CallSession
-		if err := s.db.WithContext(ctx).Where("call_id IN ?", callIDs).Find(&calls).Error; err != nil {
+		if err := s.repo.RunInTransaction(ctx, func(tx *gorm.DB) error {
+			for _, callID := range callIDs {
+				call, callErr := s.repo.GetCallSession(ctx, callID)
+				if callErr != nil && !errors.Is(callErr, gorm.ErrRecordNotFound) {
+					return callErr
+				}
+				if call != nil {
+					calls = append(calls, *call)
+				}
+			}
+			return nil
+		}); err != nil {
 			return nil, err
 		}
 		for _, item := range calls {
@@ -1163,8 +1072,8 @@ func (s *Service) ListFollowUpTasks(ctx context.Context, userID uint64) ([]Follo
 	}
 	followupMap := make(map[string]models.CallFollowup)
 	if len(callIDs) > 0 {
-		var followups []models.CallFollowup
-		if err := s.db.WithContext(ctx).Where("call_id IN ? AND user_id = ?", callIDs, userID).Find(&followups).Error; err != nil {
+		followups, err := s.repo.GetCallFollowupsByCalls(ctx, callIDs, userID)
+		if err != nil {
 			return nil, err
 		}
 		for _, item := range followups {
@@ -1173,8 +1082,8 @@ func (s *Service) ListFollowUpTasks(ctx context.Context, userID uint64) ([]Follo
 	}
 	peerMap := make(map[uint64]models.User)
 	if len(peerIDs) > 0 {
-		var peers []models.User
-		if err := s.db.WithContext(ctx).Where("id IN ?", peerIDs).Find(&peers).Error; err != nil {
+		peers, err := s.repo.GetUsersByIDs(ctx, peerIDs)
+		if err != nil {
 			return nil, err
 		}
 		for _, item := range peers {
@@ -1183,8 +1092,8 @@ func (s *Service) ListFollowUpTasks(ctx context.Context, userID uint64) ([]Follo
 	}
 	contactMap := make(map[uint64]models.ContactProfile)
 	if len(peerIDs) > 0 {
-		var contacts []models.ContactProfile
-		if err := s.db.WithContext(ctx).Where("owner_id = ? AND contact_user_id IN ?", userID, peerIDs).Find(&contacts).Error; err != nil {
+		contacts, err := s.repo.GetContactProfilesByOwnerAndContacts(ctx, userID, peerIDs)
+		if err != nil {
 			return nil, err
 		}
 		for _, item := range contacts {
@@ -1266,7 +1175,7 @@ func (s *Service) CreateFollowUpTask(ctx context.Context, task *models.FollowUpT
 		task.Title = "跟进联系人"
 	}
 	task.Description = strings.TrimSpace(task.Description)
-	if err := s.db.WithContext(ctx).Create(task).Error; err != nil {
+	if err := s.repo.CreateFollowUpTask(ctx, task); err != nil {
 		return nil, err
 	}
 	if s.metrics != nil && task.Status == models.FollowupTaskStatusOpen {
@@ -1279,8 +1188,8 @@ func (s *Service) UpdateFollowUpTask(ctx context.Context, userID, taskID uint64,
 	if taskID == 0 {
 		return nil, errors.New("task id is required")
 	}
-	var task models.FollowUpTask
-	if err := s.db.WithContext(ctx).Where("id = ? AND user_id = ?", taskID, userID).Take(&task).Error; err != nil {
+	task, err := s.repo.GetFollowUpTask(ctx, taskID, userID)
+	if err != nil {
 		return nil, err
 	}
 	patch := map[string]any{"updated_at": time.Now().UTC()}
@@ -1303,13 +1212,14 @@ func (s *Service) UpdateFollowUpTask(ctx context.Context, userID, taskID uint64,
 	if description, ok := updates["description"].(string); ok {
 		patch["description"] = strings.TrimSpace(description)
 	}
-	if err := s.db.WithContext(ctx).Model(&task).Updates(patch).Error; err != nil {
+	if err := s.repo.UpdateFollowUpTask(ctx, taskID, patch); err != nil {
 		return nil, err
 	}
-	if err := s.db.WithContext(ctx).Where("id = ?", taskID).Take(&task).Error; err != nil {
+	task, err = s.repo.GetFollowUpTask(ctx, taskID, userID)
+	if err != nil {
 		return nil, err
 	}
-	return &task, nil
+	return task, nil
 }
 
 func (s *Service) GenerateFollowupForCall(ctx context.Context, callID string, force bool) error {
@@ -1318,8 +1228,8 @@ func (s *Service) GenerateFollowupForCall(ctx context.Context, callID string, fo
 		return errors.New("call id is required")
 	}
 
-	var call models.CallSession
-	if err := s.db.WithContext(ctx).Where("call_id = ?", callID).Take(&call).Error; err != nil {
+	call, err := s.repo.GetCallSession(ctx, callID)
+	if err != nil {
 		return err
 	}
 	if call.Status == models.CallStatusInvited {
@@ -1327,7 +1237,7 @@ func (s *Service) GenerateFollowupForCall(ctx context.Context, callID string, fo
 	}
 
 	for _, userID := range []uint64{call.CallerID, call.CalleeID} {
-		if err := s.generateFollowupForUser(ctx, call, userID, force); err != nil {
+		if err := s.generateFollowupForUser(ctx, *call, userID, force); err != nil {
 			return err
 		}
 	}
@@ -1344,22 +1254,20 @@ func (s *Service) generateFollowupForUser(ctx context.Context, call models.CallS
 		peerName = call.CallerDisplayName
 	}
 
-	var existing models.CallFollowup
-	err := s.db.WithContext(ctx).Where("call_id = ? AND user_id = ?", call.CallID, userID).Take(&existing).Error
+	existing, err := s.repo.GetCallFollowup(ctx, call.CallID, userID)
 	if err == nil && !force {
 		return nil
 	}
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
+	_ = existing
 
 	wasAnswered := call.AnsweredAt != nil
 	var transcriptSegments []models.CallTranscriptSegment
 	if wasAnswered || call.Status == models.CallStatusAnswered {
-		if err := s.db.WithContext(ctx).
-			Where("call_id = ? AND user_id = ?", call.CallID, userID).
-			Order("timestamp_ms ASC").
-			Find(&transcriptSegments).Error; err != nil {
+		transcriptSegments, err = s.repo.GetTranscriptSegmentsByCallAndUser(ctx, call.CallID, userID)
+		if err != nil {
 			return err
 		}
 	}
@@ -1438,19 +1346,32 @@ func (s *Service) generateFollowupForUser(ctx context.Context, call models.CallS
 	now := time.Now().UTC()
 	followup.GeneratedAt = &now
 
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var current models.CallFollowup
-		txErr := tx.Where("call_id = ? AND user_id = ?", call.CallID, userID).Take(&current).Error
+	return s.repo.RunInTransaction(ctx, func(tx *gorm.DB) error {
+		current, txErr := s.repo.GetCallFollowup(ctx, call.CallID, userID)
 		if txErr == nil {
 			followup.ID = current.ID
-			if err := tx.Model(&current).Updates(followup).Error; err != nil {
+			if err := s.repo.UpdateCallFollowup(ctx, current, map[string]any{
+				"status":          followup.Status,
+				"source":          followup.Source,
+				"summary_cn":      followup.SummaryCN,
+				"summary_en":      followup.SummaryEN,
+				"key_points_json": followup.KeyPointsJSON,
+				"action_items_json": followup.ActionItemsJSON,
+				"next_step":       followup.NextStep,
+				"risk_flags_json": followup.RiskFlagsJSON,
+				"followup_draft_cn": followup.FollowupDraftCN,
+				"followup_draft_en": followup.FollowupDraftEN,
+				"generated_at":    followup.GeneratedAt,
+				"transcript_count": followup.TranscriptCount,
+				"updated_at":      now,
+			}); err != nil {
 				if s.metrics != nil {
 					s.metrics.Inc("followup_generate_fail_total")
 				}
 				return err
 			}
 		} else if errors.Is(txErr, gorm.ErrRecordNotFound) {
-			if err := tx.Create(&followup).Error; err != nil {
+			if err := s.repo.SaveCallFollowup(ctx, &followup); err != nil {
 				if s.metrics != nil {
 					s.metrics.Inc("followup_generate_fail_total")
 				}
@@ -1464,7 +1385,7 @@ func (s *Service) generateFollowupForUser(ctx context.Context, call models.CallS
 		}
 
 		if !wasAnswered || call.Status == models.CallStatusRejected || call.Status == models.CallStatusMissed || call.Status == models.CallStatusFailed {
-			if err := s.ensureDefaultFollowupTaskTx(tx, call, userID, peerID, models.FollowupTaskTypeCallback, "回拨该联系人", "通话未接通，建议尽快回拨。", time.Now().UTC().Add(2*time.Hour)); err != nil {
+			if err := s.ensureDefaultFollowupTask(ctx, call, userID, peerID, models.FollowupTaskTypeCallback, "回拨该联系人", "通话未接通，建议尽快回拨。", time.Now().UTC().Add(2*time.Hour)); err != nil {
 				return err
 			}
 		} else {
@@ -1477,7 +1398,7 @@ func (s *Service) generateFollowupForUser(ctx context.Context, call models.CallS
 				title = "安排下一次通话"
 				description = "根据本次通话内容，安排下一次沟通时间。"
 			}
-			if err := s.ensureDefaultFollowupTaskTx(tx, call, userID, peerID, taskType, title, description, time.Now().UTC().Add(24*time.Hour)); err != nil {
+			if err := s.ensureDefaultFollowupTask(ctx, call, userID, peerID, taskType, title, description, time.Now().UTC().Add(24*time.Hour)); err != nil {
 				return err
 			}
 		}
@@ -1485,7 +1406,7 @@ func (s *Service) generateFollowupForUser(ctx context.Context, call models.CallS
 			s.metrics.Inc("followup_generate_total")
 		}
 		if len(transcriptSegments) > 0 {
-			if err := tx.Where("call_id = ? AND user_id = ?", call.CallID, userID).Delete(&models.CallTranscriptSegment{}).Error; err != nil {
+			if err := s.repo.DeleteTranscriptSegmentsByCallAndUser(ctx, call.CallID, userID); err != nil {
 				return err
 			}
 			if s.metrics != nil {
@@ -1496,16 +1417,16 @@ func (s *Service) generateFollowupForUser(ctx context.Context, call models.CallS
 	})
 }
 
-func (s *Service) ensureDefaultFollowupTaskTx(tx *gorm.DB, call models.CallSession, userID, peerID uint64, taskType, title, description string, dueAt time.Time) error {
-	var existing models.FollowUpTask
-	err := tx.Where("call_id = ? AND user_id = ? AND type = ?", call.CallID, userID, taskType).Take(&existing).Error
+func (s *Service) ensureDefaultFollowupTask(ctx context.Context, call models.CallSession, userID, peerID uint64, taskType, title, description string, dueAt time.Time) error {
+	existing, err := s.repo.GetFollowUpTaskByCallAndType(ctx, call.CallID, userID, taskType)
 	if err == nil {
 		return nil
 	}
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	task := models.FollowUpTask{
+	_ = existing
+	task := &models.FollowUpTask{
 		UserID:       userID,
 		PeerUserID:   peerID,
 		CallID:       call.CallID,
@@ -1516,7 +1437,7 @@ func (s *Service) ensureDefaultFollowupTaskTx(tx *gorm.DB, call models.CallSessi
 		DueAt:        &dueAt,
 		ReminderMode: "default",
 	}
-	if err := tx.Create(&task).Error; err != nil {
+	if err := s.repo.CreateFollowUpTask(ctx, task); err != nil {
 		return err
 	}
 	if s.metrics != nil {
@@ -1576,41 +1497,36 @@ func (s *Service) DeleteAccount(ctx context.Context, userID uint64) (*models.Del
 		DeletedAt: time.Now().UTC(),
 	}
 
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		deleteCount := func(model any, clause string, args ...any) (int64, error) {
-			result := tx.Where(clause, args...).Delete(model)
-			return result.RowsAffected, result.Error
-		}
-
+	err := s.repo.RunInTransaction(ctx, func(tx *gorm.DB) error {
 		var err error
-		if audit.ContactsDeleted, err = deleteCount(&models.Contact{}, "owner_id = ? OR contact_id = ?", userID, userID); err != nil {
+		if audit.ContactsDeleted, err = s.repo.DeleteContactsByUser(ctx, userID); err != nil {
 			return err
 		}
-		if audit.CallsDeleted, err = deleteCount(&models.CallSession{}, "caller_id = ? OR callee_id = ?", userID, userID); err != nil {
+		if audit.CallsDeleted, err = s.repo.DeleteCallsByUser(ctx, userID); err != nil {
 			return err
 		}
-		if audit.BlocksDeleted, err = deleteCount(&models.UserBlock{}, "blocker_id = ? OR blocked_user_id = ?", userID, userID); err != nil {
+		if audit.BlocksDeleted, err = s.repo.DeleteBlocksByUser(ctx, userID); err != nil {
 			return err
 		}
-		if audit.ReportsDeleted, err = deleteCount(&models.AbuseReport{}, "reporter_id = ? OR reported_user_id = ?", userID, userID); err != nil {
+		if audit.ReportsDeleted, err = s.repo.DeleteAbuseReportsByUser(ctx, userID); err != nil {
 			return err
 		}
-		if audit.LegalRecordsDeleted, err = deleteCount(&models.LegalAcceptance{}, "user_id = ?", userID); err != nil {
+		if audit.LegalRecordsDeleted, err = s.repo.DeleteLegalAcceptancesByUser(ctx, userID); err != nil {
 			return err
 		}
-		if audit.UsageRowsDeleted, err = deleteCount(&models.UsageLedger{}, "user_id = ?", userID); err != nil {
+		if audit.UsageRowsDeleted, err = s.repo.DeleteUsageLedgersByUser(ctx, userID); err != nil {
 			return err
 		}
-		var usageSlicesDeleted int64
-		if usageSlicesDeleted, err = deleteCount(&models.TranslationUsageSlice{}, "user_id = ?", userID); err != nil {
+		usageSlicesDeleted, err := s.repo.DeleteTranslationUsageSlicesByUser(ctx, userID)
+		if err != nil {
 			return err
 		}
 		audit.UsageRowsDeleted += usageSlicesDeleted
-		if audit.EntitlementsDeleted, err = deleteCount(&models.UserEntitlement{}, "user_id = ?", userID); err != nil {
+		if audit.EntitlementsDeleted, err = s.repo.DeleteEntitlementsByUser(ctx, userID); err != nil {
 			return err
 		}
 
-		if _, err = deleteCount(&models.EmailVerificationCode{}, "email IN (?)", tx.Model(&models.User{}).Select("email").Where("id = ?", userID)); err != nil {
+		if _, err = s.repo.DeleteEmailVerificationCodesByUserEmail(ctx, userID); err != nil {
 			return err
 		}
 
@@ -1623,10 +1539,10 @@ func (s *Service) DeleteAccount(ctx context.Context, userID uint64) (*models.Del
 			"deleted_at":    audit.DeletedAt,
 			"updated_at":    audit.DeletedAt,
 		}
-		if err := tx.Model(&models.User{}).Where("id = ?", userID).Updates(updates).Error; err != nil {
+		if err := s.repo.UpdateUser(ctx, userID, updates); err != nil {
 			return err
 		}
-		return tx.Create(audit).Error
+		return s.repo.CreateDeletionAudit(ctx, audit)
 	})
 
 	if err != nil {
