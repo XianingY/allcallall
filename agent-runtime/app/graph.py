@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import os
 import re
 from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
 
+from .config import config as app_config
 from .grounding import check_grounding
 from .models import (
     AgenticRAGConfig,
@@ -101,7 +101,7 @@ def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
     if preset not in SUPPORTED_WORKFLOWS:
         return WorkflowResponse(
             status="failed",
-            provider=os.getenv("PY_AGENT_PROVIDER", "rules").strip() or "rules",
+            provider=app_config.provider or "rules",
             error=f"unsupported workflow preset: {request.preset}",
         )
     request = request.model_copy(update={"preset": preset})
@@ -120,7 +120,7 @@ def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
     except ProviderError as exc:
         return WorkflowResponse(
             status="failed",
-            provider=os.getenv("PY_AGENT_PROVIDER", "openai_compatible").strip() or "openai_compatible",
+            provider=app_config.provider or "openai_compatible",
             error=f"{exc.kind}: {exc}",
             trace_events=[
                 TraceEvent(
@@ -133,7 +133,7 @@ def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
         )
     proposed = result.get("proposed_tool_calls", [])
     status = "requires_action" if proposed else "ready"
-    provider_name = os.getenv("PY_AGENT_PROVIDER", "rules").strip() or "rules"
+    provider_name = app_config.provider or "rules"
     if "provider" in locals():
         provider_name = provider.name
     return WorkflowResponse(
@@ -733,14 +733,14 @@ def request_with_runtime_context(state: GraphState) -> WorkflowRequest:
 
 
 def resolve_agentic_rag_config(config: AgenticRAGConfig) -> AgenticRAGConfig:
-    enabled = config.enabled or env_bool("PY_AGENT_ENABLE_AGENTIC_RAG", False)
+    enabled = config.enabled or app_config.enable_agentic_rag
     max_steps = config.max_steps
     if max_steps <= 0:
-        max_steps = env_int("PY_AGENT_RAG_MAX_RETRIEVAL_STEPS", 3)
+        max_steps = app_config.rag_max_retrieval_steps
     max_steps = max(1, min(max_steps, 3))
     min_confidence = config.min_confidence
     if min_confidence <= 0:
-        min_confidence = env_float("PY_AGENT_RAG_MIN_CONFIDENCE", 0.6)
+        min_confidence = app_config.rag_min_confidence
     min_confidence = max(0.1, min(min_confidence, 1.0))
     allowed = [item for item in config.allowed_source_types if item.strip()]
     if not allowed:
@@ -949,33 +949,6 @@ def insufficient_context_summary(request: WorkflowRequest, sufficiency: ContextS
 
 def chunk_key(chunk: ContextChunk) -> str:
     return chunk.chunk_id or f"{chunk.source_type}:{chunk.source_id}"
-
-
-def env_bool(name: str, fallback: bool) -> bool:
-    raw = os.getenv(name, "").strip().lower()
-    if raw == "":
-        return fallback
-    return raw in {"1", "true", "yes", "on"}
-
-
-def env_int(name: str, fallback: int) -> int:
-    raw = os.getenv(name, "").strip()
-    if raw == "":
-        return fallback
-    try:
-        return int(raw)
-    except ValueError:
-        return fallback
-
-
-def env_float(name: str, fallback: float) -> float:
-    raw = os.getenv(name, "").strip()
-    if raw == "":
-        return fallback
-    try:
-        return float(raw)
-    except ValueError:
-        return fallback
 
 
 def bounded_react_search(

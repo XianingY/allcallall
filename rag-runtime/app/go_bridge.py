@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import httpx
 
+from .config import config
 from .models import ContextChunk, RetrievalQueryRequest
 
 
 class GoRetrievalBridge:
     def __init__(self) -> None:
-        self.base_url = os.getenv("PY_RAG_TOOL_BRIDGE_BASE_URL", "").strip().rstrip("/")
-        self.token = os.getenv("PY_RAG_TOOL_BRIDGE_TOKEN", "").strip()
-        self.timeout_sec = int(os.getenv("PY_RAG_TOOL_BRIDGE_TIMEOUT_SEC", "20"))
+        self.base_url = config.tool_bridge_base_url.strip().rstrip("/")
+        self.token = config.tool_bridge_token.strip()
+        self.timeout_sec = int(config.tool_bridge_timeout_sec)
 
     def configured(self) -> bool:
         return bool(self.base_url and self.token)

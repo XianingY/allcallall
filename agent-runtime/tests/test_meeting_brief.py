@@ -203,7 +203,9 @@ def test_context_qa_guard_when_context_is_missing() -> None:
 
 
 def test_python_eval_fixture_passes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("PY_AGENT_PROVIDER", "rules")
+    from app.config import AgentRuntimeConfig
+
+    monkeypatch.setattr("app.config.config", AgentRuntimeConfig(provider="rules"))
     report = run_eval()
 
     assert report.summary.total_cases >= 8
@@ -212,9 +214,12 @@ def test_python_eval_fixture_passes(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_openai_provider_requires_base_url_and_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("PY_AGENT_PROVIDER", "openai_compatible")
-    monkeypatch.delenv("PY_AGENT_OPENAI_BASE_URL", raising=False)
-    monkeypatch.delenv("PY_AGENT_OPENAI_MODEL", raising=False)
+    from app.config import AgentRuntimeConfig
+
+    monkeypatch.setattr(
+        "app.config.config",
+        AgentRuntimeConfig(provider="openai_compatible", openai_base_url="", openai_model=""),
+    )
 
     with pytest.raises(ProviderError) as exc:
         create_provider()

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 
 import httpx
 
+import app.config as _cfg
 from app.models import WorkflowRequest
 from app.prompts import structured_prompt_for
 
@@ -16,16 +16,11 @@ class OpenAICompatibleProvider:
     name = "openai_compatible"
 
     def __init__(self) -> None:
-        self.base_url = os.getenv("PY_AGENT_OPENAI_BASE_URL", "").strip().rstrip("/")
-        self.api_key = os.getenv("PY_AGENT_OPENAI_API_KEY", "").strip()
-        self.model = os.getenv("PY_AGENT_OPENAI_MODEL", "").strip()
-        timeout_raw = os.getenv("PY_AGENT_OPENAI_TIMEOUT_SEC", "30").strip()
-        try:
-            timeout_sec = int(timeout_raw)
-        except ValueError:
-            timeout_sec = 30
-        self.timeout_sec = max(1, timeout_sec)
-        self.strict = env_bool("PY_AGENT_PROVIDER_STRICT", default=True)
+        self.base_url = _cfg.config.openai_base_url.strip().rstrip("/")
+        self.api_key = _cfg.config.openai_api_key.strip()
+        self.model = _cfg.config.openai_model.strip()
+        self.timeout_sec = max(1, int(_cfg.config.openai_timeout_sec))
+        self.strict = _cfg.config.provider_strict
         if not self.base_url or not self.model:
             message = "PY_AGENT_OPENAI_BASE_URL and PY_AGENT_OPENAI_MODEL are required for openai_compatible provider"
             if self.strict:
@@ -119,10 +114,3 @@ def clean_string_list(value: object) -> list[str]:
         if text:
             out.append(text)
     return out
-
-
-def env_bool(name: str, *, default: bool) -> bool:
-    raw = os.getenv(name, "").strip().lower()
-    if raw == "":
-        return default
-    return raw in {"1", "true", "yes", "on"}

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 
+from .config import config
 from .models import Citation, TraceEvent
 
 
@@ -15,8 +15,7 @@ class GroundingResult:
 
 
 def grounding_enabled() -> bool:
-    raw = os.getenv("PY_AGENT_ENABLE_GROUNDING_CHECK", "true").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
+    return config.enable_grounding_check
 
 
 def check_grounding(summary: str, citations: list[Citation]) -> GroundingResult:

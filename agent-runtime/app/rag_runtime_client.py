@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
+from app.config import config
 from app.models import ContextChunk, RetrievalPlan, RetrievalPlanStep, WorkflowRequest
 
 
@@ -23,13 +23,8 @@ class RAGRuntimeObservation:
 
 class RAGRuntimeClient:
     def __init__(self) -> None:
-        self.base_url = os.getenv("PY_RAG_RUNTIME_BASE_URL", "").strip().rstrip("/")
-        timeout_raw = os.getenv("PY_RAG_RUNTIME_TIMEOUT_SEC", "15").strip()
-        try:
-            timeout_sec = int(timeout_raw)
-        except ValueError:
-            timeout_sec = 15
-        self.timeout_sec = max(1, timeout_sec)
+        self.base_url = config.rag_runtime_base_url.strip().rstrip("/")
+        self.timeout_sec = max(1, int(config.rag_runtime_timeout_sec))
 
     def configured(self) -> bool:
         return bool(self.base_url)

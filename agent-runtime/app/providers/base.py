@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Protocol
 
+import app.config as _cfg
 from app.models import WorkflowRequest
 
 
@@ -37,7 +37,7 @@ class RulesProvider:
 
 
 def create_provider() -> LLMProvider:
-    provider = os.getenv("PY_AGENT_PROVIDER", "rules").strip().lower() or "rules"
+    provider = _cfg.config.provider.lower() or "rules"
     if provider == "openai_compatible":
         from .openai_compatible import OpenAICompatibleProvider
 

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
 from langchain_core.prompts import ChatPromptTemplate
 
+from app.config import config
 from app.models import WorkflowRequest
 
 
@@ -24,7 +24,7 @@ PROMPT_VERSIONS = {
 
 
 def prompt_version_for(request: WorkflowRequest) -> str:
-    override = os.getenv("PY_AGENT_PROMPT_VERSION", "").strip()
+    override = config.prompt_version.strip()
     if override:
         return override
     return PROMPT_VERSIONS.get(request.preset, f"{request.preset}_v1")

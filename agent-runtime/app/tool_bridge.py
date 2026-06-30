@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
+from .config import config
 from .models import ContextChunk, WorkflowRequest
 
 
@@ -24,14 +24,9 @@ class ToolObservation:
 
 class GoToolBridge:
     def __init__(self) -> None:
-        self.base_url = os.getenv("PY_AGENT_TOOL_BRIDGE_BASE_URL", "").strip().rstrip("/")
-        self.token = os.getenv("PY_AGENT_TOOL_BRIDGE_TOKEN", "").strip()
-        timeout_raw = os.getenv("PY_AGENT_TOOL_BRIDGE_TIMEOUT_SEC", "10").strip()
-        try:
-            timeout_sec = int(timeout_raw)
-        except ValueError:
-            timeout_sec = 10
-        self.timeout_sec = max(1, timeout_sec)
+        self.base_url = config.tool_bridge_base_url.strip().rstrip("/")
+        self.token = config.tool_bridge_token.strip()
+        self.timeout_sec = max(1, int(config.tool_bridge_timeout_sec))
 
     def configured(self) -> bool:
         return bool(self.base_url and self.token)
