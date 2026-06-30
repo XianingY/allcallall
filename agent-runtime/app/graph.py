@@ -28,6 +28,7 @@ from .models import (
 )
 from .prompts import prompt_version_for
 from .providers import LLMProvider, ProviderError, create_provider
+from .rag_runtime_client import RAGRuntimeClient, RAGRuntimeError
 from .retrieval import rerank_context_chunks, retrieve_context_chunks
 from .tool_bridge import GoToolBridge, ToolBridgeError
 
@@ -263,6 +264,7 @@ def retrieval_loop(state: GraphState) -> GraphState:
         return {"trace_events": trace, "retrieval_attempts": [], "agentic_context_chunks": []}
 
     bridge = state["tool_bridge"]
+    rag_runtime = RAGRuntimeClient()
     attempts: list[RetrievalAttempt] = []
     gathered: list[ContextChunk] = []
     seen_chunks: set[str] = set()
@@ -285,26 +287,63 @@ def retrieval_loop(state: GraphState) -> GraphState:
                 metadata={"source_scope": step.source_scope, "rationale": step.rationale},
             )
         )
-        selected = local_agentic_retrieval(request.context_chunks, step)
+        selected: list[ContextChunk] = []
         observation_suffix = " via preloaded_context"
+        used_runtime = False
         try:
-            bridge_observation = bridge.execute_read_tool(request, step.tool_name, tool_input)
-            if bridge_observation is not None:
-                selected = list(bridge_observation.chunks)
-                observation_suffix = " via go_tool_bridge"
-        except ToolBridgeError as exc:
+            runtime_observation = rag_runtime.agentic_retrieve(request, step, plan)
+            if runtime_observation is not None:
+                selected = list(runtime_observation.chunks)
+                used_runtime = True
+                observation_suffix = " via rag_runtime"
+                trace.append(
+                    TraceEvent(
+                        event="rag.runtime_call",
+                        node="retrieval_loop",
+                        status="completed",
+                        iteration=step.step,
+                        tool_name="rag_runtime.agentic",
+                        metadata={
+                            "confidence": runtime_observation.confidence,
+                            "sufficient": runtime_observation.sufficient,
+                            "attempts": runtime_observation.attempts,
+                            "returned": len(selected),
+                        },
+                    )
+                )
+        except RAGRuntimeError as exc:
             trace.append(
                 TraceEvent(
-                    event="rag.tool_call",
+                    event="rag.runtime_call",
                     node="retrieval_loop",
                     status="failed",
                     iteration=step.step,
-                    tool_name=step.tool_name,
-                    tool_input=tool_input,
+                    tool_name="rag_runtime.agentic",
                     observation=str(exc),
-                    metadata={"fallback": "preloaded_context"},
+                    metadata={"fallback": "go_tool_bridge_or_preloaded_context"},
                 )
             )
+        if not selected:
+            selected = local_agentic_retrieval(request.context_chunks, step)
+        if not used_runtime:
+            try:
+                bridge_observation = bridge.execute_read_tool(request, step.tool_name, tool_input)
+                if bridge_observation is not None:
+                    selected = list(bridge_observation.chunks)
+                    observation_suffix = " via go_tool_bridge"
+            except ToolBridgeError as exc:
+                trace.append(
+                    TraceEvent(
+                        event="rag.tool_call",
+                        node="retrieval_loop",
+                        status="failed",
+                        iteration=step.step,
+                        tool_name=step.tool_name,
+                        tool_input=tool_input,
+                        observation=str(exc),
+                        metadata={"fallback": "preloaded_context"},
+                    )
+                )
         for chunk in selected:
             key = chunk_key(chunk)
             if key in seen_chunks:

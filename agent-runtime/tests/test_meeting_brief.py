@@ -56,7 +56,7 @@ def test_meeting_brief_returns_trace_citations_and_write_proposals() -> None:
     assert response.citations[0].source_type == "meeting_transcript"
     assert response.citations[0].transcript_segment_id == 10
     assert response.proposed_tool_calls
-    assert response.prompt_version == "meeting_brief_v1"
+    assert response.prompt_version == "meeting_brief_v2"
     assert response.grounding_check_result
     assert all(item.approval_required for item in response.proposed_tool_calls)
     assert any(item.node == "approval_gate" for item in response.trace_events)

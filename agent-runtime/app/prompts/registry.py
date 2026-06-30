@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from .models import WorkflowRequest
+from app.models import WorkflowRequest
 
 
 @dataclass(frozen=True)
@@ -16,7 +16,7 @@ class PromptSpec:
 
 PROMPT_VERSIONS = {
     "react_general": "react_general_v1",
-    "meeting_brief": "meeting_brief_v1",
+    "meeting_brief": "meeting_brief_v2",
     "risk_review": "risk_review_v1",
     "follow_up_planner": "follow_up_planner_v1",
     "context_qa": "context_qa_v1",

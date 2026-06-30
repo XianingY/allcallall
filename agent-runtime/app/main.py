@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from .graph import SUPPORTED_WORKFLOWS, run_meeting_brief, run_react_agent, run_workflow
+from .graphs import SUPPORTED_WORKFLOWS, run_meeting_brief, run_react_agent, run_workflow
 from .models import (
     AgentRunRequest,
     AgentRunResponse,
