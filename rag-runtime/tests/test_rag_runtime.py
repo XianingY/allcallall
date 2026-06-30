@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from app.eval_runner import load_cases, run_eval
+from app.main import app
 from app.models import AgenticRetrievalRequest, ContextChunk
 from app.retrieval import agentic_retrieve, grounding_check, rerank
 
@@ -83,3 +86,28 @@ def test_eval_fixture_passes() -> None:
     assert report.summary.total_cases == 3
     assert report.summary.passed_cases == 3
     assert report.summary.grounding_pass_rate == 1
+
+
+def test_metrics_endpoint_records_rerank_calls() -> None:
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/retrieval/rerank",
+        json={
+            "query": "approval risk",
+            "chunks": [
+                {
+                    "chunk_id": "mt1",
+                    "source_type": "meeting_transcript",
+                    "source_id": "1",
+                    "snippet": "approval risk",
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200
+
+    metrics = client.get("/metrics")
+
+    assert metrics.status_code == 200
+    assert "rag_runtime_rerank_total" in metrics.text

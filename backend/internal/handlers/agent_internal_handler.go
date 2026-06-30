@@ -99,6 +99,7 @@ func (h *AgentHandler) handleInternalRetrievalQuery(c *gin.Context) {
 		JSONError(c, http.StatusInternalServerError, "invalid retrieval output")
 		return
 	}
+	h.service.RecordRAGRuntimeBridgeQuery(toolName)
 	payload["tool_name"] = toolName
 	payload["query"] = strings.TrimSpace(req.Query)
 	JSONSuccess(c, http.StatusOK, payload)

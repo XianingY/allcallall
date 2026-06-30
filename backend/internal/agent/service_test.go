@@ -80,6 +80,29 @@ func seedAgentConversation(t *testing.T, db *gorm.DB) models.Conversation {
 	return conversation
 }
 
+type fakeAgentRuntime struct {
+	response WorkflowRuntimeResponse
+	err      error
+	calls    int
+}
+
+func (r *fakeAgentRuntime) Name() string {
+	return WorkflowRuntimePythonLangGraph
+}
+
+func (r *fakeAgentRuntime) Supports(models.WorkflowRun) bool {
+	return false
+}
+
+func (r *fakeAgentRuntime) RunWorkflow(context.Context, WorkflowRuntimeRequest) (WorkflowRuntimeResponse, error) {
+	return WorkflowRuntimeResponse{}, errors.New("workflow path is not used by fakeAgentRuntime")
+}
+
+func (r *fakeAgentRuntime) RunAgent(context.Context, WorkflowRuntimeRequest) (WorkflowRuntimeResponse, error) {
+	r.calls++
+	return r.response, r.err
+}
+
 func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
 	svc, db, counters := newAgentServiceTestEnv(t)
 	conversation := seedAgentConversation(t, db)
@@ -232,6 +255,122 @@ func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
 		if !spanNames[name] {
 			t.Fatalf("missing span %q in %+v", name, recorder.Records())
 		}
+	}
+}
+
+func TestExecuteRunWithPythonRuntimeRequiresApprovalAndRejectsSideEffects(t *testing.T) {
+	svc, db, counters := newAgentServiceTestEnv(t)
+	conversation := seedAgentConversation(t, db)
+	var messageCountBefore int64
+	if err := db.Model(&models.Message{}).Where("conversation_id = ?", conversation.ID).Count(&messageCountBefore).Error; err != nil {
+		t.Fatalf("count messages before run failed: %v", err)
+	}
+
+	runtime := &fakeAgentRuntime{
+		response: WorkflowRuntimeResponse{
+			Status:   models.AgentRunStatusRequiresAction,
+			Runtime:  WorkflowRuntimePythonLangGraph,
+			Provider: "rules",
+			Summary:  "Python runtime summary",
+			ProposedToolCalls: []WorkflowRuntimeToolCall{
+				{
+					ToolName: ToolWriteConversationMessage,
+					Arguments: map[string]any{
+						"conversation_id": conversation.ID,
+						"summary":         "Python runtime summary",
+						"action_items":    []string{"Confirm owner."},
+						"next_step":       "Review and approve.",
+						"risk_flags":      []string{"approval_sensitive_action"},
+					},
+					Reason:           "write only after human approval",
+					IdempotencyKey:   "agent-test:write-message",
+					ApprovalRequired: true,
+				},
+				{
+					ToolName: ToolUpsertConversationMemory,
+					Arguments: map[string]any{
+						"conversation_id": conversation.ID,
+						"summary":         "Python runtime summary",
+						"action_items":    []string{"Confirm owner."},
+						"next_step":       "Review and approve.",
+						"risk_flags":      []string{"approval_sensitive_action"},
+						"key":             models.AgentMemoryKeyLastAgentSummary,
+					},
+					Reason:           "memory write requires approval",
+					IdempotencyKey:   "agent-test:memory",
+					ApprovalRequired: true,
+				},
+			},
+		},
+	}
+	svc.WithWorkflowRuntime(runtime)
+
+	queued, err := svc.RunConversationAssistant(context.Background(), conversation.OrganizationID, 7, RunInput{
+		ConversationID: conversation.ID,
+		Goal:           "Summarize with Python runtime.",
+	})
+	if err != nil {
+		t.Fatalf("queue run failed: %v", err)
+	}
+	result, err := svc.ExecuteRun(context.Background(), queued.Run.ID)
+	if err != nil {
+		t.Fatalf("execute python runtime run failed: %v", err)
+	}
+	if runtime.calls != 1 {
+		t.Fatalf("expected one python runtime call, got %d", runtime.calls)
+	}
+	if result.Run.Status != models.AgentRunStatusRequiresAction {
+		t.Fatalf("expected requires_action, got %s", result.Run.Status)
+	}
+	pending := make([]models.AgentToolCall, 0, len(result.ToolCalls))
+	for _, call := range result.ToolCalls {
+		if call.Status == models.ToolCallStatusPending {
+			pending = append(pending, call)
+		}
+	}
+	if len(pending) != 2 {
+		t.Fatalf("expected two pending write proposals, got %+v", result.ToolCalls)
+	}
+	snapshot := counters.Snapshot()
+	if snapshot["python_agent_run_total"] != 1 || snapshot["python_agent_run_failed_total"] != 0 {
+		t.Fatalf("unexpected python runtime metrics: %v", snapshot)
+	}
+
+	decisions := map[string]string{}
+	for _, call := range pending {
+		decisions[call.CallID] = "reject"
+	}
+	if err := svc.SubmitToolOutputs(context.Background(), conversation.OrganizationID, 7, result.Run.ID, decisions); err != nil {
+		t.Fatalf("reject python tool proposals failed: %v", err)
+	}
+
+	var messageCountAfter int64
+	if err := db.Model(&models.Message{}).Where("conversation_id = ?", conversation.ID).Count(&messageCountAfter).Error; err != nil {
+		t.Fatalf("count messages after rejection failed: %v", err)
+	}
+	if messageCountAfter != messageCountBefore {
+		t.Fatalf("rejecting write proposal created message side effect: before=%d after=%d", messageCountBefore, messageCountAfter)
+	}
+	var memoryCount int64
+	if err := db.Model(&models.AgentMemory{}).Where("conversation_id = ?", conversation.ID).Count(&memoryCount).Error; err != nil {
+		t.Fatalf("count memories after rejection failed: %v", err)
+	}
+	if memoryCount != 0 {
+		t.Fatalf("rejecting memory proposal created side effect: %d", memoryCount)
+	}
+}
+
+func TestRecordRAGRuntimeBridgeQueryMetrics(t *testing.T) {
+	svc, _, counters := newAgentServiceTestEnv(t)
+
+	svc.RecordRAGRuntimeBridgeQuery(ToolQueryMeetingTranscriptSegments)
+
+	snapshot := counters.Snapshot()
+	if snapshot["rag_runtime_query_total"] != 1 {
+		t.Fatalf("rag runtime query metric mismatch: %v", snapshot)
+	}
+	if snapshot["rag_runtime_bridge_query_meeting_transcript_segments_total"] != 1 {
+		t.Fatalf("rag runtime bridge tool metric mismatch: %v", snapshot)
 	}
 }
 

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
 from .go_bridge import GoRetrievalBridge
+from .metrics import metrics
 from .models import (
     AgenticRetrievalRequest,
     AgenticRetrievalResponse,
@@ -23,8 +24,14 @@ def health() -> dict[str, str]:
     return {"status": "ok", "runtime": "python_rag"}
 
 
+@app.get("/metrics")
+def prometheus_metrics() -> Response:
+    return Response(metrics.prometheus(), media_type="text/plain; version=0.0.4")
+
+
 @app.post("/v1/retrieval/query", response_model=RetrievalQueryResponse)
 def retrieval_query(request: RetrievalQueryRequest) -> RetrievalQueryResponse:
+    metrics.inc("rag_runtime_query_total")
     bridge = GoRetrievalBridge()
     bridge_chunks = bridge.query(request) if bridge.configured() else []
     source = "go_bridge" if bridge_chunks else "inline"
@@ -35,11 +42,13 @@ def retrieval_query(request: RetrievalQueryRequest) -> RetrievalQueryResponse:
 
 @app.post("/v1/retrieval/rerank", response_model=RerankResponse)
 def retrieval_rerank(request: RerankRequest) -> RerankResponse:
+    metrics.inc("rag_runtime_rerank_total")
     return rerank(request.query, request.chunks, request.top_k)
 
 
 @app.post("/v1/retrieval/agentic", response_model=AgenticRetrievalResponse)
 def retrieval_agentic(request: AgenticRetrievalRequest) -> AgenticRetrievalResponse:
+    metrics.inc("rag_runtime_agentic_total")
     bridge = GoRetrievalBridge()
     bridge_chunks = bridge.query(request) if bridge.configured() else []
     chunks = bridge_chunks or request.chunks
@@ -48,4 +57,5 @@ def retrieval_agentic(request: AgenticRetrievalRequest) -> AgenticRetrievalRespo
 
 @app.post("/v1/grounding/check", response_model=GroundingCheckResponse)
 def grounding(request: GroundingCheckRequest) -> GroundingCheckResponse:
+    metrics.inc("rag_runtime_grounding_check_total")
     return grounding_check(request.answer, request.citations)
