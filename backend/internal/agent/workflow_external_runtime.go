@@ -125,6 +125,12 @@ type WorkflowRuntimeResponse struct {
 	RetrievalAttempts  []map[string]any          `json:"retrieval_attempts,omitempty"`
 	EvidencePack       map[string]any            `json:"evidence_pack,omitempty"`
 	ContextSufficiency map[string]any            `json:"context_sufficiency,omitempty"`
+	Harness            map[string]any            `json:"harness,omitempty"`
+	LoopTraces         []map[string]any          `json:"loop_traces,omitempty"`
+	RouteDecision      map[string]any            `json:"route_decision,omitempty"`
+	CriticResult       map[string]any            `json:"critic_result,omitempty"`
+	Budget             map[string]any            `json:"budget,omitempty"`
+	StopReason         string                    `json:"stop_reason,omitempty"`
 	Error              string                    `json:"error"`
 }
 

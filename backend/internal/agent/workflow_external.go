@@ -207,6 +207,12 @@ func (s *Service) persistExternalRuntimeOutput(ctx context.Context, run models.W
 			"retrieval_attempts":  response.RetrievalAttempts,
 			"evidence_pack":       response.EvidencePack,
 			"context_sufficiency": response.ContextSufficiency,
+			"harness":             response.Harness,
+			"loop_traces":         response.LoopTraces,
+			"route_decision":      response.RouteDecision,
+			"critic_result":       response.CriticResult,
+			"budget":              response.Budget,
+			"stop_reason":         response.StopReason,
 		}, nil
 	}); err != nil {
 		return err
@@ -248,6 +254,12 @@ func (s *Service) persistExternalCollectContextTask(ctx context.Context, run mod
 			"retrieval_attempts":       response.RetrievalAttempts,
 			"evidence_pack":            response.EvidencePack,
 			"context_sufficiency":      response.ContextSufficiency,
+			"harness":                  response.Harness,
+			"loop_traces":              response.LoopTraces,
+			"route_decision":           response.RouteDecision,
+			"critic_result":            response.CriticResult,
+			"budget":                   response.Budget,
+			"stop_reason":              response.StopReason,
 		}
 		return output, s.createAgentMessage(ctx, run, &task.ID, "workflow", "planner", models.AgentMessageTypeTaskInput, output, "python_langgraph:collect_context")
 	})

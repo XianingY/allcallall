@@ -155,6 +155,12 @@ func (s *Service) persistExternalAgentRunOutput(ctx context.Context, run models.
 		"retrieval_attempts":       response.RetrievalAttempts,
 		"evidence_pack":            response.EvidencePack,
 		"context_sufficiency":      response.ContextSufficiency,
+		"harness":                  response.Harness,
+		"loop_traces":              response.LoopTraces,
+		"route_decision":           response.RouteDecision,
+		"critic_result":            response.CriticResult,
+		"budget":                   response.Budget,
+		"stop_reason":              response.StopReason,
 	}); err != nil {
 		return nil, err
 	}
@@ -172,6 +178,12 @@ func (s *Service) persistExternalAgentRunOutput(ctx context.Context, run models.
 		"context_sufficiency":     response.ContextSufficiency,
 		"retrieval_plan":          response.RetrievalPlan,
 		"retrieval_attempts":      response.RetrievalAttempts,
+		"evidence_pack":           response.EvidencePack,
+		"loop_traces":             response.LoopTraces,
+		"route_decision":          response.RouteDecision,
+		"critic_result":           response.CriticResult,
+		"budget":                  response.Budget,
+		"stop_reason":             response.StopReason,
 		"grounding_check_result":  response.ContextSufficiency,
 		"runtime_response_status": response.Status,
 	}); err != nil {

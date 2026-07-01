@@ -129,7 +129,7 @@ Common backend variables:
 - `AGENT_RUNTIME=python_langgraph|legacy_go`: Agent orchestration runtime. Compose/Beta demo defaults to `python_langgraph`; bare Go processes without this env still use the legacy in-process runtime. `go` is accepted as a legacy alias.
 - `PY_AGENT_RUNTIME_BASE_URL`: Python LangGraph runtime URL, defaulting to `http://127.0.0.1:8090` locally and `http://agent-runtime:8090` in Compose.
 - `PY_RAG_RUNTIME_BASE_URL`: Python RAG Runtime URL, defaulting to `http://rag-runtime:8091` in Compose when Agentic RAG calls are enabled.
-- `PY_AGENT_RUNTIME_IMAGE`, `PY_RAG_RUNTIME_IMAGE`: Docker image overrides. Compose defaults to `ghcr.io/xianingy/allcallall-agent-runtime/{agent-runtime,rag-runtime}:v0.1.0`.
+- `PY_AGENT_RUNTIME_IMAGE`, `PY_RAG_RUNTIME_IMAGE`: Docker image overrides. Compose defaults to `ghcr.io/xianingy/allcallall-agent-runtime/{agent-runtime,rag-runtime}:v0.2.0`.
 - `PY_AGENT_RUNTIME_TIMEOUT_SEC`, `PY_AGENT_RUNTIME_STRICT`: timeout and strict failure behavior for the Python runtime.
 - `AGENT_RUNTIME_TOOL_TOKEN`: shared token that protects the Go read-only tool bridge for Python runtime calls.
 - `PY_AGENT_PROVIDER=rules|openai_compatible`: Python runtime provider selection.
@@ -139,6 +139,8 @@ Common backend variables:
 - `PY_AGENT_TOOL_BRIDGE_BASE_URL`, `PY_AGENT_TOOL_BRIDGE_TOKEN`: Python runtime access to Go-owned read-only tools.
 - `PY_RAG_TOOL_BRIDGE_BASE_URL`, `PY_RAG_TOOL_BRIDGE_TOKEN`: Python RAG Runtime access to the Go internal authorized retrieval bridge.
 - `PY_RAG_RERANK_PROVIDER=rules|cross_encoder_compatible`, `PY_RAG_TOP_K`, `PY_RAG_MAX_STEPS`, `PY_RAG_MIN_CONFIDENCE`: Python RAG Runtime retrieval and rerank controls.
+- `PY_AGENT_HARNESS=allcallall_v1`, `PY_AGENT_LOOP_MAX_STEPS=5`, `PY_AGENT_ENABLE_CRITIC=true`: Python Agent Runtime Harness and bounded-loop controls.
+- `PY_RAG_VECTOR_STORE=none|qdrant`, `PY_RAG_QDRANT_URL`, `PY_RAG_QDRANT_COLLECTION`: optional Qdrant adapter for vector/payload retrieval experiments; Go remains the production data boundary.
 - `EMBEDDED_WORKERS=0|1`: controls API-process workers.
 - `FCM_SERVICE_ACCOUNT_PATH`: enables Firebase Admin SDK push delivery.
 - `RECORDING_STORAGE_DRIVER=local|s3`: recording storage driver.

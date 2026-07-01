@@ -4,7 +4,7 @@ This page is the interview-facing explanation for the Python Agent Runtime.
 
 ## What Changed
 
-AllCallAll keeps the Go backend as the business source of truth, but makes the external [`allcallall-agent-runtime`](https://github.com/XianingY/allcallall-agent-runtime) project the Beta/demo Agent intelligence layer: a Python FastAPI + LangGraph service for ReAct runs, workflow DAGs, prompt/provider adapters, trace, citations, and write-tool proposals.
+AllCallAll keeps the Go backend as the business source of truth, but makes the external [`allcallall-agent-runtime`](https://github.com/XianingY/allcallall-agent-runtime) project the Beta/demo Agent intelligence layer. The pinned runtime image is `v0.2.0`: Python FastAPI + LangGraph Agent Runtime Harness, bounded role loops, prompt/provider adapters, Agentic RAG, trace, citations, critic checks, and write-tool proposals.
 
 The Python runtime currently supports:
 
@@ -49,6 +49,7 @@ Python owns:
 - structured trace events
 - citation and proposal generation
 - Python-side task eval
+- portfolio eval reports for resume/interview evidence
 
 Python can call Go read-only tools through the internal bridge:
 
@@ -83,6 +84,13 @@ make rerank-eval
 make ai-portfolio-eval
 ```
 
+External runtime repo:
+
+```bash
+cd ../allcallall-agent-runtime
+make portfolio-eval
+```
+
 Output:
 
 - `services/agent-runtime/evals/reports/python-agent-eval.json`
@@ -92,6 +100,7 @@ Output:
 - `docs/interview/generated-ai-agent-jd-eval/ai-agent-jd-eval.md`
 - `docs/interview/generated-rerank-eval/rerank-eval.json`
 - `docs/interview/generated-ai-portfolio-eval/ai-portfolio-eval.md`
+- `../allcallall-agent-runtime/docs/generated-ai-agent-portfolio-eval/portfolio-eval.md`
 
 Current deterministic fixture scope:
 
@@ -102,11 +111,23 @@ Current deterministic fixture scope:
 - unsupported-claim guarding
 - prompt schema / prompt version presence
 - grounding-check trace presence
+- route accuracy
+- loop completion
+- stop reason validity
+- memory reflection precision
 
-`services/agent-runtime/allcallall_agent_runtime/llamaindex_adapter.py` in the external runtime repository is an eval-only adapter for comparing a LlamaIndex retrieval baseline on fixture documents. It does not replace the Go knowledge store, because production retrieval still needs organization isolation, source metadata, approval boundaries, and auditability.
+The external runtime repository also includes:
+
+- `docs/loop-engineering.md`: Harness and loop contract explanation.
+- `docs/resume-agent-metrics.md`: resume-safe metric wording.
+- `docs/manual-pilot-ux-sample.md`: illustrative manual UX sample, explicitly not benchmark data.
+- `services/rag-runtime/allcallall_rag_runtime/llamaindex_adapter.py`: eval-only LlamaIndex baseline.
+- `services/rag-runtime/allcallall_rag_runtime/qdrant_adapter.py`: optional Qdrant adapter for vector/payload retrieval experiments.
+
+The LlamaIndex and Qdrant paths do not replace the Go knowledge store, because production retrieval still needs organization isolation, source metadata, approval boundaries, and auditability.
 
 These are regression and demonstration metrics, not open-domain model-quality claims.
 
 ## Resume-Safe Wording
 
-> Made Python FastAPI + LangGraph the Beta/demo Agent orchestration runtime and split out a Python RAG Runtime, while keeping Go as the business source of truth for auth, data, tool authorization, approvals, audit, and writes; supported Workflow DAG + bounded ReAct, prompt registry, Agentic RAG, rerank/grounding trace, approval-only write proposals, and deterministic task-level eval.
+> Made Python FastAPI + LangGraph the Beta/demo Agent orchestration runtime and split out a Python RAG Runtime, while keeping Go as the business source of truth for auth, data, tool authorization, approvals, audit, and writes; supported Agent Runtime Harness, Workflow DAG, bounded ReAct role loops, critic/reflection, Agentic RAG, Qdrant optional adapter, rerank/grounding trace, approval-only write proposals, and deterministic portfolio eval.

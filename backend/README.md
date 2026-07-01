@@ -80,7 +80,7 @@ Core variables:
 - `AGENT_RUNTIME=python_langgraph|legacy_go`; Compose/Beta demo defaults to `python_langgraph`, while bare Go processes without the env still use the legacy in-process runtime. `go` is accepted as a legacy alias. `python_langgraph` routes ReAct runs and supported workflows to the Python LangGraph service while keeping Go-owned data access, tool approval, audit, and write execution.
 - `PY_AGENT_RUNTIME_BASE_URL=http://127.0.0.1:8090`
 - `PY_RAG_RUNTIME_BASE_URL=http://127.0.0.1:8091`
-- `PY_AGENT_RUNTIME_IMAGE`, `PY_RAG_RUNTIME_IMAGE`: Docker image overrides for the external runtime project. Compose defaults to `ghcr.io/xianingy/allcallall-agent-runtime/agent-runtime:v0.1.0` and `ghcr.io/xianingy/allcallall-agent-runtime/rag-runtime:v0.1.0`.
+- `PY_AGENT_RUNTIME_IMAGE`, `PY_RAG_RUNTIME_IMAGE`: Docker image overrides for the external runtime project. Compose defaults to `ghcr.io/xianingy/allcallall-agent-runtime/agent-runtime:v0.2.0` and `ghcr.io/xianingy/allcallall-agent-runtime/rag-runtime:v0.2.0`.
 - `PY_AGENT_RUNTIME_TIMEOUT_SEC=60`
 - `PY_AGENT_RUNTIME_STRICT=true`
 - `AGENT_RUNTIME_TOOL_TOKEN`: bearer token required by the internal read-only tool bridge.
@@ -91,6 +91,8 @@ Core variables:
 - `PY_AGENT_TOOL_BRIDGE_BASE_URL`, `PY_AGENT_TOOL_BRIDGE_TOKEN`
 - `PY_RAG_TOOL_BRIDGE_BASE_URL`, `PY_RAG_TOOL_BRIDGE_TOKEN`
 - `PY_RAG_RERANK_PROVIDER=rules|cross_encoder_compatible`, `PY_RAG_TOP_K`, `PY_RAG_MAX_STEPS`, `PY_RAG_MIN_CONFIDENCE`
+- `PY_AGENT_HARNESS=allcallall_v1`, `PY_AGENT_LOOP_MAX_STEPS=5`, `PY_AGENT_ENABLE_CRITIC=true`
+- `PY_RAG_VECTOR_STORE=none|qdrant`, `PY_RAG_QDRANT_URL`, `PY_RAG_QDRANT_COLLECTION`
 - `EMBEDDED_WORKERS=0|1`
 
 Recording and transcription:
