@@ -2,12 +2,11 @@ package database
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/rs/zerolog"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	gormlogger "gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 
 	appcfg "github.com/allcallall/backend/internal/config"
@@ -16,18 +15,10 @@ import (
 // NewMySQL 建立新的 MySQL 数据库连接
 // NewMySQL creates a GORM DB backed by MySQL with sane defaults.
 func NewMySQL(cfg appcfg.DatabaseConfig, log zerolog.Logger) (*gorm.DB, error) {
-	gormLogger := logger.New(
-		logWriter{logger: log.With().Str("component", "gorm").Logger()},
-		logger.Config{
-			SlowThreshold:             200 * time.Millisecond,
-			LogLevel:                  logger.Warn,
-			IgnoreRecordNotFoundError: true,
-			Colorful:                  false,
-		},
-	)
+	cfg.ApplyDefaults()
 
 	db, err := gorm.Open(mysql.Open(cfg.DSN), &gorm.Config{
-		Logger: gormLogger,
+		Logger: gormlogger.Default.LogMode(gormlogger.Info),
 		NamingStrategy: schema.NamingStrategy{
 			SingularTable: true,
 		},
@@ -41,15 +32,10 @@ func NewMySQL(cfg appcfg.DatabaseConfig, log zerolog.Logger) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	if cfg.MaxOpenConns > 0 {
-		sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
-	}
-	if cfg.MaxIdleConns > 0 {
-		sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
-	}
-	if cfg.ConnMaxLifetimeMins > 0 {
-		sqlDB.SetConnMaxLifetime(time.Duration(cfg.ConnMaxLifetimeMins) * time.Minute)
-	}
+	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
+	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+	sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	sqlDB.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
 
 	return db, nil
 }

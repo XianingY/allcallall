@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -49,19 +50,37 @@ type ServerConfig struct {
 // DatabaseConfig MySQL 配置
 // DatabaseConfig holds MySQL connection settings.
 type DatabaseConfig struct {
-	DSN                 string `yaml:"dsn"`
-	MaxOpenConns        int    `yaml:"max_open_conns"`
-	MaxIdleConns        int    `yaml:"max_idle_conns"`
-	ConnMaxLifetimeMins int    `yaml:"conn_max_lifetime_minutes"`
+	DSN             string        `yaml:"dsn" env:"DB_DSN"`
+	MaxOpenConns    int           `yaml:"max_open_conns" env:"DB_MAX_OPEN_CONNS"`
+	MaxIdleConns    int           `yaml:"max_idle_conns" env:"DB_MAX_IDLE_CONNS"`
+	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime" env:"DB_CONN_MAX_LIFETIME"`
+	ConnMaxIdleTime time.Duration `yaml:"conn_max_idle_time" env:"DB_CONN_MAX_IDLE_TIME"`
+}
+
+func (c *DatabaseConfig) ApplyDefaults() {
+	if c.MaxOpenConns == 0 {
+		c.MaxOpenConns = 200
+	}
+	if c.MaxIdleConns == 0 {
+		c.MaxIdleConns = 50
+	}
+	if c.ConnMaxLifetime == 0 {
+		c.ConnMaxLifetime = 10 * time.Minute
+	}
+	if c.ConnMaxIdleTime == 0 {
+		c.ConnMaxIdleTime = 5 * time.Minute
+	}
 }
 
 // RedisConfig Redis 连接配置
 // RedisConfig captures Redis client options.
 type RedisConfig struct {
-	Addr     string `yaml:"addr"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
-	DB       int    `yaml:"db"`
+	Addr         string `yaml:"addr"`
+	Username     string `yaml:"username"`
+	Password     string `yaml:"password"`
+	DB           int    `yaml:"db"`
+	PoolSize     int    `yaml:"pool_size"`
+	MinIdleConns int    `yaml:"min_idle_conns"`
 }
 
 // JWTConfig JWT 相关配置
@@ -163,6 +182,19 @@ func (c *Config) postProcess() error {
 
 	if c.Logging.Level == "" {
 		c.Logging.Level = "info"
+	}
+
+	// 高并发数据库默认调优
+	// High concurrency database defaults
+	c.Database.ApplyDefaults()
+
+	// 高并发 Redis 默认调优
+	// High concurrency Redis defaults
+	if c.Redis.PoolSize <= 0 {
+		c.Redis.PoolSize = 500
+	}
+	if c.Redis.MinIdleConns <= 0 {
+		c.Redis.MinIdleConns = 50
 	}
 
 	// 支持环境变量覆盖数据库配置
