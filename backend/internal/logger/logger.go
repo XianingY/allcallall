@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -16,9 +17,15 @@ func New(level string) zerolog.Logger {
 		lvl = zerolog.InfoLevel
 	}
 
-	output := zerolog.ConsoleWriter{
-		Out:        os.Stdout,
-		TimeFormat: time.RFC3339,
+	var output io.Writer = os.Stdout
+	
+	// Use pretty-printing console writer only in non-release mode for development convenience.
+	// In production (GIN_MODE=release), it defaults to structured JSON for performance and observability.
+	if os.Getenv("GIN_MODE") != "release" {
+		output = zerolog.ConsoleWriter{
+			Out:        os.Stdout,
+			TimeFormat: time.RFC3339,
+		}
 	}
 
 	logger := zerolog.New(output).With().Timestamp().Logger().Level(lvl)
