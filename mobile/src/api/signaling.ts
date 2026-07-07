@@ -66,6 +66,35 @@ type Events = {
   error: Error;
 };
 
+class ExponentialBackoff {
+  private delay: number;
+  private attempt: number = 0;
+  private config: { initialDelay: number; maxDelay: number; multiplier: number; jitter: boolean };
+  
+  constructor() {
+    this.config = { initialDelay: 1000, maxDelay: 30000, multiplier: 2, jitter: true };
+    this.delay = this.config.initialDelay;
+  }
+  
+  next(): number {
+    const currentDelay = this.delay;
+    let delayWithJitter = currentDelay;
+    if (this.config.jitter) {
+      delayWithJitter = currentDelay + (Math.random() * 2 - 1) * (currentDelay * 0.2);
+    }
+    this.delay = Math.min(this.delay * this.config.multiplier, this.config.maxDelay);
+    this.attempt++;
+    return Math.max(0, delayWithJitter);
+  }
+  
+  reset(): void {
+    this.delay = this.config.initialDelay;
+    this.attempt = 0;
+  }
+  
+  getAttempt(): number { return this.attempt; }
+}
+
 export class SignalingClient {
   private token: string;
   private ws: WebSocket | null = null;
@@ -75,6 +104,7 @@ export class SignalingClient {
   private shouldReconnect = true;
   private pendingMessages: SignalMessage[] = [];
   private static readonly MAX_PENDING_MESSAGES = 50;
+  private backoff = new ExponentialBackoff();
 
   constructor(token: string) {
     this.token = token;
@@ -122,6 +152,7 @@ export class SignalingClient {
     this.ws = new WebSocket(wsUrlWithAuth);
 
     this.ws.onopen = () => {
+      this.backoff.reset();
       this.emitter.emit("open", undefined);
       this.startKeepalive();
       this.flushPendingMessages();
@@ -132,7 +163,9 @@ export class SignalingClient {
       this.stopKeepalive();
       this.cleanup();
       if (this.shouldReconnect) {
-        this.reconnectTimer = setTimeout(() => this.openSocket(), 3000);
+        const delay = this.backoff.next();
+        console.log(`[SignalingClient] Reconnecting in ${Math.round(delay)}ms (attempt ${this.backoff.getAttempt()})`);
+        this.reconnectTimer = setTimeout(() => this.openSocket(), delay);
       }
     };
 
@@ -144,6 +177,7 @@ export class SignalingClient {
     this.ws.onmessage = (event) => {
       try {
         const parsed: SignalMessage = JSON.parse(event.data);
+        this.backoff.reset(); // reset backoff on any valid message received
         this.emitter.emit("message", parsed);
       } catch (err) {
         this.emitter.emit("error", err as Error);
