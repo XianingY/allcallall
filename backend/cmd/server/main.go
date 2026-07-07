@@ -63,6 +63,7 @@ func main() {
 
 	engine := server.NewEngine(appLogger, counterStore)
 	engine.Use(otelgin.Middleware("allcallall-backend"))
+	engine.Use(metrics.PrometheusMiddleware())
 	engine.Use(server.CORSMiddleware(server.CORSConfig{
 		AllowedOrigins: server.DefaultCORSOrigins(os.Getenv("CORS_ALLOWED_ORIGINS")),
 	}))
