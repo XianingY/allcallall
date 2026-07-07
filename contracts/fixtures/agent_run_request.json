@@ -1,0 +1,19 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "What is the status of project Alpha?"
+    }
+  ],
+  "conversation_id": "12345",
+  "tools": [
+    {
+      "name": "search_knowledge",
+      "description": "Search company knowledge base"
+    }
+  ],
+  "agent_config": {
+    "temperature": 0.2,
+    "max_iterations": 5
+  }
+}

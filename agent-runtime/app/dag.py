@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from langgraph.graph import END, StateGraph
+from langgraph.checkpoint.memory import MemorySaver
 
 from .state import GraphState
 from .nodes import (
@@ -60,4 +61,7 @@ def build_workflow_graph() -> Any:
     graph.add_edge("propose_tools", "approval_gate")
     graph.add_edge("approval_gate", "finalize")
     graph.add_edge("finalize", END)
-    return graph.compile()
+    
+    # Enable state persistence for fault tolerance
+    memory = MemorySaver()
+    return graph.compile(checkpointer=memory)

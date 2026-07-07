@@ -42,14 +42,17 @@ def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
     try:
         provider = create_provider()
         graph = build_workflow_graph()
+        thread_id = str(request.workflow_run_id) if getattr(request, "workflow_run_id", 0) else request.request_id
+        if not thread_id:
+            thread_id = "default_thread"
+            
         result = graph.invoke(
             {
                 "request": request,
-                "provider": provider,
-                "tool_bridge": GoToolBridge(),
                 "trace_events": [],
                 "role_results": [],
-            }
+            },
+            config={"configurable": {"thread_id": thread_id}}
         )
     except ProviderError as exc:
         return WorkflowResponse(
@@ -95,6 +98,11 @@ app = FastAPI(title="AllCallAll Agent Runtime", version="0.1.0")
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "runtime": "python_langgraph"}
+
+
+@app.get("/ready")
+def ready() -> dict[str, str]:
+    return {"status": "ready"}
 
 
 @app.get("/v1/workflows")

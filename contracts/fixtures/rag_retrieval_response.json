@@ -1,0 +1,13 @@
+{
+  "results": [
+    {
+      "id": "doc_1",
+      "text": "Project Alpha is a strategic initiative for Q3.",
+      "score": 0.95,
+      "metadata": {
+        "source": "meeting_transcript",
+        "date": "2023-10-01"
+      }
+    }
+  ]
+}

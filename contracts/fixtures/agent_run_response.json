@@ -1,0 +1,23 @@
+{
+  "run_id": "run_123",
+  "status": "completed",
+  "response": {
+    "role": "assistant",
+    "content": "Project Alpha is currently on track for Q3 delivery."
+  },
+  "tool_calls": [
+    {
+      "id": "call_1",
+      "type": "function",
+      "function": {
+        "name": "search_knowledge",
+        "arguments": "{\"query\":\"Project Alpha status\"}"
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 50,
+    "completion_tokens": 20,
+    "total_tokens": 70
+  }
+}

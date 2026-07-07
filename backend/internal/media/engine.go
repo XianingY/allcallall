@@ -17,6 +17,7 @@ type Engine struct {
 	peerConnections map[string]*PeerConnection
 	roomEngine      *RoomEngine
 	defaultConfig   webrtc.Configuration
+	api             *webrtc.API
 }
 
 // Config 包含 Pion 媒体引擎的配置
@@ -25,6 +26,7 @@ type Config struct {
 	// WebRTC 配置
 	// WebRTC configuration
 	WebRTCConfig webrtc.Configuration
+	API          *webrtc.API
 }
 
 // NewEngine 创建新的媒体引擎
@@ -34,7 +36,8 @@ func NewEngine(logger zerolog.Logger, cfg *Config) (*Engine, error) {
 		logger:          logger.With().Str("component", "media_engine").Logger(),
 		peerConnections: make(map[string]*PeerConnection),
 		defaultConfig:   cfg.WebRTCConfig,
-		roomEngine:      newRoomEngine(logger, cfg.WebRTCConfig),
+		api:             cfg.API,
+		roomEngine:      newRoomEngine(logger, cfg.WebRTCConfig, cfg.API),
 	}, nil
 }
 
@@ -51,7 +54,13 @@ func (e *Engine) CreatePeerConnection(ctx context.Context, callID, localEmail, r
 
 	// 创建 PeerConnection
 	// Create peer connection
-	pc, err := webrtc.NewPeerConnection(pcCfg)
+	var pc *webrtc.PeerConnection
+	var err error
+	if e.api != nil {
+		pc, err = e.api.NewPeerConnection(pcCfg)
+	} else {
+		pc, err = webrtc.NewPeerConnection(pcCfg)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("create peer connection: %w", err)
 	}

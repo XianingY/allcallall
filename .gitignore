@@ -205,6 +205,15 @@ lcov.info
 .serverless
 .fusebox/
 
+# ============================
+# Runtime Artifacts & Evals
+# ============================
+backend/internal/collaboration/recordings/
+backend/cmd/agent-eval/*.json
+backend/cmd/agent-eval/*.csv
+backend/cmd/rag-eval/*.json
+backend/cmd/rag-eval/*.csv
+
 # Android assets models (too large for git)
 mobile/android/app/src/main/assets/models/
 

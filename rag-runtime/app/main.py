@@ -24,6 +24,11 @@ def health() -> dict[str, str]:
     return {"status": "ok", "runtime": "python_rag"}
 
 
+@app.get("/ready")
+def ready() -> dict[str, str]:
+    return {"status": "ready"}
+
+
 @app.get("/metrics")
 def prometheus_metrics() -> Response:
     return Response(metrics.prometheus(), media_type="text/plain; version=0.0.4")

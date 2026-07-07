@@ -184,7 +184,7 @@ func (s *Service) persistExternalAgentRunOutput(ctx context.Context, run models.
 		"critic_result":           response.CriticResult,
 		"budget":                  response.Budget,
 		"stop_reason":             response.StopReason,
-		"grounding_check_result":  response.ContextSufficiency,
+		"grounding_check_result":  checkGrounding(response.Summary, conversationCtx.ContextChunks),
 		"runtime_response_status": response.Status,
 	}); err != nil {
 		return nil, err

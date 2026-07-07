@@ -14,10 +14,12 @@ import (
 // NewRedis builds a Redis client and verifies connectivity with a ping.
 func NewRedis(ctx context.Context, cfg appcfg.RedisConfig, log zerolog.Logger) (*redis.Client, error) {
 	client := redis.NewClient(&redis.Options{
-		Addr:     cfg.Addr,
-		Username: cfg.Username,
-		Password: cfg.Password,
-		DB:       cfg.DB,
+		Addr:         cfg.Addr,
+		Username:     cfg.Username,
+		Password:     cfg.Password,
+		DB:           cfg.DB,
+		PoolSize:     cfg.PoolSize,
+		MinIdleConns: cfg.MinIdleConns,
 	})
 
 	if err := ping(ctx, client, log); err != nil {

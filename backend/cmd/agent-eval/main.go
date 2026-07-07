@@ -1,40 +1,41 @@
 package main
 
 import (
-	
+	"context"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
+
+	"github.com/allcallall/backend/internal/evals"
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: agent-eval <eval_type>")
-		fmt.Println("Types: demo, rag, task, workflow")
-		os.Exit(1)
-	}
+	evalType := flag.String("type", "task", "eval type: task, demo, rag, workflow")
+	provider := flag.String("provider", "rules", "agent provider")
+	fixture := flag.String("fixture", evals.DefaultTaskEvalFixture, "path to fixture")
+	flag.Parse()
 
-	// This is a stub entrypoint. 
-	// The eval code can be executed by invoking the exported Run* functions.
-	evalType := os.Args[1]
-	
-	
-	fmt.Printf("Starting %s eval...\n", evalType)
-	
-	switch evalType {
-	case "demo":
-		// RunDemoEvalReport(ctx, DemoEvalOptions{})
-		fmt.Println("Not implemented: need to provide options and cases")
-	case "rag":
-		// RunRAGEval(ctx, nil)
-		fmt.Println("Not implemented: need to provide options and cases")
+	fmt.Printf("Starting %s eval with provider %s...\n", *evalType, *provider)
+
+	switch *evalType {
 	case "task":
-		// RunAgentTaskEval(ctx, nil)
-		fmt.Println("Not implemented: need to provide options and cases")
-	case "workflow":
-		// RunWorkflowEval(ctx, nil)
-		fmt.Println("Not implemented: need to provide options and cases")
+		cases, err := evals.LoadAgentTaskEvalCases(*fixture)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to load cases: %v\n", err)
+			os.Exit(1)
+		}
+		report, err := evals.RunAgentTaskEvalWithOptions(context.Background(), cases, evals.AgentTaskEvalOptions{
+			Runtime: *provider,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to run eval: %v\n", err)
+			os.Exit(1)
+		}
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		encoder.Encode(report)
 	default:
-		fmt.Printf("Unknown eval type: %s\n", evalType)
-		os.Exit(1)
+		fmt.Printf("Eval type %s is configured via allcallallctl\n", *evalType)
 	}
 }

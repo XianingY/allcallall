@@ -53,7 +53,7 @@ def retrieval_loop(state: GraphState) -> GraphState:
         trace.append(TraceEvent(event="graph.node.completed", node="retrieval_loop", status="completed"))
         return {"trace_events": trace, "retrieval_attempts": [], "agentic_context_chunks": []}
 
-    bridge = state["tool_bridge"]
+    bridge = GoToolBridge()
     rag_runtime = RAGRuntimeClient()
     attempts: list[RetrievalAttempt] = []
     gathered: list[ContextChunk] = []

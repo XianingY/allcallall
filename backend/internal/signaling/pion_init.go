@@ -20,12 +20,24 @@ func InitPionMediaEngine(logger zerolog.Logger, rtcCfg config.WebRTCConfig) (*me
 		})
 	}
 
-	// 创建媒体引擎
-	// Create media engine
+	// WebRTC 高并发网络调优 (High Concurrency Network Tuning)
+	settingEngine := webrtc.SettingEngine{}
+	// 划定专门的高并发 UDP 端口区间，避免耗尽临时端口池
+	_ = settingEngine.SetEphemeralUDPPortRange(40000, 60000)
+
+	// 创建 API 对象并注入 SettingEngine
+	m := &webrtc.MediaEngine{}
+	_ = m.RegisterDefaultCodecs()
+	api := webrtc.NewAPI(
+		webrtc.WithSettingEngine(settingEngine),
+		webrtc.WithMediaEngine(m),
+	)
+
 	cfg := &media.Config{
 		WebRTCConfig: webrtc.Configuration{
 			ICEServers: iceServers,
 		},
+		API: api,
 	}
 
 	engine, err := media.NewEngine(logger, cfg)

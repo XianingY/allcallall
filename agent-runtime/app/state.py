@@ -23,8 +23,6 @@ class GraphState(TypedDict, total=False):
     """State type for the LangGraph workflow."""
 
     request: WorkflowRequest
-    provider: Any  # LLMProvider
-    tool_bridge: Any  # GoToolBridge
     trace_events: list[TraceEvent]
     role_results: list[RoleResult]
     agentic_rag_enabled: bool

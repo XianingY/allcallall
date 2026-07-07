@@ -277,6 +277,14 @@ web-performance-check:
 	@echo "Checking Web bundle budget..."
 	cd web && npm run build && npm run bundle:budget
 
+verify:
+	@echo "Running verification suite..."
+	cd backend && go test ./...
+	cd web && npm run tsc -- --noEmit
+	cd mobile && npx tsc --noEmit
+	cd agent-runtime && pytest
+	cd rag-runtime && pytest
+
 # ===========================
 # Development Commands
 # ===========================

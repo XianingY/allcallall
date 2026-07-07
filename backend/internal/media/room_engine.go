@@ -24,6 +24,7 @@ type RecordingArtifact struct {
 type RoomEngine struct {
 	logger        zerolog.Logger
 	defaultConfig webrtc.Configuration
+	api           *webrtc.API
 
 	mu    sync.Mutex
 	rooms map[string]*mediaRoom
@@ -64,10 +65,11 @@ type trackRecordingArtifact struct {
 	writer      *oggwriter.OggWriter
 }
 
-func newRoomEngine(logger zerolog.Logger, cfg webrtc.Configuration) *RoomEngine {
+func newRoomEngine(logger zerolog.Logger, cfg webrtc.Configuration, api *webrtc.API) *RoomEngine {
 	return &RoomEngine{
-		logger:        logger.With().Str("component", "room_media_engine").Logger(),
+		logger:        logger.With().Str("component", "room_engine").Logger(),
 		defaultConfig: cfg,
+		api:           api,
 		rooms:         make(map[string]*mediaRoom),
 	}
 }
@@ -136,6 +138,11 @@ func (r *RoomEngine) HandleOffer(roomID, participantID, sdp string) (string, err
 	if err != nil {
 		return "", err
 	}
+	
+	// Inject Opus DTX (Discontinuous Transmission) to save bandwidth during silence
+	// This is a commercial-grade optimization (Pillar A)
+	answer.SDP = strings.ReplaceAll(answer.SDP, "useinbandfec=1", "useinbandfec=1;usedtx=1")
+
 	gatherComplete := webrtc.GatheringCompletePromise(participant.pc)
 	if err := participant.pc.SetLocalDescription(answer); err != nil {
 		return "", err
@@ -250,7 +257,13 @@ func (r *RoomEngine) ensureParticipantLocked(room *mediaRoom, participantID stri
 		return participant, nil
 	}
 
-	pc, err := webrtc.NewPeerConnection(r.defaultConfig)
+	var pc *webrtc.PeerConnection
+	var err error
+	if r.api != nil {
+		pc, err = r.api.NewPeerConnection(r.defaultConfig)
+	} else {
+		pc, err = webrtc.NewPeerConnection(r.defaultConfig)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +326,11 @@ func (r *RoomEngine) handleRemoteTrack(roomID, participantID string, track *webr
 		return
 	}
 
+	rid := track.RID()
 	key := fmt.Sprintf("%s:%s:%s", participantID, track.Kind().String(), track.ID())
+	if rid != "" {
+		key = fmt.Sprintf("%s:%s:%s:%s", participantID, track.Kind().String(), track.ID(), rid)
+	}
 
 	r.mu.Lock()
 	room := r.ensureRoomLocked(roomID)

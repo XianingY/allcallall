@@ -13,6 +13,7 @@ from ..models import (
     WorkflowRequest,
 )
 from ..tool_bridge import GoToolBridge, ToolBridgeError
+from ..providers import create_provider
 from ..helpers import (
     READ_TOOL_CONTEXT_CHUNKS,
     READ_TOOL_RECENT_MEETINGS,
@@ -63,7 +64,7 @@ def searcher(state: GraphState) -> GraphState:
         role="searcher",
         max_iterations=request.max_iterations.get("searcher", 3),
         tools=[READ_TOOL_CONTEXT_CHUNKS],
-        bridge=state["tool_bridge"],
+        bridge=GoToolBridge(),
     )
     trace.extend(result.react_trace)
     trace.append(TraceEvent(event="graph.node.completed", node="searcher", role="searcher"))
@@ -78,7 +79,7 @@ def synthesize(state: GraphState) -> GraphState:
     citations = citations_from_chunks(request.context_chunks)
     snippets = top_snippets(request.context_chunks, 4)
     sufficiency = state.get("context_sufficiency", ContextSufficiency())
-    synthesis = state["provider"].synthesize(request, snippets) if sufficiency.sufficient else None
+    synthesis = create_provider().synthesize(request, snippets) if sufficiency.sufficient else None
     if synthesis:
         summary = synthesis.summary or synthesize_summary(request, snippets)
         action_items = list(synthesis.action_items) or synthesize_action_items(request)
@@ -107,7 +108,7 @@ def synthesize(state: GraphState) -> GraphState:
                 event="llm.structured_output",
                 node="synthesize",
                 role="summarizer",
-                metadata={"provider": state["provider"].name, "prompt_version": state.get("prompt_version", "")},
+                metadata={"provider": create_provider().name, "prompt_version": state.get("prompt_version", "")},
             )
         )
     trace.append(
@@ -287,7 +288,7 @@ def risk_analyst(state: GraphState) -> GraphState:
         role="risk_analyst",
         max_iterations=request.max_iterations.get("risk_analyst", 2),
         tools=[READ_TOOL_CONTEXT_CHUNKS, READ_TOOL_RECENT_MEETINGS],
-        bridge=state["tool_bridge"],
+        bridge=GoToolBridge(),
     )
     result.summary = f"Risk analyst inspected context with {len(result.react_trace)} bounded read-tool iteration(s)."
     result.risk_flags = infer_risk_flags(request, result.snippets)

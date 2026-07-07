@@ -1,0 +1,8 @@
+{
+  "query": "What is Project Alpha?",
+  "top_k": 5,
+  "filters": {
+    "org_id": "org_1",
+    "conversation_id": "conv_2"
+  }
+}
