@@ -1,4 +1,3 @@
-import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AnonymousRoute, ProtectedRoute } from "@/auth/ProtectedRoute";
 import { AppShell } from "@/components/AppShell";

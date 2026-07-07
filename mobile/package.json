@@ -58,6 +58,8 @@
   },
   "devDependencies": {
     "@babel/core": "^7.23.0",
+    "@testing-library/react-hooks": "^8.0.1",
+    "@types/jest": "^30.0.0",
     "@types/react": "~18.2.45",
     "@types/react-native": "~0.72.0",
     "@types/react-test-renderer": "~18.0.0",

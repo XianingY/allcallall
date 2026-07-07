@@ -28,7 +28,7 @@ describe('useWebRTC', () => {
       onIceCandidate: jest.fn(),
     }));
 
-    expect(result.current.peerConnection).toBeDefined();
+    expect(result.current.peerConnection!.getSenders().length).toBeGreaterThan(0);
     expect(result.current.localStream).toBeNull();
     expect(result.current.remoteStream).toBeNull();
   });
@@ -65,6 +65,6 @@ describe('useWebRTC', () => {
     
     unmount();
 
-    expect(peerConnection.close).toHaveBeenCalled();
+    expect(peerConnection!.close).toHaveBeenCalled();
   });
 });

@@ -138,10 +138,6 @@ func (r *RoomEngine) HandleOffer(roomID, participantID, sdp string) (string, err
 	if err != nil {
 		return "", err
 	}
-	
-	// Inject Opus DTX (Discontinuous Transmission) to save bandwidth during silence
-	// This is a commercial-grade optimization (Pillar A)
-	answer.SDP = strings.ReplaceAll(answer.SDP, "useinbandfec=1", "useinbandfec=1;usedtx=1")
 
 	gatherComplete := webrtc.GatheringCompletePromise(participant.pc)
 	if err := participant.pc.SetLocalDescription(answer); err != nil {
@@ -149,12 +145,12 @@ func (r *RoomEngine) HandleOffer(roomID, participantID, sdp string) (string, err
 	}
 	<-gatherComplete
 
-	local := participant.pc.LocalDescription()
-	if local == nil {
-		return "", fmt.Errorf("local description not available")
-	}
+	// Inject Opus DTX (Discontinuous Transmission) to save bandwidth during silence
+	// This is a commercial-grade optimization (Pillar A)
+	finalSDP := participant.pc.LocalDescription().SDP
+	finalSDP = strings.ReplaceAll(finalSDP, "useinbandfec=1", "useinbandfec=1;usedtx=1")
 
-	return local.SDP, nil
+	return finalSDP, nil
 }
 
 func (r *RoomEngine) AddICECandidate(roomID, participantID string, candidate webrtc.ICECandidateInit) error {
