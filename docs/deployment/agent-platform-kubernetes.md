@@ -100,6 +100,12 @@ features:
 
 紧急回退时先关闭 `SANDBOX_EXECUTION_ENABLED` 和 `MCP_PLATFORM_ENABLED`，阻止新工具执行；checkpoint 数据仍由 MySQL 保留，避免回退过程覆盖 Python 图状态。不要回滚 additive migration。恢复后再逐项重新打开 flag。
 
+### Checkpoint 一致性边界
+
+MySQL saver 将单次 `graph.invoke` 产生的新 checkpoint 与 pending writes 放入有界内存 buffer，并在 invocation 成功返回后通过一次 MySQL 事务提交。提交前其他连接看不到部分数据；版本冲突或任一 checkpoint/write 插入失败时，namespace version 和所有 payload 一并回滚。单次 invocation 最多缓存 256 个 checkpoint、4096 条 write 和 16 MiB 序列化 payload，超限返回 `checkpoint_transaction_too_large`。
+
+当前保证是 execution 边界原子性，不是每个 LangGraph 节点单独持久化。Pod 在 invocation 中途退出时会从上一次已提交 execution 重新执行本轮节点；Go 工具网关仍须依靠确定性 `(run_id, call_id)` 防止副作用重复。若后续工作流需要长时间节点级恢复，需要固定 LangGraph 版本并在 Pregel superstep 边界增加 checkpoint bundle hook，不能退回 `put` 和 `put_writes` 分别提交。
+
 ## 限额、保留与可观测性
 
 默认值与产品约束一致：个人安装 5 个、组织发布安装 20 个、用户并发 2、组织并发 10、单次 30 秒、0.5 CPU、512 MiB、输出 256 KiB。checkpoint 和 tool payload 保留 30 天，组织审计保留 180 天。删除用户或安装时必须先撤销 OpenBao secret，再清理执行 payload 与 checkpoint。

@@ -18,7 +18,12 @@ from .models import (
     WorkflowResponse,
 )
 from .config import config as app_config
-from .checkpoint import CheckpointExecutionBusy, MySQLCheckpointSaver
+from .checkpoint import (
+    CheckpointExecutionBusy,
+    CheckpointTransactionTooLarge,
+    CheckpointVersionConflict,
+    MySQLCheckpointSaver,
+)
 from .providers import ProviderError, create_provider
 from .prompts import prompt_version_for
 
@@ -110,6 +115,20 @@ def graph_execution_guard(
     )
 
 
+def graph_checkpoint_transaction(
+    graph: Any,
+    runtime_config: dict[str, dict[str, object]],
+) -> AbstractContextManager[None]:
+    checkpointer = getattr(graph, "checkpointer", None)
+    if not isinstance(checkpointer, MySQLCheckpointSaver):
+        return nullcontext()
+    configurable = runtime_config["configurable"]
+    return checkpointer.checkpoint_transaction(
+        str(configurable["thread_id"]),
+        str(configurable["execution_id"]),
+    )
+
+
 def run_meeting_brief(request: MeetingBriefRequest) -> MeetingBriefResponse:
     """Run the meeting brief workflow."""
     return run_workflow(request.model_copy(update={"preset": "meeting_brief"}))
@@ -153,26 +172,42 @@ def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
                 runtime_config = existing_execution_config
                 snapshot = graph.get_state(runtime_config)
                 if snapshot.next:
-                    with tool_capability_scope(request.tool_capability):
-                        result = graph.invoke(None, config=runtime_config)
+                    with graph_checkpoint_transaction(graph, runtime_config):
+                        with tool_capability_scope(request.tool_capability):
+                            result = graph.invoke(None, config=runtime_config)
                 else:
                     result = snapshot.values
             else:
                 checkpoint_request = request.model_copy(update={"tool_capability": ""})
-                with tool_capability_scope(request.tool_capability):
-                    result = graph.invoke(
-                        {
-                            "request": checkpoint_request,
-                            "trace_events": [],
-                            "role_results": [],
-                        },
-                        config=runtime_config,
-                    )
+                with graph_checkpoint_transaction(graph, runtime_config):
+                    with tool_capability_scope(request.tool_capability):
+                        result = graph.invoke(
+                            {
+                                "request": checkpoint_request,
+                                "trace_events": [],
+                                "role_results": [],
+                            },
+                            config=runtime_config,
+                        )
             checkpoint_id, checkpoint_version = checkpoint_details(graph, runtime_config)
     except CheckpointExecutionBusy as exc:
         raise HTTPException(
             status_code=409,
             detail={"code": "checkpoint_execution_busy", "message": str(exc)},
+        ) from exc
+    except CheckpointVersionConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "checkpoint_version_conflict",
+                "expected": exc.expected,
+                "current": exc.current,
+            },
+        ) from exc
+    except CheckpointTransactionTooLarge as exc:
+        raise HTTPException(
+            status_code=413,
+            detail={"code": "checkpoint_transaction_too_large", "message": str(exc)},
         ) from exc
     except (ProviderError, ValueError) as exc:
         kind = exc.kind if isinstance(exc, ProviderError) else "invalid_request"
