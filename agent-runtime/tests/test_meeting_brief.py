@@ -9,6 +9,10 @@ from app.llamaindex_adapter import run_fixture_retrieval
 from app.models import Citation, ContextChunk, MeetingBriefRequest, MeetingTranscriptSegment, WorkflowRequest
 from app.prompts import prompt_version_for, structured_prompt_for
 from app.providers import ProviderError, create_provider
+from app.nodes.mcp import use_mcp_tools
+from app.nodes.context import collect_context
+from app.helpers import tool_capability_scope
+from app.tool_bridge import ToolObservation, UnifiedToolRegistry, untrusted_mcp_chunk
 from app.retrieval import rerank_context_chunks
 
 
@@ -200,6 +204,99 @@ def test_context_qa_guard_when_context_is_missing() -> None:
     assert "不足" in response.summary
     assert not response.citations
     assert not response.proposed_tool_calls
+
+
+def test_mcp_node_executes_verified_reads_and_proposes_unknown_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = WorkflowRequest(
+        organization_id=1,
+        user_id=7,
+        conversation_id=42,
+        workflow_run_id=500,
+        preset="react_general",
+        goal="Use mcp.1.search to query the customer status",
+    )
+    catalog = [
+        {
+            "name": "mcp.1.search",
+            "original_name": "search",
+            "risk": "read",
+            "input_schema": {
+                "type": "object",
+                "required": ["query"],
+                "properties": {"query": {"type": "string"}},
+            },
+        }
+    ]
+    seen_capabilities: list[str] = []
+
+    def execute(runtime_request: WorkflowRequest, name: str, arguments: dict[str, object]) -> ToolObservation:
+        seen_capabilities.append(runtime_request.tool_capability)
+        output = '{"customer":"active"}'
+        return ToolObservation(
+            tool_name=name,
+            input=arguments,
+            output_json=output,
+            chunks=(untrusted_mcp_chunk(name, "read-call", output),),
+        )
+
+    monkeypatch.setattr(UnifiedToolRegistry.get_instance(), "execute_read_tool", execute)
+    with tool_capability_scope("run-capability"):
+        read_result = use_mcp_tools({"request": request, "authorized_mcp_tools": catalog})
+    assert seen_capabilities == ["run-capability"]
+    assert read_result["external_tool_context_chunks"][0].source_type == "mcp_untrusted"
+    assert not read_result["mcp_tool_proposals"]
+
+    request = request.model_copy(update={"goal": "Use mcp.1.update with this query"})
+    write_result = use_mcp_tools(
+        {
+            "request": request,
+            "authorized_mcp_tools": [
+                {
+                    **catalog[0],
+                    "name": "mcp.1.update",
+                    "original_name": "update",
+                    "risk": "unknown",
+                }
+            ],
+        }
+    )
+    proposals = write_result["mcp_tool_proposals"]
+    assert len(proposals) == 1
+    assert proposals[0].tool_name == "mcp.1.update"
+    assert proposals[0].approval_required
+
+
+def test_authorized_skills_are_scoped_to_catalog_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    request = WorkflowRequest(
+        organization_id=1,
+        user_id=7,
+        conversation_id=42,
+        workflow_run_id=501,
+        preset="react_general",
+        goal="Search policy",
+    )
+
+    def catalog(_: WorkflowRequest) -> dict[str, list[dict[str, object]]]:
+        return {
+            "tools": [{"name": "mcp.1.search", "risk": "read", "input_schema": {}}],
+            "skills": [
+                {
+                    "name": "Policy search",
+                    "instructions": "Use policy sources and report uncertainty.",
+                    "tool_names": ["mcp.1.search", "mcp.2.not-authorized"],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(UnifiedToolRegistry.get_instance(), "catalog", catalog)
+    result = collect_context({"request": request})
+
+    prompt = result["active_skills_prompt"]
+    assert "Policy search" in prompt
+    assert "mcp.1.search" in prompt
+    assert "mcp.2.not-authorized" not in prompt
 
 
 def test_python_eval_fixture_passes(monkeypatch: pytest.MonkeyPatch) -> None:

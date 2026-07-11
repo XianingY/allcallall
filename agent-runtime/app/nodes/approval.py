@@ -37,8 +37,11 @@ def propose_tools(state: GraphState) -> GraphState:
         "citations": [citation.model_dump(exclude_none=True) for citation in state.get("citations", [])],
     }
     sufficiency = state.get("context_sufficiency", ContextSufficiency())
-    proposals = [] if not sufficiency.sufficient else workflow_tool_proposals(request, base, message_arguments)
-    trace = state.get("trace_events", [])
+    proposals = [] if not sufficiency.sufficient else [
+        *workflow_tool_proposals(request, base, message_arguments),
+        *state.get("mcp_tool_proposals", []),
+    ]
+    trace = []
     trace.append(TraceEvent(event="graph.node.started", node="propose_tools", status="running"))
     if not sufficiency.sufficient:
         trace.append(
@@ -72,7 +75,7 @@ def propose_tools(state: GraphState) -> GraphState:
 
 def approval_gate(state: GraphState) -> GraphState:
     """Wait for human approval of proposed tool calls."""
-    trace = state.get("trace_events", [])
+    trace = []
     trace.append(TraceEvent(event="graph.node.started", node="approval_gate", status="running"))
     trace.append(
         TraceEvent(
@@ -87,7 +90,7 @@ def approval_gate(state: GraphState) -> GraphState:
 
 def finalize(state: GraphState) -> GraphState:
     """Finalize the workflow execution."""
-    trace = state.get("trace_events", [])
+    trace = []
     trace.append(TraceEvent(event="graph.node.started", node="finalize", status="running"))
     trace.append(TraceEvent(event="graph.node.completed", node="finalize", status="completed"))
     return {"trace_events": trace}

@@ -59,7 +59,7 @@ func main() {
 	defer cleanup()
 
 	if strings.TrimSpace(os.Getenv("BETA_SEED_SKIP_MIGRATION")) == "" {
-		if err := runtime.RunMigrations(db); err != nil {
+		if err := runtime.RunMigrations(db, cfg.Database.DSN); err != nil {
 			log.Fatal().Err(err).Msg("run migrations failed")
 		}
 	}

@@ -1,0 +1,12 @@
+FROM golang:1.24-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags='-w -s' -o /out/sandbox-service ./cmd/sandbox-service
+
+FROM aquasec/trivy:0.58.1
+COPY --from=build /out/sandbox-service /usr/local/bin/sandbox-service
+USER 65532:65532
+EXPOSE 8092
+ENTRYPOINT ["/usr/local/bin/sandbox-service"]

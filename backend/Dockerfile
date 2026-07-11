@@ -29,6 +29,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -ldflags='-w -s' -o /out/data-worker ./cmd/data-worker && \
     go build -ldflags='-w -s' -o /out/search-worker ./cmd/search-worker && \
     go build -ldflags='-w -s' -o /out/cleanup-worker ./cmd/cleanup-worker && \
+    go build -ldflags='-w -s' -o /out/sandbox-service ./cmd/sandbox-service && \
     go build -ldflags='-w -s' -o /out/migrate ./cmd/migrate
 
 FROM alpine:3.18
@@ -45,6 +46,7 @@ COPY --from=build /out/outbox-worker ./outbox-worker
 COPY --from=build /out/data-worker ./data-worker
 COPY --from=build /out/search-worker ./search-worker
 COPY --from=build /out/cleanup-worker ./cleanup-worker
+COPY --from=build /out/sandbox-service ./sandbox-service
 COPY --from=build /out/migrate ./migrate
 COPY configs ./configs
 

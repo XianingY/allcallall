@@ -14,13 +14,26 @@ import (
 
 	"github.com/allcallall/backend/internal/agent"
 	"github.com/allcallall/backend/internal/auth"
+	"github.com/allcallall/backend/internal/mcpplatform"
 	"github.com/allcallall/backend/internal/models"
 )
 
 type AgentHandler struct {
-	logger  zerolog.Logger
-	service *agent.Service
-	redis   *redis.Client
+	logger       zerolog.Logger
+	service      *agent.Service
+	mcp          *mcpplatform.Service
+	capabilities *mcpplatform.CapabilityManager
+	redis        *redis.Client
+}
+
+func (h *AgentHandler) WithCapabilityManager(manager *mcpplatform.CapabilityManager) *AgentHandler {
+	h.capabilities = manager
+	return h
+}
+
+func (h *AgentHandler) WithMCPPlatform(service *mcpplatform.Service) *AgentHandler {
+	h.mcp = service
+	return h
 }
 
 func NewAgentHandler(log zerolog.Logger, service *agent.Service) *AgentHandler {
@@ -47,6 +60,7 @@ func (h *AgentHandler) RegisterProtectedRoutes(protected *gin.RouterGroup) {
 	protected.POST("/agent/workflows/:id/process", h.handleProcessWorkflow)
 	protected.GET("/agent/approvals", h.handleListApprovals)
 	protected.POST("/agent/approvals/:id/decision", h.handleSubmitApprovalDecision)
+	h.registerMCPProtectedRoutes(protected)
 }
 
 type createAgentRunRequest struct {
@@ -75,6 +89,8 @@ type agentRunResponse struct {
 	Status            string     `json:"status"`
 	PromptVersion     string     `json:"prompt_version,omitempty"`
 	ToolSchemaVersion string     `json:"tool_schema_version,omitempty"`
+	CheckpointID      string     `json:"checkpoint_id,omitempty"`
+	CheckpointVersion uint64     `json:"checkpoint_version"`
 	Goal              string     `json:"goal"`
 	Summary           string     `json:"summary"`
 	ActionItems       []string   `json:"action_items"`
@@ -105,6 +121,7 @@ type agentToolCallResponse struct {
 	ID                uint64    `json:"id"`
 	RunID             uint64    `json:"run_id"`
 	StepID            *uint64   `json:"step_id,omitempty"`
+	CallID            string    `json:"call_id"`
 	ToolName          string    `json:"tool_name"`
 	Status            string    `json:"status"`
 	ToolSchemaVersion string    `json:"tool_schema_version,omitempty"`
@@ -586,6 +603,8 @@ func toWorkflowRunResponse(run models.WorkflowRun, actionItems, riskFlags []stri
 		"preset":              run.Preset,
 		"prompt_version":      run.PromptVersion,
 		"tool_schema_version": run.ToolSchemaVersion,
+		"checkpoint_id":       run.CheckpointID,
+		"checkpoint_version":  run.CheckpointVersion,
 		"state_json":          run.StateJSON,
 		"last_event_id":       run.LastEventID,
 		"goal":                run.Goal,
@@ -741,6 +760,8 @@ func toAgentRunResponse(run models.AgentRun, actionItems, riskFlags []string) ag
 		Status:            run.Status,
 		PromptVersion:     run.PromptVersion,
 		ToolSchemaVersion: run.ToolSchemaVersion,
+		CheckpointID:      run.CheckpointID,
+		CheckpointVersion: run.CheckpointVersion,
 		Goal:              run.Goal,
 		Summary:           run.Summary,
 		ActionItems:       actionItems,
@@ -781,6 +802,7 @@ func toAgentToolCallResponses(toolCalls []models.AgentToolCall) []agentToolCallR
 			ID:                toolCall.ID,
 			RunID:             toolCall.RunID,
 			StepID:            toolCall.StepID,
+			CallID:            toolCall.CallID,
 			ToolName:          toolCall.ToolName,
 			Status:            toolCall.Status,
 			ToolSchemaVersion: toolCall.ToolSchemaVersion,

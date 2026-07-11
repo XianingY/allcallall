@@ -1,0 +1,110 @@
+{{- $root := . }}
+{{- $runtimes := list
+      (dict "name" "agent-runtime" "values" .Values.components.agentRuntime "image" .Values.images.agentRuntime "port" 8090 "health" "/health")
+      (dict "name" "rag-runtime" "values" .Values.components.ragRuntime "image" .Values.images.ragRuntime "port" 8091 "health" "/health")
+}}
+{{- range $runtime := $runtimes }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "allcallall.componentName" (dict "root" $root "component" $runtime.name) }}
+  labels:
+    {{- include "allcallall.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $runtime.name }}
+spec:
+  replicas: {{ $runtime.values.replicas }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "allcallall.selectorLabels" (dict "Release" $root.Release "Chart" $root.Chart "Values" $root.Values "component" $runtime.name) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $root.Template.BasePath "/configmap.yaml") $root | sha256sum }}
+        {{- if and (eq $runtime.name "rag-runtime") $root.Values.observability.prometheus.scrape }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8091"
+        prometheus.io/path: /metrics
+        {{- end }}
+      labels:
+        {{- include "allcallall.selectorLabels" (dict "Release" $root.Release "Chart" $root.Chart "Values" $root.Values "component" $runtime.name) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "allcallall.serviceAccountName" (dict "root" $root "component" $runtime.name) }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      {{- with $root.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ $runtime.name }}
+          image: "{{ $runtime.image.repository }}:{{ $runtime.image.tag }}"
+          imagePullPolicy: {{ $runtime.image.pullPolicy }}
+          securityContext:
+            {{- include "allcallall.containerSecurityContext" $root | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "allcallall.fullname" $root }}-config
+          env:
+            - name: PY_AGENT_TOOL_BRIDGE_BASE_URL
+              value: http://{{ include "allcallall.fullname" $root }}-api:8080
+            - name: PY_RAG_TOOL_BRIDGE_BASE_URL
+              value: http://{{ include "allcallall.fullname" $root }}-api:8080
+            - name: PY_RAG_RUNTIME_BASE_URL
+              value: http://{{ include "allcallall.fullname" $root }}-rag-runtime:8091
+            {{- if eq $runtime.name "agent-runtime" }}
+            - name: PY_AGENT_RUNTIME_PORT
+              value: {{ $runtime.port | quote }}
+            - name: PY_AGENT_CHECKPOINT_MYSQL_ENABLED
+              value: {{ $root.Values.features.langgraphMysqlCheckpointEnabled | quote }}
+            - name: PY_AGENT_CHECKPOINT_MYSQL_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.external.mysql.secretName }}
+                  key: {{ $root.Values.external.mysql.checkpointDsnKey }}
+            {{- else }}
+            - name: PY_RAG_RUNTIME_PORT
+              value: {{ $runtime.port | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $runtime.port }}
+          startupProbe:
+            httpGet: {path: {{ $runtime.health }}, port: http}
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: {path: {{ $runtime.health }}, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: {{ $runtime.health }}, port: http}
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            {{- toYaml $runtime.values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+      terminationGracePeriodSeconds: 30
+      {{- with $root.Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -38,6 +38,9 @@ type AgentRuntime interface {
 
 type WorkflowRuntimeRequest struct {
 	RequestID          string                        `json:"request_id,omitempty"`
+	ExecutionID        string                        `json:"execution_id,omitempty"`
+	ExpectedCheckpoint uint64                        `json:"expected_checkpoint_version,omitempty"`
+	ToolCapability     string                        `json:"tool_capability,omitempty"`
 	OrganizationID     uint64                        `json:"organization_id"`
 	UserID             uint64                        `json:"user_id"`
 	ConversationID     uint64                        `json:"conversation_id"`
@@ -113,6 +116,9 @@ type WorkflowRuntimeResponse struct {
 	Status             string                    `json:"status"`
 	Runtime            string                    `json:"runtime"`
 	Provider           string                    `json:"provider"`
+	ExecutionID        string                    `json:"execution_id,omitempty"`
+	CheckpointID       string                    `json:"checkpoint_id,omitempty"`
+	CheckpointVersion  uint64                    `json:"checkpoint_version,omitempty"`
 	Summary            string                    `json:"summary"`
 	ActionItems        []string                  `json:"action_items"`
 	NextStep           string                    `json:"next_step"`

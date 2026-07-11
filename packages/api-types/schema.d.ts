@@ -470,6 +470,314 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agent/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createAgentRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/runs/{runId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAgentRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/runs/{runId}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAgentRunEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/runs/{runId}/submit-tool-outputs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["submitAgentToolOutputs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAgentWorkflows"];
+        put?: never;
+        post: operations["createAgentWorkflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/workflows/{workflowId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAgentWorkflow"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/workflows/{workflowId}/process": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["processAgentWorkflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAgentApprovals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/approvals/{approvalId}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["decideAgentApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/mcp/installations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listMCPInstallations"];
+        put?: never;
+        post: operations["createMCPInstallation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/mcp/installations/{installationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                installationId: number;
+            };
+            cookie?: never;
+        };
+        get: operations["getMCPInstallation"];
+        put?: never;
+        post?: never;
+        delete: operations["deleteMCPInstallation"];
+        options?: never;
+        head?: never;
+        patch: operations["updateMCPInstallation"];
+        trace?: never;
+    };
+    "/agent/mcp/installations/{installationId}/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["validateMCPInstallation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/mcp/installations/{installationId}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["activateMCPInstallation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/mcp/installations/{installationId}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["publishMCPInstallation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/mcp/installations/{installationId}/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["putMCPInstallationSecrets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/mcp/installations/{installationId}/tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listMCPInstallationTools"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/mcp/executions/{executionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getMCPExecution"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAgentSkills"];
+        put?: never;
+        post: operations["createAgentSkill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/skills/{skillId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteAgentSkill"];
+        options?: never;
+        head?: never;
+        patch: operations["updateAgentSkill"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1224,6 +1532,190 @@ export interface components {
             /** Format: int64 */
             next_after_id?: number | null;
         };
+        CreateAgentRunRequest: {
+            /** Format: int64 */
+            conversation_id: number;
+            goal?: string;
+        };
+        CreateWorkflowRequest: {
+            /** Format: int64 */
+            conversation_id: number;
+            goal?: string;
+            /** @enum {string} */
+            preset?: "meeting_brief" | "follow_up" | "follow_up_planner" | "risk_review" | "context_qa";
+        };
+        MCPInstallationDefinition: {
+            /** @enum {string} */
+            transport: "stdio" | "http" | "streamable_http" | "sse";
+            /** @description OCI reference pinned with @sha256. */
+            image_ref?: string;
+            /** Format: uri */
+            endpoint_url?: string;
+            command?: string[];
+            args?: string[];
+            config?: {
+                [key: string]: unknown;
+            };
+            network_allowlist?: string[];
+        };
+        CreateMCPInstallationRequest: components["schemas"]["MCPInstallationDefinition"] & {
+            /**
+             * @default personal
+             * @enum {string}
+             */
+            scope: "personal" | "organization";
+            display_name: string;
+            /** @enum {string} */
+            source_type: "oci" | "https";
+        };
+        UpdateMCPInstallationRequest: {
+            display_name?: string;
+            definition?: components["schemas"]["MCPInstallationDefinition"];
+        };
+        MCPInstallationRevision: {
+            /** Format: int64 */
+            id: number;
+            revision: number;
+            transport: string;
+            image_ref?: string;
+            image_digest?: string;
+            endpoint_url?: string;
+            scan_status: string;
+            scan_report?: {
+                [key: string]: unknown;
+            };
+            /** Format: int64 */
+            created_by: number;
+            /** Format: date-time */
+            created_at: string;
+        };
+        MCPInstallation: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            owner_user_id: number;
+            /** @enum {string} */
+            scope: "personal" | "organization";
+            display_name: string;
+            /** @enum {string} */
+            source_type: "oci" | "https";
+            /** @enum {string} */
+            status: "draft" | "validating" | "quarantined" | "active" | "disabled" | "failed";
+            /** Format: int64 */
+            active_revision_id?: number | null;
+            secrets_configured: boolean;
+            last_error?: string;
+            /** Format: int64 */
+            published_by?: number | null;
+            /** Format: date-time */
+            published_at?: string | null;
+            latest_revision?: components["schemas"]["MCPInstallationRevision"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        MCPTool: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            installation_id: number;
+            /** Format: int64 */
+            revision_id: number;
+            name: string;
+            original_name: string;
+            description?: string;
+            input_schema: {
+                [key: string]: unknown;
+            };
+            output_schema?: {
+                [key: string]: unknown;
+            };
+            /** @enum {string} */
+            risk: "read" | "write" | "unknown";
+            status: string;
+            schema_version: string;
+        };
+        MCPExecution: {
+            /** Format: int64 */
+            id: number;
+            execution_id: string;
+            run_ref: string;
+            /** Format: int64 */
+            agent_run_id?: number | null;
+            /** Format: int64 */
+            workflow_run_id?: number | null;
+            /** Format: int64 */
+            installation_id: number;
+            /** Format: int64 */
+            revision_id: number;
+            /** Format: int64 */
+            tool_id: number;
+            tool_call_id: string;
+            /** @enum {string} */
+            status: "queued" | "starting" | "running" | "succeeded" | "failed" | "timed_out" | "canceled";
+            input: {
+                [key: string]: unknown;
+            };
+            output: {
+                [key: string]: unknown;
+            };
+            attempts: number;
+            error_message?: string;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        AgentSkill: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            owner_user_id: number;
+            /** @enum {string} */
+            scope: "personal" | "organization";
+            name: string;
+            description: string;
+            instructions: string;
+            /** @enum {string} */
+            status: "active" | "disabled";
+            version: number;
+            /** Format: int64 */
+            published_by?: number | null;
+            /** Format: date-time */
+            published_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        CreateAgentSkillRequest: {
+            /**
+             * @default personal
+             * @enum {string}
+             */
+            scope: "personal" | "organization";
+            name: string;
+            description?: string;
+            instructions: string;
+            tool_ids: number[];
+        };
+        UpdateAgentSkillRequest: {
+            name?: string;
+            description?: string;
+            instructions?: string;
+            tool_ids?: number[];
+            /** @enum {string} */
+            status?: "active" | "disabled";
+        };
         AgentRun: {
             /** Format: int64 */
             id: number;
@@ -1233,8 +1725,15 @@ export interface components {
             user_id: number;
             /** Format: int64 */
             conversation_id: number;
+            idempotency_key?: string;
+            request_id?: string;
             source: string;
             status: string;
+            prompt_version?: string;
+            tool_schema_version?: string;
+            checkpoint_id?: string;
+            /** Format: int64 */
+            checkpoint_version?: number;
             goal: string;
             summary: string;
             action_items: string[];
@@ -1273,8 +1772,10 @@ export interface components {
             run_id: number;
             /** Format: int64 */
             step_id?: number | null;
+            call_id?: string;
             tool_name: string;
             status: string;
+            tool_schema_version?: string;
             input_json?: string;
             output_json?: string;
             error_message?: string;
@@ -1320,10 +1821,34 @@ export interface components {
             run: components["schemas"]["AgentRun"];
             steps: components["schemas"]["AgentStep"][];
             tool_calls: components["schemas"]["AgentToolCall"][];
-            trace: {
-                [key: string]: unknown;
-            }[];
+            trace: components["schemas"]["AgentTraceEvent"][];
             citations: components["schemas"]["AgentCitation"][];
+        };
+        AgentTraceEvent: {
+            type: string;
+            name: string;
+            status: string;
+            /** Format: int64 */
+            ref_id?: number;
+            /** Format: date-time */
+            at: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        AgentRunEvent: {
+            sequence: number;
+            event: string;
+            status: string;
+            ref_type: string;
+            /** Format: int64 */
+            ref_id?: number;
+            name?: string;
+            /** Format: date-time */
+            at: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
         };
         WorkflowRun: {
             /** Format: int64 */
@@ -1336,10 +1861,17 @@ export interface components {
             conversation_id: number;
             /** Format: int64 */
             agent_run_id?: number | null;
+            idempotency_key?: string;
+            request_id?: string;
             status: string;
             workflow_type?: string;
             workflow_version?: string;
             preset?: string;
+            prompt_version?: string;
+            tool_schema_version?: string;
+            checkpoint_id?: string;
+            /** Format: int64 */
+            checkpoint_version?: number;
             state_json?: string;
             goal: string;
             summary: string;
@@ -1406,22 +1938,84 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        WorkflowAgentMessage: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            workflow_run_id: number;
+            /** Format: int64 */
+            task_id?: number | null;
+            /** Format: int64 */
+            organization_id: number;
+            from_role: string;
+            to_role: string;
+            message_type: string;
+            content_json: string;
+            correlation_id: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        WorkflowHistory: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            workflow_run_id: number;
+            /** Format: int64 */
+            organization_id: number;
+            event_type: string;
+            ref_type?: string;
+            /** Format: int64 */
+            ref_id?: number | null;
+            attributes_json?: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        WorkflowSignal: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            workflow_run_id: number;
+            /** Format: int64 */
+            organization_id: number;
+            signal_name: string;
+            payload_json?: string;
+            status: string;
+            /** Format: int64 */
+            received_by?: number | null;
+            /** Format: date-time */
+            handled_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        WorkflowTimer: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            workflow_run_id: number;
+            /** Format: int64 */
+            organization_id: number;
+            timer_name: string;
+            /** Format: date-time */
+            fire_at: string;
+            status: string;
+            payload_json?: string;
+            /** Format: date-time */
+            fired_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
         WorkflowResult: {
             workflow: components["schemas"]["WorkflowRun"];
             tasks: components["schemas"]["WorkflowTask"][];
-            messages: {
-                [key: string]: unknown;
-            }[];
+            messages: components["schemas"]["WorkflowAgentMessage"][];
             approvals: components["schemas"]["ToolApproval"][];
-            history: {
-                [key: string]: unknown;
-            }[];
-            signals: {
-                [key: string]: unknown;
-            }[];
-            timers: {
-                [key: string]: unknown;
-            }[];
+            history: components["schemas"]["WorkflowHistory"][];
+            signals: components["schemas"]["WorkflowSignal"][];
+            timers: components["schemas"]["WorkflowTimer"][];
             citations: components["schemas"]["AgentCitation"][];
         };
         KnowledgeSource: {
@@ -2173,6 +2767,626 @@ export interface operations {
                             username?: string;
                             credential?: string;
                         }[];
+                    };
+                };
+            };
+        };
+    };
+    createAgentRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAgentRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Agent run accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRunResult"];
+                };
+            };
+        };
+    };
+    getAgentRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Agent run detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRunResult"];
+                };
+            };
+        };
+    };
+    listAgentRunEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ordered agent events. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int64 */
+                        run_id: number;
+                        events: {
+                            [key: string]: unknown;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    submitAgentToolOutputs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    outputs: {
+                        tool_call_id: string;
+                        /** @enum {string} */
+                        action: "approve" | "reject";
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description Updated run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRunResult"];
+                };
+            };
+        };
+    };
+    listAgentWorkflows: {
+        parameters: {
+            query?: {
+                conversation_id?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        workflows: components["schemas"]["WorkflowResult"][];
+                    };
+                };
+            };
+        };
+    };
+    createAgentWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkflowRequest"];
+            };
+        };
+        responses: {
+            /** @description Workflow accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowResult"];
+                };
+            };
+        };
+    };
+    getAgentWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflowId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflow detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowResult"];
+                };
+            };
+        };
+    };
+    processAgentWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflowId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflow result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowResult"];
+                };
+            };
+        };
+    };
+    listAgentApprovals: {
+        parameters: {
+            query?: {
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tool approvals */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        approvals: components["schemas"]["ToolApproval"][];
+                    };
+                };
+            };
+        };
+    };
+    decideAgentApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                approvalId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    decision: "approve" | "reject";
+                };
+            };
+        };
+        responses: {
+            /** @description Updated workflow */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowResult"];
+                };
+            };
+        };
+    };
+    listMCPInstallations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Visible MCP installations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        installations: components["schemas"]["MCPInstallation"][];
+                    };
+                };
+            };
+        };
+    };
+    createMCPInstallation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMCPInstallationRequest"];
+            };
+        };
+        responses: {
+            /** @description MCP installation created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        installation: components["schemas"]["MCPInstallation"];
+                    };
+                };
+            };
+        };
+    };
+    getMCPInstallation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                installationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MCP installation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        installation: components["schemas"]["MCPInstallation"];
+                    };
+                };
+            };
+        };
+    };
+    deleteMCPInstallation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                installationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Installation deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateMCPInstallation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                installationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMCPInstallationRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated MCP installation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        installation: components["schemas"]["MCPInstallation"];
+                    };
+                };
+            };
+        };
+    };
+    validateMCPInstallation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                installationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Validation completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        installation: components["schemas"]["MCPInstallation"];
+                    };
+                };
+            };
+        };
+    };
+    activateMCPInstallation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                installationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Installation activated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        installation: components["schemas"]["MCPInstallation"];
+                    };
+                };
+            };
+        };
+    };
+    publishMCPInstallation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                installationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Installation published to organization */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        installation: components["schemas"]["MCPInstallation"];
+                    };
+                };
+            };
+        };
+    };
+    putMCPInstallationSecrets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                installationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    secrets: {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Secrets stored outside MySQL */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        secrets_configured: boolean;
+                    };
+                };
+            };
+        };
+    };
+    listMCPInstallationTools: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                installationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MCP tools */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        tools: components["schemas"]["MCPTool"][];
+                    };
+                };
+            };
+        };
+    };
+    getMCPExecution: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                executionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description MCP execution */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        execution: components["schemas"]["MCPExecution"];
+                    };
+                };
+            };
+        };
+    };
+    listAgentSkills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Agent skills */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        skills: components["schemas"]["AgentSkill"][];
+                    };
+                };
+            };
+        };
+    };
+    createAgentSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAgentSkillRequest"];
+            };
+        };
+        responses: {
+            /** @description Agent skill created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        skill: components["schemas"]["AgentSkill"];
+                    };
+                };
+            };
+        };
+    };
+    deleteAgentSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Agent skill deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateAgentSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAgentSkillRequest"];
+            };
+        };
+        responses: {
+            /** @description Agent skill updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        skill: components["schemas"]["AgentSkill"];
                     };
                 };
             };

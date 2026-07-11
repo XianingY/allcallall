@@ -33,6 +33,12 @@ func (s *Service) executeAgentRunWithExternalRuntime(ctx context.Context, run mo
 	s.recordAgentToolCalls(contextToolCalls)
 
 	request := buildAgentRuntimeRequest(run, goal, conversationCtx)
+	if s.toolCapabilities != nil {
+		request.ToolCapability, err = s.toolCapabilities.IssueForRun(ctx, run.OrganizationID, run.UserID, run.ConversationID, fmt.Sprintf("agent:%d", run.ID))
+		if err != nil {
+			return nil, fmt.Errorf("issue agent tool capability: %w", err)
+		}
+	}
 	started := time.Now()
 	response, err := runtime.RunAgent(ctx, request)
 	if s.metrics != nil {
@@ -57,13 +63,15 @@ func (s *Service) executeAgentRunWithExternalRuntime(ctx context.Context, run mo
 
 func buildAgentRuntimeRequest(run models.AgentRun, goal string, conversationCtx *conversationContext) WorkflowRuntimeRequest {
 	request := WorkflowRuntimeRequest{
-		RequestID:      run.RequestID,
-		OrganizationID: run.OrganizationID,
-		UserID:         run.UserID,
-		ConversationID: run.ConversationID,
-		AgentRunID:     run.ID,
-		Preset:         "react_general",
-		Goal:           goal,
+		RequestID:          run.RequestID,
+		ExecutionID:        fmt.Sprintf("agent:%d", run.ID),
+		ExpectedCheckpoint: run.CheckpointVersion,
+		OrganizationID:     run.OrganizationID,
+		UserID:             run.UserID,
+		ConversationID:     run.ConversationID,
+		AgentRunID:         run.ID,
+		Preset:             "react_general",
+		Goal:               goal,
 		ToolPolicy: WorkflowRuntimeToolPolicy{
 			ReadTools: []string{
 				ToolQueryContextChunks,
@@ -196,7 +204,25 @@ func (s *Service) persistExternalAgentRunOutput(ctx context.Context, run models.
 		descriptor, ok := ToolDescriptorByName(proposal.ToolName)
 		status := models.ToolCallStatusPending
 		errorMessage := ""
-		if !ok {
+		schemaVersion := CurrentToolSchemaVersion
+		if strings.HasPrefix(proposal.ToolName, "mcp.") {
+			if s.mcpPlatform == nil {
+				status = models.ToolCallStatusFailed
+				errorMessage = "MCP platform is unavailable"
+			} else if !proposal.ApprovalRequired {
+				status = models.ToolCallStatusFailed
+				errorMessage = "MCP write and unknown-risk tools require approval"
+			} else if tool, err := s.mcpPlatform.ValidateArguments(ctx, run.OrganizationID, run.UserID, proposal.ToolName, proposal.Arguments); err != nil {
+				status = models.ToolCallStatusFailed
+				errorMessage = err.Error()
+			} else if tool.Risk == models.MCPToolRiskRead {
+				status = models.ToolCallStatusFailed
+				errorMessage = "verified read MCP tools must execute through the runtime gateway"
+			} else {
+				schemaVersion = tool.SchemaVersion
+				pendingProposals++
+			}
+		} else if !ok {
 			status = models.ToolCallStatusFailed
 			errorMessage = "unknown tool: " + proposal.ToolName
 		} else if descriptor.Kind != ToolKindSideEffect || !proposal.ApprovalRequired {
@@ -213,16 +239,24 @@ func (s *Service) persistExternalAgentRunOutput(ctx context.Context, run models.
 			callID = fmt.Sprintf("python:%d:%d", run.ID, index+1)
 		}
 		if err := s.recordToolCall(ctx, models.AgentToolCall{
-			RunID:        run.ID,
-			CallID:       callID,
-			ToolName:     proposal.ToolName,
-			Status:       status,
-			InputJSON:    inputJSON,
-			ErrorMessage: errorMessage,
+			RunID:             run.ID,
+			CallID:            callID,
+			ToolName:          proposal.ToolName,
+			Status:            status,
+			ToolSchemaVersion: schemaVersion,
+			InputJSON:         inputJSON,
+			ErrorMessage:      errorMessage,
 		}); err != nil {
 			return nil, err
 		}
 	}
+	var storedPending int64
+	if err := s.db.WithContext(ctx).Model(&models.AgentToolCall{}).
+		Where("run_id = ? AND status = ?", run.ID, models.ToolCallStatusPending).
+		Count(&storedPending).Error; err != nil {
+		return nil, err
+	}
+	pendingProposals = int(storedPending)
 
 	completedAt := time.Now().UTC()
 	status := models.AgentRunStatusReady
@@ -230,14 +264,16 @@ func (s *Service) persistExternalAgentRunOutput(ctx context.Context, run models.
 		status = models.AgentRunStatusRequiresAction
 	}
 	updates := map[string]any{
-		"status":            status,
-		"summary":           response.Summary,
-		"action_items_json": mustJSONString(response.ActionItems),
-		"next_step":         response.NextStep,
-		"risk_flags_json":   mustJSONString(response.RiskFlags),
-		"completed_at":      completedAt,
-		"lease_until":       nil,
-		"prompt_version":    run.PromptVersion,
+		"status":             status,
+		"summary":            response.Summary,
+		"action_items_json":  mustJSONString(response.ActionItems),
+		"next_step":          response.NextStep,
+		"risk_flags_json":    mustJSONString(response.RiskFlags),
+		"completed_at":       completedAt,
+		"lease_until":        nil,
+		"prompt_version":     run.PromptVersion,
+		"checkpoint_id":      response.CheckpointID,
+		"checkpoint_version": response.CheckpointVersion,
 	}
 	if err := s.db.WithContext(ctx).Model(&models.AgentRun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
 		return nil, err
@@ -248,5 +284,7 @@ func (s *Service) persistExternalAgentRunOutput(ctx context.Context, run models.
 	run.NextStep = response.NextStep
 	run.RiskFlagsJSON = mustJSONString(response.RiskFlags)
 	run.CompletedAt = &completedAt
+	run.CheckpointID = response.CheckpointID
+	run.CheckpointVersion = response.CheckpointVersion
 	return s.buildRunResult(ctx, run)
 }

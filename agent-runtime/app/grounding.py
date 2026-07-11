@@ -40,7 +40,7 @@ def check_grounding(summary: str, citations: list[Citation]) -> GroundingResult:
         matched = sum(1 for token in tokens if token in citation_text)
         if matched == 0 and len(tokens) >= 2:
             unsupported.append(claim)
-    grounded = len(unsupported) == 0 or bool(citations)
+    grounded = bool(citations) and len(unsupported) == 0
     return GroundingResult(
         grounded=grounded,
         unsupported_claims=unsupported[:5],

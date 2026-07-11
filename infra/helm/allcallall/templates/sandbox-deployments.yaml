@@ -1,0 +1,114 @@
+{{- $root := . }}
+{{- $sandboxes := list
+      (dict "name" "sandbox-control-plane" "values" .Values.components.sandboxControlPlane "image" .Values.images.sandboxControlPlane "port" 8092 "user" 65532)
+      (dict "name" "sandbox-runner" "values" .Values.components.sandboxRunner "image" .Values.images.sandboxRunner "port" 8093 "user" 10001)
+}}
+{{- range $sandbox := $sandboxes }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "allcallall.componentName" (dict "root" $root "component" $sandbox.name) }}
+  labels:
+    {{- include "allcallall.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $sandbox.name }}
+spec:
+  replicas: {{ $sandbox.values.replicas }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "allcallall.selectorLabels" (dict "Release" $root.Release "Chart" $root.Chart "Values" $root.Values "component" $sandbox.name) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $root.Template.BasePath "/configmap.yaml") $root | sha256sum }}
+      labels:
+        {{- include "allcallall.selectorLabels" (dict "Release" $root.Release "Chart" $root.Chart "Values" $root.Values "component" $sandbox.name) | nindent 8 }}
+    spec:
+      runtimeClassName: {{ $sandbox.values.runtimeClassName | quote }}
+      serviceAccountName: {{ include "allcallall.serviceAccountName" (dict "root" $root "component" $sandbox.name) }}
+      automountServiceAccountToken: false
+      hostNetwork: false
+      hostPID: false
+      hostIPC: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ $sandbox.user }}
+        runAsGroup: {{ $sandbox.user }}
+        fsGroup: {{ $sandbox.user }}
+        seccompProfile: {type: RuntimeDefault}
+      {{- with $root.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ $sandbox.name }}
+          image: "{{ $sandbox.image.repository }}:{{ $sandbox.image.tag }}"
+          imagePullPolicy: {{ $sandbox.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: {{ $sandbox.user }}
+            seccompProfile: {type: RuntimeDefault}
+          envFrom:
+            - configMapRef:
+                name: {{ include "allcallall.fullname" $root }}-config
+          env:
+            {{- if eq $sandbox.name "sandbox-control-plane" }}
+            - name: SANDBOX_ADDR
+              value: :8092
+            - name: SANDBOX_RUNNER_URL
+              value: http://{{ include "allcallall.fullname" $root }}-sandbox-runner:8093
+            - name: TRIVY_CACHE_DIR
+              value: /tmp/trivy-cache
+            {{- else }}
+            - name: SANDBOX_ALLOW_STDIO
+              value: {{ ternary "1" "0" $root.Values.components.sandboxRunner.allowStdio | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $sandbox.port }}
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml $sandbox.values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: runtime-secrets
+              mountPath: /run/secrets
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi
+        - name: runtime-secrets
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Mi
+      terminationGracePeriodSeconds: 15
+      {{- with $root.Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

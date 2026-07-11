@@ -100,8 +100,7 @@ def filter_chunks(chunks: list[ContextChunk], source_types: list[str]) -> list[C
     allowed = {item.strip() for item in source_types if item.strip()}
     if not allowed:
         return chunks
-    scoped = [chunk for chunk in chunks if chunk.source_type in allowed]
-    return scoped or chunks
+    return [chunk for chunk in chunks if chunk.source_type in allowed]
 
 
 def build_queries(query: str, source_types: list[str], max_steps: int) -> list[str]:

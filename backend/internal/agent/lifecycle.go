@@ -24,6 +24,7 @@ func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, 
 		role = "primary"
 	}
 	idempotencyKey := strings.TrimSpace(in.IdempotencyKey)
+	dedupeKey := nonEmptyStringPointer(idempotencyKey)
 	if in.ConversationID == 0 {
 		return nil, ErrConversationAccessDenied
 	}
@@ -46,6 +47,7 @@ func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, 
 		UserID:            userID,
 		ConversationID:    in.ConversationID,
 		IdempotencyKey:    idempotencyKey,
+		DedupeKey:         dedupeKey,
 		RequestID:         trace.RequestID(ctx),
 		Source:            s.agentRunSource(),
 		Role:              role,
@@ -79,12 +81,25 @@ func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, 
 		}
 		return nil
 	}); err != nil {
+		if dedupeKey != nil {
+			if existing, findErr := s.findRunByIdempotencyKey(ctx, organizationID, userID, in.ConversationID, idempotencyKey); findErr == nil && existing != nil {
+				return s.buildRunResult(ctx, *existing)
+			}
+		}
 		return nil, err
 	}
 	if s.metrics != nil {
 		s.metrics.Inc("agent_run_queued_total")
 	}
 	return s.buildRunResult(ctx, run)
+}
+
+func nonEmptyStringPointer(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func (s *Service) agentRunSource() string {

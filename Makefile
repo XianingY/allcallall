@@ -5,7 +5,7 @@ PYTHON ?= python3
 AGENT_RUNTIME_PYTHON ?= $(PYTHON)
 RAG_RUNTIME_PYTHON ?= $(PYTHON)
 
-.PHONY: help setup build-android build-ios clean test run-api run-agent-runtime run-rag-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval python-rag-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval ai-agent-jd-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check
+.PHONY: help setup build-android build-ios clean test run-api run-agent-runtime run-rag-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval python-rag-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval ai-agent-jd-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check helm-check
 
 # Default target
 help:
@@ -55,6 +55,7 @@ help:
 	@echo "  make chat-ws-replay-bench - Run authenticated chat WebSocket replay benchmark"
 	@echo "  make web-contract-check - Verify OpenAPI and generated Web types are synchronized"
 	@echo "  make web-performance-check - Build Web and enforce bundle budgets"
+	@echo "  make helm-check        - Lint and render the Kubernetes Helm chart"
 	@echo ""
 	@echo "Clean:"
 	@echo "  make clean            - Clean all build artifacts"
@@ -164,6 +165,11 @@ test:
 test-backend:
 	@echo "Running backend tests..."
 	cd backend && go test ./...
+
+helm-check:
+	helm lint infra/helm/allcallall
+	helm template allcallall infra/helm/allcallall --namespace allcallall > /tmp/allcallall-helm.yaml
+	kubeconform -strict -summary -ignore-missing-schemas /tmp/allcallall-helm.yaml
 
 interview-demo:
 	@echo "Running local interview demo..."

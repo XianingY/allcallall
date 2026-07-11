@@ -2,11 +2,14 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/allcallall/backend/internal/mcpplatform"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/trace"
 	"gorm.io/gorm"
@@ -222,6 +225,9 @@ func (s *Service) markRunReady(ctx context.Context, run models.AgentRun, output 
 }
 
 func (s *Service) executeToolLocally(ctx context.Context, run models.AgentRun, tc models.AgentToolCall) (string, error) {
+	if strings.HasPrefix(tc.ToolName, "mcp.") {
+		return s.executeApprovedMCPTool(ctx, run, tc)
+	}
 	if err := ValidateToolArguments(tc.ToolName, tc.InputJSON); err != nil {
 		return "", err
 	}
@@ -284,6 +290,34 @@ func (s *Service) executeToolLocally(ctx context.Context, run models.AgentRun, t
 	}
 }
 
+func (s *Service) executeApprovedMCPTool(ctx context.Context, run models.AgentRun, tc models.AgentToolCall) (string, error) {
+	if s.mcpPlatform == nil {
+		return "", fmt.Errorf("MCP platform is unavailable")
+	}
+	var arguments map[string]any
+	if err := json.Unmarshal([]byte(tc.InputJSON), &arguments); err != nil {
+		return "", fmt.Errorf("invalid MCP tool input: %w", err)
+	}
+	runRef := fmt.Sprintf("agent:%d", run.ID)
+	digest := sha256.Sum256([]byte(runRef + ":" + tc.CallID))
+	execution, err := s.mcpPlatform.ExecuteApproved(ctx, mcpplatform.ExecuteInput{
+		ExecutionID:    fmt.Sprintf("mcp:%x", digest[:16]),
+		RunRef:         runRef,
+		OrganizationID: run.OrganizationID,
+		UserID:         run.UserID,
+		ConversationID: run.ConversationID,
+		RunID:          run.ID,
+		AgentRunID:     &run.ID,
+		ToolCallID:     tc.CallID,
+		ToolName:       tc.ToolName,
+		Arguments:      arguments,
+	})
+	if err != nil {
+		return "", err
+	}
+	return execution.OutputJSON, nil
+}
+
 func (s *Service) executeDelegateTask(ctx context.Context, run models.AgentRun, tc models.AgentToolCall) (models.AgentToolCall, error) {
 	var params map[string]string
 	if err := json.Unmarshal([]byte(tc.InputJSON), &params); err != nil {
@@ -344,8 +378,15 @@ func (s *Service) SubmitToolOutputs(ctx context.Context, orgID, userID, runID ui
 		}
 		return err
 	}
-	if err := s.ensureConversationMember(ctx, orgID, userID, run.ConversationID); err != nil {
-		return err
+	if userID == run.UserID {
+		if err := s.ensureConversationMember(ctx, orgID, userID, run.ConversationID); err != nil {
+			return err
+		}
+	} else {
+		role, err := s.organizationRole(ctx, orgID, userID)
+		if err != nil || (role != models.OrganizationRoleOwner && role != models.OrganizationRoleAdmin) {
+			return ErrToolApprovalForbidden
+		}
 	}
 	if run.Status != models.AgentRunStatusRequiresAction {
 		return fmt.Errorf("run is not in requires_action state")
@@ -386,9 +427,10 @@ func (s *Service) SubmitToolOutputs(ctx context.Context, orgID, userID, runID ui
 
 	if pendingCount == 0 {
 		if err := s.db.WithContext(ctx).Model(&run).Updates(map[string]any{
-			"status":     models.AgentRunStatusPending,
-			"updated_at": time.Now().UTC(),
-			"attempts":   0, // reset attempts so it gets picked up immediately
+			"status":       models.AgentRunStatusReady,
+			"updated_at":   time.Now().UTC(),
+			"lease_until":  nil,
+			"completed_at": time.Now().UTC(),
 		}).Error; err != nil {
 			return err
 		}

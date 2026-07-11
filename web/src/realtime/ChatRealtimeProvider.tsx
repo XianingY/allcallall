@@ -6,6 +6,13 @@ import { ChatConnectionContext } from "@/realtime/ChatRealtimeContext";
 import { initialChatCursor, reduceChatCursor, type ChatCursorState, type ChatEvent } from "@/realtime/chatEvents";
 import { TicketSocket } from "@/realtime/TicketSocket";
 
+const cursorStorageKey = (organizationId: number) => `allcallall:chat-cursor:${organizationId}`;
+
+const loadCursor = (organizationId: number): ChatCursorState => {
+  const value = Number(window.sessionStorage.getItem(cursorStorageKey(organizationId)) ?? 0);
+  return Number.isSafeInteger(value) && value > 0 ? { cursor: value, recentIds: [] } : initialChatCursor;
+};
+
 export function ChatRealtimeProvider({ children }: { children: React.ReactNode }) {
   const { activeOrganization } = useOrganization();
   const organizationId = activeOrganization?.id;
@@ -15,13 +22,17 @@ export function ChatRealtimeProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     if (!organizationId) return;
-    cursor.current = initialChatCursor;
-    const socket = new TicketSocket<ChatEvent>("chat", { organization_id: organizationId, since_id: 0 }, (event) => {
+    cursor.current = loadCursor(organizationId);
+    const socket = new TicketSocket<ChatEvent>("chat", () => ({
+      organization_id: organizationId,
+      since_id: cursor.current.cursor,
+    }), (event) => {
       window.dispatchEvent(new CustomEvent("allcallall:chat-event", { detail: event }));
       if (event.event.startsWith("typing.")) return;
       const next = reduceChatCursor(cursor.current, event);
       if (next === cursor.current) return;
       cursor.current = next;
+      window.sessionStorage.setItem(cursorStorageKey(organizationId), String(next.cursor));
       const conversationId = Number(event.payload.conversation_id || 0);
       void queryClient.invalidateQueries({ queryKey: ["organizations", organizationId, "conversations"] });
       if (conversationId) void queryClient.invalidateQueries({ queryKey: ["organizations", organizationId, "conversations", conversationId] });

@@ -1,122 +1,22 @@
 import EventSource from "react-native-sse";
+import type { components } from "@allcallall/api-types";
+
 import { API_BASE_URL } from "../config";
 import { createApiClient, getActiveOrganizationHeader } from "./client";
 
-export interface CreateAgentRunRequest {
-  conversation_id: number;
-  goal?: string;
-}
+type APISchemas = components["schemas"];
 
-export interface AgentRunRecord {
-  id: number;
-  organization_id: number;
-  user_id: number;
-  conversation_id: number;
-  idempotency_key?: string;
-  request_id?: string;
-  source: string;
-  status: string;
-  goal: string;
-  summary: string;
-  action_items: string[];
-  next_step: string;
-  risk_flags: string[];
-  error_message?: string;
-  attempts: number;
-  lease_until?: string | null;
-  started_at?: string | null;
-  completed_at?: string | null;
-  created_at: string;
-  updated_at: string;
-}
+export type CreateAgentRunRequest = APISchemas["CreateAgentRunRequest"];
+export type AgentRunRecord = APISchemas["AgentRun"];
+export type AgentStepRecord = APISchemas["AgentStep"];
+export type AgentToolCallRecord = APISchemas["AgentToolCall"];
+export type AgentTraceEventRecord = APISchemas["AgentTraceEvent"];
+export type AgentRunEventRecord = APISchemas["AgentRunEvent"];
+export type AgentCitation = APISchemas["AgentCitation"];
+export type AgentRunResult = APISchemas["AgentRunResult"];
 
-export interface AgentStepRecord {
-  id: number;
-  run_id: number;
-  name: string;
-  status: string;
-  input_json?: string;
-  output_json?: string;
-  error_message?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface AgentToolCallRecord {
-  id: number;
-  run_id: number;
-  step_id?: number | null;
-  tool_name: string;
-  status: string;
-  input_json?: string;
-  output_json?: string;
-  error_message?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface AgentTraceEventRecord {
-  type: string;
-  name: string;
-  status: string;
-  ref_id?: number;
-  at: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface AgentRunEventRecord {
-  sequence: number;
-  event: string;
-  status: string;
-  ref_type: string;
-  ref_id?: number;
-  name?: string;
-  at: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface AgentCitation {
-  chunk_id?: string;
-  source_type: string;
-  source_id: string;
-  source_title?: string;
-  title: string;
-  snippet: string;
-  origin_type?: string;
-  origin_url?: string;
-  conversation_id?: number;
-  knowledge_source_id?: number;
-  version?: number;
-  retrieval_mode?: "vector" | "sql_fallback" | string;
-  bm25_rank?: number;
-  vector_rank?: number;
-  rrf_score?: number;
-  bm25_score?: number;
-  vector_score?: number;
-  score: number;
-  created_at?: string;
-  recording_session_id?: number;
-  recording_file_id?: number;
-  transcript_segment_id?: number;
-  start_ms?: number;
-  end_ms?: number;
-}
-
-export interface AgentRunResult {
-  run: AgentRunRecord;
-  steps: AgentStepRecord[];
-  tool_calls: AgentToolCallRecord[];
-  trace: AgentTraceEventRecord[];
-  citations: AgentCitation[];
-}
-
-interface AgentRunResultPayload {
-  run: AgentRunRecord;
-  steps?: AgentStepRecord[];
-  tool_calls?: AgentToolCallRecord[];
-  trace?: AgentTraceEventRecord[];
-  citations?: AgentCitation[];
-}
+type AgentRunResultPayload = Pick<AgentRunResult, "run"> &
+  Partial<Omit<AgentRunResult, "run">>;
 
 const citationTitle = (sourceType: string, sourceId: string) => {
   switch (sourceType) {
@@ -223,144 +123,15 @@ export interface AgentRunEventsResponse {
   events: AgentRunEventRecord[];
 }
 
-export interface CreateWorkflowRequest {
-  conversation_id: number;
-  goal?: string;
-  preset?: "meeting_brief" | "follow_up" | "risk_review";
-}
-
-export interface WorkflowRunRecord {
-  id: number;
-  organization_id: number;
-  user_id: number;
-  conversation_id: number;
-  agent_run_id?: number | null;
-  idempotency_key?: string;
-  request_id?: string;
-  status: string;
-  workflow_type?: string;
-  workflow_version?: string;
-  preset?: string;
-  prompt_version?: string;
-  tool_schema_version?: string;
-  state_json?: string;
-  last_event_id?: number | null;
-  goal: string;
-  summary: string;
-  action_items: string[];
-  next_step: string;
-  risk_flags: string[];
-  error_message?: string;
-  attempts: number;
-  lease_until?: string | null;
-  started_at?: string | null;
-  completed_at?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface WorkflowTaskRecord {
-  id: number;
-  workflow_run_id: number;
-  organization_id: number;
-  name: string;
-  role: string;
-  status: string;
-  depends_on_json?: string;
-  input_json?: string;
-  output_json?: string;
-  error_message?: string;
-  attempts: number;
-  lease_until?: string | null;
-  started_at?: string | null;
-  completed_at?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface WorkflowAgentMessageRecord {
-  id: number;
-  workflow_run_id: number;
-  task_id?: number | null;
-  organization_id: number;
-  from_role: string;
-  to_role: string;
-  message_type: string;
-  content_json: string;
-  correlation_id: string;
-  created_at: string;
-}
-
-export interface ToolApprovalRecord {
-  id: number;
-  workflow_run_id: number;
-  task_id: number;
-  organization_id: number;
-  tool_call_id: string;
-  tool_name: string;
-  status: string;
-  tool_schema_version?: string;
-  input_json?: string;
-  output_json?: string;
-  error_message?: string;
-  requested_by: number;
-  decided_by?: number | null;
-  decision?: string;
-  requested_at: string;
-  decided_at?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface WorkflowHistoryRecord {
-  id: number;
-  workflow_run_id: number;
-  organization_id: number;
-  event_type: string;
-  ref_type?: string;
-  ref_id?: number | null;
-  attributes_json?: string;
-  created_at: string;
-}
-
-export interface WorkflowSignalRecord {
-  id: number;
-  workflow_run_id: number;
-  organization_id: number;
-  signal_name: string;
-  payload_json?: string;
-  status: string;
-  received_by?: number | null;
-  handled_at?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface WorkflowTimerRecord {
-  id: number;
-  workflow_run_id: number;
-  organization_id: number;
-  timer_name: string;
-  fire_at: string;
-  status: string;
-  payload_json?: string;
-  fired_at?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface WorkflowResult {
-  workflow: WorkflowRunRecord;
-  tasks: WorkflowTaskRecord[];
-  messages: WorkflowAgentMessageRecord[];
-  approvals: ToolApprovalRecord[];
-  history: WorkflowHistoryRecord[];
-  signals: WorkflowSignalRecord[];
-  timers: WorkflowTimerRecord[];
-  citations: AgentCitation[];
-  actionItems?: string[];
-  riskFlags?: string[];
-}
+export type CreateWorkflowRequest = APISchemas["CreateWorkflowRequest"];
+export type WorkflowRunRecord = APISchemas["WorkflowRun"];
+export type WorkflowTaskRecord = APISchemas["WorkflowTask"];
+export type WorkflowAgentMessageRecord = APISchemas["WorkflowAgentMessage"];
+export type ToolApprovalRecord = APISchemas["ToolApproval"];
+export type WorkflowHistoryRecord = APISchemas["WorkflowHistory"];
+export type WorkflowSignalRecord = APISchemas["WorkflowSignal"];
+export type WorkflowTimerRecord = APISchemas["WorkflowTimer"];
+export type WorkflowResult = APISchemas["WorkflowResult"];
 
 export interface WorkflowListResponse {
   workflows: WorkflowResult[];

@@ -1,0 +1,50 @@
+external:
+  mysql:
+    secretName: allcallall-production-external
+    dsnKey: mysql-dsn
+    checkpointDsnKey: checkpoint-mysql-dsn
+    egressCIDRs: ["10.20.0.10/32"]
+  redis:
+    address: redis.production.internal:6379
+    secretName: allcallall-production-external
+    passwordKey: redis-password
+    egressCIDRs: ["10.20.0.11/32"]
+  openbao:
+    address: https://openbao.production.internal:8200
+    secretName: allcallall-production-external
+    tokenKey: openbao-token
+    egressCIDRs: ["10.20.0.12/32"]
+  providerEgressCIDRs: []
+  mcpEgressCIDRs: []
+  registryEgressCIDRs: []
+
+secrets:
+  create: false
+
+features:
+  mcpPlatformEnabled: true
+  sandboxExecutionEnabled: true
+  langgraphMysqlCheckpointEnabled: true
+  legacyGoRuntimeEnabled: true
+
+components:
+  sandboxControlPlane:
+    runtimeClassName: gvisor
+  sandboxRunner:
+    runtimeClassName: gvisor
+    allowStdio: false
+
+observability:
+  otlpEndpoint: https://otel-collector.production.internal:4318/v1/traces
+  otlpEgressCIDRs: ["10.20.0.20/32"]
+
+ingress:
+  enabled: true
+  className: nginx
+  webHost: app.example.com
+  apiHost: api.example.com
+  tls:
+    - secretName: allcallall-web-tls
+      hosts: [app.example.com]
+    - secretName: allcallall-api-tls
+      hosts: [api.example.com]

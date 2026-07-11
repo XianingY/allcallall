@@ -1,0 +1,7 @@
+apiVersion: v2
+name: allcallall
+description: Cloud-neutral deployment for the AllCallAll Agent platform
+type: application
+version: 0.1.0
+appVersion: "0.3.0"
+kubeVersion: ">=1.27.0-0"

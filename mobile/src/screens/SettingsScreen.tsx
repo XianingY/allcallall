@@ -144,6 +144,15 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
             </View>
           </TouchableOpacity>
 
+          <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate("MCPPlatform")}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>Agent 工具 / MCP & Skills</Text>
+              <Text style={styles.settingDescription}>
+                管理 MCP 安装、工具风险、组织发布和 Skill 绑定。
+              </Text>
+            </View>
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.linkRow} onPress={() => navigation.navigate("Legal")}>
             <View style={styles.settingInfo}>
               <Text style={styles.settingTitle}>法律文档 / Legal</Text>

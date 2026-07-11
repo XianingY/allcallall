@@ -2,14 +2,18 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/allcallall/backend/internal/events"
+	"github.com/allcallall/backend/internal/mcpplatform"
 	"github.com/allcallall/backend/internal/models"
 )
 
@@ -54,6 +58,23 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 		s.metrics.Add("agent_approval_wait_ms_sum", now.Sub(approval.CreatedAt).Milliseconds())
 	}
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var lockedRun models.WorkflowRun
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND organization_id = ?", run.ID, organizationID).
+			Take(&lockedRun).Error; err != nil {
+			return err
+		}
+		var lockedApproval models.ToolApproval
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND workflow_run_id = ?", approval.ID, lockedRun.ID).
+			Take(&lockedApproval).Error; err != nil {
+			return err
+		}
+		run = lockedRun
+		approval = lockedApproval
+		if approval.Status != models.ToolApprovalStatusPending {
+			return nil
+		}
 		signal := models.WorkflowSignal{
 			WorkflowRunID:  run.ID,
 			OrganizationID: run.OrganizationID,
@@ -71,14 +92,18 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 		}); err != nil {
 			return err
 		}
-		if err := tx.Model(&models.ToolApproval{}).Where("id = ? AND status = ?", approval.ID, models.ToolApprovalStatusPending).Updates(map[string]any{
+		updated := tx.Model(&models.ToolApproval{}).Where("id = ? AND status = ?", approval.ID, models.ToolApprovalStatusPending).Updates(map[string]any{
 			"status":     status,
 			"decision":   status,
 			"decided_by": userID,
 			"decided_at": now,
 			"updated_at": now,
-		}).Error; err != nil {
-			return err
+		})
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected != 1 {
+			return nil
 		}
 		var pending int64
 		if err := tx.Model(&models.ToolApproval{}).
@@ -114,7 +139,7 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 					AggregateType:  "workflow_run",
 					AggregateID:    run.ID,
 					Event:          EventWorkflowRunRequested,
-					IdempotencyKey: fmt.Sprintf("%s:%d:resume:%d", EventWorkflowRunRequested, run.ID, now.UnixNano()),
+					IdempotencyKey: fmt.Sprintf("%s:%d:resume", EventWorkflowRunRequested, run.ID),
 					Payload: map[string]any{
 						"organization_id": run.OrganizationID,
 						"workflow_run_id": run.ID,
@@ -178,7 +203,13 @@ func (s *Service) executeWorkflowApprovalTool(ctx context.Context, run models.Wo
 		ToolSchemaVersion: approval.ToolSchemaVersion,
 		InputJSON:         approval.InputJSON,
 	}
-	outputJSON, err := s.executeToolLocally(ctx, agentRun, toolCall)
+	var outputJSON string
+	var err error
+	if strings.HasPrefix(approval.ToolName, "mcp.") {
+		outputJSON, err = s.executeApprovedMCPWorkflowTool(ctx, run, *approval)
+	} else {
+		outputJSON, err = s.executeToolLocally(ctx, agentRun, toolCall)
+	}
 	now := time.Now().UTC()
 	if err != nil {
 		approval.Status = models.ToolApprovalStatusFailed
@@ -198,6 +229,34 @@ func (s *Service) executeWorkflowApprovalTool(ctx context.Context, run models.Wo
 		"error_message": "",
 		"updated_at":    now,
 	}).Error
+}
+
+func (s *Service) executeApprovedMCPWorkflowTool(ctx context.Context, run models.WorkflowRun, approval models.ToolApproval) (string, error) {
+	if s.mcpPlatform == nil {
+		return "", fmt.Errorf("MCP platform is unavailable")
+	}
+	var arguments map[string]any
+	if err := json.Unmarshal([]byte(approval.InputJSON), &arguments); err != nil {
+		return "", fmt.Errorf("invalid MCP tool input: %w", err)
+	}
+	runRef := fmt.Sprintf("workflow:%d", run.ID)
+	digest := sha256.Sum256([]byte(runRef + ":" + approval.ToolCallID))
+	execution, err := s.mcpPlatform.ExecuteApproved(ctx, mcpplatform.ExecuteInput{
+		ExecutionID:    fmt.Sprintf("mcp:%x", digest[:16]),
+		RunRef:         runRef,
+		OrganizationID: run.OrganizationID,
+		UserID:         run.UserID,
+		ConversationID: run.ConversationID,
+		RunID:          run.ID,
+		WorkflowRunID:  &run.ID,
+		ToolCallID:     approval.ToolCallID,
+		ToolName:       approval.ToolName,
+		Arguments:      arguments,
+	})
+	if err != nil {
+		return "", err
+	}
+	return execution.OutputJSON, nil
 }
 
 func (s *Service) resolveToolPolicyEffect(ctx context.Context, organizationID uint64, role, toolName string) (string, error) {

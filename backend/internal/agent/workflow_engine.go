@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,7 +35,11 @@ func workflowToolCallID(workflowRunID uint64, toolName string, input map[string]
 
 func workflowToolRequestCallID(workflowRunID uint64, request workflowToolRequest) string {
 	if idempotencyKey := strings.TrimSpace(request.IdempotencyKey); idempotencyKey != "" {
-		return idempotencyKey
+		if len(idempotencyKey) <= 96 {
+			return idempotencyKey
+		}
+		digest := sha256.Sum256([]byte(idempotencyKey))
+		return fmt.Sprintf("workflow:%d:%x", workflowRunID, digest[:16])
 	}
 	return workflowToolCallID(workflowRunID, request.ToolName, request.Input)
 }

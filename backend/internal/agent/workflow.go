@@ -21,6 +21,7 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 		goal = workflowPresetDefaultGoal(preset)
 	}
 	idempotencyKey := strings.TrimSpace(in.IdempotencyKey)
+	dedupeKey := nonEmptyStringPointer(idempotencyKey)
 	if in.ConversationID == 0 {
 		return nil, ErrConversationAccessDenied
 	}
@@ -80,6 +81,7 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 			ConversationID:    in.ConversationID,
 			AgentRunID:        &agentRun.ID,
 			IdempotencyKey:    idempotencyKey,
+			DedupeKey:         dedupeKey,
 			RequestID:         trace.RequestID(ctx),
 			Status:            models.WorkflowRunStatusPending,
 			WorkflowType:      workflowType,
@@ -145,6 +147,11 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 		}
 		return nil
 	}); err != nil {
+		if dedupeKey != nil {
+			if existing, findErr := s.findWorkflowByIdempotencyKey(ctx, organizationID, userID, in.ConversationID, idempotencyKey); findErr == nil && existing != nil {
+				return s.buildWorkflowResult(ctx, *existing)
+			}
+		}
 		return nil, err
 	}
 	return s.buildWorkflowResult(ctx, workflow)

@@ -45,6 +45,7 @@ import {
   processWorkflowRun,
   submitToolApprovalDecision,
   type AgentCitation,
+  type CreateWorkflowRequest,
   type ToolApprovalRecord,
   type WorkflowResult,
 } from "../api/agent";
@@ -322,7 +323,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const runMeetingAgent = useCallback(
     async (input: {
-      preset?: "meeting_brief" | "follow_up" | "risk_review";
+      preset?: CreateWorkflowRequest["preset"];
       goal?: string;
     }) => {
       if (!token) return;

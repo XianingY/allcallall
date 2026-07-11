@@ -1,0 +1,107 @@
+# Agent 平台 Kubernetes 部署
+
+本指南对应 `infra/helm/allcallall`。Chart 只部署无状态工作负载，MySQL、Redis 和 OpenBao 必须由外部托管服务或独立运维栈提供。生产集群需要 Kubernetes 1.27 以上、支持 NetworkPolicy 的 CNI、Ingress Controller、Metrics Server，以及名为 `gvisor` 的 RuntimeClass。
+
+## 部署拓扑
+
+Chart 包含 API、Agent worker、Outbox worker、Agent Runtime、RAG Runtime、Sandbox Control Plane、Sandbox Runner、Web、migration Job。每个工作负载使用独立 ServiceAccount，默认不挂载 Kubernetes API token。所有 Deployment 都包含资源 requests/limits、HPA 和 PDB。
+
+Sandbox Control Plane 与 Runner 默认指定 `runtimeClassName: gvisor`，以非 root 用户运行，根文件系统只读，禁用提权，丢弃全部 Linux capabilities，并使用 `RuntimeDefault` seccomp。临时数据和一次性 secret 只进入有容量上限的 memory-backed `emptyDir`；Chart 不创建 `hostPath` 或其他 host mount。
+
+## 前置检查
+
+确认 RuntimeClass 和 NetworkPolicy 能力：
+
+```bash
+kubectl get runtimeclass gvisor
+kubectl api-resources | grep networkpolicies
+kubectl -n kube-system get pods -l k8s-app=kube-dns
+```
+
+云厂商的 gVisor RuntimeClass 名称不同或由节点池限定时，在 values 中同时修改 `components.sandboxControlPlane.runtimeClassName` 和 `components.sandboxRunner.runtimeClassName`，并使用 `nodeSelector`、tolerations 将 Pod 调度到对应节点池。Chart 不创建 RuntimeClass，因为 handler 配置属于集群基础设施，而不是应用发布的一部分。
+
+## 外部依赖与 Secret
+
+默认 values 引用 `allcallall-external` Secret，但不会创建它。推荐通过 External Secrets、Secrets Store CSI 或 GitOps 加密 Secret 管理；不要把凭据写入 values 或提交到仓库。Secret 需要包含：
+
+- `mysql-dsn`：Go 使用的 MySQL DSN。
+- `checkpoint-mysql-dsn`：Python checkpointer 使用的 `mysql://` DSN。
+- `redis-password`：Redis 密码，可为空但 key 应存在。
+- `openbao-token`：Go 控制面访问 OpenBao 的凭据；生产应使用短期 Kubernetes Auth 凭据替代长期 root token。
+
+临时环境可将敏感值先放进 shell 环境，再创建 Secret：
+
+```bash
+kubectl create namespace allcallall
+kubectl -n allcallall create secret generic allcallall-external \
+  --from-literal=mysql-dsn="$ALLCALLALL_MYSQL_DSN" \
+  --from-literal=checkpoint-mysql-dsn="$ALLCALLALL_CHECKPOINT_MYSQL_DSN" \
+  --from-literal=redis-password="$ALLCALLALL_REDIS_PASSWORD" \
+  --from-literal=openbao-token="$ALLCALLALL_OPENBAO_TOKEN"
+```
+
+OpenBao 中只保存用户 MCP 凭据，数据库只保存 Vault path。Runner 应只接收一次性、60 秒 response-wrapping token，在 `/run/secrets` tmpfs 中解包，并在执行结束后清空；任何日志、trace 或 Kubernetes Event 都不得包含 secret value。
+
+## NetworkPolicy
+
+`networkPolicy.enabled=true` 时，Chart 先对所有平台 Pod 设置 ingress/egress default deny，再仅放行以下链路：
+
+- Ingress Controller 到 Web/API。
+- Web、Agent Runtime、RAG Runtime 到 API。
+- API/Agent worker 到 Agent/RAG Runtime 和 Sandbox Control Plane。
+- Agent Runtime 到 RAG Runtime。
+- Sandbox Control Plane 到 Runner。
+- DNS 到指定 kube-dns Pod。
+
+外部出口必须在 `external.*.egressCIDRs` 中显式配置。MySQL、Redis、OpenBao、模型 Provider、MCP endpoint 和镜像 Registry 分开维护 CIDR，Runner 不继承 API 的出口。空列表表示禁止该类出口，不表示允许所有地址。
+
+标准 Kubernetes NetworkPolicy 不能稳定按 FQDN 放行。托管服务 IP 会变化时，应使用 Cilium/Calico 的 FQDN policy，并继续保留 Chart 的 default deny；不要用 `0.0.0.0/0` 绕过控制。HTTPS MCP 仍须由 Sandbox 做 TLS、重定向、DNS rebinding 和私网地址校验。
+
+## 安装与验证
+
+从示例生成环境 values，只填写地址、Secret 名称、CIDR、Ingress 和镜像版本：
+
+```bash
+cp infra/helm/allcallall/values-production.example.yaml /tmp/allcallall-values.yaml
+helm lint infra/helm/allcallall
+helm template allcallall infra/helm/allcallall \
+  --namespace allcallall \
+  -f /tmp/allcallall-values.yaml | kubeconform -strict -summary -ignore-missing-schemas
+helm upgrade --install allcallall infra/helm/allcallall \
+  --namespace allcallall --create-namespace \
+  -f /tmp/allcallall-values.yaml \
+  --atomic --timeout 15m
+```
+
+Migration Job 是 `pre-install,pre-upgrade` hook，失败时 Helm 不推进新版本。发布后检查：
+
+```bash
+kubectl -n allcallall get deploy,job,hpa,pdb,networkpolicy
+kubectl -n allcallall get pods -l app.kubernetes.io/component=sandbox-runner \
+  -o jsonpath='{range .items[*]}{.metadata.name}{" runtime="}{.spec.runtimeClassName}{"\n"}{end}'
+kubectl -n allcallall port-forward svc/allcallall-allcallall-api 8080:8080
+curl --fail http://127.0.0.1:8080/api/v1/health
+curl --fail http://127.0.0.1:8080/api/v1/metrics
+```
+
+## Feature flag 发布顺序
+
+首轮升级先设置三个新能力为 false：
+
+```yaml
+features:
+  mcpPlatformEnabled: false
+  sandboxExecutionEnabled: false
+  langgraphMysqlCheckpointEnabled: false
+  legacyGoRuntimeEnabled: true
+```
+
+完成 additive migration 后依次启用 MySQL checkpoint shadow mode、Sandbox 只读工具、写工具审批、MCP 发布。每一步至少观察 checkpoint 冲突/恢复、Sandbox 冷启动与执行延迟、审批等待、超时、配额拒绝、租户拒绝和 secret unwrap 失败，再进入下一步。legacy Go Runtime 仅处理不含 MCP 的旧 run，并保留一个发布版本作为紧急回退。
+
+紧急回退时先关闭 `SANDBOX_EXECUTION_ENABLED` 和 `MCP_PLATFORM_ENABLED`，阻止新工具执行；checkpoint 数据仍由 MySQL 保留，避免回退过程覆盖 Python 图状态。不要回滚 additive migration。恢复后再逐项重新打开 flag。
+
+## 限额、保留与可观测性
+
+默认值与产品约束一致：个人安装 5 个、组织发布安装 20 个、用户并发 2、组织并发 10、单次 30 秒、0.5 CPU、512 MiB、输出 256 KiB。checkpoint 和 tool payload 保留 30 天，组织审计保留 180 天。删除用户或安装时必须先撤销 OpenBao secret，再清理执行 payload 与 checkpoint。
+
+API 的 `/api/v1/metrics` 与 RAG Runtime 的 `/metrics` 带 Prometheus scrape annotation。设置 `observability.otlpEndpoint` 后，Go API/worker 使用各自 `OTEL_SERVICE_NAME` 导出 trace；同时必须在 `observability.otlpEgressCIDRs` 放行 Collector。告警至少覆盖 checkpoint 冲突率、恢复失败、MCP p95、冷启动 p95、审批积压、Sandbox 失败/超时、配额拒绝、跨租户拒绝和 secret unwrap 失败。

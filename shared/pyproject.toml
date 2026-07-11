@@ -14,8 +14,14 @@ dev = [
   "ruff>=0.5,<1",
 ]
 
-[tool.setuptools.packages.find]
-include = ["shared*"]
+[tool.setuptools]
+packages = ["shared"]
+
+[tool.setuptools.package-dir]
+shared = "."
+
+[tool.setuptools.package-data]
+shared = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"github.com/joho/godotenv"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
 	"github.com/allcallall/backend/internal/agent"
 	"github.com/allcallall/backend/internal/auth"
@@ -28,6 +28,7 @@ import (
 	"github.com/allcallall/backend/internal/knowledge"
 	"github.com/allcallall/backend/internal/logger"
 	"github.com/allcallall/backend/internal/mail"
+	"github.com/allcallall/backend/internal/mcpplatform"
 	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/presence"
 	"github.com/allcallall/backend/internal/ratelimit"
@@ -103,6 +104,46 @@ func main() {
 	outboxStore := events.NewStore(db)
 	collaborationSvc.WithOutbox(outboxStore)
 	agentSvc := agent.NewService(db, counterStore)
+	mcpEnabled := envFlagDefault("MCP_PLATFORM_ENABLED", true)
+	mcpSvc := mcpplatform.NewService(db, counterStore).WithEnabled(mcpEnabled)
+	var capabilityManager *mcpplatform.CapabilityManager
+	if mcpEnabled {
+		appEnvironment := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+		if (appEnvironment == "production" || appEnvironment == "beta") && strings.TrimSpace(os.Getenv("MCP_CAPABILITY_ED25519_PRIVATE_KEY")) == "" {
+			appLogger.Fatal().Msg("MCP_CAPABILITY_ED25519_PRIVATE_KEY is required outside local development")
+		}
+		capabilityManager, err = mcpplatform.NewCapabilityManagerFromEnv()
+		if err != nil {
+			appLogger.Fatal().Err(err).Msg("failed to initialize MCP capability signer")
+		}
+		mcpSvc.WithCapabilityManager(capabilityManager)
+		agentSvc.WithToolCapabilityProvider(mcpSvc)
+		agentSvc.WithMCPPlatform(mcpSvc)
+		if sandboxURL := strings.TrimSpace(os.Getenv("SANDBOX_CONTROL_PLANE_URL")); envFlagDefault("SANDBOX_EXECUTION_ENABLED", true) && sandboxURL != "" {
+			sandboxClient, sandboxErr := mcpplatform.NewHTTPSandboxClient(sandboxURL, 35*time.Second)
+			if sandboxErr != nil {
+				appLogger.Fatal().Err(sandboxErr).Msg("failed to initialize sandbox control plane client")
+			}
+			mcpSvc.WithSandbox(sandboxClient)
+			appLogger.Info().Str("url", sandboxURL).Msg("MCP sandbox control plane enabled")
+		} else if envFlagDefault("SANDBOX_EXECUTION_ENABLED", true) {
+			appLogger.Warn().Msg("MCP validation and execution disabled: SANDBOX_CONTROL_PLANE_URL is not configured")
+		} else {
+			appLogger.Info().Msg("MCP sandbox execution disabled by feature flag")
+		}
+		openBaoAddress := strings.TrimSpace(os.Getenv("OPENBAO_ADDR"))
+		openBaoToken := strings.TrimSpace(os.Getenv("OPENBAO_TOKEN"))
+		if openBaoAddress != "" || openBaoToken != "" {
+			secretStore, secretErr := mcpplatform.NewOpenBaoSecretStore(openBaoAddress, openBaoToken)
+			if secretErr != nil {
+				appLogger.Fatal().Err(secretErr).Msg("failed to initialize OpenBao secret store")
+			}
+			mcpSvc.WithSecretStore(secretStore)
+			appLogger.Info().Msg("OpenBao MCP secret store enabled")
+		} else {
+			appLogger.Warn().Msg("MCP secret storage disabled: OPENBAO_ADDR and OPENBAO_TOKEN are not configured")
+		}
+	}
 	agentSvc.WithOutbox(outboxStore)
 	knowledgeSvc := knowledge.NewService(db).WithOutbox(outboxStore)
 	agentSvc.WithKnowledgeRetriever(knowledgeSvc)
@@ -247,7 +288,10 @@ func main() {
 	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, mailSvc, rateLimitSvc, counterStore)
 	collaborationHandler := handlers.NewCollaborationHandler(appLogger, collaborationSvc, userSvc, chatHub)
 	collaborationHandler.WithSearchService(searchSvc)
-	agentHandler := handlers.NewAgentHandler(appLogger, agentSvc).WithRedis(redisClient)
+	agentHandler := handlers.NewAgentHandler(appLogger, agentSvc).
+		WithRedis(redisClient).
+		WithMCPPlatform(mcpSvc).
+		WithCapabilityManager(capabilityManager)
 	knowledgeHandler := handlers.NewKnowledgeHandler(appLogger, knowledgeSvc)
 	invitationHandler := handlers.NewInvitationHandler(appLogger, invitationSvc, contactSvc, userSvc)
 	webrtcHandler := handlers.NewWebRTCHandler(appLogger, cfg.WebRTC)
@@ -396,4 +440,12 @@ func main() {
 	} else {
 		appLogger.Info().Msg("http server gracefully stopped")
 	}
+}
+
+func envFlagDefault(name string, fallback bool) bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	if raw == "" {
+		return fallback
+	}
+	return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
 }

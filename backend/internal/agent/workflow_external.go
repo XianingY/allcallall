@@ -48,6 +48,12 @@ func (s *Service) processWorkflowRunWithExternalRuntime(ctx context.Context, run
 		return nil, err
 	}
 	request := buildWorkflowRuntimeRequest(run, conversationCtx)
+	if s.toolCapabilities != nil {
+		request.ToolCapability, err = s.toolCapabilities.IssueForRun(ctx, run.OrganizationID, run.UserID, run.ConversationID, fmt.Sprintf("workflow:%d", run.ID))
+		if err != nil {
+			return nil, fmt.Errorf("issue workflow tool capability: %w", err)
+		}
+	}
 	response, err := s.workflowRuntime.RunWorkflow(ctx, request)
 	if err != nil {
 		return nil, err
@@ -67,13 +73,15 @@ func (s *Service) processWorkflowRunWithExternalRuntime(ctx context.Context, run
 
 func buildWorkflowRuntimeRequest(run models.WorkflowRun, conversationCtx *conversationContext) WorkflowRuntimeRequest {
 	request := WorkflowRuntimeRequest{
-		RequestID:      run.RequestID,
-		OrganizationID: run.OrganizationID,
-		UserID:         run.UserID,
-		ConversationID: run.ConversationID,
-		WorkflowRunID:  run.ID,
-		Preset:         workflowPresetFromRun(run),
-		Goal:           run.Goal,
+		RequestID:          run.RequestID,
+		ExecutionID:        fmt.Sprintf("workflow:%d", run.ID),
+		ExpectedCheckpoint: run.CheckpointVersion,
+		OrganizationID:     run.OrganizationID,
+		UserID:             run.UserID,
+		ConversationID:     run.ConversationID,
+		WorkflowRunID:      run.ID,
+		Preset:             workflowPresetFromRun(run),
+		Goal:               run.Goal,
 		ToolPolicy: WorkflowRuntimeToolPolicy{
 			ReadTools: []string{
 				ToolQueryContextChunks,
@@ -152,7 +160,9 @@ func buildWorkflowRuntimeRequest(run models.WorkflowRun, conversationCtx *conver
 func (s *Service) persistExternalRuntimeOutput(ctx context.Context, run models.WorkflowRun, conversationCtx *conversationContext, response WorkflowRuntimeResponse) error {
 	runtimeName := FirstNonEmptyString(response.Runtime, s.workflowRuntime.Name())
 	if err := s.db.WithContext(ctx).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
-		"workflow_version": FirstNonEmptyString(run.WorkflowVersion, "meeting_agent_langgraph_v1"),
+		"workflow_version":   FirstNonEmptyString(run.WorkflowVersion, "meeting_agent_langgraph_v1"),
+		"checkpoint_id":      response.CheckpointID,
+		"checkpoint_version": response.CheckpointVersion,
 		"state_json": workflowStateJSON(run, map[string]any{
 			"phase":               "runtime_completed",
 			"preset":              workflowPresetFromRun(run),

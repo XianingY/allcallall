@@ -1,0 +1,9 @@
+AllCallAll {{ .Chart.AppVersion }} was rendered for namespace {{ .Release.Namespace }}.
+
+Before workloads can start, verify these external dependencies:
+  - MySQL DSN Secret: {{ .Values.external.mysql.secretName }}/{{ .Values.external.mysql.dsnKey }}
+  - Redis address: {{ .Values.external.redis.address }}
+  - OpenBao address: {{ .Values.external.openbao.address }}
+  - RuntimeClass: {{ .Values.components.sandboxRunner.runtimeClassName }}
+
+NetworkPolicy is {{ ternary "enabled" "disabled" .Values.networkPolicy.enabled }}. External CIDR lists are deny-by-default; configure them before installation.

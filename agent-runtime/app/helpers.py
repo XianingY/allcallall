@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, cast
 
-from .models import Citation, ContextChunk, WorkflowRequest
+from .models import Citation, ContextChunk, WorkflowRequest, EvidencePack, ContextSufficiency, RetrievalPlanStep
+
+
+_tool_capability: ContextVar[str] = ContextVar("tool_capability", default="")
 
 
 # Tool name constants
@@ -106,7 +112,11 @@ def citations_from_chunks(chunks: list[ContextChunk]) -> list[Citation]:
                 end_ms=chunk.end_ms,
             )
             for chunk in chunks
-            if chunk.source_type and chunk.source_id and chunk.snippet
+            if chunk.source_type
+            and chunk.source_type != "mcp_untrusted"
+            and chunk.retrieval_mode != "mcp_untrusted"
+            and chunk.source_id
+            and chunk.snippet
         ]
     )
 
@@ -147,11 +157,26 @@ def runtime_subject_id(request: WorkflowRequest) -> str:
 
 def request_with_runtime_context(state: dict[str, Any]) -> WorkflowRequest:
     """Get request with runtime context (reranked or retrieved chunks)."""
-    request = state["request"]
+    request = cast(WorkflowRequest, state["request"])
     chunks = state.get("reranked_context_chunks") or state.get("retrieved_context_chunks")
     if chunks is None:
         return request
     return request.model_copy(update={"context_chunks": chunks})
+
+
+def request_with_tool_capability(request: WorkflowRequest) -> WorkflowRequest:
+    """Attach the request-scoped capability without persisting it in graph state."""
+    return request.model_copy(update={"tool_capability": _tool_capability.get()})
+
+
+@contextmanager
+def tool_capability_scope(capability: str) -> Iterator[None]:
+    """Expose a capability only while executing the current graph request."""
+    token = _tool_capability.set(capability)
+    try:
+        yield
+    finally:
+        _tool_capability.reset(token)
 
 
 def estimate_retrieval_confidence(request: WorkflowRequest, chunks: list[ContextChunk]) -> float:
@@ -194,7 +219,6 @@ def evaluate_context_sufficiency(request: WorkflowRequest, pack: "EvidencePack")
 
 def local_agentic_retrieval(chunks: list[ContextChunk], step: "RetrievalPlanStep") -> list[ContextChunk]:
     """Perform local agentic retrieval from preloaded chunks."""
-    from .models import RetrievalPlanStep
     from .retrieval import rerank_context_chunks
 
     scoped = chunks

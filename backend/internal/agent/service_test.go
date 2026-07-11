@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/events"
+	"github.com/allcallall/backend/internal/mcpplatform"
 	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/testutil"
@@ -84,6 +86,151 @@ type fakeAgentRuntime struct {
 	response WorkflowRuntimeResponse
 	err      error
 	calls    int
+}
+
+type fakeAgentMCPSandbox struct {
+	executions int
+}
+
+func (f *fakeAgentMCPSandbox) Validate(context.Context, mcpplatform.ValidationRequest) (mcpplatform.ValidationResult, error) {
+	return mcpplatform.ValidationResult{}, nil
+}
+
+func (f *fakeAgentMCPSandbox) Execute(context.Context, mcpplatform.ExecutionRequest) (mcpplatform.ExecutionResult, error) {
+	f.executions++
+	return mcpplatform.ExecutionResult{JobID: "approved-job", Output: map[string]any{"updated": true}}, nil
+}
+
+func TestApprovedMCPToolExecutesOnceThroughPlatform(t *testing.T) {
+	svc, db, _ := newAgentServiceTestEnv(t)
+	conversation := seedAgentConversation(t, db)
+	if err := db.Create(&models.Organization{ID: conversation.OrganizationID, Name: "Agent Org", Slug: "agent-org", CreatedBy: 7}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.OrganizationMember{
+		OrganizationID: conversation.OrganizationID,
+		UserID:         7,
+		Role:           models.OrganizationRoleOwner,
+		JoinedAt:       time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	revisionID := uint64(1)
+	installation := models.MCPInstallation{
+		ID:               1,
+		OrganizationID:   conversation.OrganizationID,
+		OwnerUserID:      7,
+		Scope:            models.MCPInstallationScopePersonal,
+		DisplayName:      "Writer",
+		SourceType:       models.MCPInstallationSourceOCI,
+		Status:           models.MCPInstallationStatusActive,
+		ActiveRevisionID: &revisionID,
+	}
+	if err := db.Create(&installation).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.MCPInstallationRevision{
+		ID:                   revisionID,
+		InstallationID:       installation.ID,
+		Revision:             1,
+		Transport:            "stdio",
+		ImageRef:             "registry.example.com/writer@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		CommandJSON:          "[]",
+		ArgsJSON:             "[]",
+		ConfigJSON:           "{}",
+		NetworkAllowlistJSON: "[]",
+		ScanStatus:           "passed",
+		ScanReportJSON:       "{}",
+		CreatedBy:            7,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.MCPTool{
+		InstallationID:  installation.ID,
+		RevisionID:      revisionID,
+		NamespacedName:  "mcp.1.update",
+		OriginalName:    "update",
+		InputSchemaJSON: `{"type":"object","required":["value"],"properties":{"value":{"type":"string"}}}`,
+		Risk:            models.MCPToolRiskWrite,
+		Status:          "active",
+		SchemaVersion:   "schema-v1",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	sandbox := &fakeAgentMCPSandbox{}
+	platform := mcpplatform.NewService(db, nil).WithSandbox(sandbox)
+	svc.WithMCPPlatform(platform)
+	run := models.AgentRun{OrganizationID: conversation.OrganizationID, UserID: 7, ConversationID: conversation.ID}
+	if err := db.Create(&run).Error; err != nil {
+		t.Fatal(err)
+	}
+	pending, err := svc.RequestExternalToolApproval(context.Background(), ExternalToolApprovalInput{
+		OrganizationID: run.OrganizationID,
+		UserID:         run.UserID,
+		ConversationID: run.ConversationID,
+		RunID:          run.ID,
+		RunRef:         fmt.Sprintf("agent:%d", run.ID),
+		ToolCallID:     "pending-agent-call",
+		ToolName:       "mcp.1.update",
+		Arguments:      map[string]any{"value": "pending"},
+	})
+	if err != nil || pending.AgentToolCall == nil || pending.AgentToolCall.Status != models.ToolCallStatusPending {
+		t.Fatalf("request agent MCP approval: result=%#v err=%v", pending, err)
+	}
+	workflow := models.WorkflowRun{
+		OrganizationID: run.OrganizationID,
+		UserID:         run.UserID,
+		ConversationID: run.ConversationID,
+		AgentRunID:     &run.ID,
+		Status:         models.WorkflowRunStatusRunning,
+		Goal:           "update",
+	}
+	if err := db.Create(&workflow).Error; err != nil {
+		t.Fatal(err)
+	}
+	task := models.WorkflowTask{
+		WorkflowRunID:  workflow.ID,
+		OrganizationID: workflow.OrganizationID,
+		Name:           models.WorkflowTaskProposeTools,
+		Status:         models.WorkflowTaskStatusRunning,
+	}
+	if err := db.Create(&task).Error; err != nil {
+		t.Fatal(err)
+	}
+	pending, err = svc.RequestExternalToolApproval(context.Background(), ExternalToolApprovalInput{
+		OrganizationID: workflow.OrganizationID,
+		UserID:         workflow.UserID,
+		ConversationID: workflow.ConversationID,
+		RunID:          workflow.ID,
+		RunRef:         fmt.Sprintf("workflow:%d", workflow.ID),
+		ToolCallID:     "pending-workflow-call",
+		ToolName:       "mcp.1.update",
+		Arguments:      map[string]any{"value": "pending"},
+	})
+	if err != nil || pending.WorkflowApproval == nil || pending.WorkflowApproval.Status != models.ToolApprovalStatusPending {
+		t.Fatalf("request workflow MCP approval: result=%#v err=%v", pending, err)
+	}
+	toolCall := models.AgentToolCall{
+		RunID:     run.ID,
+		CallID:    "approved-call",
+		ToolName:  "mcp.1.update",
+		InputJSON: `{"value":"new"}`,
+	}
+	first, err := svc.executeToolLocally(context.Background(), run, toolCall)
+	if err != nil || !strings.Contains(first, `"updated":true`) {
+		t.Fatalf("approved MCP execution failed: output=%s err=%v", first, err)
+	}
+	second, err := svc.executeToolLocally(context.Background(), run, toolCall)
+	if err != nil || second != first {
+		t.Fatalf("idempotent MCP execution failed: output=%s err=%v", second, err)
+	}
+	if sandbox.executions != 1 {
+		t.Fatalf("approved MCP tool executed %d times", sandbox.executions)
+	}
+	var execution models.MCPExecution
+	if err := db.Where("run_ref = ? AND tool_call_id = ?", fmt.Sprintf("agent:%d", run.ID), toolCall.CallID).Take(&execution).Error; err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (r *fakeAgentRuntime) Name() string {
@@ -340,8 +487,34 @@ func TestExecuteRunWithPythonRuntimeRequiresApprovalAndRejectsSideEffects(t *tes
 	for _, call := range pending {
 		decisions[call.CallID] = "reject"
 	}
-	if err := svc.SubmitToolOutputs(context.Background(), conversation.OrganizationID, 7, result.Run.ID, decisions); err != nil {
-		t.Fatalf("reject python tool proposals failed: %v", err)
+	if err := db.Create(&models.ConversationMember{
+		ConversationID: conversation.ID,
+		UserID:         8,
+		Role:           models.OrganizationRoleMember,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.OrganizationMember{
+		OrganizationID: conversation.OrganizationID,
+		UserID:         8,
+		Role:           models.OrganizationRoleMember,
+		JoinedAt:       time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SubmitToolOutputs(context.Background(), conversation.OrganizationID, 8, result.Run.ID, decisions); !errors.Is(err, ErrToolApprovalForbidden) {
+		t.Fatalf("expected unrelated conversation member to be forbidden, got %v", err)
+	}
+	if err := db.Create(&models.OrganizationMember{
+		OrganizationID: conversation.OrganizationID,
+		UserID:         9,
+		Role:           models.OrganizationRoleAdmin,
+		JoinedAt:       time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SubmitToolOutputs(context.Background(), conversation.OrganizationID, 9, result.Run.ID, decisions); err != nil {
+		t.Fatalf("admin failed to reject python tool proposals: %v", err)
 	}
 
 	var messageCountAfter int64

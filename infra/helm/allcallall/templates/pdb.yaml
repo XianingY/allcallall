@@ -1,0 +1,28 @@
+{{- $root := . }}
+{{- $targets := list
+      (dict "name" "api" "values" .Values.components.api)
+      (dict "name" "agent-worker" "values" .Values.components.agentWorker)
+      (dict "name" "outbox-worker" "values" .Values.components.outboxWorker)
+      (dict "name" "agent-runtime" "values" .Values.components.agentRuntime)
+      (dict "name" "rag-runtime" "values" .Values.components.ragRuntime)
+      (dict "name" "sandbox-control-plane" "values" .Values.components.sandboxControlPlane)
+      (dict "name" "sandbox-runner" "values" .Values.components.sandboxRunner)
+      (dict "name" "web" "values" .Values.components.web)
+}}
+{{- range $target := $targets }}
+{{- if $target.values.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "allcallall.componentName" (dict "root" $root "component" $target.name) }}
+  labels:
+    {{- include "allcallall.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $target.name }}
+spec:
+  minAvailable: {{ $target.values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "allcallall.selectorLabels" (dict "Release" $root.Release "Chart" $root.Chart "Values" $root.Values "component" $target.name) | nindent 6 }}
+{{- end }}
+{{- end }}

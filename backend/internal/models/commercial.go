@@ -284,10 +284,11 @@ func (DeletionAudit) TableName() string {
 // AgentRun stores a deterministic or model-backed assistant execution.
 type AgentRun struct {
 	ID                uint64     `gorm:"primaryKey;autoIncrement"`
-	OrganizationID    uint64     `gorm:"not null;index"`
-	UserID            uint64     `gorm:"not null;index"`
-	ConversationID    uint64     `gorm:"not null;index"`
+	OrganizationID    uint64     `gorm:"not null;index;uniqueIndex:idx_agent_run_dedupe"`
+	UserID            uint64     `gorm:"not null;index;uniqueIndex:idx_agent_run_dedupe"`
+	ConversationID    uint64     `gorm:"not null;index;uniqueIndex:idx_agent_run_dedupe"`
 	IdempotencyKey    string     `gorm:"size:128;index"`
+	DedupeKey         *string    `gorm:"size:128;uniqueIndex:idx_agent_run_dedupe"`
 	RequestID         string     `gorm:"size:96;index"`
 	Source            string     `gorm:"size:32;not null;index"`
 	Role              string     `gorm:"size:32;not null;default:'primary';index"`
@@ -302,6 +303,8 @@ type AgentRun struct {
 	ErrorMessage      string     `gorm:"type:text"`
 	Attempts          int        `gorm:"not null;default:0"`
 	LeaseUntil        *time.Time `gorm:"index"`
+	CheckpointID      string     `gorm:"size:160;index"`
+	CheckpointVersion uint64     `gorm:"not null;default:0"`
 	StartedAt         *time.Time `gorm:"index"`
 	CompletedAt       *time.Time `gorm:"index"`
 	CreatedAt         time.Time  `gorm:"autoCreateTime"`
@@ -332,9 +335,9 @@ func (AgentStep) TableName() string {
 // AgentToolCall stores tool invocations made by an agent run.
 type AgentToolCall struct {
 	ID                uint64    `gorm:"primaryKey;autoIncrement"`
-	RunID             uint64    `gorm:"not null;index"`
+	RunID             uint64    `gorm:"not null;index;uniqueIndex:idx_agent_tool_call_run"`
 	StepID            *uint64   `gorm:"index"`
-	CallID            string    `gorm:"size:64;index" json:"call_id"`
+	CallID            string    `gorm:"size:96;index;uniqueIndex:idx_agent_tool_call_run" json:"call_id"`
 	ToolName          string    `gorm:"size:120;not null;index"`
 	Status            string    `gorm:"size:32;not null;index"`
 	ToolSchemaVersion string    `gorm:"size:64;index"`

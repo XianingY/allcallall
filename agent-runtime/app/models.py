@@ -82,6 +82,9 @@ class MeetingBriefRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     request_id: str = ""
+    execution_id: str = ""
+    expected_checkpoint_version: int = 0
+    tool_capability: str = ""
     organization_id: int
     user_id: int
     conversation_id: int
@@ -215,6 +218,9 @@ class MeetingBriefResponse(BaseModel):
     status: Literal["ready", "requires_action", "failed"] = "requires_action"
     runtime: str = "python_langgraph"
     provider: str = "rules"
+    execution_id: str = ""
+    checkpoint_id: str = ""
+    checkpoint_version: int = 0
     summary: str = ""
     action_items: list[str] = Field(default_factory=list)
     next_step: str = ""

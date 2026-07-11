@@ -1,0 +1,28 @@
+{{- $root := . }}
+{{- $services := list
+      (dict "name" "api" "port" 8080)
+      (dict "name" "agent-runtime" "port" 8090)
+      (dict "name" "rag-runtime" "port" 8091)
+      (dict "name" "sandbox-control-plane" "port" 8092)
+      (dict "name" "sandbox-runner" "port" 8093)
+      (dict "name" "web" "port" 8080)
+}}
+{{- range $service := $services }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "allcallall.componentName" (dict "root" $root "component" $service.name) }}
+  labels:
+    {{- include "allcallall.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $service.name }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "allcallall.selectorLabels" (dict "Release" $root.Release "Chart" $root.Chart "Values" $root.Values "component" $service.name) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $service.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

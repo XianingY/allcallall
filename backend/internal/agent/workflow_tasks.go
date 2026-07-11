@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -258,16 +259,37 @@ func (s *Service) createWorkflowToolApprovals(ctx context.Context, run models.Wo
 		if input == nil {
 			input = map[string]any{}
 		}
-		effect, err := s.resolveToolPolicyEffect(ctx, run.OrganizationID, role, toolName)
-		if err != nil {
-			return nil, err
+		schemaVersion := CurrentToolSchemaVersion
+		effect := ""
+		if strings.HasPrefix(toolName, "mcp.") {
+			if s.mcpPlatform == nil {
+				return nil, fmt.Errorf("MCP platform is unavailable")
+			}
+			tool, err := s.mcpPlatform.ValidateArguments(ctx, run.OrganizationID, run.UserID, toolName, input)
+			if err != nil {
+				return nil, err
+			}
+			schemaVersion = tool.SchemaVersion
+			if tool.Risk == models.MCPToolRiskRead && !item.ApprovalRequired {
+				effect = models.ToolPolicyEffectAllow
+			} else {
+				effect = models.ToolPolicyEffectApprovalRequired
+			}
+		} else {
+			var err error
+			effect, err = s.resolveToolPolicyEffect(ctx, run.OrganizationID, role, toolName)
+			if err != nil {
+				return nil, err
+			}
 		}
 		if effect == models.ToolPolicyEffectDeny {
 			return nil, fmt.Errorf("tool %s denied by policy", toolName)
 		}
 		inputJSON := mustJSONString(input)
-		if err := ValidateToolArguments(toolName, inputJSON); err != nil {
-			return nil, err
+		if !strings.HasPrefix(toolName, "mcp.") {
+			if err := ValidateToolArguments(toolName, inputJSON); err != nil {
+				return nil, err
+			}
 		}
 		approval := models.ToolApproval{
 			WorkflowRunID:     run.ID,
@@ -276,7 +298,7 @@ func (s *Service) createWorkflowToolApprovals(ctx context.Context, run models.Wo
 			ToolCallID:        workflowToolRequestCallID(run.ID, item),
 			ToolName:          toolName,
 			Status:            models.ToolApprovalStatusPending,
-			ToolSchemaVersion: CurrentToolSchemaVersion,
+			ToolSchemaVersion: schemaVersion,
 			InputJSON:         inputJSON,
 			RequestedBy:       run.UserID,
 			RequestedAt:       time.Now().UTC(),

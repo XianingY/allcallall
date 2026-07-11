@@ -1,4 +1,4 @@
-import type { components } from "@/api/schema";
+import type { components } from "@allcallall/api-types";
 import { apiRequest, getAccessToken, getOrganizationId } from "@/api/http";
 import { runtimeConfig } from "@/lib/runtime-config";
 
@@ -33,4 +33,3 @@ export async function streamAgentRun(id: number, signal: AbortSignal, onEvent: (
   const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
   while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const blocks = buffer.split("\n\n"); buffer = blocks.pop() ?? ""; for (const block of blocks) { const data = block.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n"); if (data) { try { onEvent(JSON.parse(data) as Record<string, unknown>); } catch { /* ignore malformed stream events */ } } } }
 }
-

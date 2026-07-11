@@ -1,0 +1,9 @@
+name: "sqlite_mcp_skill"
+description: "Allows the agent to query a local SQLite database via MCP"
+system_prompt_extension: |
+  You have access to a local SQLite database.
+  Use the provided MCP tools (like query_database, list_tables) to gather necessary context.
+mcp_servers:
+  - name: "sqlite_mcp"
+    command: "uvx"
+    args: ["mcp-server-sqlite", "--db-path", "./test.db"]

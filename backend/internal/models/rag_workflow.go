@@ -242,11 +242,12 @@ func (RAGChunk) TableName() string {
 // WorkflowRun stores a controlled Workflow+Agent execution for the Web Agent Lab.
 type WorkflowRun struct {
 	ID                uint64     `gorm:"primaryKey;autoIncrement"`
-	OrganizationID    uint64     `gorm:"not null;index"`
-	UserID            uint64     `gorm:"not null;index"`
-	ConversationID    uint64     `gorm:"not null;index"`
+	OrganizationID    uint64     `gorm:"not null;index;uniqueIndex:idx_workflow_run_dedupe"`
+	UserID            uint64     `gorm:"not null;index;uniqueIndex:idx_workflow_run_dedupe"`
+	ConversationID    uint64     `gorm:"not null;index;uniqueIndex:idx_workflow_run_dedupe"`
 	AgentRunID        *uint64    `gorm:"index"`
 	IdempotencyKey    string     `gorm:"size:128;index"`
+	DedupeKey         *string    `gorm:"size:128;uniqueIndex:idx_workflow_run_dedupe"`
 	RequestID         string     `gorm:"size:96;index"`
 	Status            string     `gorm:"size:32;not null;index"`
 	WorkflowType      string     `gorm:"size:80;not null;default:'agent_lab';index"`
@@ -265,6 +266,8 @@ type WorkflowRun struct {
 	ErrorMessage      string     `gorm:"type:text"`
 	Attempts          int        `gorm:"not null;default:0"`
 	LeaseUntil        *time.Time `gorm:"index"`
+	CheckpointID      string     `gorm:"size:160;index"`
+	CheckpointVersion uint64     `gorm:"not null;default:0"`
 	StartedAt         *time.Time `gorm:"index"`
 	CompletedAt       *time.Time `gorm:"index"`
 	CreatedAt         time.Time  `gorm:"autoCreateTime;index"`

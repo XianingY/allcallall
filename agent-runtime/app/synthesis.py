@@ -5,7 +5,6 @@ from __future__ import annotations
 from .helpers import (
     WORKFLOW_CONTEXT_QA,
     WORKFLOW_FOLLOW_UP_PLANNER,
-    WORKFLOW_MEETING_BRIEF,
     WORKFLOW_REACT_GENERAL,
     WORKFLOW_RISK_REVIEW,
     contains_any,
