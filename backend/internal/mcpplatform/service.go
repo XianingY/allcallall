@@ -481,6 +481,11 @@ func (s *Service) execute(ctx context.Context, input ExecuteInput, approvalGrant
 	if err != nil {
 		return nil, err
 	}
+	if (input.ExpectedInstallationID != 0 && installation.ID != input.ExpectedInstallationID) ||
+		(input.ExpectedRevisionID != 0 && tool.RevisionID != input.ExpectedRevisionID) ||
+		(input.ExpectedToolID != 0 && tool.ID != input.ExpectedToolID) {
+		return nil, ErrForbidden
+	}
 	if err := validateMCPArguments(tool.InputSchemaJSON, input.Arguments); err != nil {
 		return nil, err
 	}

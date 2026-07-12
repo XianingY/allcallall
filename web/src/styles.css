@@ -168,6 +168,7 @@
 .approval-list article > header strong, .approval-list article > header span { display: block; }
 .approval-list article > header strong { font-size: .78rem; }
 .approval-list article > header span { color: #65706d; font-size: .62rem; }
+.approval-audit { margin-top: .45rem; color: #65706d; font-size: .62rem; overflow-wrap: anywhere; }
 .approval-list article > footer { display: flex; justify-content: flex-end; gap: .4rem; margin-top: .75rem; }
 .citation-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
 .citation-groups h2 { display: flex; justify-content: space-between; margin-bottom: .5rem; }

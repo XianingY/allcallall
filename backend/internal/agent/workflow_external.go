@@ -2,25 +2,44 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/allcallall/backend/internal/models"
 )
 
 func (s *Service) shouldUseExternalWorkflowRuntime(run models.WorkflowRun) bool {
-	return s.workflowRuntime != nil && s.workflowRuntime.Supports(run)
+	return run.RuntimeOwner == WorkflowRuntimePythonLangGraph && s.workflowRuntime != nil && s.workflowRuntime.Supports(run)
 }
 
 func (s *Service) processWorkflowRunWithExternalRuntime(ctx context.Context, run models.WorkflowRun) (*WorkflowResult, error) {
 	if workflowTaskReadyInDB(ctx, s, run.ID, models.WorkflowTaskCommitResult) {
-		return s.buildWorkflowResult(ctx, run)
+		if err := s.executeCommitResultTask(ctx, run); err != nil {
+			return nil, err
+		}
+		var updated models.WorkflowRun
+		if err := s.db.WithContext(ctx).Take(&updated, run.ID).Error; err != nil {
+			return nil, err
+		}
+		return s.buildWorkflowResult(ctx, updated)
 	}
 
 	if workflowTaskReadyInDB(ctx, s, run.ID, models.WorkflowTaskProposeTools) {
+		if run.ApprovalRequestID != "" {
+			resumedRun, resumed, err := s.resumeExternalWorkflowIfReady(ctx, run)
+			if err != nil {
+				return nil, err
+			}
+			if resumed {
+				run = resumedRun
+			}
+		}
 		requiresAction, err := s.executeApprovalTask(ctx, run)
 		if err != nil {
 			return nil, err
@@ -43,11 +62,10 @@ func (s *Service) processWorkflowRunWithExternalRuntime(ctx context.Context, run
 		return s.buildWorkflowResult(ctx, updated)
 	}
 
-	conversationCtx, err := s.loadConversationContext(ctx, run.OrganizationID, run.UserID, run.ConversationID, run.Goal)
+	request, err := s.loadOrFreezeWorkflowRuntimeRequest(ctx, &run)
 	if err != nil {
 		return nil, err
 	}
-	request := buildWorkflowRuntimeRequest(run, conversationCtx)
 	if s.toolCapabilities != nil {
 		request.ToolCapability, err = s.toolCapabilities.IssueForRun(ctx, run.OrganizationID, run.UserID, run.ConversationID, fmt.Sprintf("workflow:%d", run.ID))
 		if err != nil {
@@ -58,10 +76,13 @@ func (s *Service) processWorkflowRunWithExternalRuntime(ctx context.Context, run
 	if err != nil {
 		return nil, err
 	}
+	if err := validateInitialWorkflowRuntimeResponse(run, request.ExecutionID, response); err != nil {
+		return nil, fmt.Errorf("validate workflow runtime response: %w", err)
+	}
 	if strings.TrimSpace(response.Runtime) == "" {
 		response.Runtime = s.workflowRuntime.Name()
 	}
-	if err := s.persistExternalRuntimeOutput(ctx, run, conversationCtx, response); err != nil {
+	if err := s.persistExternalRuntimeOutput(ctx, run, conversationContextFromRuntimeRequest(request), response); err != nil {
 		return nil, err
 	}
 	var updated models.WorkflowRun
@@ -69,6 +90,59 @@ func (s *Service) processWorkflowRunWithExternalRuntime(ctx context.Context, run
 		return nil, err
 	}
 	return s.buildWorkflowResult(ctx, updated)
+}
+
+func (s *Service) loadOrFreezeWorkflowRuntimeRequest(ctx context.Context, run *models.WorkflowRun) (WorkflowRuntimeRequest, error) {
+	if run == nil {
+		return WorkflowRuntimeRequest{}, fmt.Errorf("workflow run is required")
+	}
+	if strings.TrimSpace(run.RuntimeRequestJSON) != "" {
+		request, err := decodeFrozenRuntimeRequest(run.RuntimeRequestJSON)
+		if err != nil {
+			return request, err
+		}
+		return request, validateFrozenWorkflowRuntimeRequest(*run, request)
+	}
+	conversationCtx, err := s.loadConversationContext(ctx, run.OrganizationID, run.UserID, run.ConversationID, run.Goal)
+	if err != nil {
+		return WorkflowRuntimeRequest{}, err
+	}
+	request := buildWorkflowRuntimeRequest(*run, conversationCtx)
+	request.ToolCapability = ""
+	raw, err := json.Marshal(request)
+	if err != nil {
+		return WorkflowRuntimeRequest{}, err
+	}
+	updated := s.db.WithContext(ctx).Model(&models.WorkflowRun{}).
+		Where("id = ? AND execution_lease_token = ? AND runtime_owner = ? AND (runtime_request_json IS NULL OR runtime_request_json = '')", run.ID, run.ExecutionLeaseToken, WorkflowRuntimePythonLangGraph).
+		Updates(map[string]any{
+			"runtime_request_json": string(raw),
+			"state_json": workflowStateJSON(*run, map[string]any{
+				"phase":   "runtime_dispatched",
+				"runtime": WorkflowRuntimePythonLangGraph,
+			}),
+			"updated_at": time.Now().UTC(),
+		})
+	if updated.Error != nil {
+		return WorkflowRuntimeRequest{}, updated.Error
+	}
+	if updated.RowsAffected != 1 {
+		var stored models.WorkflowRun
+		if err := s.db.WithContext(ctx).Where("id = ?", run.ID).Take(&stored).Error; err != nil {
+			return WorkflowRuntimeRequest{}, err
+		}
+		if stored.ExecutionLeaseToken != run.ExecutionLeaseToken {
+			return WorkflowRuntimeRequest{}, fmt.Errorf("%w: workflow execution lease was lost", ErrWorkflowRuntimeConflict)
+		}
+		request, err = decodeFrozenRuntimeRequest(stored.RuntimeRequestJSON)
+		if err != nil {
+			return WorkflowRuntimeRequest{}, err
+		}
+		*run = stored
+		return request, validateFrozenWorkflowRuntimeRequest(stored, request)
+	}
+	run.RuntimeRequestJSON = string(raw)
+	return request, nil
 }
 
 func buildWorkflowRuntimeRequest(run models.WorkflowRun, conversationCtx *conversationContext) WorkflowRuntimeRequest {
@@ -158,22 +232,50 @@ func buildWorkflowRuntimeRequest(run models.WorkflowRun, conversationCtx *conver
 }
 
 func (s *Service) persistExternalRuntimeOutput(ctx context.Context, run models.WorkflowRun, conversationCtx *conversationContext, response WorkflowRuntimeResponse) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		transactional := *s
+		transactional.db = tx
+		return transactional.persistExternalRuntimeOutputTx(ctx, run, conversationCtx, response)
+	})
+}
+
+func (s *Service) persistExternalRuntimeOutputTx(ctx context.Context, run models.WorkflowRun, conversationCtx *conversationContext, response WorkflowRuntimeResponse) error {
 	runtimeName := FirstNonEmptyString(response.Runtime, s.workflowRuntime.Name())
-	if err := s.db.WithContext(ctx).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
-		"workflow_version":   FirstNonEmptyString(run.WorkflowVersion, "meeting_agent_langgraph_v1"),
-		"checkpoint_id":      response.CheckpointID,
-		"checkpoint_version": response.CheckpointVersion,
-		"state_json": workflowStateJSON(run, map[string]any{
-			"phase":               "runtime_completed",
-			"preset":              workflowPresetFromRun(run),
-			"runtime":             runtimeName,
-			"provider":            response.Provider,
-			"agentic_rag":         response.RetrievalPlan,
-			"context_sufficiency": response.ContextSufficiency,
-		}),
-		"updated_at": time.Now().UTC(),
-	}).Error; err != nil {
-		return err
+	approvalRequestID := ""
+	phase := "runtime_completed"
+	if response.PendingApproval != nil {
+		approvalRequestID = response.PendingApproval.ApprovalRequestID
+		phase = "runtime_paused"
+	}
+	updated := s.db.WithContext(ctx).Model(&models.WorkflowRun{}).
+		Where("id = ? AND checkpoint_version = ? AND execution_lease_token = ?", run.ID, run.CheckpointVersion, run.ExecutionLeaseToken).
+		Updates(map[string]any{
+			"workflow_version":    FirstNonEmptyString(run.WorkflowVersion, "meeting_agent_langgraph_v1"),
+			"checkpoint_id":       response.CheckpointID,
+			"checkpoint_version":  response.CheckpointVersion,
+			"approval_request_id": approvalRequestID,
+			"state_json": workflowStateJSON(run, map[string]any{
+				"phase":               phase,
+				"preset":              workflowPresetFromRun(run),
+				"runtime":             runtimeName,
+				"provider":            response.Provider,
+				"agentic_rag":         response.RetrievalPlan,
+				"context_sufficiency": response.ContextSufficiency,
+			}),
+			"updated_at": time.Now().UTC(),
+		})
+	if updated.Error != nil {
+		return updated.Error
+	}
+	if updated.RowsAffected != 1 {
+		var stored models.WorkflowRun
+		if err := s.db.WithContext(ctx).Where("id = ?", run.ID).Take(&stored).Error; err != nil {
+			return err
+		}
+		if stored.CheckpointID != response.CheckpointID || stored.CheckpointVersion != response.CheckpointVersion || stored.ApprovalRequestID != approvalRequestID {
+			return fmt.Errorf("%w: workflow checkpoint changed while persisting runtime output", ErrCheckpointVersionConflict)
+		}
+		return nil
 	}
 	if err := s.appendWorkflowHistory(ctx, run, "runtime_completed", "workflow_run", &run.ID, map[string]any{
 		"runtime":  runtimeName,
@@ -205,7 +307,7 @@ func (s *Service) persistExternalRuntimeOutput(ctx context.Context, run models.W
 	if strings.TrimSpace(merged.Summary) == "" {
 		merged = mergeWorkflowRoleResults(mapValues(roleResults))
 	}
-	if err := s.executeWorkflowTask(ctx, run.ID, models.WorkflowTaskMerge, map[string]any{"runtime": runtimeName}, func(task models.WorkflowTask) (map[string]any, error) {
+	if err := s.executeWorkflowTask(ctx, run, models.WorkflowTaskMerge, map[string]any{"runtime": runtimeName}, func(task models.WorkflowTask) (map[string]any, error) {
 		if err := s.createAgentMessage(ctx, run, &task.ID, "merge", "tool_planner", models.AgentMessageTypeAgentResult, merged, "python_langgraph:merge"); err != nil {
 			return nil, err
 		}
@@ -230,8 +332,8 @@ func (s *Service) persistExternalRuntimeOutput(ctx context.Context, run models.W
 	if err := s.persistWorkflowMergedPreview(ctx, run, merged); err != nil {
 		return err
 	}
-	if err := s.executeWorkflowTask(ctx, run.ID, models.WorkflowTaskProposeTools, map[string]any{"runtime": runtimeName, "summary": merged.Summary}, func(task models.WorkflowTask) (map[string]any, error) {
-		approvals, err := s.createWorkflowToolApprovals(ctx, run, task, workflowToolRequestsFromRuntime(response.ProposedToolCalls))
+	if err := s.executeWorkflowTask(ctx, run, models.WorkflowTaskProposeTools, map[string]any{"runtime": runtimeName, "summary": merged.Summary}, func(task models.WorkflowTask) (map[string]any, error) {
+		approvals, err := s.createWorkflowToolApprovals(ctx, run, task, workflowToolRequestsFromRuntime(response.ProposedToolCalls, approvalRequestID, response.CheckpointVersion))
 		if err != nil {
 			return nil, err
 		}
@@ -251,7 +353,7 @@ func (s *Service) persistExternalRuntimeOutput(ctx context.Context, run models.W
 }
 
 func (s *Service) persistExternalCollectContextTask(ctx context.Context, run models.WorkflowRun, conversationCtx *conversationContext, response WorkflowRuntimeResponse) error {
-	return s.executeWorkflowTask(ctx, run.ID, models.WorkflowTaskCollectContext, map[string]any{"runtime": response.Runtime}, func(task models.WorkflowTask) (map[string]any, error) {
+	return s.executeWorkflowTask(ctx, run, models.WorkflowTaskCollectContext, map[string]any{"runtime": response.Runtime}, func(task models.WorkflowTask) (map[string]any, error) {
 		output := map[string]any{
 			"runtime":                  response.Runtime,
 			"provider":                 response.Provider,
@@ -276,7 +378,7 @@ func (s *Service) persistExternalCollectContextTask(ctx context.Context, run mod
 }
 
 func (s *Service) persistExternalDecomposeTask(ctx context.Context, run models.WorkflowRun, response WorkflowRuntimeResponse) error {
-	return s.executeWorkflowTask(ctx, run.ID, models.WorkflowTaskDecompose, map[string]any{"runtime": response.Runtime}, func(task models.WorkflowTask) (map[string]any, error) {
+	return s.executeWorkflowTask(ctx, run, models.WorkflowTaskDecompose, map[string]any{"runtime": response.Runtime}, func(task models.WorkflowTask) (map[string]any, error) {
 		output := map[string]any{
 			"runtime": response.Runtime,
 			"parallel_roles": []map[string]string{
@@ -293,7 +395,7 @@ func (s *Service) persistExternalRoleTask(ctx context.Context, run models.Workfl
 	if result.Role == "" {
 		result.Role = role
 	}
-	return s.executeWorkflowTask(ctx, run.ID, role, map[string]any{"runtime": response.Runtime, "role": role}, func(task models.WorkflowTask) (map[string]any, error) {
+	return s.executeWorkflowTask(ctx, run, role, map[string]any{"runtime": response.Runtime, "role": role}, func(task models.WorkflowTask) (map[string]any, error) {
 		if err := s.createAgentMessage(ctx, run, &task.ID, role, "merge", models.AgentMessageTypeAgentResult, result, "python_langgraph:"+role); err != nil {
 			return nil, err
 		}
@@ -344,15 +446,21 @@ func runtimeTraceToRoleTrace(events []WorkflowRuntimeTrace) []RoleReActTraceEven
 	return out
 }
 
-func workflowToolRequestsFromRuntime(items []WorkflowRuntimeToolCall) []workflowToolRequest {
+func workflowToolRequestsFromRuntime(items []WorkflowRuntimeToolCall, approvalRequestID string, checkpointVersion uint64) []workflowToolRequest {
 	out := make([]workflowToolRequest, 0, len(items))
 	for _, item := range items {
 		out = append(out, workflowToolRequest{
-			ToolName:         item.ToolName,
-			Input:            item.Arguments,
-			Reason:           item.Reason,
-			IdempotencyKey:   item.IdempotencyKey,
-			ApprovalRequired: item.ApprovalRequired,
+			ToolCallID:                item.ToolCallID,
+			ToolName:                  item.ToolName,
+			Input:                     item.Arguments,
+			Reason:                    item.Reason,
+			IdempotencyKey:            item.IdempotencyKey,
+			ApprovalRequired:          item.ApprovalRequired,
+			ApprovalRequestID:         approvalRequestID,
+			ApprovalCheckpointVersion: checkpointVersion,
+			MCPInstallationID:         item.MCPInstallationID,
+			MCPRevisionID:             item.MCPRevisionID,
+			MCPToolID:                 item.MCPToolID,
 		})
 	}
 	return out

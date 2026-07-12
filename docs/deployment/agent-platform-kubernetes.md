@@ -100,6 +100,23 @@ features:
 
 紧急回退时先关闭 `SANDBOX_EXECUTION_ENABLED` 和 `MCP_PLATFORM_ENABLED`，阻止新工具执行；checkpoint 数据仍由 MySQL 保留，避免回退过程覆盖 Python 图状态。不要回滚 additive migration。恢复后再逐项重新打开 flag。
 
+### Runtime 权威边界与审批恢复
+
+Go/MySQL 是业务对象、权限、审批决定、审计和工具副作用的权威；Python/LangGraph 是图节点进度和 checkpoint payload 的权威。两者只通过带 `execution_id`、run scope 和 `expected_checkpoint_version` 的版本化请求协调，不能从本层状态反向覆盖另一层。线程名固定为 `agent:{run_id}` 或 `workflow:{run_id}`，禁止缺省 thread。
+
+Go 在第一次调用 Python 前持久化去除短期 capability 的规范化 runtime request。发生“Python 已提交 checkpoint、Go 尚未保存响应”的进程崩溃时，worker 必须用相同的 immutable request 和 `execution_id` 重试，不能重新读取已经变化的会话上下文拼装请求。Python 对相同 execution 返回已提交结果；payload 漂移、scope 不匹配或 checkpoint 版本冲突均返回 `409`，Go 必须 fail closed。
+
+审批恢复顺序固定如下：
+
+1. Python 用真实 LangGraph `interrupt()` checkpoint 确定性的 approval request、tool call ID、参数及摘要，并返回 `requires_action`。
+2. Go 保存 checkpoint 元数据、审批记录，以及 MCP installation/revision/tool ID。审批 API 只事务化记录决定；当前审批集合完整后写 outbox，不在 HTTP 请求中执行工具。
+3. Agent worker 消费 outbox，携带完整决定集调用 Python resume；Python 校验 scope、approval request 和预期版本后使用 `Command(resume=...)` 推进 checkpoint。
+4. Go 通过 checkpoint CAS 后才执行已批准工具。拒绝项不执行；本地业务写和 tool-call 完成状态在同一 MySQL 事务提交。MCP 必须匹配审批时固定的 revision，漂移时拒绝执行。
+
+`runtime_owner` 在 run 创建时即固定且不可变。只有 owner 为 `legacy_go` 的旧 run 可以进入 legacy engine；owner 为 `python_langgraph` 的 run 在重试和恢复期间始终绑定 Python，即使 Runtime 暂时不可用也不能降级，应保留状态并告警，待兼容 Runtime 恢复。
+
+升级前需要处理旧版“模拟审批”产生的暂停 run。此类 checkpoint 没有真实 interrupt，不能由新版 resume endpoint 恢复；先在旧版本完成或取消，必要任务升级后创建新 run。应用紧急回退时 Go 与 Python 镜像必须成对回退，并保留 additive v3 schema 与 checkpoint 数据；已由新图接管的 run 继续绑定兼容版本直至完成或显式取消。CI 的 v3 `up -> down -> up` 只验证隔离环境中的迁移可逆性，不代表生产应执行破坏性 down migration。
+
 ### Checkpoint 一致性边界
 
 MySQL saver 将单次 `graph.invoke` 产生的新 checkpoint 与 pending writes 放入有界内存 buffer，并在 invocation 成功返回后通过一次 MySQL 事务提交。提交前其他连接看不到部分数据；版本冲突或任一 checkpoint/write 插入失败时，namespace version 和所有 payload 一并回滚。单次 invocation 最多缓存 256 个 checkpoint、4096 条 write 和 16 MiB 序列化 payload，超限返回 `checkpoint_transaction_too_large`。

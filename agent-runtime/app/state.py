@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Annotated, Any, TypedDict
 import operator
 from .models import (
+    ApprovalDecision,
+    ApprovalInterrupt,
     Citation,
     ContextChunk,
     ContextSufficiency,
@@ -41,6 +43,8 @@ class GraphState(TypedDict, total=False):
     risk_flags: list[str]
     citations: list[Citation]
     proposed_tool_calls: list[ToolProposal]
+    pending_approval: ApprovalInterrupt | None
+    approval_decisions: list[ApprovalDecision]
     prompt_version: str
     grounding_check_result: dict[str, Any]
     active_skills_prompt: str

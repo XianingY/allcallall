@@ -49,9 +49,6 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 	if err := s.ensureConversationMember(ctx, organizationID, userID, run.ConversationID); err != nil {
 		return nil, err
 	}
-	if approval.Status != models.ToolApprovalStatusPending {
-		return s.buildWorkflowResult(ctx, run)
-	}
 	now := time.Now().UTC()
 	if s.metrics != nil {
 		s.metrics.Inc("agent_approval_wait_ms_count")
@@ -64,6 +61,14 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 			Take(&lockedRun).Error; err != nil {
 			return err
 		}
+		var lockedTimer models.WorkflowTimer
+		timerErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("workflow_run_id = ? AND timer_name = ? AND status = ?", lockedRun.ID, "approval_timeout", models.WorkflowTimerStatusPending).
+			Order("id DESC").
+			Take(&lockedTimer).Error
+		if timerErr != nil && !errors.Is(timerErr, gorm.ErrRecordNotFound) {
+			return timerErr
+		}
 		var lockedApproval models.ToolApproval
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ? AND workflow_run_id = ?", approval.ID, lockedRun.ID).
@@ -73,7 +78,20 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 		run = lockedRun
 		approval = lockedApproval
 		if approval.Status != models.ToolApprovalStatusPending {
-			return nil
+			recordedDecision := strings.ToLower(strings.TrimSpace(approval.Decision))
+			if recordedDecision == "" {
+				recordedDecision = strings.ToLower(strings.TrimSpace(approval.Status))
+			}
+			if recordedDecision == status {
+				return nil
+			}
+			return ErrApprovalDecisionConflict
+		}
+		if run.Status != models.WorkflowRunStatusRequiresAction || timerErr != nil || !lockedTimer.FireAt.After(now) {
+			return ErrApprovalDecisionConflict
+		}
+		if approval.ApprovalRequestID != run.ApprovalRequestID || approval.ApprovalCheckpointVersion != run.CheckpointVersion {
+			return fmt.Errorf("%w: approval belongs to a stale runtime checkpoint", ErrApprovalDecisionConflict)
 		}
 		signal := models.WorkflowSignal{
 			WorkflowRunID:  run.ID,
@@ -103,29 +121,39 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 			return updated.Error
 		}
 		if updated.RowsAffected != 1 {
-			return nil
+			return ErrApprovalDecisionConflict
 		}
+		pendingQuery := tx.Model(&models.ToolApproval{}).
+			Where("workflow_run_id = ? AND status = ? AND approval_request_id = ? AND approval_checkpoint_version = ?", run.ID, models.ToolApprovalStatusPending, run.ApprovalRequestID, run.CheckpointVersion)
 		var pending int64
-		if err := tx.Model(&models.ToolApproval{}).
-			Where("workflow_run_id = ? AND status = ?", run.ID, models.ToolApprovalStatusPending).
-			Count(&pending).Error; err != nil {
+		if err := pendingQuery.Count(&pending).Error; err != nil {
 			return err
 		}
 		if pending == 0 {
-			if err := tx.Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
-				"status":      models.WorkflowRunStatusPending,
-				"attempts":    0,
-				"lease_until": nil,
-				"state_json":  workflowStateJSON(run, map[string]any{"phase": "resuming"}),
-				"updated_at":  now,
-			}).Error; err != nil {
-				return err
+			runUpdate := tx.Model(&models.WorkflowRun{}).
+				Where("id = ? AND status = ? AND approval_request_id = ? AND checkpoint_version = ?", run.ID, models.WorkflowRunStatusRequiresAction, run.ApprovalRequestID, run.CheckpointVersion).
+				Updates(map[string]any{
+					"status":      models.WorkflowRunStatusPending,
+					"attempts":    0,
+					"lease_until": nil,
+					"state_json":  workflowStateJSON(run, map[string]any{"phase": "resuming"}),
+					"updated_at":  now,
+				})
+			if runUpdate.Error != nil {
+				return runUpdate.Error
 			}
-			if err := tx.Model(&models.WorkflowTimer{}).Where("workflow_run_id = ? AND timer_name = ? AND status = ?", run.ID, "approval_timeout", models.WorkflowTimerStatusPending).Updates(map[string]any{
+			if runUpdate.RowsAffected != 1 {
+				return ErrApprovalDecisionConflict
+			}
+			timerUpdate := tx.Model(&models.WorkflowTimer{}).Where("id = ? AND status = ?", lockedTimer.ID, models.WorkflowTimerStatusPending).Updates(map[string]any{
 				"status":     models.WorkflowTimerStatusCanceled,
 				"updated_at": now,
-			}).Error; err != nil {
-				return err
+			})
+			if timerUpdate.Error != nil {
+				return timerUpdate.Error
+			}
+			if timerUpdate.RowsAffected != 1 {
+				return ErrApprovalDecisionConflict
 			}
 			if err := tx.Model(&models.WorkflowSignal{}).Where("id = ?", signal.ID).Updates(map[string]any{
 				"status":     models.WorkflowSignalStatusHandled,
@@ -135,11 +163,16 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 				return err
 			}
 			if s.outbox != nil {
+				resumeRound := "legacy:0"
+				if run.ApprovalRequestID != "" {
+					digest := sha256.Sum256([]byte(run.ApprovalRequestID))
+					resumeRound = fmt.Sprintf("%x:%d", digest[:8], run.CheckpointVersion)
+				}
 				_, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
 					AggregateType:  "workflow_run",
 					AggregateID:    run.ID,
 					Event:          EventWorkflowRunRequested,
-					IdempotencyKey: fmt.Sprintf("%s:%d:resume", EventWorkflowRunRequested, run.ID),
+					IdempotencyKey: fmt.Sprintf("%s:%d:resume:%s", EventWorkflowRunRequested, run.ID, resumeRound),
 					Payload: map[string]any{
 						"organization_id": run.OrganizationID,
 						"workflow_run_id": run.ID,
@@ -191,44 +224,109 @@ func (s *Service) executeWorkflowApprovalTool(ctx context.Context, run models.Wo
 	if run.AgentRunID == nil {
 		return errors.New("workflow backing agent run missing")
 	}
-	var agentRun models.AgentRun
-	if err := s.db.WithContext(ctx).Where("id = ? AND organization_id = ?", *run.AgentRunID, run.OrganizationID).Take(&agentRun).Error; err != nil {
-		return err
-	}
-	toolCall := models.AgentToolCall{
-		RunID:             agentRun.ID,
-		CallID:            approval.ToolCallID,
-		ToolName:          approval.ToolName,
-		Status:            models.ToolCallStatusPending,
-		ToolSchemaVersion: approval.ToolSchemaVersion,
-		InputJSON:         approval.InputJSON,
-	}
-	var outputJSON string
-	var err error
 	if strings.HasPrefix(approval.ToolName, "mcp.") {
-		outputJSON, err = s.executeApprovedMCPWorkflowTool(ctx, run, *approval)
-	} else {
-		outputJSON, err = s.executeToolLocally(ctx, agentRun, toolCall)
+		return s.executeWorkflowMCPApproval(ctx, run, approval)
 	}
-	now := time.Now().UTC()
-	if err != nil {
-		approval.Status = models.ToolApprovalStatusFailed
-		approval.ErrorMessage = err.Error()
-		_ = s.db.WithContext(ctx).Model(&models.ToolApproval{}).Where("id = ?", approval.ID).Updates(map[string]any{
-			"status":        approval.Status,
-			"error_message": approval.ErrorMessage,
-			"updated_at":    now,
-		}).Error
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var lockedRun models.WorkflowRun
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND execution_lease_token = ? AND execution_lease_token <> '' AND status = ?", run.ID, run.ExecutionLeaseToken, models.WorkflowRunStatusRunning).
+			Take(&lockedRun).Error; err != nil {
+			return fmt.Errorf("%w: workflow execution lease was lost before local tool execution", ErrWorkflowRuntimeConflict)
+		}
+		var lockedApproval models.ToolApproval
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND workflow_run_id = ?", approval.ID, run.ID).Take(&lockedApproval).Error; err != nil {
+			return err
+		}
+		if lockedApproval.Status == models.ToolApprovalStatusExecuted {
+			*approval = lockedApproval
+			return nil
+		}
+		if lockedApproval.Status != models.ToolApprovalStatusApproved || lockedApproval.Decision == models.ToolApprovalStatusRejected {
+			return fmt.Errorf("workflow tool %q is not approved for execution", lockedApproval.ToolCallID)
+		}
+		var agentRun models.AgentRun
+		if err := tx.Where("id = ? AND organization_id = ?", *run.AgentRunID, run.OrganizationID).Take(&agentRun).Error; err != nil {
+			return err
+		}
+		outputJSON, err := s.executeApprovedLocalToolTx(ctx, tx, agentRun, lockedApproval.ToolName, lockedApproval.InputJSON)
+		if err != nil {
+			return err
+		}
+		updated := tx.Model(&models.ToolApproval{}).
+			Where("id = ? AND status = ?", lockedApproval.ID, models.ToolApprovalStatusApproved).
+			Updates(map[string]any{"status": models.ToolApprovalStatusExecuted, "output_json": outputJSON, "error_message": "", "updated_at": time.Now().UTC()})
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected != 1 {
+			return fmt.Errorf("workflow tool %q execution state changed concurrently", lockedApproval.ToolCallID)
+		}
+		lockedApproval.Status = models.ToolApprovalStatusExecuted
+		lockedApproval.OutputJSON = outputJSON
+		*approval = lockedApproval
+		return nil
+	})
+}
+
+func (s *Service) executeWorkflowMCPApproval(ctx context.Context, run models.WorkflowRun, approval *models.ToolApproval) error {
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var lockedRun models.WorkflowRun
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND execution_lease_token = ? AND execution_lease_token <> '' AND status = ?", run.ID, run.ExecutionLeaseToken, models.WorkflowRunStatusRunning).
+			Take(&lockedRun).Error; err != nil {
+			return fmt.Errorf("%w: workflow execution lease was lost before MCP tool execution", ErrWorkflowRuntimeConflict)
+		}
+		var lockedApproval models.ToolApproval
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND workflow_run_id = ?", approval.ID, run.ID).Take(&lockedApproval).Error; err != nil {
+			return err
+		}
+		if lockedApproval.Status == models.ToolApprovalStatusExecuted {
+			*approval = lockedApproval
+			return nil
+		}
+		if lockedApproval.Status == models.ToolApprovalStatusApproved {
+			updated := tx.Model(&models.ToolApproval{}).Where("id = ? AND status = ?", lockedApproval.ID, models.ToolApprovalStatusApproved).
+				Updates(map[string]any{"status": models.ToolApprovalStatusExecuting, "updated_at": time.Now().UTC()})
+			if updated.Error != nil {
+				return updated.Error
+			}
+			if updated.RowsAffected != 1 {
+				return fmt.Errorf("workflow MCP tool %q execution state changed concurrently", lockedApproval.ToolCallID)
+			}
+			lockedApproval.Status = models.ToolApprovalStatusExecuting
+		}
+		if lockedApproval.Status != models.ToolApprovalStatusExecuting {
+			return fmt.Errorf("workflow MCP tool %q has invalid status %q", lockedApproval.ToolCallID, lockedApproval.Status)
+		}
+		*approval = lockedApproval
+		return nil
+	}); err != nil || approval.Status == models.ToolApprovalStatusExecuted {
 		return err
 	}
-	approval.Status = models.ToolApprovalStatusExecuted
-	approval.OutputJSON = outputJSON
-	return s.db.WithContext(ctx).Model(&models.ToolApproval{}).Where("id = ?", approval.ID).Updates(map[string]any{
-		"status":        approval.Status,
-		"output_json":   outputJSON,
-		"error_message": "",
-		"updated_at":    now,
-	}).Error
+	outputJSON, err := s.executeApprovedMCPWorkflowTool(ctx, run, *approval)
+	if err != nil {
+		return err
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var lockedRun models.WorkflowRun
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND execution_lease_token = ? AND execution_lease_token <> '' AND status = ?", run.ID, run.ExecutionLeaseToken, models.WorkflowRunStatusRunning).
+			Take(&lockedRun).Error; err != nil {
+			return fmt.Errorf("%w: workflow execution lease was lost after MCP tool execution", ErrWorkflowRuntimeConflict)
+		}
+		updated := tx.Model(&models.ToolApproval{}).Where("id = ? AND status = ?", approval.ID, models.ToolApprovalStatusExecuting).
+			Updates(map[string]any{"status": models.ToolApprovalStatusExecuted, "output_json": outputJSON, "error_message": "", "updated_at": time.Now().UTC()})
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected != 1 {
+			return fmt.Errorf("workflow MCP tool %q completion state changed concurrently", approval.ToolCallID)
+		}
+		approval.Status = models.ToolApprovalStatusExecuted
+		approval.OutputJSON = outputJSON
+		return nil
+	})
 }
 
 func (s *Service) executeApprovedMCPWorkflowTool(ctx context.Context, run models.WorkflowRun, approval models.ToolApproval) (string, error) {
@@ -242,16 +340,19 @@ func (s *Service) executeApprovedMCPWorkflowTool(ctx context.Context, run models
 	runRef := fmt.Sprintf("workflow:%d", run.ID)
 	digest := sha256.Sum256([]byte(runRef + ":" + approval.ToolCallID))
 	execution, err := s.mcpPlatform.ExecuteApproved(ctx, mcpplatform.ExecuteInput{
-		ExecutionID:    fmt.Sprintf("mcp:%x", digest[:16]),
-		RunRef:         runRef,
-		OrganizationID: run.OrganizationID,
-		UserID:         run.UserID,
-		ConversationID: run.ConversationID,
-		RunID:          run.ID,
-		WorkflowRunID:  &run.ID,
-		ToolCallID:     approval.ToolCallID,
-		ToolName:       approval.ToolName,
-		Arguments:      arguments,
+		ExecutionID:            fmt.Sprintf("mcp:%x", digest[:16]),
+		RunRef:                 runRef,
+		OrganizationID:         run.OrganizationID,
+		UserID:                 run.UserID,
+		ConversationID:         run.ConversationID,
+		RunID:                  run.ID,
+		WorkflowRunID:          &run.ID,
+		ToolCallID:             approval.ToolCallID,
+		ToolName:               approval.ToolName,
+		Arguments:              arguments,
+		ExpectedInstallationID: approval.MCPInstallationID,
+		ExpectedRevisionID:     approval.MCPRevisionID,
+		ExpectedToolID:         approval.MCPToolID,
 	})
 	if err != nil {
 		return "", err

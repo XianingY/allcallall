@@ -209,9 +209,19 @@ export function ApprovalList({
               <div>
                 <strong>{item.tool_name}</strong>
                 <span>Workflow #{item.workflow_run_id}</span>
+                {item.mcp_revision_id && item.mcp_revision_id > 0 ? (
+                  <span>
+                    {item.mcp_installation_id ? `MCP Installation #${item.mcp_installation_id}` : "MCP"} · Revision #{item.mcp_revision_id}
+                  </span>
+                ) : null}
               </div>
               <span className={`transcription-badge status-${item.status}`}>{item.status}</span>
             </header>
+            <p className="approval-audit">
+              Schema {item.tool_schema_version || "-"}
+              {item.approval_request_id ? ` · Approval ${item.approval_request_id}` : ""}
+              {item.approval_request_id ? ` · checkpoint v${item.approval_checkpoint_version}` : ""}
+            </p>
             <pre>{compactJSON(item.input_json)}</pre>
             {item.error_message && <p className="text-danger">{item.error_message}</p>}
             {item.status === "pending" && (

@@ -83,9 +83,13 @@ func seedAgentConversation(t *testing.T, db *gorm.DB) models.Conversation {
 }
 
 type fakeAgentRuntime struct {
-	response WorkflowRuntimeResponse
-	err      error
-	calls    int
+	response    WorkflowRuntimeResponse
+	err         error
+	resumeErr   error
+	calls       int
+	resumeCalls int
+	lastRun     WorkflowRuntimeRequest
+	lastResume  WorkflowRuntimeResumeRequest
 }
 
 type fakeAgentMCPSandbox struct {
@@ -145,7 +149,7 @@ func TestApprovedMCPToolExecutesOnceThroughPlatform(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&models.MCPTool{
+	mcpTool := models.MCPTool{
 		InstallationID:  installation.ID,
 		RevisionID:      revisionID,
 		NamespacedName:  "mcp.1.update",
@@ -154,7 +158,8 @@ func TestApprovedMCPToolExecutesOnceThroughPlatform(t *testing.T) {
 		Risk:            models.MCPToolRiskWrite,
 		Status:          "active",
 		SchemaVersion:   "schema-v1",
-	}).Error; err != nil {
+	}
+	if err := db.Create(&mcpTool).Error; err != nil {
 		t.Fatal(err)
 	}
 	sandbox := &fakeAgentMCPSandbox{}
@@ -165,14 +170,17 @@ func TestApprovedMCPToolExecutesOnceThroughPlatform(t *testing.T) {
 		t.Fatal(err)
 	}
 	pending, err := svc.RequestExternalToolApproval(context.Background(), ExternalToolApprovalInput{
-		OrganizationID: run.OrganizationID,
-		UserID:         run.UserID,
-		ConversationID: run.ConversationID,
-		RunID:          run.ID,
-		RunRef:         fmt.Sprintf("agent:%d", run.ID),
-		ToolCallID:     "pending-agent-call",
-		ToolName:       "mcp.1.update",
-		Arguments:      map[string]any{"value": "pending"},
+		OrganizationID:    run.OrganizationID,
+		UserID:            run.UserID,
+		ConversationID:    run.ConversationID,
+		RunID:             run.ID,
+		RunRef:            fmt.Sprintf("agent:%d", run.ID),
+		ToolCallID:        "pending-agent-call",
+		ToolName:          "mcp.1.update",
+		Arguments:         map[string]any{"value": "pending"},
+		MCPInstallationID: installation.ID,
+		MCPRevisionID:     revisionID,
+		MCPToolID:         mcpTool.ID,
 	})
 	if err != nil || pending.AgentToolCall == nil || pending.AgentToolCall.Status != models.ToolCallStatusPending {
 		t.Fatalf("request agent MCP approval: result=%#v err=%v", pending, err)
@@ -198,23 +206,29 @@ func TestApprovedMCPToolExecutesOnceThroughPlatform(t *testing.T) {
 		t.Fatal(err)
 	}
 	pending, err = svc.RequestExternalToolApproval(context.Background(), ExternalToolApprovalInput{
-		OrganizationID: workflow.OrganizationID,
-		UserID:         workflow.UserID,
-		ConversationID: workflow.ConversationID,
-		RunID:          workflow.ID,
-		RunRef:         fmt.Sprintf("workflow:%d", workflow.ID),
-		ToolCallID:     "pending-workflow-call",
-		ToolName:       "mcp.1.update",
-		Arguments:      map[string]any{"value": "pending"},
+		OrganizationID:    workflow.OrganizationID,
+		UserID:            workflow.UserID,
+		ConversationID:    workflow.ConversationID,
+		RunID:             workflow.ID,
+		RunRef:            fmt.Sprintf("workflow:%d", workflow.ID),
+		ToolCallID:        "pending-workflow-call",
+		ToolName:          "mcp.1.update",
+		Arguments:         map[string]any{"value": "pending"},
+		MCPInstallationID: installation.ID,
+		MCPRevisionID:     revisionID,
+		MCPToolID:         mcpTool.ID,
 	})
 	if err != nil || pending.WorkflowApproval == nil || pending.WorkflowApproval.Status != models.ToolApprovalStatusPending {
 		t.Fatalf("request workflow MCP approval: result=%#v err=%v", pending, err)
 	}
 	toolCall := models.AgentToolCall{
-		RunID:     run.ID,
-		CallID:    "approved-call",
-		ToolName:  "mcp.1.update",
-		InputJSON: `{"value":"new"}`,
+		RunID:             run.ID,
+		CallID:            "approved-call",
+		ToolName:          "mcp.1.update",
+		InputJSON:         `{"value":"new"}`,
+		MCPInstallationID: installation.ID,
+		MCPRevisionID:     revisionID,
+		MCPToolID:         mcpTool.ID,
 	}
 	first, err := svc.executeToolLocally(context.Background(), run, toolCall)
 	if err != nil || !strings.Contains(first, `"updated":true`) {
@@ -245,9 +259,47 @@ func (r *fakeAgentRuntime) RunWorkflow(context.Context, WorkflowRuntimeRequest) 
 	return WorkflowRuntimeResponse{}, errors.New("workflow path is not used by fakeAgentRuntime")
 }
 
-func (r *fakeAgentRuntime) RunAgent(context.Context, WorkflowRuntimeRequest) (WorkflowRuntimeResponse, error) {
+func (r *fakeAgentRuntime) RunAgent(_ context.Context, input WorkflowRuntimeRequest) (WorkflowRuntimeResponse, error) {
 	r.calls++
-	return r.response, r.err
+	r.lastRun = input
+	response := r.response
+	response.ExecutionID = input.ExecutionID
+	if response.CheckpointVersion == 0 {
+		response.CheckpointVersion = input.ExpectedCheckpoint + 1
+	}
+	if response.CheckpointID == "" {
+		response.CheckpointID = fmt.Sprintf("agent-checkpoint-%d", response.CheckpointVersion)
+	}
+	for index := range response.ProposedToolCalls {
+		if response.ProposedToolCalls[index].ToolCallID == "" {
+			response.ProposedToolCalls[index].ToolCallID = fmt.Sprintf("agent-tool-%d", index+1)
+		}
+	}
+	if response.Status == models.AgentRunStatusRequiresAction && response.PendingApproval == nil {
+		response.PendingApproval = fakeRuntimePendingApproval(
+			fmt.Sprintf("agent-approval-%d", response.CheckpointVersion),
+			response.ProposedToolCalls,
+		)
+	}
+	return response, r.err
+}
+
+func (r *fakeAgentRuntime) ResumeAgent(_ context.Context, input WorkflowRuntimeResumeRequest) (WorkflowRuntimeResponse, error) {
+	r.resumeCalls++
+	r.lastResume = input
+	return WorkflowRuntimeResponse{
+		ExecutionID:       input.ExecutionID,
+		Status:            models.AgentRunStatusReady,
+		Runtime:           WorkflowRuntimePythonLangGraph,
+		Provider:          "rules",
+		Summary:           r.response.Summary,
+		ActionItems:       r.response.ActionItems,
+		NextStep:          r.response.NextStep,
+		RiskFlags:         r.response.RiskFlags,
+		CheckpointID:      fmt.Sprintf("agent-checkpoint-%d", input.ExpectedCheckpointVersion+1),
+		CheckpointVersion: input.ExpectedCheckpointVersion + 1,
+		ApprovalDecisions: input.Resume.Decisions,
+	}, r.resumeErr
 }
 
 func TestRunConversationAssistantQueuesAndExecutesExplainableRun(t *testing.T) {
@@ -502,7 +554,7 @@ func TestExecuteRunWithPythonRuntimeRequiresApprovalAndRejectsSideEffects(t *tes
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SubmitToolOutputs(context.Background(), conversation.OrganizationID, 8, result.Run.ID, decisions); !errors.Is(err, ErrToolApprovalForbidden) {
+	if _, err := svc.SubmitToolOutputs(context.Background(), conversation.OrganizationID, 8, result.Run.ID, decisions); !errors.Is(err, ErrToolApprovalForbidden) {
 		t.Fatalf("expected unrelated conversation member to be forbidden, got %v", err)
 	}
 	if err := db.Create(&models.OrganizationMember{
@@ -513,7 +565,7 @@ func TestExecuteRunWithPythonRuntimeRequiresApprovalAndRejectsSideEffects(t *tes
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SubmitToolOutputs(context.Background(), conversation.OrganizationID, 9, result.Run.ID, decisions); err != nil {
+	if _, err := svc.SubmitToolOutputs(context.Background(), conversation.OrganizationID, 9, result.Run.ID, decisions); err != nil {
 		t.Fatalf("admin failed to reject python tool proposals: %v", err)
 	}
 

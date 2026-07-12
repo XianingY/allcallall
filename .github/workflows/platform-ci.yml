@@ -85,6 +85,11 @@ jobs:
           MYSQL_PASSWORD: contract-test-password
           JWT_SECRET: contract-test-jwt-secret
         run: go run ./cmd/migrate
+      - name: Verify workflow runtime migration v3 up/down/up
+        working-directory: backend
+        env:
+          ALLCALLALL_TEST_MYSQL_DSN: "root:root-test-password@tcp(127.0.0.1:3306)/allcallall_contract?parseTime=true&charset=utf8mb4&loc=UTC"
+        run: go test -count=1 -run '^TestMySQLWorkflowRuntimeMigrationUpDownUp$' ./internal/runtime
       - name: Install Agent Runtime test dependencies
         run: |
           python -m pip install --upgrade pip
@@ -94,7 +99,9 @@ jobs:
         working-directory: agent-runtime
         env:
           PY_AGENT_TEST_MYSQL_DSN: mysql://allcallall:contract-test-password@127.0.0.1:3306/allcallall_contract
-        run: python -m pytest -q tests/test_mysql_checkpoint.py
+        run: |
+          python -m pytest -q tests/test_mysql_checkpoint.py
+          python -m pytest -q tests/test_approval_resume.py -k mysql
       - name: Verify 50-way Agent run idempotency
         working-directory: backend
         env:

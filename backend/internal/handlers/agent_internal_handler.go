@@ -43,10 +43,13 @@ type internalMCPContext struct {
 
 type internalMCPExecuteRequest struct {
 	internalMCPContext
-	ExecutionID string         `json:"execution_id"`
-	ToolCallID  string         `json:"tool_call_id" binding:"required"`
-	ToolName    string         `json:"tool_name" binding:"required"`
-	Arguments   map[string]any `json:"arguments"`
+	ExecutionID       string         `json:"execution_id"`
+	ToolCallID        string         `json:"tool_call_id" binding:"required"`
+	ToolName          string         `json:"tool_name" binding:"required"`
+	Arguments         map[string]any `json:"arguments"`
+	MCPInstallationID uint64         `json:"mcp_installation_id" binding:"required"`
+	MCPRevisionID     uint64         `json:"mcp_revision_id" binding:"required"`
+	MCPToolID         uint64         `json:"mcp_tool_id" binding:"required"`
 }
 
 func (h *AgentHandler) RegisterInternalRoutes(api *gin.RouterGroup) {
@@ -140,14 +143,17 @@ func (h *AgentHandler) handleInternalMCPToolExecute(c *gin.Context) {
 			return
 		}
 		approval, approvalErr := h.service.RequestExternalToolApproval(c.Request.Context(), agent.ExternalToolApprovalInput{
-			OrganizationID: req.OrganizationID,
-			UserID:         req.UserID,
-			ConversationID: req.ConversationID,
-			RunID:          req.RunID,
-			RunRef:         req.RunRef,
-			ToolCallID:     req.ToolCallID,
-			ToolName:       req.ToolName,
-			Arguments:      req.Arguments,
+			OrganizationID:    req.OrganizationID,
+			UserID:            req.UserID,
+			ConversationID:    req.ConversationID,
+			RunID:             req.RunID,
+			RunRef:            req.RunRef,
+			ToolCallID:        req.ToolCallID,
+			ToolName:          req.ToolName,
+			Arguments:         req.Arguments,
+			MCPInstallationID: req.MCPInstallationID,
+			MCPRevisionID:     req.MCPRevisionID,
+			MCPToolID:         req.MCPToolID,
 		})
 		if approvalErr != nil {
 			h.writeAgentError(c, approvalErr)
@@ -157,15 +163,18 @@ func (h *AgentHandler) handleInternalMCPToolExecute(c *gin.Context) {
 		return
 	}
 	executeInput := mcpplatform.ExecuteInput{
-		ExecutionID:    req.ExecutionID,
-		RunRef:         req.RunRef,
-		OrganizationID: req.OrganizationID,
-		UserID:         req.UserID,
-		ConversationID: req.ConversationID,
-		RunID:          req.RunID,
-		ToolCallID:     req.ToolCallID,
-		ToolName:       req.ToolName,
-		Arguments:      req.Arguments,
+		ExecutionID:            req.ExecutionID,
+		RunRef:                 req.RunRef,
+		OrganizationID:         req.OrganizationID,
+		UserID:                 req.UserID,
+		ConversationID:         req.ConversationID,
+		RunID:                  req.RunID,
+		ToolCallID:             req.ToolCallID,
+		ToolName:               req.ToolName,
+		Arguments:              req.Arguments,
+		ExpectedInstallationID: req.MCPInstallationID,
+		ExpectedRevisionID:     req.MCPRevisionID,
+		ExpectedToolID:         req.MCPToolID,
 	}
 	if strings.HasPrefix(req.RunRef, "agent:") {
 		executeInput.AgentRunID = &req.RunID

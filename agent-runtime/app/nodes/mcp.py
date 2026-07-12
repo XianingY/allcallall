@@ -6,7 +6,7 @@ import hashlib
 import json
 
 from ..helpers import request_with_tool_capability, runtime_subject_id
-from ..models import ContextChunk, ToolProposal, TraceEvent
+from ..models import ContextChunk, ToolProposal, TraceEvent, require_mcp_revision_identity
 from ..providers import create_provider
 from ..state import GraphState
 from ..tool_bridge import ToolBridgeError, UnifiedToolRegistry
@@ -34,10 +34,37 @@ def use_mcp_tools(state: GraphState) -> GraphState:
         tool = by_name.get(call.name)
         if tool is None or not call.name.startswith("mcp."):
             continue
+        try:
+            installation_id, revision_id, tool_id = require_mcp_revision_identity(
+                call.name,
+                tool.get("mcp_installation_id"),
+                tool.get("mcp_revision_id"),
+                tool.get("mcp_tool_id"),
+            )
+        except ValueError as exc:
+            trace.append(
+                TraceEvent(
+                    event="mcp.tool.result",
+                    node="use_mcp_tools",
+                    status="failed",
+                    tool_name=call.name,
+                    tool_input=call.arguments,
+                    observation=str(exc),
+                    metadata={"risk": str(tool.get("risk", "unknown"))},
+                )
+            )
+            continue
         risk = str(tool.get("risk", "unknown"))
         if risk == "read":
             try:
-                observation = registry.execute_read_tool(request, call.name, call.arguments)
+                observation = registry.execute_read_tool(
+                    request,
+                    call.name,
+                    call.arguments,
+                    mcp_installation_id=installation_id,
+                    mcp_revision_id=revision_id,
+                    mcp_tool_id=tool_id,
+                )
                 if observation is not None:
                     chunks.extend(observation.chunks)
                 trace.append(
@@ -74,6 +101,9 @@ def use_mcp_tools(state: GraphState) -> GraphState:
                 reason=call.reason or "External MCP tools with write or unknown risk require human approval.",
                 idempotency_key=f"{runtime_subject_id(request)}:mcp:{digest}",
                 approval_required=True,
+                mcp_installation_id=installation_id,
+                mcp_revision_id=revision_id,
+                mcp_tool_id=tool_id,
             )
         )
         trace.append(

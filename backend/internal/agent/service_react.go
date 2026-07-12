@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/mcpplatform"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/trace"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func (s *Service) executeReActRun(ctx context.Context, run models.AgentRun, goal string) (*RunResult, error) {
@@ -301,16 +304,19 @@ func (s *Service) executeApprovedMCPTool(ctx context.Context, run models.AgentRu
 	runRef := fmt.Sprintf("agent:%d", run.ID)
 	digest := sha256.Sum256([]byte(runRef + ":" + tc.CallID))
 	execution, err := s.mcpPlatform.ExecuteApproved(ctx, mcpplatform.ExecuteInput{
-		ExecutionID:    fmt.Sprintf("mcp:%x", digest[:16]),
-		RunRef:         runRef,
-		OrganizationID: run.OrganizationID,
-		UserID:         run.UserID,
-		ConversationID: run.ConversationID,
-		RunID:          run.ID,
-		AgentRunID:     &run.ID,
-		ToolCallID:     tc.CallID,
-		ToolName:       tc.ToolName,
-		Arguments:      arguments,
+		ExecutionID:            fmt.Sprintf("mcp:%x", digest[:16]),
+		RunRef:                 runRef,
+		OrganizationID:         run.OrganizationID,
+		UserID:                 run.UserID,
+		ConversationID:         run.ConversationID,
+		RunID:                  run.ID,
+		AgentRunID:             &run.ID,
+		ToolCallID:             tc.CallID,
+		ToolName:               tc.ToolName,
+		Arguments:              arguments,
+		ExpectedInstallationID: tc.MCPInstallationID,
+		ExpectedRevisionID:     tc.MCPRevisionID,
+		ExpectedToolID:         tc.MCPToolID,
 	})
 	if err != nil {
 		return "", err
@@ -370,71 +376,166 @@ func (s *Service) executeDelegateTask(ctx context.Context, run models.AgentRun, 
 	return tc, nil
 }
 
-func (s *Service) SubmitToolOutputs(ctx context.Context, orgID, userID, runID uint64, outputs map[string]string) error {
+func (s *Service) SubmitToolOutputs(ctx context.Context, orgID, userID, runID uint64, outputs map[string]string) (*RunResult, error) {
+	if len(outputs) == 0 {
+		return nil, fmt.Errorf("at least one tool decision is required")
+	}
+	normalized := make(map[string]string, len(outputs))
+	callIDs := make([]string, 0, len(outputs))
+	for rawCallID, rawAction := range outputs {
+		callID := strings.TrimSpace(rawCallID)
+		action := strings.ToLower(strings.TrimSpace(rawAction))
+		if callID == "" || len(callID) > 96 {
+			return nil, fmt.Errorf("invalid tool_call_id")
+		}
+		if action != "approve" && action != "reject" {
+			return nil, fmt.Errorf("invalid tool decision %q", rawAction)
+		}
+		normalized[callID] = action
+		callIDs = append(callIDs, callID)
+	}
+	sort.Strings(callIDs)
+
 	var run models.AgentRun
 	if err := s.db.WithContext(ctx).Where("id = ? AND organization_id = ?", runID, orgID).Take(&run).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrAgentRunNotFound
+			return nil, ErrAgentRunNotFound
 		}
-		return err
+		return nil, err
 	}
 	if userID == run.UserID {
 		if err := s.ensureConversationMember(ctx, orgID, userID, run.ConversationID); err != nil {
-			return err
+			return nil, err
 		}
 	} else {
 		role, err := s.organizationRole(ctx, orgID, userID)
 		if err != nil || (role != models.OrganizationRoleOwner && role != models.OrganizationRoleAdmin) {
-			return ErrToolApprovalForbidden
+			return nil, ErrToolApprovalForbidden
 		}
 	}
-	if run.Status != models.AgentRunStatusRequiresAction {
-		return fmt.Errorf("run is not in requires_action state")
-	}
 
-	var toolCalls []models.AgentToolCall
-	if err := s.db.WithContext(ctx).Where("run_id = ? AND status = ?", run.ID, models.ToolCallStatusPending).Find(&toolCalls).Error; err != nil {
-		return err
-	}
-
-	for _, tc := range toolCalls {
-		action, ok := outputs[tc.CallID]
-		if !ok {
-			continue
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND organization_id = ?", run.ID, orgID).
+			Take(&run).Error; err != nil {
+			return err
 		}
-		if action == "approve" {
-			outputJSON, err := s.executeToolLocally(ctx, run, tc)
-			if err != nil {
-				tc.Status = models.ToolCallStatusFailed
-				tc.ErrorMessage = err.Error()
-			} else {
-				tc.Status = models.ToolCallStatusSuccess
-				tc.OutputJSON = outputJSON
+
+		calls := make([]models.AgentToolCall, 0, len(callIDs))
+		for _, callID := range callIDs {
+			var call models.AgentToolCall
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("run_id = ? AND call_id = ?", run.ID, callID).
+				Take(&call).Error; err != nil {
+				return fmt.Errorf("tool call %q is not part of this approval: %w", callID, err)
 			}
-		} else {
-			tc.Status = models.ToolCallStatusFailed
-			tc.ErrorMessage = "user rejected tool call"
+			calls = append(calls, call)
 		}
-		if err := s.db.WithContext(ctx).Save(&tc).Error; err != nil {
+		roundRequestID := calls[0].ApprovalRequestID
+		roundVersion := calls[0].ApprovalCheckpointVersion
+		allIdempotent := true
+		for _, call := range calls {
+			if call.ApprovalRequestID != roundRequestID || call.ApprovalCheckpointVersion != roundVersion {
+				return fmt.Errorf("tool decisions span multiple approval rounds")
+			}
+			if call.ApprovalRequestID != run.ApprovalRequestID || call.ApprovalCheckpointVersion != run.CheckpointVersion {
+				return fmt.Errorf("%w: tool call belongs to a stale approval round", ErrApprovalDecisionConflict)
+			}
+			action := normalized[call.CallID]
+			recorded := strings.ToLower(strings.TrimSpace(call.Decision))
+			if call.Status != models.ToolCallStatusPending {
+				if recorded == action {
+					continue
+				}
+				return ErrApprovalDecisionConflict
+			}
+			allIdempotent = false
+			if run.Status != models.AgentRunStatusRequiresAction {
+				return ErrApprovalDecisionConflict
+			}
+			status := models.ToolCallStatusApproved
+			if action == "reject" {
+				status = models.ToolCallStatusRejected
+			}
+			now := time.Now().UTC()
+			updated := tx.Model(&models.AgentToolCall{}).
+				Where("id = ? AND status = ?", call.ID, models.ToolCallStatusPending).
+				Updates(map[string]any{
+					"status":     status,
+					"decision":   action,
+					"decided_by": userID,
+					"decided_at": now,
+					"updated_at": now,
+				})
+			if updated.Error != nil {
+				return updated.Error
+			}
+			if updated.RowsAffected != 1 {
+				return ErrApprovalDecisionConflict
+			}
+		}
+		if allIdempotent {
+			return nil
+		}
+
+		pendingQuery := tx.Model(&models.AgentToolCall{}).
+			Where("run_id = ? AND status = ?", run.ID, models.ToolCallStatusPending)
+		if roundRequestID != "" {
+			pendingQuery = pendingQuery.Where("approval_request_id = ? AND approval_checkpoint_version = ?", roundRequestID, roundVersion)
+		}
+		var pending int64
+		if err := pendingQuery.Count(&pending).Error; err != nil {
 			return err
 		}
-	}
-
-	var pendingCount int64
-	if err := s.db.WithContext(ctx).Model(&models.AgentToolCall{}).Where("run_id = ? AND status = ?", run.ID, models.ToolCallStatusPending).Count(&pendingCount).Error; err != nil {
-		return err
-	}
-
-	if pendingCount == 0 {
-		if err := s.db.WithContext(ctx).Model(&run).Updates(map[string]any{
-			"status":       models.AgentRunStatusReady,
-			"updated_at":   time.Now().UTC(),
-			"lease_until":  nil,
-			"completed_at": time.Now().UTC(),
-		}).Error; err != nil {
-			return err
+		if pending > 0 || run.Status == models.AgentRunStatusReady || run.Status == models.AgentRunStatusRunning {
+			return nil
 		}
+		now := time.Now().UTC()
+		updated := tx.Model(&models.AgentRun{}).
+			Where("id = ? AND status = ? AND approval_request_id = ? AND checkpoint_version = ?", run.ID, models.AgentRunStatusRequiresAction, roundRequestID, roundVersion).
+			Updates(map[string]any{
+				"status":       models.AgentRunStatusPending,
+				"attempts":     0,
+				"lease_until":  nil,
+				"completed_at": nil,
+				"updated_at":   now,
+			})
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected != 1 {
+			return ErrApprovalDecisionConflict
+		}
+		run.Status = models.AgentRunStatusPending
+		run.CompletedAt = nil
+		if s.outbox != nil {
+			resumeRound := "legacy:0"
+			if roundRequestID != "" {
+				digest := sha256.Sum256([]byte(roundRequestID))
+				resumeRound = fmt.Sprintf("%x:%d", digest[:8], roundVersion)
+			}
+			_, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
+				AggregateType:  "agent_run",
+				AggregateID:    run.ID,
+				Event:          "agent.run.requested",
+				IdempotencyKey: fmt.Sprintf("agent.run.requested:%d:resume:%s", run.ID, resumeRound),
+				Payload: map[string]any{
+					"organization_id": run.OrganizationID,
+					"agent_run_id":    run.ID,
+					"resumed_by":      userID,
+				},
+			})
+			if err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	return nil
+	if err := s.db.WithContext(ctx).Where("id = ?", run.ID).Take(&run).Error; err != nil {
+		return nil, err
+	}
+	return s.buildRunResult(ctx, run)
 }

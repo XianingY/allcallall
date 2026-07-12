@@ -457,7 +457,28 @@ func (s *Service) recordToolCall(ctx context.Context, toolCall models.AgentToolC
 		toolCall.ToolSchemaVersion = CurrentToolSchemaVersion
 	}
 	ensureToolCallID(&toolCall)
-	return s.db.WithContext(ctx).Create(&toolCall).Error
+	expected := toolCall
+	stored := toolCall
+	if err := s.db.WithContext(ctx).
+		Where("run_id = ? AND call_id = ?", toolCall.RunID, toolCall.CallID).
+		Attrs(toolCall).
+		FirstOrCreate(&stored).Error; err != nil {
+		return err
+	}
+	if stored.ToolName != expected.ToolName || stored.Status != expected.Status ||
+		stored.ToolSchemaVersion != expected.ToolSchemaVersion || stored.InputJSON != expected.InputJSON ||
+		stored.OutputJSON != expected.OutputJSON || stored.ErrorMessage != expected.ErrorMessage ||
+		!sameOptionalUint64(stored.StepID, expected.StepID) {
+		return fmt.Errorf("%w: tool call %q does not match its persisted payload", ErrWorkflowRuntimeConflict, expected.CallID)
+	}
+	return nil
+}
+
+func sameOptionalUint64(left, right *uint64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func ensureToolCallID(toolCall *models.AgentToolCall) {

@@ -1,8 +1,50 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+import hashlib
+import json
+import re
+from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+SAFE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,95}$")
+
+
+def normalize_required_id(value: object, field_name: str) -> object:
+    if not isinstance(value, str):
+        return value
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{field_name} must not be empty")
+    if SAFE_ID_PATTERN.fullmatch(normalized) is None:
+        raise ValueError(f"{field_name} must be an ASCII-safe identifier")
+    return normalized
+
+
+def normalize_optional_id(value: object, field_name: str) -> object:
+    if value == "":
+        return value
+    return normalize_required_id(value, field_name)
+
+
+def require_mcp_revision_identity(
+    tool_name: str,
+    installation_id: object,
+    revision_id: object,
+    tool_id: object,
+) -> tuple[int, int, int]:
+    """Validate the immutable MCP catalog identity carried across approval and execution."""
+    raw_identity = (installation_id, revision_id, tool_id)
+    if any(type(value) is not int for value in raw_identity):
+        raise ValueError("MCP revision identity values must be strict integers")
+    identity = cast(tuple[int, int, int], raw_identity)
+    is_mcp = tool_name.startswith("mcp.")
+    if is_mcp and not all(value > 0 for value in identity):
+        raise ValueError("MCP tools require positive installation, revision, and tool IDs")
+    if not is_mcp and any(value != 0 for value in identity):
+        raise ValueError("local tools must not carry MCP revision identity")
+    return identity
 
 
 class ConversationMessage(BaseModel):
@@ -82,14 +124,14 @@ class MeetingBriefRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     request_id: str = ""
-    execution_id: str = ""
+    execution_id: str = Field(min_length=1, max_length=96)
     expected_checkpoint_version: int = 0
     tool_capability: str = ""
     organization_id: int
     user_id: int
     conversation_id: int
-    agent_run_id: int = 0
-    workflow_run_id: int
+    agent_run_id: int = Field(default=0, ge=0)
+    workflow_run_id: int = Field(ge=0)
     preset: str = "meeting_brief"
     goal: str
     messages: list[ConversationMessage] = Field(default_factory=list)
@@ -99,6 +141,16 @@ class MeetingBriefRequest(BaseModel):
     tool_policy: ToolPolicy = Field(default_factory=ToolPolicy)
     max_iterations: dict[str, int] = Field(default_factory=dict)
     agentic_rag: AgenticRAGConfig = Field(default_factory=AgenticRAGConfig)
+
+    @field_validator("request_id", mode="before")
+    @classmethod
+    def normalize_optional_request_id(cls, value: object, info: Any) -> object:
+        return normalize_optional_id(value, info.field_name)
+
+    @field_validator("execution_id", mode="before")
+    @classmethod
+    def normalize_execution_id(cls, value: object) -> object:
+        return normalize_required_id(value, "execution_id")
 
     @field_validator(
         "messages",
@@ -115,6 +167,12 @@ class MeetingBriefRequest(BaseModel):
     @classmethod
     def none_to_dict(cls, value: object) -> object:
         return {} if value is None else value
+
+    @model_validator(mode="after")
+    def require_exactly_one_run_id(self) -> MeetingBriefRequest:
+        if bool(self.workflow_run_id) == bool(self.agent_run_id):
+            raise ValueError("exactly one of workflow_run_id or agent_run_id is required")
+        return self
 
 
 class RetrievalPlanStep(BaseModel):
@@ -189,11 +247,156 @@ class RoleResult(BaseModel):
 
 
 class ToolProposal(BaseModel):
-    tool_name: str
+    tool_call_id: str = Field(default="", max_length=96)
+    tool_name: str = Field(min_length=1)
     arguments: dict[str, Any] = Field(default_factory=dict)
     reason: str = ""
     idempotency_key: str = ""
     approval_required: bool = True
+    mcp_installation_id: int = Field(default=0, ge=0, strict=True)
+    mcp_revision_id: int = Field(default=0, ge=0, strict=True)
+    mcp_tool_id: int = Field(default=0, ge=0, strict=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_explicit_tool_call_id(cls, value: object) -> object:
+        if not isinstance(value, dict) or "tool_call_id" not in value:
+            return value
+        normalized = dict(value)
+        normalized["tool_call_id"] = normalize_required_id(
+            normalized["tool_call_id"], "tool_call_id"
+        )
+        return normalized
+
+    @model_validator(mode="after")
+    def populate_tool_call_id(self) -> ToolProposal:
+        tool_call_id = self.tool_call_id.strip()
+        if not tool_call_id:
+            canonical_arguments = json.dumps(
+                self.arguments,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            )
+            identity = self.idempotency_key.strip() or f"{self.tool_name}:{canonical_arguments}"
+            tool_call_id = f"tool_{hashlib.sha256(identity.encode()).hexdigest()}"
+        if len(tool_call_id) > 96:
+            raise ValueError("tool_call_id must contain at most 96 characters")
+        self.tool_call_id = tool_call_id
+        return self
+
+    @model_validator(mode="after")
+    def validate_mcp_revision_identity(self) -> ToolProposal:
+        require_mcp_revision_identity(
+            self.tool_name,
+            self.mcp_installation_id,
+            self.mcp_revision_id,
+            self.mcp_tool_id,
+        )
+        return self
+
+
+class ApprovalToolRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    tool_call_id: str = Field(min_length=1, max_length=96)
+    tool_name: str = Field(min_length=1)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    arguments_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reason: str = ""
+    mcp_installation_id: int = Field(default=0, ge=0, strict=True)
+    mcp_revision_id: int = Field(default=0, ge=0, strict=True)
+    mcp_tool_id: int = Field(default=0, ge=0, strict=True)
+
+    @field_validator("tool_call_id", mode="before")
+    @classmethod
+    def normalize_tool_call_id(cls, value: object) -> object:
+        return normalize_required_id(value, "tool_call_id")
+
+    @model_validator(mode="after")
+    def validate_mcp_revision_identity(self) -> ApprovalToolRequest:
+        require_mcp_revision_identity(
+            self.tool_name,
+            self.mcp_installation_id,
+            self.mcp_revision_id,
+            self.mcp_tool_id,
+        )
+        return self
+
+
+class ApprovalInterrupt(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    type: Literal["tool_approval"] = "tool_approval"
+    approval_request_id: str = Field(min_length=1, max_length=96)
+    tools: list[ApprovalToolRequest] = Field(min_length=1)
+
+    @field_validator("approval_request_id", mode="before")
+    @classmethod
+    def normalize_approval_request_id(cls, value: object) -> object:
+        return normalize_required_id(value, "approval_request_id")
+
+
+class ApprovalDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    tool_call_id: str = Field(min_length=1, max_length=96)
+    decision: Literal["approve", "reject"]
+
+    @field_validator("tool_call_id", mode="before")
+    @classmethod
+    def normalize_tool_call_id(cls, value: object) -> object:
+        return normalize_required_id(value, "tool_call_id")
+
+
+class ApprovalResumePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    approval_request_id: str = Field(min_length=1, max_length=96)
+    decisions: list[ApprovalDecision] = Field(min_length=1)
+
+    @field_validator("approval_request_id", mode="before")
+    @classmethod
+    def normalize_approval_request_id(cls, value: object) -> object:
+        return normalize_required_id(value, "approval_request_id")
+
+    @model_validator(mode="after")
+    def reject_duplicate_tool_call_ids(self) -> ApprovalResumePayload:
+        call_ids = [item.tool_call_id for item in self.decisions]
+        if len(call_ids) != len(set(call_ids)):
+            raise ValueError("approval decisions contain duplicate tool_call_id values")
+        return self
+
+
+class WorkflowResumeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    request_id: str = ""
+    execution_id: str = Field(min_length=1, max_length=96)
+    expected_checkpoint_version: int = Field(ge=0)
+    tool_capability: str = ""
+    organization_id: int = Field(gt=0)
+    user_id: int = Field(gt=0)
+    conversation_id: int = Field(gt=0)
+    agent_run_id: int = Field(default=0, ge=0)
+    workflow_run_id: int = Field(default=0, ge=0)
+    resume: ApprovalResumePayload
+
+    @field_validator("execution_id", mode="before")
+    @classmethod
+    def normalize_execution_id(cls, value: object) -> object:
+        return normalize_required_id(value, "execution_id")
+
+    @field_validator("request_id", mode="before")
+    @classmethod
+    def normalize_request_id(cls, value: object) -> object:
+        return normalize_optional_id(value, "request_id")
+
+    @model_validator(mode="after")
+    def require_run_id(self) -> WorkflowResumeRequest:
+        if bool(self.workflow_run_id) == bool(self.agent_run_id):
+            raise ValueError("exactly one of workflow_run_id or agent_run_id is required")
+        return self
 
 
 class EvidencePack(BaseModel):
@@ -229,6 +432,8 @@ class MeetingBriefResponse(BaseModel):
     role_results: list[RoleResult] = Field(default_factory=list)
     trace_events: list[TraceEvent] = Field(default_factory=list)
     proposed_tool_calls: list[ToolProposal] = Field(default_factory=list)
+    pending_approval: ApprovalInterrupt | None = None
+    approval_decisions: list[ApprovalDecision] = Field(default_factory=list)
     prompt_version: str = ""
     grounding_check_result: dict[str, Any] = Field(default_factory=dict)
     retrieval_plan: RetrievalPlan = Field(default_factory=RetrievalPlan)

@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from .config import config
-from .models import ContextChunk, WorkflowRequest
+from .models import ContextChunk, WorkflowRequest, require_mcp_revision_identity
 
 
 class ToolBridgeError(RuntimeError):
@@ -34,9 +34,25 @@ class UnifiedToolRegistry:
             cls._instance = UnifiedToolRegistry()
         return cls._instance
 
-    def execute_read_tool(self, request: WorkflowRequest, tool_name: str, tool_input: dict[str, Any]) -> ToolObservation | None:
+    def execute_read_tool(
+        self,
+        request: WorkflowRequest,
+        tool_name: str,
+        tool_input: dict[str, Any],
+        *,
+        mcp_installation_id: int = 0,
+        mcp_revision_id: int = 0,
+        mcp_tool_id: int = 0,
+    ) -> ToolObservation | None:
         # Go owns tool authorization and dispatch, including MCP-backed tools.
-        return self.go_bridge.execute_read_tool(request, tool_name, tool_input)
+        return self.go_bridge.execute_read_tool(
+            request,
+            tool_name,
+            tool_input,
+            mcp_installation_id=mcp_installation_id,
+            mcp_revision_id=mcp_revision_id,
+            mcp_tool_id=mcp_tool_id,
+        )
 
     def catalog(self, request: WorkflowRequest) -> dict[str, list[dict[str, Any]]]:
         return self.go_bridge.catalog(request)
@@ -71,11 +87,28 @@ class GoToolBridge:
         request: WorkflowRequest,
         tool_name: str,
         tool_input: dict[str, Any],
+        *,
+        mcp_installation_id: int = 0,
+        mcp_revision_id: int = 0,
+        mcp_tool_id: int = 0,
     ) -> ToolObservation | None:
+        require_mcp_revision_identity(
+            tool_name,
+            mcp_installation_id,
+            mcp_revision_id,
+            mcp_tool_id,
+        )
         if not self.configured():
             return None
         if tool_name.startswith("mcp."):
-            return self._execute_mcp_tool(request, tool_name, tool_input)
+            return self._execute_mcp_tool(
+                request,
+                tool_name,
+                tool_input,
+                mcp_installation_id=mcp_installation_id,
+                mcp_revision_id=mcp_revision_id,
+                mcp_tool_id=mcp_tool_id,
+            )
         if not self.token:
             return None
         payload = {
@@ -113,6 +146,10 @@ class GoToolBridge:
         request: WorkflowRequest,
         tool_name: str,
         tool_input: dict[str, Any],
+        *,
+        mcp_installation_id: int,
+        mcp_revision_id: int,
+        mcp_tool_id: int,
     ) -> ToolObservation:
         if not request.tool_capability:
             raise ToolBridgeError("MCP tool capability is missing")
@@ -126,6 +163,9 @@ class GoToolBridge:
             "tool_call_id": f"call:{call_digest}",
             "tool_name": tool_name,
             "arguments": tool_input,
+            "mcp_installation_id": mcp_installation_id,
+            "mcp_revision_id": mcp_revision_id,
+            "mcp_tool_id": mcp_tool_id,
         }
         body = self._post_capability("/api/v1/internal/agent/tools/execute", request, payload)
         execution = body.get("execution", {})

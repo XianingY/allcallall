@@ -15,10 +15,16 @@ const (
 )
 
 var (
-	ErrWorkflowRunNotFound    = errors.New("workflow run not found")
-	ErrToolApprovalNotFound   = errors.New("tool approval not found")
-	ErrToolApprovalForbidden  = errors.New("tool approval forbidden")
-	ErrWorkflowRequiresAction = errors.New("workflow requires action")
+	ErrWorkflowRunNotFound           = errors.New("workflow run not found")
+	ErrToolApprovalNotFound          = errors.New("tool approval not found")
+	ErrToolApprovalForbidden         = errors.New("tool approval forbidden")
+	ErrApprovalDecisionConflict      = errors.New("approval decision conflicts with the recorded decision")
+	ErrCheckpointVersionConflict     = errors.New("checkpoint version conflict")
+	ErrWorkflowRuntimeConflict       = errors.New("workflow runtime conflict")
+	ErrCheckpointExecutionBusy       = errors.New("checkpoint execution busy")
+	ErrCheckpointTransactionTooLarge = errors.New("checkpoint transaction too large")
+	ErrWorkflowRuntimeUnavailable    = errors.New("workflow runtime unavailable")
+	ErrWorkflowRequiresAction        = errors.New("workflow requires action")
 )
 
 type WorkflowInput struct {
@@ -70,11 +76,17 @@ type workflowRoleResult struct {
 }
 
 type workflowToolRequest struct {
-	ToolName         string
-	Input            map[string]any
-	Reason           string
-	IdempotencyKey   string
-	ApprovalRequired bool
+	ToolCallID                string
+	ToolName                  string
+	Input                     map[string]any
+	Reason                    string
+	IdempotencyKey            string
+	ApprovalRequired          bool
+	ApprovalRequestID         string
+	ApprovalCheckpointVersion uint64
+	MCPInstallationID         uint64
+	MCPRevisionID             uint64
+	MCPToolID                 uint64
 }
 
 func workflowTaskSpecs() []workflowTaskSpec {

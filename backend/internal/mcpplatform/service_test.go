@@ -357,6 +357,65 @@ func TestDuplicateRunningExecutionDoesNotReturnEmptySuccess(t *testing.T) {
 	}
 }
 
+func TestExecuteApprovedRejectsPinnedRevisionDriftBeforeSandbox(t *testing.T) {
+	ctx := context.Background()
+	db, service, sandbox := setupService(t)
+	installation, err := service.CreateInstallation(ctx, 1, 7, ociInstallation())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ValidateInstallation(ctx, 1, 7, installation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ActivateInstallation(ctx, 1, 7, installation.ID); err != nil {
+		t.Fatal(err)
+	}
+	var pinned models.MCPTool
+	if err := db.Where("installation_id = ?", installation.ID).Take(&pinned).Error; err != nil {
+		t.Fatal(err)
+	}
+	definition := InstallationDefinition{
+		Transport: "stdio",
+		ImageRef:  "registry.example.com/search@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	}
+	if _, err := service.UpdateInstallation(ctx, 1, 7, installation.ID, UpdateInstallationInput{Definition: &definition}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ValidateInstallation(ctx, 1, 7, installation.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ActivateInstallation(ctx, 1, 7, installation.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = service.ExecuteApproved(ctx, ExecuteInput{
+		ExecutionID:            "execution-pinned-r1",
+		RunRef:                 "agent:99",
+		OrganizationID:         1,
+		UserID:                 7,
+		ConversationID:         42,
+		RunID:                  99,
+		ToolCallID:             "call-pinned-r1",
+		ToolName:               pinned.NamespacedName,
+		ExpectedInstallationID: pinned.InstallationID,
+		ExpectedRevisionID:     pinned.RevisionID,
+		ExpectedToolID:         pinned.ID,
+	})
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected revision drift to be forbidden, got %v", err)
+	}
+	if sandbox.executions != 0 {
+		t.Fatalf("revision drift reached sandbox %d times", sandbox.executions)
+	}
+	var executions int64
+	if err := db.Model(&models.MCPExecution{}).Where("execution_id = ?", "execution-pinned-r1").Count(&executions).Error; err != nil {
+		t.Fatal(err)
+	}
+	if executions != 0 {
+		t.Fatalf("revision drift created %d execution rows", executions)
+	}
+}
+
 func TestExecuteValidatesDiscoveredInputSchema(t *testing.T) {
 	ctx := context.Background()
 	_, service, sandbox := setupService(t)

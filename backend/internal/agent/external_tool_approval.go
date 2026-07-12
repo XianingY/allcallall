@@ -11,14 +11,17 @@ import (
 )
 
 type ExternalToolApprovalInput struct {
-	OrganizationID uint64
-	UserID         uint64
-	ConversationID uint64
-	RunID          uint64
-	RunRef         string
-	ToolCallID     string
-	ToolName       string
-	Arguments      map[string]any
+	OrganizationID    uint64
+	UserID            uint64
+	ConversationID    uint64
+	RunID             uint64
+	RunRef            string
+	ToolCallID        string
+	ToolName          string
+	Arguments         map[string]any
+	MCPInstallationID uint64
+	MCPRevisionID     uint64
+	MCPToolID         uint64
 }
 
 type ExternalToolApprovalResult struct {
@@ -36,6 +39,9 @@ func (s *Service) RequestExternalToolApproval(ctx context.Context, input Externa
 	}
 	if tool.Risk == models.MCPToolRiskRead {
 		return nil, fmt.Errorf("verified read MCP tools do not require approval")
+	}
+	if tool.InstallationID != input.MCPInstallationID || tool.RevisionID != input.MCPRevisionID || tool.ID != input.MCPToolID || input.MCPInstallationID == 0 || input.MCPRevisionID == 0 || input.MCPToolID == 0 {
+		return nil, fmt.Errorf("%w: MCP tool revision changed after runtime catalog resolution", ErrWorkflowRuntimeConflict)
 	}
 	parts := strings.Split(strings.TrimSpace(input.RunRef), ":")
 	if len(parts) != 2 || input.RunID == 0 || strings.TrimSpace(input.ToolCallID) == "" {
@@ -60,12 +66,18 @@ func (s *Service) RequestExternalToolApproval(ctx context.Context, input Externa
 			ToolName:          input.ToolName,
 			Status:            models.ToolCallStatusPending,
 			ToolSchemaVersion: tool.SchemaVersion,
+			MCPInstallationID: tool.InstallationID,
+			MCPRevisionID:     tool.RevisionID,
+			MCPToolID:         tool.ID,
 			InputJSON:         inputJSON,
 		}
 		ensureToolCallID(&toolCall)
 		if err := s.db.WithContext(ctx).Where("run_id = ? AND call_id = ?", run.ID, toolCall.CallID).
 			Attrs(toolCall).FirstOrCreate(&toolCall).Error; err != nil {
 			return nil, err
+		}
+		if toolCall.ToolName != input.ToolName || toolCall.InputJSON != inputJSON || toolCall.ToolSchemaVersion != tool.SchemaVersion || toolCall.MCPInstallationID != tool.InstallationID || toolCall.MCPRevisionID != tool.RevisionID || toolCall.MCPToolID != tool.ID {
+			return nil, fmt.Errorf("%w: external agent tool approval payload changed", ErrWorkflowRuntimeConflict)
 		}
 		return &ExternalToolApprovalResult{AgentToolCall: &toolCall}, nil
 	case "workflow":
@@ -89,13 +101,19 @@ func (s *Service) RequestExternalToolApproval(ctx context.Context, input Externa
 			ToolName:          input.ToolName,
 			Status:            models.ToolApprovalStatusPending,
 			ToolSchemaVersion: tool.SchemaVersion,
+			MCPInstallationID: tool.InstallationID,
+			MCPRevisionID:     tool.RevisionID,
+			MCPToolID:         tool.ID,
 			InputJSON:         inputJSON,
 			RequestedBy:       run.UserID,
 			RequestedAt:       time.Now().UTC(),
 		}
-		if err := s.db.WithContext(ctx).Where("tool_call_id = ?", approval.ToolCallID).
+		if err := s.db.WithContext(ctx).Where("workflow_run_id = ? AND tool_call_id = ?", run.ID, approval.ToolCallID).
 			Attrs(approval).FirstOrCreate(&approval).Error; err != nil {
 			return nil, err
+		}
+		if approval.ToolName != input.ToolName || approval.InputJSON != inputJSON || approval.ToolSchemaVersion != tool.SchemaVersion || approval.MCPInstallationID != tool.InstallationID || approval.MCPRevisionID != tool.RevisionID || approval.MCPToolID != tool.ID {
+			return nil, fmt.Errorf("%w: external workflow tool approval payload changed", ErrWorkflowRuntimeConflict)
 		}
 		return &ExternalToolApprovalResult{WorkflowApproval: &approval}, nil
 	default:

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/allcallall/backend/internal/models"
 )
@@ -67,25 +68,33 @@ func (s *Service) cancelWorkflowTimer(ctx context.Context, run models.WorkflowRu
 func (s *Service) processWorkflowTimer(ctx context.Context, timer models.WorkflowTimer, now time.Time) (uint64, error) {
 	var runID uint64
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var run models.WorkflowRun
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", timer.WorkflowRunID).Take(&run).Error; err != nil {
+			return err
+		}
+		runID = run.ID
 		var fresh models.WorkflowTimer
-		if err := tx.Where("id = ?", timer.ID).Take(&fresh).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND workflow_run_id = ?", timer.ID, run.ID).Take(&fresh).Error; err != nil {
 			return err
 		}
 		if fresh.Status != models.WorkflowTimerStatusPending || fresh.FireAt.After(now) {
 			return nil
 		}
-		if err := tx.Model(&models.WorkflowTimer{}).Where("id = ? AND status = ?", fresh.ID, models.WorkflowTimerStatusPending).Updates(map[string]any{
+		if fresh.TimerName == "approval_timeout" && run.Status != models.WorkflowRunStatusRequiresAction {
+			return tx.Model(&models.WorkflowTimer{}).Where("id = ? AND status = ?", fresh.ID, models.WorkflowTimerStatusPending).
+				Updates(map[string]any{"status": models.WorkflowTimerStatusCanceled, "updated_at": now}).Error
+		}
+		fired := tx.Model(&models.WorkflowTimer{}).Where("id = ? AND status = ?", fresh.ID, models.WorkflowTimerStatusPending).Updates(map[string]any{
 			"status":     models.WorkflowTimerStatusFired,
 			"fired_at":   now,
 			"updated_at": now,
-		}).Error; err != nil {
-			return err
+		})
+		if fired.Error != nil {
+			return fired.Error
 		}
-		var run models.WorkflowRun
-		if err := tx.Where("id = ?", fresh.WorkflowRunID).Take(&run).Error; err != nil {
-			return err
+		if fired.RowsAffected != 1 {
+			return nil
 		}
-		runID = run.ID
 		if err := s.appendWorkflowHistoryTx(ctx, tx, run, models.WorkflowHistoryEventTimerFired, "workflow_timer", &fresh.ID, map[string]any{
 			"name":    fresh.TimerName,
 			"fire_at": fresh.FireAt,
@@ -105,20 +114,26 @@ func (s *Service) processWorkflowTimer(ctx context.Context, timer models.Workflo
 				}).Error; err != nil {
 				return err
 			}
-			if err := tx.Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
+			runUpdate := tx.Model(&models.WorkflowRun{}).Where("id = ? AND status = ?", run.ID, models.WorkflowRunStatusRequiresAction).Updates(map[string]any{
 				"status":        models.WorkflowRunStatusFailed,
 				"state_json":    workflowStateJSON(run, map[string]any{"phase": "timed_out", "timer": fresh.TimerName}),
 				"error_message": "workflow approval timed out",
+				"attempts":      workflowRunMaxAttempts,
 				"completed_at":  now,
 				"lease_until":   nil,
 				"updated_at":    now,
-			}).Error; err != nil {
-				return err
+			})
+			if runUpdate.Error != nil {
+				return runUpdate.Error
+			}
+			if runUpdate.RowsAffected != 1 {
+				return nil
 			}
 			if run.AgentRunID != nil {
 				if err := tx.Model(&models.AgentRun{}).Where("id = ?", *run.AgentRunID).Updates(map[string]any{
 					"status":        models.AgentRunStatusFailed,
 					"error_message": "workflow approval timed out",
+					"attempts":      agentRunMaxAttempts,
 					"completed_at":  now,
 					"lease_until":   nil,
 					"updated_at":    now,
@@ -180,13 +195,20 @@ func (s *Service) failWorkflowRun(ctx context.Context, run models.WorkflowRun, c
 		message = cause.Error()
 	}
 	now := time.Now().UTC()
-	_ = s.db.WithContext(context.WithoutCancel(ctx)).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
-		"status":        models.WorkflowRunStatusFailed,
-		"state_json":    workflowStateJSON(run, map[string]any{"phase": "failed"}),
-		"error_message": message,
-		"completed_at":  now,
-		"lease_until":   nil,
-	}).Error
+	updated := s.db.WithContext(context.WithoutCancel(ctx)).Model(&models.WorkflowRun{}).
+		Where("id = ? AND execution_lease_token = ? AND status = ?", run.ID, run.ExecutionLeaseToken, models.WorkflowRunStatusRunning).
+		Updates(map[string]any{
+			"status":                models.WorkflowRunStatusFailed,
+			"state_json":            workflowStateJSON(run, map[string]any{"phase": "failed"}),
+			"error_message":         message,
+			"attempts":              run.Attempts,
+			"completed_at":          now,
+			"lease_until":           nil,
+			"execution_lease_token": "",
+		})
+	if updated.Error != nil || updated.RowsAffected != 1 {
+		return
+	}
 	_ = s.appendWorkflowHistory(context.WithoutCancel(ctx), run, models.WorkflowHistoryEventWorkflowFailed, "workflow_run", &run.ID, map[string]any{
 		"error": message,
 	})

@@ -56,6 +56,7 @@ def test_capability_is_runtime_only(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_checkpoint_config_removes_capability_without_mutating_runtime_config() -> None:
     capability = "capability-canary-that-must-not-be-checkpointed"
     request = WorkflowRequest(
+        execution_id="workflow:99:initial",
         tool_capability="",
         organization_id=1,
         user_id=7,

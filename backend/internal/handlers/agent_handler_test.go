@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -114,6 +115,7 @@ func TestAgentHandlerCreateAndGetRun(t *testing.T) {
 			Status         string   `json:"status"`
 			ConversationID uint64   `json:"conversation_id"`
 			RequestID      string   `json:"request_id"`
+			RuntimeOwner   string   `json:"runtime_owner"`
 			Goal           string   `json:"goal"`
 			ActionItems    []string `json:"action_items"`
 		} `json:"run"`
@@ -129,6 +131,9 @@ func TestAgentHandlerCreateAndGetRun(t *testing.T) {
 	}
 	if createResponse.Run.RequestID != "req-agent-handler-1" {
 		t.Fatalf("unexpected request id payload: %+v", createResponse.Run)
+	}
+	if createResponse.Run.RuntimeOwner != agent.WorkflowRuntimeLegacyGo {
+		t.Fatalf("unexpected runtime owner payload: %+v", createResponse.Run)
 	}
 	if len(createResponse.Steps) != 0 || len(createResponse.ToolCalls) != 0 {
 		t.Fatalf("unexpected explainability payload: steps=%d tool_calls=%d", len(createResponse.Steps), len(createResponse.ToolCalls))
@@ -239,6 +244,7 @@ func TestAgentHandlerCreateWorkflowWithPreset(t *testing.T) {
 			Preset         string `json:"preset"`
 			Goal           string `json:"goal"`
 			WorkflowType   string `json:"workflow_type"`
+			RuntimeOwner   string `json:"runtime_owner"`
 		} `json:"workflow"`
 	}
 	decodeBody(t, rec.Body.Bytes(), &response)
@@ -250,6 +256,9 @@ func TestAgentHandlerCreateWorkflowWithPreset(t *testing.T) {
 	}
 	if response.Workflow.WorkflowType != "meeting_agent" {
 		t.Fatalf("unexpected workflow type: %+v", response.Workflow)
+	}
+	if response.Workflow.RuntimeOwner != agent.WorkflowRuntimeLegacyGo {
+		t.Fatalf("unexpected runtime owner: %+v", response.Workflow)
 	}
 	if response.Workflow.Goal == "" {
 		t.Fatalf("expected default goal for preset, got %+v", response.Workflow)
@@ -272,6 +281,41 @@ func TestAgentHandlerMeetingBriefRequiresTranscript(t *testing.T) {
 	decodeBody(t, rec.Body.Bytes(), &response)
 	if response.Code != "MEETING_TRANSCRIPT_NOT_READY" {
 		t.Fatalf("unexpected error code: %+v", response)
+	}
+}
+
+func TestAgentHandlerMapsRuntimeContractErrors(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{name: "checkpoint version conflict", err: fmt.Errorf("wrapped: %w", agent.ErrCheckpointVersionConflict), status: http.StatusConflict, code: "CHECKPOINT_VERSION_CONFLICT"},
+		{name: "runtime state conflict", err: fmt.Errorf("wrapped: %w", agent.ErrWorkflowRuntimeConflict), status: http.StatusConflict, code: "AGENT_RUNTIME_CONFLICT"},
+		{name: "checkpoint execution busy", err: fmt.Errorf("wrapped: %w", agent.ErrCheckpointExecutionBusy), status: http.StatusServiceUnavailable, code: "CHECKPOINT_EXECUTION_BUSY"},
+		{name: "checkpoint transaction too large", err: fmt.Errorf("wrapped: %w", agent.ErrCheckpointTransactionTooLarge), status: http.StatusRequestEntityTooLarge, code: "CHECKPOINT_TRANSACTION_TOO_LARGE"},
+		{name: "runtime unavailable", err: fmt.Errorf("wrapped: %w", agent.ErrWorkflowRuntimeUnavailable), status: http.StatusServiceUnavailable, code: "AGENT_RUNTIME_UNAVAILABLE"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := NewAgentHandler(zerolog.Nop(), nil)
+			router := newRouterWithClaims(nil, func(group *gin.RouterGroup) {
+				group.GET("/agent/runtime-error", func(c *gin.Context) {
+					handler.writeAgentError(c, test.err)
+				})
+			})
+			rec := performRequest(t, router, http.MethodGet, "/api/v1/agent/runtime-error", nil)
+			expectHandlerStatus(t, rec, test.status)
+			var response struct {
+				Code string `json:"code"`
+			}
+			decodeBody(t, rec.Body.Bytes(), &response)
+			if response.Code != test.code {
+				t.Fatalf("unexpected error code: got %q want %q", response.Code, test.code)
+			}
+		})
 	}
 }
 

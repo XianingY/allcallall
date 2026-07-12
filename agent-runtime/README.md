@@ -4,6 +4,30 @@ Python FastAPI + LangGraph runtime for AllCallAll Agent workflows.
 
 The Go backend remains the source of truth for users, organizations, conversations, transcript data, tool permissions, approvals, audit logs, and write execution. This service owns AI orchestration: workflow registry, LangGraph DAG execution, bounded ReAct role loops, LLM/provider adapters, structured traces, citations, write-tool proposals, and Python-side task eval.
 
+## Ownership and Durable Resume
+
+Go and Python deliberately own different state:
+
+- Go/MySQL owns product and authorization state, approval decisions, audit records, tool execution, and business side effects.
+- Python/LangGraph owns graph-node progress and checkpoint payloads. Go coordinates it through versioned run and resume requests; neither side rewrites the other side's state.
+
+Every run request has an explicit `execution_id` and exactly one scope, `agent_run_id` or `workflow_run_id`. The Go backend stores the normalized initial runtime request without its short-lived tool capability before dispatch. A retry reuses that immutable request and `execution_id`, even if the conversation changes after the first attempt. Python returns the previously committed result for the same execution and rejects a different payload or a stale checkpoint version with `409`. Thread IDs are always `agent:{run_id}` or `workflow:{run_id}`; there is no shared default thread.
+
+Write-tool proposals use a real LangGraph `interrupt()`. Python checkpoints the deterministic `approval_request_id`, exact tool call IDs, arguments, and argument digests, then returns `requires_action`. Go persists that approval set and any resolved MCP installation, revision, and tool IDs. The approval HTTP endpoint only records the decision and enqueues work. The Agent worker then sends all decisions to the matching resume endpoint:
+
+- `POST /v1/agents/react/resume`
+- `POST /v1/workflows/{preset}/resume`
+
+Python validates the run scope, approval request, complete decision set, and expected checkpoint version before resuming with `Command(resume=...)`. Only after Python advances the checkpoint does the Go worker execute approved tools. Local business writes and tool-call completion share a database transaction. MCP execution is bound to the installation revision and tool that were resolved before approval; a revision mismatch fails closed.
+
+Runtime ownership is fixed when the run is created. Only runs whose immutable `runtime_owner` is `legacy_go` may use the legacy engine. A `python_langgraph` run must stay on Python through retries and resume, and fails closed when that runtime is unavailable.
+
+### Compatibility and rollback
+
+Checkpoints created by the earlier simulated-approval graph do not contain a LangGraph interrupt and cannot be resumed by this runtime. Before upgrading, finish or cancel those paused runs; restart necessary work as a new run after the deployment. Do not route them through the legacy runtime.
+
+For an application rollback, keep the additive version 3 database schema and checkpoint rows, and roll back the Go and Python images together. Runs already acquired by the new Python graph must remain pinned to the compatible runtime until they finish or are explicitly canceled. The migration `up -> down -> up` check exists to prove isolated-environment reversibility; production rollback should not destructively remove checkpoint or approval metadata.
+
 Supported presets:
 
 - `meeting_brief`
@@ -55,3 +79,17 @@ Outputs:
 - `evals/reports/python-agent-eval.md`
 
 The eval fixtures are deterministic regression cases for task completion, citation grounding, tool intent, approval safety, Agentic RAG refinement, citation coverage, iteration caps, and unsupported-claim guarding. They are not open-domain model-quality claims.
+
+## Checkpoint Contract Tests
+
+The MySQL-backed recovery tests require an isolated database:
+
+```bash
+cd agent-runtime
+PY_AGENT_TEST_MYSQL_DSN='mysql://user:password@127.0.0.1:3306/allcallall_contract' \
+  python -m pytest -q tests/test_mysql_checkpoint.py
+PY_AGENT_TEST_MYSQL_DSN='mysql://user:password@127.0.0.1:3306/allcallall_contract' \
+  python -m pytest -q tests/test_approval_resume.py -k mysql
+```
+
+They cover transactional checkpoint writes, restart recovery, idempotent `execution_id` replay, resume rollback on failure, checkpoint-version conflicts, and exclusion of short-lived tool capabilities from checkpoint payloads.

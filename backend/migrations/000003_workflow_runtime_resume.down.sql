@@ -1,0 +1,46 @@
+ALTER TABLE agent_tool_calls
+    DROP INDEX idx_agent_tool_calls_mcp_tool_id,
+    DROP INDEX idx_agent_tool_calls_mcp_revision_id,
+    DROP INDEX idx_agent_tool_calls_mcp_installation_id,
+    DROP INDEX idx_agent_tool_calls_decided_at,
+    DROP INDEX idx_agent_tool_calls_decided_by,
+    DROP INDEX idx_agent_tool_calls_approval_checkpoint_version,
+    DROP INDEX idx_agent_tool_calls_approval_request_id,
+    DROP COLUMN decided_at,
+    DROP COLUMN decided_by,
+    DROP COLUMN decision,
+    DROP COLUMN mcp_tool_id,
+    DROP COLUMN mcp_revision_id,
+    DROP COLUMN mcp_installation_id,
+    DROP COLUMN approval_checkpoint_version,
+    DROP COLUMN approval_request_id;
+
+ALTER TABLE agent_runs
+    DROP INDEX idx_agent_runs_runtime_owner,
+    DROP INDEX idx_agent_runs_execution_lease_token,
+    DROP INDEX idx_agent_runs_approval_request_id,
+    DROP COLUMN execution_lease_token,
+    DROP COLUMN runtime_owner,
+    DROP COLUMN runtime_request_json,
+    DROP COLUMN approval_request_id;
+
+ALTER TABLE tool_approvals
+    DROP INDEX idx_tool_approvals_mcp_tool_id,
+    DROP INDEX idx_tool_approvals_mcp_revision_id,
+    DROP INDEX idx_tool_approvals_mcp_installation_id,
+    DROP INDEX idx_tool_approvals_approval_checkpoint_version,
+    DROP INDEX idx_tool_approvals_approval_request_id,
+    DROP COLUMN approval_checkpoint_version,
+    DROP COLUMN approval_request_id,
+    DROP COLUMN mcp_tool_id,
+    DROP COLUMN mcp_revision_id,
+    DROP COLUMN mcp_installation_id;
+
+ALTER TABLE workflow_runs
+    DROP INDEX idx_workflow_runs_runtime_owner,
+    DROP INDEX idx_workflow_runs_execution_lease_token,
+    DROP INDEX idx_workflow_runs_approval_request_id,
+    DROP COLUMN execution_lease_token,
+    DROP COLUMN runtime_owner,
+    DROP COLUMN runtime_request_json,
+    DROP COLUMN approval_request_id;

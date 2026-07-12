@@ -18,6 +18,7 @@ from app.retrieval import rerank_context_chunks
 
 def test_meeting_brief_returns_trace_citations_and_write_proposals() -> None:
     request = MeetingBriefRequest(
+        execution_id="workflow:99:initial",
         organization_id=1,
         user_id=7,
         conversation_id=42,
@@ -80,6 +81,7 @@ def test_meeting_brief_returns_trace_citations_and_write_proposals() -> None:
 
 def test_prompt_registry_and_rules_rerank_metadata() -> None:
     request = WorkflowRequest(
+        execution_id="workflow:100:initial",
         organization_id=1,
         user_id=7,
         conversation_id=42,
@@ -124,6 +126,7 @@ def test_grounding_and_llamaindex_adapter_fallback() -> None:
 
 def test_runtime_supports_risk_review_follow_up_and_context_qa() -> None:
     base = WorkflowRequest(
+        execution_id="workflow:101:initial",
         organization_id=1,
         user_id=7,
         conversation_id=42,
@@ -148,11 +151,29 @@ def test_runtime_supports_risk_review_follow_up_and_context_qa() -> None:
     assert "Risk Review" in risk.summary
     assert "write_conversation_message" in [item.tool_name for item in risk.proposed_tool_calls]
 
-    follow_up = run_workflow(base.model_copy(update={"preset": "follow_up_planner", "goal": "请生成跟进任务。"}))
+    follow_up = run_workflow(
+        base.model_copy(
+            update={
+                "workflow_run_id": 10_001,
+                "execution_id": "workflow:10001:initial",
+                "preset": "follow_up_planner",
+                "goal": "请生成跟进任务。",
+            }
+        )
+    )
     assert follow_up.status == "requires_action"
     assert "create_follow_up_task" in [item.tool_name for item in follow_up.proposed_tool_calls]
 
-    qa = run_workflow(base.model_copy(update={"preset": "context_qa", "goal": "安全审批是什么？"}))
+    qa = run_workflow(
+        base.model_copy(
+            update={
+                "workflow_run_id": 10_002,
+                "execution_id": "workflow:10002:initial",
+                "preset": "context_qa",
+                "goal": "安全审批是什么？",
+            }
+        )
+    )
     assert qa.status == "ready"
     assert not qa.proposed_tool_calls
 
@@ -160,6 +181,7 @@ def test_runtime_supports_risk_review_follow_up_and_context_qa() -> None:
 def test_react_agent_runtime_uses_python_langgraph_schema() -> None:
     response = run_react_agent(
         WorkflowRequest(
+            execution_id="agent:103:initial",
             organization_id=1,
             user_id=7,
             conversation_id=42,
@@ -191,6 +213,7 @@ def test_react_agent_runtime_uses_python_langgraph_schema() -> None:
 def test_context_qa_guard_when_context_is_missing() -> None:
     response = run_workflow(
         WorkflowRequest(
+            execution_id="workflow:102:initial",
             organization_id=1,
             user_id=7,
             conversation_id=42,
@@ -210,6 +233,7 @@ def test_mcp_node_executes_verified_reads_and_proposes_unknown_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     request = WorkflowRequest(
+        execution_id="workflow:500:initial",
         organization_id=1,
         user_id=7,
         conversation_id=42,
@@ -222,6 +246,9 @@ def test_mcp_node_executes_verified_reads_and_proposes_unknown_tools(
             "name": "mcp.1.search",
             "original_name": "search",
             "risk": "read",
+            "mcp_installation_id": 1,
+            "mcp_revision_id": 11,
+            "mcp_tool_id": 111,
             "input_schema": {
                 "type": "object",
                 "required": ["query"],
@@ -231,8 +258,17 @@ def test_mcp_node_executes_verified_reads_and_proposes_unknown_tools(
     ]
     seen_capabilities: list[str] = []
 
-    def execute(runtime_request: WorkflowRequest, name: str, arguments: dict[str, object]) -> ToolObservation:
+    def execute(
+        runtime_request: WorkflowRequest,
+        name: str,
+        arguments: dict[str, object],
+        *,
+        mcp_installation_id: int,
+        mcp_revision_id: int,
+        mcp_tool_id: int,
+    ) -> ToolObservation:
         seen_capabilities.append(runtime_request.tool_capability)
+        assert (mcp_installation_id, mcp_revision_id, mcp_tool_id) == (1, 11, 111)
         output = '{"customer":"active"}'
         return ToolObservation(
             tool_name=name,
@@ -266,10 +302,16 @@ def test_mcp_node_executes_verified_reads_and_proposes_unknown_tools(
     assert len(proposals) == 1
     assert proposals[0].tool_name == "mcp.1.update"
     assert proposals[0].approval_required
+    assert (
+        proposals[0].mcp_installation_id,
+        proposals[0].mcp_revision_id,
+        proposals[0].mcp_tool_id,
+    ) == (1, 11, 111)
 
 
 def test_authorized_skills_are_scoped_to_catalog_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     request = WorkflowRequest(
+        execution_id="workflow:501:initial",
         organization_id=1,
         user_id=7,
         conversation_id=42,
@@ -280,7 +322,16 @@ def test_authorized_skills_are_scoped_to_catalog_tools(monkeypatch: pytest.Monke
 
     def catalog(_: WorkflowRequest) -> dict[str, list[dict[str, object]]]:
         return {
-            "tools": [{"name": "mcp.1.search", "risk": "read", "input_schema": {}}],
+            "tools": [
+                {
+                    "id": 111,
+                    "installation_id": 1,
+                    "revision_id": 11,
+                    "name": "mcp.1.search",
+                    "risk": "read",
+                    "input_schema": {},
+                }
+            ],
             "skills": [
                 {
                     "name": "Policy search",

@@ -111,17 +111,20 @@ type SecretStore interface {
 }
 
 type ExecuteInput struct {
-	ExecutionID    string
-	RunRef         string
-	OrganizationID uint64
-	UserID         uint64
-	ConversationID uint64
-	RunID          uint64
-	AgentRunID     *uint64
-	WorkflowRunID  *uint64
-	ToolCallID     string
-	ToolName       string
-	Arguments      map[string]any
+	ExecutionID            string
+	RunRef                 string
+	OrganizationID         uint64
+	UserID                 uint64
+	ConversationID         uint64
+	RunID                  uint64
+	AgentRunID             *uint64
+	WorkflowRunID          *uint64
+	ToolCallID             string
+	ToolName               string
+	Arguments              map[string]any
+	ExpectedInstallationID uint64
+	ExpectedRevisionID     uint64
+	ExpectedToolID         uint64
 }
 
 type CreateSkillInput struct {

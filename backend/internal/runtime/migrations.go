@@ -17,7 +17,7 @@ import (
 	"github.com/allcallall/backend/internal/models"
 )
 
-const currentSchemaVersion = 2
+const currentSchemaVersion = 3
 
 // RunMigrations applies the ordered schema migrations using golang-migrate.
 func RunMigrations(db *gorm.DB, dataSourceNames ...string) error {
@@ -123,6 +123,16 @@ func alignMySQLPlatformSchema(db *gorm.DB) error {
 		"ALTER TABLE mcp_executions MODIFY COLUMN execution_id VARCHAR(96) CHARACTER SET ascii NOT NULL",
 		"ALTER TABLE mcp_executions MODIFY COLUMN run_ref VARCHAR(96) CHARACTER SET ascii NOT NULL",
 		"ALTER TABLE mcp_executions MODIFY COLUMN tool_call_id VARCHAR(96) CHARACTER SET ascii NOT NULL",
+		"ALTER TABLE workflow_runs MODIFY COLUMN approval_request_id VARCHAR(96) CHARACTER SET ascii NOT NULL DEFAULT ''",
+		"ALTER TABLE tool_approvals MODIFY COLUMN approval_request_id VARCHAR(96) CHARACTER SET ascii NOT NULL DEFAULT ''",
+		"ALTER TABLE agent_runs MODIFY COLUMN approval_request_id VARCHAR(96) CHARACTER SET ascii NOT NULL DEFAULT ''",
+		"ALTER TABLE agent_tool_calls MODIFY COLUMN approval_request_id VARCHAR(96) CHARACTER SET ascii NOT NULL DEFAULT ''",
+		"ALTER TABLE workflow_runs MODIFY COLUMN execution_lease_token VARCHAR(96) CHARACTER SET ascii NOT NULL DEFAULT ''",
+		"ALTER TABLE agent_runs MODIFY COLUMN execution_lease_token VARCHAR(96) CHARACTER SET ascii NOT NULL DEFAULT ''",
+		"ALTER TABLE workflow_runs MODIFY COLUMN runtime_owner VARCHAR(32) CHARACTER SET ascii NOT NULL DEFAULT 'legacy_go'",
+		"ALTER TABLE agent_runs MODIFY COLUMN runtime_owner VARCHAR(32) CHARACTER SET ascii NOT NULL DEFAULT 'legacy_go'",
+		"ALTER TABLE workflow_runs MODIFY COLUMN runtime_request_json LONGTEXT NOT NULL",
+		"ALTER TABLE agent_runs MODIFY COLUMN runtime_request_json LONGTEXT NOT NULL",
 	}
 	for _, statement := range statements {
 		if err := db.Exec(statement).Error; err != nil {

@@ -1544,6 +1544,14 @@ export interface components {
             /** @enum {string} */
             preset?: "meeting_brief" | "follow_up" | "follow_up_planner" | "risk_review" | "context_qa";
         };
+        AgentToolDecision: {
+            tool_call_id: string;
+            /** @enum {string} */
+            action: "approve" | "reject";
+        };
+        SubmitAgentToolOutputsRequest: {
+            outputs: components["schemas"]["AgentToolDecision"][];
+        };
         MCPInstallationDefinition: {
             /** @enum {string} */
             transport: "stdio" | "http" | "streamable_http" | "sse";
@@ -1728,12 +1736,14 @@ export interface components {
             idempotency_key?: string;
             request_id?: string;
             source: string;
+            /** @enum {string} */
+            runtime_owner: "legacy_go" | "python_langgraph";
             status: string;
             prompt_version?: string;
             tool_schema_version?: string;
             checkpoint_id?: string;
             /** Format: int64 */
-            checkpoint_version?: number;
+            checkpoint_version: number;
             goal: string;
             summary: string;
             action_items: string[];
@@ -1741,6 +1751,8 @@ export interface components {
             risk_flags: string[];
             error_message?: string;
             attempts: number;
+            /** Format: date-time */
+            lease_until?: string | null;
             /** Format: date-time */
             started_at?: string | null;
             /** Format: date-time */
@@ -1772,10 +1784,25 @@ export interface components {
             run_id: number;
             /** Format: int64 */
             step_id?: number | null;
-            call_id?: string;
+            call_id: string;
             tool_name: string;
             status: string;
             tool_schema_version?: string;
+            approval_request_id?: string;
+            /** Format: int64 */
+            approval_checkpoint_version: number;
+            /** Format: int64 */
+            mcp_installation_id?: number;
+            /** Format: int64 */
+            mcp_revision_id?: number;
+            /** Format: int64 */
+            mcp_tool_id?: number;
+            /** @enum {string} */
+            decision?: "approve" | "reject";
+            /** Format: int64 */
+            decided_by?: number | null;
+            /** Format: date-time */
+            decided_at?: string | null;
             input_json?: string;
             output_json?: string;
             error_message?: string;
@@ -1860,30 +1887,37 @@ export interface components {
             /** Format: int64 */
             conversation_id: number;
             /** Format: int64 */
-            agent_run_id?: number | null;
-            idempotency_key?: string;
-            request_id?: string;
+            agent_run_id: number | null;
+            idempotency_key: string;
+            request_id: string;
+            /** @enum {string} */
+            runtime_owner: "legacy_go" | "python_langgraph";
             status: string;
-            workflow_type?: string;
-            workflow_version?: string;
-            preset?: string;
-            prompt_version?: string;
-            tool_schema_version?: string;
-            checkpoint_id?: string;
+            workflow_type: string;
+            workflow_version: string;
+            preset: string;
+            prompt_version: string;
+            tool_schema_version: string;
+            checkpoint_id: string;
             /** Format: int64 */
-            checkpoint_version?: number;
-            state_json?: string;
+            checkpoint_version: number;
+            approval_request_id: string;
+            state_json: string;
+            /** Format: int64 */
+            last_event_id: number | null;
             goal: string;
             summary: string;
             action_items: string[];
             next_step: string;
             risk_flags: string[];
-            error_message?: string;
+            error_message: string;
             attempts: number;
             /** Format: date-time */
-            started_at?: string | null;
+            lease_until: string | null;
             /** Format: date-time */
-            completed_at?: string | null;
+            started_at: string | null;
+            /** Format: date-time */
+            completed_at: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -1921,18 +1955,28 @@ export interface components {
             tool_call_id: string;
             tool_name: string;
             status: string;
-            input_json?: string;
-            output_json?: string;
-            error_message?: string;
+            tool_schema_version: string;
+            approval_request_id: string;
+            /** Format: int64 */
+            approval_checkpoint_version: number;
+            /** Format: int64 */
+            mcp_installation_id?: number;
+            /** Format: int64 */
+            mcp_revision_id?: number;
+            /** Format: int64 */
+            mcp_tool_id?: number;
+            input_json: string;
+            output_json: string;
+            error_message: string;
             /** Format: int64 */
             requested_by: number;
             /** Format: int64 */
-            decided_by?: number | null;
-            decision?: string;
+            decided_by: number | null;
+            decision: string;
             /** Format: date-time */
             requested_at: string;
             /** Format: date-time */
-            decided_at?: string | null;
+            decided_at: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -2857,17 +2901,11 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    outputs: {
-                        tool_call_id: string;
-                        /** @enum {string} */
-                        action: "approve" | "reject";
-                    }[];
-                };
+                "application/json": components["schemas"]["SubmitAgentToolOutputsRequest"];
             };
         };
         responses: {
-            /** @description Updated run */
+            /** @description Decisions persisted and the run queued for asynchronous worker resume; tools are not executed in this request. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2876,6 +2914,10 @@ export interface operations {
                     "application/json": components["schemas"]["AgentRunResult"];
                 };
             };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
         };
     };
     listAgentWorkflows: {
@@ -2969,6 +3011,9 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowResult"];
                 };
             };
+            409: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     listAgentApprovals: {
@@ -3022,6 +3067,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowResult"];
                 };
             };
+            409: components["responses"]["Error"];
         };
     };
     listMCPInstallations: {

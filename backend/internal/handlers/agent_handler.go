@@ -86,11 +86,13 @@ type agentRunResponse struct {
 	IdempotencyKey    string     `json:"idempotency_key,omitempty"`
 	RequestID         string     `json:"request_id,omitempty"`
 	Source            string     `json:"source"`
+	RuntimeOwner      string     `json:"runtime_owner"`
 	Status            string     `json:"status"`
 	PromptVersion     string     `json:"prompt_version,omitempty"`
 	ToolSchemaVersion string     `json:"tool_schema_version,omitempty"`
 	CheckpointID      string     `json:"checkpoint_id,omitempty"`
 	CheckpointVersion uint64     `json:"checkpoint_version"`
+	ApprovalRequestID string     `json:"approval_request_id,omitempty"`
 	Goal              string     `json:"goal"`
 	Summary           string     `json:"summary"`
 	ActionItems       []string   `json:"action_items"`
@@ -118,18 +120,26 @@ type agentStepResponse struct {
 }
 
 type agentToolCallResponse struct {
-	ID                uint64    `json:"id"`
-	RunID             uint64    `json:"run_id"`
-	StepID            *uint64   `json:"step_id,omitempty"`
-	CallID            string    `json:"call_id"`
-	ToolName          string    `json:"tool_name"`
-	Status            string    `json:"status"`
-	ToolSchemaVersion string    `json:"tool_schema_version,omitempty"`
-	InputJSON         string    `json:"input_json,omitempty"`
-	OutputJSON        string    `json:"output_json,omitempty"`
-	ErrorMessage      string    `json:"error_message,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID                        uint64     `json:"id"`
+	RunID                     uint64     `json:"run_id"`
+	StepID                    *uint64    `json:"step_id,omitempty"`
+	CallID                    string     `json:"call_id"`
+	ToolName                  string     `json:"tool_name"`
+	Status                    string     `json:"status"`
+	ToolSchemaVersion         string     `json:"tool_schema_version,omitempty"`
+	ApprovalRequestID         string     `json:"approval_request_id,omitempty"`
+	ApprovalCheckpointVersion uint64     `json:"approval_checkpoint_version"`
+	MCPInstallationID         uint64     `json:"mcp_installation_id,omitempty"`
+	MCPRevisionID             uint64     `json:"mcp_revision_id,omitempty"`
+	MCPToolID                 uint64     `json:"mcp_tool_id,omitempty"`
+	Decision                  string     `json:"decision,omitempty"`
+	DecidedBy                 *uint64    `json:"decided_by,omitempty"`
+	DecidedAt                 *time.Time `json:"decided_at,omitempty"`
+	InputJSON                 string     `json:"input_json,omitempty"`
+	OutputJSON                string     `json:"output_json,omitempty"`
+	ErrorMessage              string     `json:"error_message,omitempty"`
+	CreatedAt                 time.Time  `json:"created_at"`
+	UpdatedAt                 time.Time  `json:"updated_at"`
 }
 
 type agentTraceEventResponse struct {
@@ -233,6 +243,10 @@ type submitToolOutputsRequest struct {
 }
 
 func (h *AgentHandler) handleSubmitToolOutputs(c *gin.Context) {
+	if h.service == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_SERVICE_UNAVAILABLE", "agent service unavailable")
+		return
+	}
 	claims, organizationID, ok := h.requireAgentContext(c)
 	if !ok {
 		return
@@ -251,23 +265,32 @@ func (h *AgentHandler) handleSubmitToolOutputs(c *gin.Context) {
 		return
 	}
 
-	outputs := make(map[string]string)
-	for _, out := range req.Outputs {
-		outputs[out.ToolCallID] = out.Action
+	if len(req.Outputs) == 0 {
+		JSONError(c, http.StatusBadRequest, "at least one tool decision is required")
+		return
 	}
-
-	err = h.service.SubmitToolOutputs(c.Request.Context(), organizationID, userID, runID, outputs)
-	if err != nil {
-		if errors.Is(err, agent.ErrAgentRunNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "agent run not found"})
+	outputs := make(map[string]string, len(req.Outputs))
+	for _, out := range req.Outputs {
+		callID := strings.TrimSpace(out.ToolCallID)
+		action := strings.ToLower(strings.TrimSpace(out.Action))
+		if callID == "" || len(callID) > 96 || (action != "approve" && action != "reject") {
+			JSONError(c, http.StatusBadRequest, "invalid tool decision")
 			return
 		}
-		h.logger.Error().Err(err).Msg("failed to submit tool outputs")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		if _, duplicate := outputs[callID]; duplicate {
+			JSONError(c, http.StatusBadRequest, "duplicate tool_call_id")
+			return
+		}
+		outputs[callID] = action
+	}
+
+	result, err := h.service.SubmitToolOutputs(c.Request.Context(), organizationID, userID, runID, outputs)
+	if err != nil {
+		h.writeAgentError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "success"})
+	JSONSuccess(c, http.StatusOK, toAgentRunResultResponse(result))
 }
 
 func (h *AgentHandler) handleCreateWorkflow(c *gin.Context) {
@@ -526,6 +549,18 @@ func (h *AgentHandler) writeAgentError(c *gin.Context, err error) {
 		JSONErrorWithCode(c, http.StatusNotFound, "TOOL_APPROVAL_NOT_FOUND", "tool approval not found")
 	case errors.Is(err, agent.ErrToolApprovalForbidden):
 		JSONErrorWithCode(c, http.StatusForbidden, "TOOL_APPROVAL_FORBIDDEN", "tool approval forbidden")
+	case errors.Is(err, agent.ErrApprovalDecisionConflict):
+		JSONErrorWithCode(c, http.StatusConflict, "APPROVAL_DECISION_CONFLICT", "approval decision conflicts with the recorded decision")
+	case errors.Is(err, agent.ErrCheckpointVersionConflict):
+		JSONErrorWithCode(c, http.StatusConflict, "CHECKPOINT_VERSION_CONFLICT", "checkpoint version conflict")
+	case errors.Is(err, agent.ErrWorkflowRuntimeConflict):
+		JSONErrorWithCode(c, http.StatusConflict, "AGENT_RUNTIME_CONFLICT", "agent runtime state conflict")
+	case errors.Is(err, agent.ErrCheckpointExecutionBusy):
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "CHECKPOINT_EXECUTION_BUSY", "checkpoint execution is busy")
+	case errors.Is(err, agent.ErrCheckpointTransactionTooLarge):
+		JSONErrorWithCode(c, http.StatusRequestEntityTooLarge, "CHECKPOINT_TRANSACTION_TOO_LARGE", "checkpoint transaction is too large")
+	case errors.Is(err, agent.ErrWorkflowRuntimeUnavailable):
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_RUNTIME_UNAVAILABLE", "agent runtime is unavailable")
 	case errors.Is(err, agent.ErrPlannerUnavailable):
 		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_PLANNER_UNAVAILABLE", "agent planner unavailable")
 	case errors.Is(err, agent.ErrMeetingTranscriptNotReady):
@@ -598,6 +633,7 @@ func toWorkflowRunResponse(run models.WorkflowRun, actionItems, riskFlags []stri
 		"idempotency_key":     run.IdempotencyKey,
 		"request_id":          run.RequestID,
 		"status":              run.Status,
+		"runtime_owner":       run.RuntimeOwner,
 		"workflow_type":       run.WorkflowType,
 		"workflow_version":    run.WorkflowVersion,
 		"preset":              run.Preset,
@@ -605,6 +641,7 @@ func toWorkflowRunResponse(run models.WorkflowRun, actionItems, riskFlags []stri
 		"tool_schema_version": run.ToolSchemaVersion,
 		"checkpoint_id":       run.CheckpointID,
 		"checkpoint_version":  run.CheckpointVersion,
+		"approval_request_id": run.ApprovalRequestID,
 		"state_json":          run.StateJSON,
 		"last_event_id":       run.LastEventID,
 		"goal":                run.Goal,
@@ -669,26 +706,34 @@ func toAgentMessageResponses(messages []models.AgentMessage) []gin.H {
 func toToolApprovalResponses(approvals []models.ToolApproval) []gin.H {
 	out := make([]gin.H, 0, len(approvals))
 	for _, approval := range approvals {
-		out = append(out, gin.H{
-			"id":                  approval.ID,
-			"workflow_run_id":     approval.WorkflowRunID,
-			"task_id":             approval.TaskID,
-			"organization_id":     approval.OrganizationID,
-			"tool_call_id":        approval.ToolCallID,
-			"tool_name":           approval.ToolName,
-			"status":              approval.Status,
-			"tool_schema_version": approval.ToolSchemaVersion,
-			"input_json":          approval.InputJSON,
-			"output_json":         approval.OutputJSON,
-			"error_message":       approval.ErrorMessage,
-			"requested_by":        approval.RequestedBy,
-			"decided_by":          approval.DecidedBy,
-			"decision":            approval.Decision,
-			"requested_at":        approval.RequestedAt,
-			"decided_at":          approval.DecidedAt,
-			"created_at":          approval.CreatedAt,
-			"updated_at":          approval.UpdatedAt,
-		})
+		payload := gin.H{
+			"id":                          approval.ID,
+			"workflow_run_id":             approval.WorkflowRunID,
+			"task_id":                     approval.TaskID,
+			"organization_id":             approval.OrganizationID,
+			"tool_call_id":                approval.ToolCallID,
+			"tool_name":                   approval.ToolName,
+			"status":                      approval.Status,
+			"tool_schema_version":         approval.ToolSchemaVersion,
+			"approval_request_id":         approval.ApprovalRequestID,
+			"approval_checkpoint_version": approval.ApprovalCheckpointVersion,
+			"input_json":                  approval.InputJSON,
+			"output_json":                 approval.OutputJSON,
+			"error_message":               approval.ErrorMessage,
+			"requested_by":                approval.RequestedBy,
+			"decided_by":                  approval.DecidedBy,
+			"decision":                    approval.Decision,
+			"requested_at":                approval.RequestedAt,
+			"decided_at":                  approval.DecidedAt,
+			"created_at":                  approval.CreatedAt,
+			"updated_at":                  approval.UpdatedAt,
+		}
+		if approval.MCPInstallationID != 0 {
+			payload["mcp_installation_id"] = approval.MCPInstallationID
+			payload["mcp_revision_id"] = approval.MCPRevisionID
+			payload["mcp_tool_id"] = approval.MCPToolID
+		}
+		out = append(out, payload)
 	}
 	return out
 }
@@ -757,11 +802,13 @@ func toAgentRunResponse(run models.AgentRun, actionItems, riskFlags []string) ag
 		IdempotencyKey:    run.IdempotencyKey,
 		RequestID:         run.RequestID,
 		Source:            run.Source,
+		RuntimeOwner:      run.RuntimeOwner,
 		Status:            run.Status,
 		PromptVersion:     run.PromptVersion,
 		ToolSchemaVersion: run.ToolSchemaVersion,
 		CheckpointID:      run.CheckpointID,
 		CheckpointVersion: run.CheckpointVersion,
+		ApprovalRequestID: run.ApprovalRequestID,
 		Goal:              run.Goal,
 		Summary:           run.Summary,
 		ActionItems:       actionItems,
@@ -799,18 +846,26 @@ func toAgentToolCallResponses(toolCalls []models.AgentToolCall) []agentToolCallR
 	out := make([]agentToolCallResponse, 0, len(toolCalls))
 	for _, toolCall := range toolCalls {
 		out = append(out, agentToolCallResponse{
-			ID:                toolCall.ID,
-			RunID:             toolCall.RunID,
-			StepID:            toolCall.StepID,
-			CallID:            toolCall.CallID,
-			ToolName:          toolCall.ToolName,
-			Status:            toolCall.Status,
-			ToolSchemaVersion: toolCall.ToolSchemaVersion,
-			InputJSON:         toolCall.InputJSON,
-			OutputJSON:        toolCall.OutputJSON,
-			ErrorMessage:      toolCall.ErrorMessage,
-			CreatedAt:         toolCall.CreatedAt,
-			UpdatedAt:         toolCall.UpdatedAt,
+			ID:                        toolCall.ID,
+			RunID:                     toolCall.RunID,
+			StepID:                    toolCall.StepID,
+			CallID:                    toolCall.CallID,
+			ToolName:                  toolCall.ToolName,
+			Status:                    toolCall.Status,
+			ToolSchemaVersion:         toolCall.ToolSchemaVersion,
+			ApprovalRequestID:         toolCall.ApprovalRequestID,
+			ApprovalCheckpointVersion: toolCall.ApprovalCheckpointVersion,
+			MCPInstallationID:         toolCall.MCPInstallationID,
+			MCPRevisionID:             toolCall.MCPRevisionID,
+			MCPToolID:                 toolCall.MCPToolID,
+			Decision:                  toolCall.Decision,
+			DecidedBy:                 toolCall.DecidedBy,
+			DecidedAt:                 toolCall.DecidedAt,
+			InputJSON:                 toolCall.InputJSON,
+			OutputJSON:                toolCall.OutputJSON,
+			ErrorMessage:              toolCall.ErrorMessage,
+			CreatedAt:                 toolCall.CreatedAt,
+			UpdatedAt:                 toolCall.UpdatedAt,
 		})
 	}
 	return out

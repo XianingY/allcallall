@@ -1346,6 +1346,20 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
                 ? ` · decided by ${approval.decided_by}`
                 : ""}
             </Text>
+            {approval.mcp_revision_id && approval.mcp_revision_id > 0 ? (
+              <Text style={styles.rowMeta}>
+                {approval.mcp_installation_id
+                  ? `MCP Installation #${approval.mcp_installation_id}`
+                  : "MCP"}{" "}
+                · Revision #{approval.mcp_revision_id}
+              </Text>
+            ) : null}
+            <Text style={styles.rowMeta}>
+              Schema {approval.tool_schema_version || "-"}
+              {approval.approval_request_id
+                ? ` · Approval ${approval.approval_request_id} · checkpoint v${approval.approval_checkpoint_version}`
+                : ""}
+            </Text>
             <Text style={styles.messageBody}>
               Input: {jsonSummary(approval.input_json, 360)}
             </Text>
