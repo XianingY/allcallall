@@ -13,14 +13,25 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/allcallall/backend/internal/mcpplatform"
 	"github.com/allcallall/backend/internal/models"
 )
 
 var (
-	ErrPrivateAddress = errors.New("sandbox private network destination rejected")
-	ErrImageRejected  = errors.New("sandbox image rejected")
+	ErrPrivateAddress      = errors.New("sandbox private network destination rejected")
+	ErrImageRejected       = errors.New("sandbox image rejected")
+	ErrExecutionConflict   = errors.New("sandbox execution id conflicts with a different request")
+	ErrExecutionInProgress = errors.New("sandbox execution is already running")
+	ErrInvalidExecution    = errors.New("invalid sandbox execution request")
+	ErrReceiptUnavailable  = errors.New("sandbox execution receipt store unavailable")
+)
+
+const (
+	defaultReceiptRetention     = 30 * 24 * time.Hour
+	defaultReceiptStaleGrace    = 10 * time.Second
+	terminalReceiptWriteTimeout = 5 * time.Second
 )
 
 type Runner interface {
@@ -38,13 +49,27 @@ type ImageScanner interface {
 }
 
 type Service struct {
-	runner   Runner
-	scanner  ImageScanner
-	resolver *net.Resolver
+	runner            Runner
+	scanner           ImageScanner
+	resolver          *net.Resolver
+	receipts          *ReceiptStore
+	receiptRetention  time.Duration
+	receiptStaleGrace time.Duration
 }
 
 func NewService(runner Runner, scanner ImageScanner) *Service {
-	return &Service{runner: runner, scanner: scanner, resolver: net.DefaultResolver}
+	return &Service{
+		runner:            runner,
+		scanner:           scanner,
+		resolver:          net.DefaultResolver,
+		receiptRetention:  defaultReceiptRetention,
+		receiptStaleGrace: defaultReceiptStaleGrace,
+	}
+}
+
+func (s *Service) WithReceiptStore(store *ReceiptStore) *Service {
+	s.receipts = store
+	return s
 }
 
 func (s *Service) Validate(ctx context.Context, request mcpplatform.ValidationRequest) (mcpplatform.ValidationResult, error) {
@@ -115,29 +140,277 @@ func configuredToolNames(config map[string]any, key string) map[string]bool {
 	return configured
 }
 
-func (s *Service) Execute(ctx context.Context, request mcpplatform.ExecutionRequest) (mcpplatform.ExecutionResult, error) {
+type ExecutionReceipt = mcpplatform.SandboxExecutionReceipt
+
+func (s *Service) Execute(ctx context.Context, request mcpplatform.ExecutionRequest) (ExecutionReceipt, error) {
 	if s.runner == nil {
-		return mcpplatform.ExecutionResult{}, fmt.Errorf("runner unavailable")
+		return ExecutionReceipt{}, fmt.Errorf("runner unavailable")
 	}
+	if s.receipts == nil {
+		return ExecutionReceipt{}, ErrReceiptUnavailable
+	}
+	request = normalizeExecutionRequest(request)
+	if err := validateExecutionIdentity(request); err != nil {
+		return ExecutionReceipt{}, err
+	}
+	digest, err := executionRequestDigest(request)
+	if err != nil {
+		return ExecutionReceipt{}, err
+	}
+	now := time.Now().UTC()
+	candidate := models.SandboxExecutionReceipt{
+		ExecutionID:    request.ExecutionID,
+		RequestDigest:  digest,
+		OrganizationID: request.OrganizationID,
+		UserID:         request.UserID,
+		ConversationID: request.ConversationID,
+		RunID:          request.RunID,
+		RunRef:         request.RunRef,
+		ToolCallID:     request.ToolCallID,
+		InstallationID: request.InstallationID,
+		RevisionID:     request.RevisionID,
+		ToolID:         request.ToolID,
+		ToolName:       request.ToolName,
+		SourceType:     request.SourceType,
+		Status:         models.SandboxExecutionStatusRunning,
+		TimeoutMS:      request.TimeoutMS,
+		StartedAt:      now,
+		StaleAt:        now.Add(time.Duration(request.TimeoutMS)*time.Millisecond + s.receiptStaleGrace),
+		ExpiresAt:      now.Add(s.receiptRetention),
+	}
+	stored, winner, err := s.receipts.Acquire(ctx, candidate)
+	if err != nil {
+		return ExecutionReceipt{}, fmt.Errorf("%w: %v", ErrReceiptUnavailable, err)
+	}
+	if !winner {
+		if stored.RequestDigest != digest {
+			receipt, conversionErr := executionReceiptFromModel(stored)
+			if conversionErr != nil {
+				return ExecutionReceipt{}, conversionErr
+			}
+			return receipt, ErrExecutionConflict
+		}
+		stored, err = s.refreshStaleReceipt(ctx, stored)
+		if err != nil {
+			return ExecutionReceipt{}, err
+		}
+		receipt, err := executionReceiptFromModel(stored)
+		if err != nil {
+			return ExecutionReceipt{}, err
+		}
+		if stored.Status == models.SandboxExecutionStatusRunning {
+			return receipt, ErrExecutionInProgress
+		}
+		return receipt, nil
+	}
+
+	var result mcpplatform.ExecutionResult
+	var executionErr error
+	executionCtx, executionCancel := context.WithTimeout(
+		context.WithoutCancel(ctx),
+		time.Duration(request.TimeoutMS)*time.Millisecond,
+	)
+	defer executionCancel()
+	switch request.SourceType {
+	case models.MCPInstallationSourceOCI:
+		if err := validateDigestPinned(request.Definition.ImageRef); err != nil {
+			executionErr = err
+		}
+	case models.MCPInstallationSourceHTTPS:
+		if err := s.validateHTTPSDestination(executionCtx, request.Definition); err != nil {
+			executionErr = err
+		}
+	default:
+		executionErr = fmt.Errorf("unsupported MCP source type")
+	}
+	if executionErr == nil {
+		result, executionErr = s.runner.Execute(executionCtx, request)
+	}
+
+	status := models.SandboxExecutionStatusSucceeded
+	errorCode := ""
+	errorMessage := ""
+	var outputJSON []byte
+	if executionErr != nil {
+		status, errorCode = receiptFailure(executionErr)
+		errorMessage = sanitizeReceiptError(executionErr, request.SecretWrapToken)
+	} else {
+		outputJSON, err = json.Marshal(result.Output)
+		if err != nil {
+			executionErr = fmt.Errorf("encode runner output: %w", err)
+		} else if len(outputJSON) > request.OutputLimit {
+			executionErr = mcpplatform.ErrOutputTooLarge
+		}
+		if executionErr != nil {
+			status, errorCode = receiptFailure(executionErr)
+			errorMessage = sanitizeReceiptError(executionErr, request.SecretWrapToken)
+			outputJSON = nil
+		}
+	}
+	completedAt := time.Now().UTC()
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalReceiptWriteTimeout)
+	defer cancel()
+	stored, err = s.receipts.Complete(
+		persistCtx,
+		request.ExecutionID,
+		digest,
+		status,
+		result.JobID,
+		outputJSON,
+		errorCode,
+		errorMessage,
+		completedAt,
+	)
+	if err != nil {
+		if errors.Is(err, ErrReceiptStateChanged) {
+			stored, err = s.receipts.Get(persistCtx, request.ExecutionID)
+		}
+		if err != nil {
+			return ExecutionReceipt{}, fmt.Errorf("%w: persist terminal sandbox receipt: %v", ErrReceiptUnavailable, err)
+		}
+	}
+	return executionReceiptFromModel(stored)
+}
+
+func (s *Service) LookupExecution(ctx context.Context, executionID string) (ExecutionReceipt, error) {
+	if s.receipts == nil {
+		return ExecutionReceipt{}, ErrReceiptUnavailable
+	}
+	executionID = strings.TrimSpace(executionID)
+	if executionID == "" || len(executionID) > 96 {
+		return ExecutionReceipt{}, fmt.Errorf("%w: invalid execution id", ErrInvalidExecution)
+	}
+	stored, err := s.receipts.Get(ctx, executionID)
+	if err != nil {
+		if !errors.Is(err, ErrReceiptNotFound) {
+			return ExecutionReceipt{}, fmt.Errorf("%w: %v", ErrReceiptUnavailable, err)
+		}
+		return ExecutionReceipt{}, err
+	}
+	stored, err = s.refreshStaleReceipt(ctx, stored)
+	if err != nil {
+		return ExecutionReceipt{}, err
+	}
+	return executionReceiptFromModel(stored)
+}
+
+func (s *Service) refreshStaleReceipt(ctx context.Context, receipt *models.SandboxExecutionReceipt) (*models.SandboxExecutionReceipt, error) {
+	if receipt == nil || receipt.Status != models.SandboxExecutionStatusRunning || time.Now().UTC().Before(receipt.StaleAt) {
+		return receipt, nil
+	}
+	return s.receipts.MarkStaleOutcomeUnknown(ctx, receipt.ExecutionID, receipt.RequestDigest, time.Now().UTC())
+}
+
+func normalizeExecutionRequest(request mcpplatform.ExecutionRequest) mcpplatform.ExecutionRequest {
+	request.ExecutionID = strings.TrimSpace(request.ExecutionID)
+	request.RunRef = strings.TrimSpace(request.RunRef)
+	request.ToolCallID = strings.TrimSpace(request.ToolCallID)
+	request.ToolName = strings.TrimSpace(request.ToolName)
+	request.SourceType = strings.ToLower(strings.TrimSpace(request.SourceType))
 	if request.TimeoutMS <= 0 || request.TimeoutMS > 30_000 {
 		request.TimeoutMS = 30_000
 	}
 	if request.OutputLimit <= 0 || request.OutputLimit > mcpplatform.DefaultOutputLimit {
 		request.OutputLimit = mcpplatform.DefaultOutputLimit
 	}
-	switch request.SourceType {
-	case models.MCPInstallationSourceOCI:
-		if err := validateDigestPinned(request.Definition.ImageRef); err != nil {
-			return mcpplatform.ExecutionResult{}, err
-		}
-	case models.MCPInstallationSourceHTTPS:
-		if err := s.validateHTTPSDestination(ctx, request.Definition); err != nil {
-			return mcpplatform.ExecutionResult{}, err
-		}
-	default:
-		return mcpplatform.ExecutionResult{}, fmt.Errorf("unsupported MCP source type")
+	if request.Arguments == nil {
+		request.Arguments = map[string]any{}
 	}
-	return s.runner.Execute(ctx, request)
+	if request.Definition.Command == nil {
+		request.Definition.Command = []string{}
+	}
+	if request.Definition.Args == nil {
+		request.Definition.Args = []string{}
+	}
+	if request.Definition.Config == nil {
+		request.Definition.Config = map[string]any{}
+	}
+	if request.Definition.NetworkAllowlist == nil {
+		request.Definition.NetworkAllowlist = []string{}
+	}
+	return request
+}
+
+func validateExecutionIdentity(request mcpplatform.ExecutionRequest) error {
+	if request.ExecutionID == "" || len(request.ExecutionID) > 96 {
+		return fmt.Errorf("%w: invalid execution id", ErrInvalidExecution)
+	}
+	if request.OrganizationID == 0 || request.UserID == 0 || request.RunID == 0 || request.InstallationID == 0 || request.RevisionID == 0 || request.ToolID == 0 {
+		return fmt.Errorf("%w: execution identity is incomplete", ErrInvalidExecution)
+	}
+	if request.RunRef == "" || len(request.RunRef) > 96 || request.ToolCallID == "" || len(request.ToolCallID) > 96 {
+		return fmt.Errorf("%w: invalid run or tool call identity", ErrInvalidExecution)
+	}
+	if request.ToolName == "" || len(request.ToolName) > 160 {
+		return fmt.Errorf("%w: invalid tool name", ErrInvalidExecution)
+	}
+	return nil
+}
+
+func executionRequestDigest(request mcpplatform.ExecutionRequest) (string, error) {
+	return mcpplatform.ExecutionRequestDigest(request)
+}
+
+func receiptFailure(err error) (string, string) {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return models.SandboxExecutionStatusTimedOut, "SANDBOX_TIMEOUT"
+	case errors.Is(err, ErrPrivateAddress):
+		return models.SandboxExecutionStatusFailed, "SANDBOX_NETWORK_DENIED"
+	case errors.Is(err, ErrImageRejected):
+		return models.SandboxExecutionStatusFailed, "SANDBOX_IMAGE_REJECTED"
+	case errors.Is(err, mcpplatform.ErrOutputTooLarge):
+		return models.SandboxExecutionStatusFailed, "SANDBOX_OUTPUT_TOO_LARGE"
+	default:
+		return models.SandboxExecutionStatusFailed, "SANDBOX_EXECUTION_FAILED"
+	}
+}
+
+func sanitizeReceiptError(err error, secretWrapToken string) string {
+	if err == nil {
+		return ""
+	}
+	message := strings.TrimSpace(err.Error())
+	if secretWrapToken != "" {
+		message = strings.ReplaceAll(message, secretWrapToken, "[REDACTED]")
+	}
+	if len(message) > 1000 {
+		message = message[:1000]
+	}
+	return message
+}
+
+func executionReceiptFromModel(stored *models.SandboxExecutionReceipt) (ExecutionReceipt, error) {
+	if stored == nil {
+		return ExecutionReceipt{}, ErrReceiptNotFound
+	}
+	var output map[string]any
+	if len(stored.OutputJSON) > 0 {
+		if err := json.Unmarshal(stored.OutputJSON, &output); err != nil {
+			return ExecutionReceipt{}, fmt.Errorf("decode stored sandbox output: %w", err)
+		}
+	}
+	return ExecutionReceipt{
+		ExecutionID:    stored.ExecutionID,
+		RequestDigest:  stored.RequestDigest,
+		Status:         stored.Status,
+		JobID:          stored.JobID,
+		OrganizationID: stored.OrganizationID,
+		UserID:         stored.UserID,
+		ConversationID: stored.ConversationID,
+		RunID:          stored.RunID,
+		RunRef:         stored.RunRef,
+		ToolCallID:     stored.ToolCallID,
+		InstallationID: stored.InstallationID,
+		RevisionID:     stored.RevisionID,
+		ToolID:         stored.ToolID,
+		ToolName:       stored.ToolName,
+		Output:         output,
+		ErrorCode:      stored.ErrorCode,
+		ErrorMessage:   stored.ErrorMessage,
+		StartedAt:      &stored.StartedAt,
+		CompletedAt:    stored.CompletedAt,
+	}, nil
 }
 
 func (s *Service) validateHTTPSDestination(ctx context.Context, definition mcpplatform.InstallationDefinition) error {

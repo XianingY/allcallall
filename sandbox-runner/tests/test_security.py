@@ -5,6 +5,7 @@ import socket
 import httpx
 import pytest
 
+from app.models import ExecutionRequest
 from app.security import (
     PinnedHTTPSAsyncTransport,
     ResolvedHTTPSDestination,
@@ -13,6 +14,30 @@ from app.security import (
     unsafe_ip,
     validate_https_endpoint,
 )
+
+
+def test_execution_request_accepts_control_plane_identity_fields() -> None:
+    request = ExecutionRequest.model_validate(
+        {
+            "execution_id": "execution-1",
+            "organization_id": 1,
+            "user_id": 2,
+            "conversation_id": 3,
+            "run_id": 4,
+            "run_ref": "agent:4",
+            "tool_call_id": "call-1",
+            "installation_id": 5,
+            "revision_id": 6,
+            "tool_id": 7,
+            "source_type": "https",
+            "definition": {"transport": "streamable_http", "endpoint_url": "https://mcp.example.com"},
+            "tool_name": "lookup",
+        }
+    )
+
+    assert request.run_ref == "agent:4"
+    assert request.tool_call_id == "call-1"
+    assert request.tool_id == 7
 
 
 def test_private_addresses_are_unsafe() -> None:

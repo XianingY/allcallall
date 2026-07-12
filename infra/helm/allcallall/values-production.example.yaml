@@ -3,6 +3,9 @@ external:
     secretName: allcallall-production-external
     dsnKey: mysql-dsn
     checkpointDsnKey: checkpoint-mysql-dsn
+    sandboxReceiptDsnKey: sandbox-receipt-mysql-dsn
+    mcpCapabilityPrivateKeyKey: mcp-capability-ed25519-private-key
+    sandboxCapabilityPublicKeyKey: sandbox-capability-ed25519-public-key
     egressCIDRs: ["10.20.0.10/32"]
   redis:
     address: redis.production.internal:6379

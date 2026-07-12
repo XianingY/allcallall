@@ -5,6 +5,7 @@ metadata:
   labels:
     {{- include "allcallall.labels" . | nindent 4 }}
 data:
+  APP_ENV: {{ .Values.global.environment | quote }}
   REDIS_ADDR: {{ .Values.external.redis.address | quote }}
   OPENBAO_ADDR: {{ .Values.external.openbao.address | quote }}
   MCP_PLATFORM_ENABLED: {{ .Values.features.mcpPlatformEnabled | quote }}

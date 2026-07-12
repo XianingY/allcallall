@@ -97,8 +97,9 @@ services:
       SANDBOX_EXECUTION_ENABLED: ${SANDBOX_EXECUTION_ENABLED:-true}
       SANDBOX_CONTROL_PLANE_URL: ${SANDBOX_CONTROL_PLANE_URL:-http://sandbox-control-plane:8092}
       OPENBAO_ADDR: ${OPENBAO_ADDR:-http://openbao:8200}
-      OPENBAO_TOKEN: ${OPENBAO_TOKEN:?set OPENBAO_TOKEN to a random value}
+      OPENBAO_TOKEN: ${OPENBAO_TOKEN:-}
       MCP_CAPABILITY_ED25519_PRIVATE_KEY: ${MCP_CAPABILITY_ED25519_PRIVATE_KEY:-}
+      SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY: ${SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY:-}
     ports:
       - "8080:8080"
     volumes:
@@ -147,7 +148,7 @@ services:
     cap_add:
       - IPC_LOCK
     environment:
-      BAO_DEV_ROOT_TOKEN_ID: ${OPENBAO_TOKEN:?set OPENBAO_TOKEN to a random value}
+      BAO_DEV_ROOT_TOKEN_ID: ${OPENBAO_TOKEN:-}
       BAO_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
     command: server -dev
     networks:
@@ -184,11 +185,14 @@ services:
       context: ../backend
       dockerfile: Dockerfile.sandbox
     depends_on:
+      - mysql
       - sandbox-runner
       - openbao
     environment:
       SANDBOX_ADDR: :8092
       SANDBOX_RUNNER_URL: http://sandbox-runner:8093
+      SANDBOX_DB_DSN: allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=UTC
+      SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY: ${SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY:-}
       TRIVY_CACHE_DIR: /tmp/trivy-cache
     read_only: true
     tmpfs:
@@ -362,6 +366,13 @@ services:
       PY_AGENT_RUNTIME_TIMEOUT_SEC: ${PY_AGENT_RUNTIME_TIMEOUT_SEC:-60}
       PY_AGENT_RUNTIME_STRICT: ${PY_AGENT_RUNTIME_STRICT:-true}
       AGENT_RUNTIME_TOOL_TOKEN: ${AGENT_RUNTIME_TOOL_TOKEN:-local-agent-runtime-tool-token}
+      MCP_PLATFORM_ENABLED: ${MCP_PLATFORM_ENABLED:-true}
+      SANDBOX_EXECUTION_ENABLED: ${SANDBOX_EXECUTION_ENABLED:-true}
+      SANDBOX_CONTROL_PLANE_URL: ${SANDBOX_CONTROL_PLANE_URL:-http://sandbox-control-plane:8092}
+      OPENBAO_ADDR: ${OPENBAO_ADDR:-http://openbao:8200}
+      OPENBAO_TOKEN: ${OPENBAO_TOKEN:-}
+      MCP_CAPABILITY_ED25519_PRIVATE_KEY: ${MCP_CAPABILITY_ED25519_PRIVATE_KEY:-}
+      SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY: ${SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY:-}
       WORKER_ID: agent-worker
       OUTBOX_WORKER_INTERVAL_SEC: ${OUTBOX_WORKER_INTERVAL_SEC:-1}
       OUTBOX_WORKER_BATCH_SIZE: ${OUTBOX_WORKER_BATCH_SIZE:-50}

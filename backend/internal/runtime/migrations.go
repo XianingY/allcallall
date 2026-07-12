@@ -17,7 +17,7 @@ import (
 	"github.com/allcallall/backend/internal/models"
 )
 
-const currentSchemaVersion = 3
+const currentSchemaVersion = 4
 
 // RunMigrations applies the ordered schema migrations using golang-migrate.
 func RunMigrations(db *gorm.DB, dataSourceNames ...string) error {
@@ -123,6 +123,15 @@ func alignMySQLPlatformSchema(db *gorm.DB) error {
 		"ALTER TABLE mcp_executions MODIFY COLUMN execution_id VARCHAR(96) CHARACTER SET ascii NOT NULL",
 		"ALTER TABLE mcp_executions MODIFY COLUMN run_ref VARCHAR(96) CHARACTER SET ascii NOT NULL",
 		"ALTER TABLE mcp_executions MODIFY COLUMN tool_call_id VARCHAR(96) CHARACTER SET ascii NOT NULL",
+		"ALTER TABLE mcp_executions MODIFY COLUMN sandbox_request_digest CHAR(64) CHARACTER SET ascii NOT NULL DEFAULT ''",
+		"ALTER TABLE mcp_executions MODIFY COLUMN reconcile_attempts INT NOT NULL DEFAULT 0",
+		"ALTER TABLE mcp_executions MODIFY COLUMN next_reconcile_at DATETIME(6) NULL",
+		"ALTER TABLE sandbox_execution_receipts MODIFY COLUMN execution_id VARCHAR(96) CHARACTER SET ascii NOT NULL",
+		"ALTER TABLE sandbox_execution_receipts MODIFY COLUMN request_digest CHAR(64) CHARACTER SET ascii NOT NULL",
+		"ALTER TABLE sandbox_execution_receipts MODIFY COLUMN run_ref VARCHAR(96) CHARACTER SET ascii NOT NULL",
+		"ALTER TABLE sandbox_execution_receipts MODIFY COLUMN tool_call_id VARCHAR(96) CHARACTER SET ascii NOT NULL",
+		"ALTER TABLE sandbox_execution_receipts MODIFY COLUMN status VARCHAR(32) CHARACTER SET ascii NOT NULL",
+		"ALTER TABLE sandbox_execution_receipts MODIFY COLUMN error_code VARCHAR(64) CHARACTER SET ascii NOT NULL DEFAULT ''",
 		"ALTER TABLE workflow_runs MODIFY COLUMN approval_request_id VARCHAR(96) CHARACTER SET ascii NOT NULL DEFAULT ''",
 		"ALTER TABLE tool_approvals MODIFY COLUMN approval_request_id VARCHAR(96) CHARACTER SET ascii NOT NULL DEFAULT ''",
 		"ALTER TABLE agent_runs MODIFY COLUMN approval_request_id VARCHAR(96) CHARACTER SET ascii NOT NULL DEFAULT ''",

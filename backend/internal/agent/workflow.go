@@ -282,12 +282,9 @@ func (s *Service) ProcessWorkflowRun(ctx context.Context, workflowRunID uint64) 
 	if run.RuntimeOwner == WorkflowRuntimePythonLangGraph && s.shouldUseExternalWorkflowRuntime(run) {
 		result, err := s.processWorkflowRunWithExternalRuntime(ctx, run)
 		if err != nil {
-			if errors.Is(err, ErrCheckpointExecutionBusy) {
-				updated := s.db.WithContext(context.WithoutCancel(ctx)).Model(&models.WorkflowRun{}).
-					Where("id = ? AND execution_lease_token = ? AND status = ?", run.ID, run.ExecutionLeaseToken, models.WorkflowRunStatusRunning).
-					Updates(map[string]any{"status": models.WorkflowRunStatusPending, "attempts": gorm.Expr("CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END"), "lease_until": nil, "execution_lease_token": "", "completed_at": nil, "error_message": err.Error(), "updated_at": time.Now().UTC()})
-				if updated.Error != nil {
-					return nil, updated.Error
+			if isDeferredRunExecution(err) {
+				if releaseErr := s.deferWorkflowRun(ctx, run, err); releaseErr != nil {
+					return nil, releaseErr
 				}
 				return nil, err
 			}
@@ -350,6 +347,12 @@ func (s *Service) ProcessWorkflowRun(ctx context.Context, workflowRunID uint64) 
 		return s.buildWorkflowResult(ctx, updated)
 	}
 	if err := s.executeCommitResultTask(ctx, run); err != nil {
+		if isDeferredRunExecution(err) {
+			if releaseErr := s.deferWorkflowRun(ctx, run, err); releaseErr != nil {
+				return nil, releaseErr
+			}
+			return nil, err
+		}
 		s.failWorkflowRun(ctx, run, err)
 		return nil, err
 	}
@@ -358,6 +361,32 @@ func (s *Service) ProcessWorkflowRun(ctx context.Context, workflowRunID uint64) 
 		return nil, err
 	}
 	return s.buildWorkflowResult(ctx, updated)
+}
+
+func (s *Service) deferWorkflowRun(ctx context.Context, run models.WorkflowRun, cause error) error {
+	message := ""
+	if cause != nil {
+		message = cause.Error()
+	}
+	updated := s.db.WithContext(context.WithoutCancel(ctx)).Model(&models.WorkflowRun{}).
+		Where("id = ? AND execution_lease_token = ? AND status = ?", run.ID, run.ExecutionLeaseToken, models.WorkflowRunStatusRunning).
+		Updates(map[string]any{
+			"status":                models.WorkflowRunStatusPending,
+			"attempts":              gorm.Expr("CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END"),
+			"lease_until":           nil,
+			"execution_lease_token": "",
+			"completed_at":          nil,
+			"error_message":         message,
+			"updated_at":            time.Now().UTC(),
+		})
+	if updated.Error != nil {
+		return updated.Error
+	}
+	if updated.RowsAffected != 1 {
+		return fmt.Errorf("%w: workflow execution lease was lost while deferring retry", ErrWorkflowRuntimeConflict)
+	}
+	s.syncBackingAgentRun(ctx, run, models.AgentRunStatusPending, message)
+	return nil
 }
 
 func (s *Service) ProcessDueWorkflowTimers(ctx context.Context, limit int) ([]uint64, error) {

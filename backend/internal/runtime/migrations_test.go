@@ -16,20 +16,32 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-func TestCurrentSchemaVersionIncludesWorkflowRuntimeResume(t *testing.T) {
-	if currentSchemaVersion != 3 {
-		t.Fatalf("current schema version=%d want=3", currentSchemaVersion)
+func TestCurrentSchemaVersionIncludesDurableSandboxReceipts(t *testing.T) {
+	if currentSchemaVersion != 4 {
+		t.Fatalf("current schema version=%d want=4", currentSchemaVersion)
 	}
-	for _, direction := range []string{"up", "down"} {
-		path := filepath.Join("..", "..", "migrations", "000003_workflow_runtime_resume."+direction+".sql")
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s migration: %v", direction, err)
-		}
-		text := string(raw)
-		for _, field := range []string{"approval_request_id", "approval_checkpoint_version", "runtime_request_json", "runtime_owner"} {
-			if !strings.Contains(text, field) {
-				t.Fatalf("%s migration missing %s", direction, field)
+	migrations := map[string]map[string][]string{
+		"000003_workflow_runtime_resume": {
+			"up":   {"approval_request_id", "approval_checkpoint_version", "runtime_request_json", "runtime_owner"},
+			"down": {"approval_request_id", "approval_checkpoint_version", "runtime_request_json", "runtime_owner"},
+		},
+		"000004_sandbox_execution_receipts": {
+			"up":   {"sandbox_execution_receipts", "request_digest", "reconcile_attempts", "next_reconcile_at", "idx_mcp_executions_reconcile"},
+			"down": {"sandbox_execution_receipts", "reconcile_attempts", "next_reconcile_at", "idx_mcp_executions_reconcile"},
+		},
+	}
+	for migration, directions := range migrations {
+		for direction, fields := range directions {
+			path := filepath.Join("..", "..", "migrations", migration+"."+direction+".sql")
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s migration: %v", direction, err)
+			}
+			text := string(raw)
+			for _, field := range fields {
+				if !strings.Contains(text, field) {
+					t.Fatalf("%s migration missing %s", direction, field)
+				}
 			}
 		}
 	}
@@ -96,7 +108,8 @@ func TestMySQLWorkflowRuntimeMigrationUpDownUp(t *testing.T) {
 	if !bootstrapped {
 		t.Fatal("expected empty isolated database to be bootstrapped")
 	}
-	assertMigrationVersion(t, migration, 3)
+	assertMigrationVersion(t, migration, 4)
+	assertSandboxReceiptV4Schema(t, sqlDB, databaseName)
 	assertWorkflowRuntimeV3Schema(t, sqlDB, databaseName)
 	if err := migration.Migrate(2); err != nil {
 		t.Fatalf("move bootstrapped schema to v2: %v", err)
@@ -128,6 +141,82 @@ func TestMySQLWorkflowRuntimeMigrationUpDownUp(t *testing.T) {
 	assertWorkflowRuntimeV3Schema(t, sqlDB, databaseName)
 	assertWorkflowRuntimeBackfill(t, sqlDB)
 	assertWorkflowRuntimeV2DataPreserved(t, sqlDB)
+}
+
+func TestMySQLSandboxReceiptMigrationUpDownUp(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ALLCALLALL_TEST_MYSQL_DSN"))
+	if dsn == "" {
+		t.Skip("ALLCALLALL_TEST_MYSQL_DSN is not configured")
+	}
+
+	databaseName := "allcallall_sandbox_migration_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	adminDB, testDSN := createMigrationTestDatabase(t, dsn, databaseName)
+	t.Cleanup(func() {
+		if _, err := adminDB.Exec("DROP DATABASE IF EXISTS `" + databaseName + "`"); err != nil {
+			t.Errorf("drop isolated sandbox migration database: %v", err)
+		}
+	})
+
+	gormDB, err := gorm.Open(gormmysql.Open(testDSN), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatalf("open isolated sandbox migration database: %v", err)
+	}
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		t.Fatalf("get isolated sandbox migration sql.DB: %v", err)
+	}
+	driver, err := migratemysql.WithInstance(sqlDB, &migratemysql.Config{})
+	if err != nil {
+		t.Fatalf("create sandbox migration driver: %v", err)
+	}
+	migrationPath, err := filepath.Abs(filepath.Join("..", "..", "migrations"))
+	if err != nil {
+		t.Fatalf("resolve migration directory: %v", err)
+	}
+	migration, err := migrate.NewWithDatabaseInstance("file://"+filepath.ToSlash(migrationPath), "mysql", driver)
+	if err != nil {
+		t.Fatalf("create sandbox migration runner: %v", err)
+	}
+	t.Cleanup(func() {
+		sourceErr, databaseErr := migration.Close()
+		if sourceErr != nil {
+			t.Errorf("close sandbox migration source: %v", sourceErr)
+		}
+		if databaseErr != nil {
+			t.Errorf("close sandbox migration database: %v", databaseErr)
+		}
+	})
+
+	bootstrapped, err := bootstrapMySQLSchema(gormDB, migration)
+	if err != nil {
+		t.Fatalf("bootstrap sandbox receipt schema: %v", err)
+	}
+	if !bootstrapped {
+		t.Fatal("expected empty sandbox migration database to be bootstrapped")
+	}
+	assertMigrationVersion(t, migration, 4)
+	assertSandboxReceiptV4Schema(t, sqlDB, databaseName)
+
+	if err := migration.Migrate(3); err != nil {
+		t.Fatalf("roll back sandbox receipt schema to v3: %v", err)
+	}
+	assertMigrationVersion(t, migration, 3)
+	assertSandboxReceiptV4SchemaAbsent(t, sqlDB, databaseName)
+
+	if err := migration.Migrate(4); err != nil {
+		t.Fatalf("reapply sandbox receipt schema: %v", err)
+	}
+	assertMigrationVersion(t, migration, 4)
+	assertSandboxReceiptV4Schema(t, sqlDB, databaseName)
+
+	if err := migration.Migrate(3); err != nil {
+		t.Fatalf("second sandbox receipt rollback: %v", err)
+	}
+	assertSandboxReceiptV4SchemaAbsent(t, sqlDB, databaseName)
+	if err := migration.Migrate(4); err != nil {
+		t.Fatalf("second sandbox receipt reapply: %v", err)
+	}
+	assertSandboxReceiptV4Schema(t, sqlDB, databaseName)
 }
 
 func createMigrationTestDatabase(t *testing.T, dsn, databaseName string) (*sql.DB, string) {
@@ -297,6 +386,107 @@ func assertMySQLIndex(t *testing.T, db *sql.DB, databaseName, table, index, want
 	}
 	if column != wantColumn || nonUnique != 1 {
 		t.Fatalf("index %s.%s=(column=%s, non_unique=%d) want=(column=%s, non_unique=1)", table, index, column, nonUnique, wantColumn)
+	}
+}
+
+func assertSandboxReceiptV4Schema(t *testing.T, db *sql.DB, databaseName string) {
+	t.Helper()
+	empty := ""
+	zero := "0"
+	columns := []mysqlColumnExpectation{
+		{table: "mcp_executions", column: "sandbox_request_digest", dataType: "char", nullable: "NO", defaultValue: &empty, characterSet: "ascii"},
+		{table: "mcp_executions", column: "reconcile_attempts", dataType: "int", nullable: "NO", defaultValue: &zero},
+		{table: "mcp_executions", column: "next_reconcile_at", dataType: "datetime", columnTypeContains: "datetime(6)", nullable: "YES"},
+		{table: "sandbox_execution_receipts", column: "execution_id", dataType: "varchar", nullable: "NO", characterSet: "ascii"},
+		{table: "sandbox_execution_receipts", column: "request_digest", dataType: "char", nullable: "NO", characterSet: "ascii"},
+		{table: "sandbox_execution_receipts", column: "run_ref", dataType: "varchar", nullable: "NO", characterSet: "ascii"},
+		{table: "sandbox_execution_receipts", column: "tool_call_id", dataType: "varchar", nullable: "NO", characterSet: "ascii"},
+		{table: "sandbox_execution_receipts", column: "status", dataType: "varchar", nullable: "NO", characterSet: "ascii"},
+		{table: "sandbox_execution_receipts", column: "output_json", dataType: "longblob", nullable: "YES"},
+		{table: "sandbox_execution_receipts", column: "error_code", dataType: "varchar", nullable: "NO", defaultValue: &empty, characterSet: "ascii"},
+		{table: "sandbox_execution_receipts", column: "stale_at", dataType: "datetime", columnTypeContains: "datetime(6)", nullable: "NO"},
+		{table: "sandbox_execution_receipts", column: "expires_at", dataType: "datetime", columnTypeContains: "datetime(6)", nullable: "NO"},
+	}
+	for _, expected := range columns {
+		assertMySQLColumn(t, db, databaseName, expected)
+	}
+	assertMySQLIndex(t, db, databaseName, "sandbox_execution_receipts", "idx_sandbox_receipt_request_digest", "request_digest")
+	assertMySQLIndex(t, db, databaseName, "sandbox_execution_receipts", "idx_sandbox_receipt_status_stale", "status")
+	assertMySQLIndexColumns(t, db, databaseName, "mcp_executions", "idx_mcp_executions_reconcile", []string{"status", "next_reconcile_at", "id"})
+}
+
+func assertMySQLIndexColumns(t *testing.T, db *sql.DB, databaseName, table, index string, want []string) {
+	t.Helper()
+	rows, err := db.Query(`
+		SELECT COLUMN_NAME
+		FROM information_schema.STATISTICS
+		WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?
+		ORDER BY SEQ_IN_INDEX`, databaseName, table, index)
+	if err != nil {
+		t.Fatalf("read index %s.%s columns: %v", table, index, err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			t.Fatalf("scan index %s.%s column: %v", table, index, err)
+		}
+		got = append(got, column)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate index %s.%s columns: %v", table, index, err)
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("index %s.%s columns=%v want=%v", table, index, got, want)
+	}
+}
+
+func assertSandboxReceiptV4SchemaAbsent(t *testing.T, db *sql.DB, databaseName string) {
+	t.Helper()
+	var tableCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM information_schema.TABLES
+		WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'sandbox_execution_receipts'`, databaseName).Scan(&tableCount); err != nil {
+		t.Fatalf("count rolled-back sandbox receipt table: %v", err)
+	}
+	if tableCount != 0 {
+		t.Fatal("sandbox_execution_receipts still exists after v4 rollback")
+	}
+	var indexCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM information_schema.STATISTICS
+			WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'mcp_executions' AND INDEX_NAME = 'idx_mcp_executions_reconcile'`,
+		databaseName,
+	).Scan(&indexCount); err != nil {
+		t.Fatalf("count rolled-back MCP reconcile index: %v", err)
+	}
+	if indexCount != 0 {
+		t.Fatal("MCP reconcile index still exists after v4 rollback")
+	}
+	var digestColumnCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM information_schema.COLUMNS
+		WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'mcp_executions' AND COLUMN_NAME = 'sandbox_request_digest'`,
+		databaseName,
+	).Scan(&digestColumnCount); err != nil {
+		t.Fatalf("count rolled-back MCP request digest column: %v", err)
+	}
+	if digestColumnCount != 0 {
+		t.Fatal("MCP request digest column still exists after v4 rollback")
+	}
+	for _, column := range []string{"reconcile_attempts", "next_reconcile_at"} {
+		var count int
+		if err := db.QueryRow(`
+			SELECT COUNT(*) FROM information_schema.COLUMNS
+			WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'mcp_executions' AND COLUMN_NAME = ?`,
+			databaseName, column,
+		).Scan(&count); err != nil {
+			t.Fatalf("count rolled-back MCP reconciliation column %s: %v", column, err)
+		}
+		if count != 0 {
+			t.Fatalf("MCP reconciliation column %s still exists after v4 rollback", column)
+		}
 	}
 }
 

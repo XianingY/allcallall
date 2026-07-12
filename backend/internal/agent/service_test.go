@@ -100,9 +100,13 @@ func (f *fakeAgentMCPSandbox) Validate(context.Context, mcpplatform.ValidationRe
 	return mcpplatform.ValidationResult{}, nil
 }
 
-func (f *fakeAgentMCPSandbox) Execute(context.Context, mcpplatform.ExecutionRequest) (mcpplatform.ExecutionResult, error) {
+func (f *fakeAgentMCPSandbox) Execute(_ context.Context, request mcpplatform.ExecutionRequest) (mcpplatform.ExecutionResult, error) {
 	f.executions++
-	return mcpplatform.ExecutionResult{JobID: "approved-job", Output: map[string]any{"updated": true}}, nil
+	return fakeSuccessfulMCPReceipt(request, "approved-job", map[string]any{"updated": true}), nil
+}
+
+func (f *fakeAgentMCPSandbox) LookupExecution(context.Context, string) (mcpplatform.SandboxExecutionReceipt, error) {
+	return mcpplatform.SandboxExecutionReceipt{}, mcpplatform.ErrSandboxExecutionNotFound
 }
 
 func TestApprovedMCPToolExecutesOnceThroughPlatform(t *testing.T) {

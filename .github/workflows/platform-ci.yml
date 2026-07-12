@@ -85,11 +85,11 @@ jobs:
           MYSQL_PASSWORD: contract-test-password
           JWT_SECRET: contract-test-jwt-secret
         run: go run ./cmd/migrate
-      - name: Verify workflow runtime migration v3 up/down/up
+      - name: Verify platform migrations up/down/up
         working-directory: backend
         env:
           ALLCALLALL_TEST_MYSQL_DSN: "root:root-test-password@tcp(127.0.0.1:3306)/allcallall_contract?parseTime=true&charset=utf8mb4&loc=UTC"
-        run: go test -count=1 -run '^TestMySQLWorkflowRuntimeMigrationUpDownUp$' ./internal/runtime
+        run: go test -count=1 -run '^(TestMySQLWorkflowRuntimeMigrationUpDownUp|TestMySQLSandboxReceiptMigrationUpDownUp)$' ./internal/runtime
       - name: Install Agent Runtime test dependencies
         run: |
           python -m pip install --upgrade pip
@@ -119,10 +119,10 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Test sandbox packages
         working-directory: backend
-        run: go test -race ./internal/sandbox/... ./cmd/sandbox-service
+        run: go test -race ./internal/mcpplatform ./internal/sandbox/... ./cmd/sandbox-service
       - name: Static analysis
         working-directory: backend
-        run: go vet ./internal/sandbox/... ./cmd/sandbox-service
+        run: go vet ./internal/mcpplatform ./internal/sandbox/... ./cmd/sandbox-service
 
   openapi-drift:
     name: OpenAPI Contract Drift
@@ -199,6 +199,41 @@ jobs:
                   assert security["allowPrivilegeEscalation"] is False
                   assert security["capabilities"]["drop"] == ["ALL"]
                   assert security["seccompProfile"]["type"] == "RuntimeDefault"
+
+          control_plane_env = {
+              item["name"]: item
+              for item in deployments["sandbox-control-plane"]["spec"]["template"]["spec"]["containers"][0]["env"]
+          }
+          runner_env = {
+              item["name"]: item
+              for item in deployments["sandbox-runner"]["spec"]["template"]["spec"]["containers"][0]["env"]
+          }
+          assert "secretKeyRef" in control_plane_env["SANDBOX_DB_DSN"]["valueFrom"]
+          assert "SANDBOX_DB_DSN" not in runner_env
+          control_plane_capability = control_plane_env["SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY"]["valueFrom"]["secretKeyRef"]
+          assert control_plane_capability["name"] == "allcallall-external"
+          assert control_plane_capability["key"] == "sandbox-capability-ed25519-public-key"
+          assert control_plane_capability.get("optional") is not True
+          assert "MCP_CAPABILITY_ED25519_PRIVATE_KEY" not in control_plane_env
+          assert "MCP_CAPABILITY_ED25519_PRIVATE_KEY" not in runner_env
+          assert "SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY" not in runner_env
+
+          config = next(item for item in resources if item["kind"] == "ConfigMap")
+          assert config["data"]["APP_ENV"] == "production"
+          for component in ("api", "agent-worker"):
+              environment = {
+                  item["name"]: item
+                  for item in deployments[component]["spec"]["template"]["spec"]["containers"][0]["env"]
+              }
+              expected_capabilities = {
+                  "MCP_CAPABILITY_ED25519_PRIVATE_KEY": "mcp-capability-ed25519-private-key",
+                  "SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY": "sandbox-capability-ed25519-public-key",
+              }
+              for variable, key in expected_capabilities.items():
+                  capability = environment[variable]["valueFrom"]["secretKeyRef"]
+                  assert capability["name"] == "allcallall-external"
+                  assert capability["key"] == key
+                  assert capability.get("optional") is not True
 
           policies = [item for item in resources if item["kind"] == "NetworkPolicy"]
           assert any(

@@ -81,13 +81,23 @@ spec:
               value: http://{{ include "allcallall.fullname" $root }}-sandbox-control-plane:8092
             - name: OTEL_SERVICE_NAME
               value: allcallall-{{ $workload.name }}
-            {{- if eq $workload.name "api" }}
+            {{- if and $root.Values.features.mcpPlatformEnabled (or (eq $workload.name "api") (eq $workload.name "agent-worker")) }}
             - name: OPENBAO_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ $root.Values.external.openbao.secretName }}
                   key: {{ $root.Values.external.openbao.tokenKey }}
                   optional: true
+            - name: MCP_CAPABILITY_ED25519_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.external.mysql.secretName }}
+                  key: {{ $root.Values.external.mysql.mcpCapabilityPrivateKeyKey }}
+            - name: SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.external.mysql.secretName }}
+                  key: {{ $root.Values.external.mysql.sandboxCapabilityPublicKeyKey }}
             {{- end }}
           {{- if $workload.http }}
           ports:

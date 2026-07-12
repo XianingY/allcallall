@@ -92,28 +92,31 @@ func (MCPTool) TableName() string { return "mcp_tools" }
 
 // MCPExecution stores an idempotent, auditable sandbox tool execution.
 type MCPExecution struct {
-	ID             uint64     `gorm:"primaryKey;autoIncrement"`
-	ExecutionID    string     `gorm:"size:96;not null;uniqueIndex"`
-	RunRef         string     `gorm:"size:96;not null;uniqueIndex:idx_mcp_execution_call"`
-	OrganizationID uint64     `gorm:"not null;index"`
-	UserID         uint64     `gorm:"not null;index"`
-	AgentRunID     *uint64    `gorm:"index"`
-	WorkflowRunID  *uint64    `gorm:"index"`
-	InstallationID uint64     `gorm:"not null;index"`
-	RevisionID     uint64     `gorm:"not null;index"`
-	ToolID         uint64     `gorm:"not null;index"`
-	ToolCallID     string     `gorm:"size:96;not null;index;uniqueIndex:idx_mcp_execution_call"`
-	Status         string     `gorm:"size:32;not null;index"`
-	InputJSON      string     `gorm:"type:longtext;not null"`
-	OutputJSON     string     `gorm:"type:longtext"`
-	SandboxJobID   string     `gorm:"size:160;index"`
-	Attempts       int        `gorm:"not null;default:0"`
-	ErrorMessage   string     `gorm:"type:text"`
-	StartedAt      *time.Time `gorm:"index"`
-	CompletedAt    *time.Time `gorm:"index"`
-	ExpiresAt      time.Time  `gorm:"not null;index"`
-	CreatedAt      time.Time  `gorm:"autoCreateTime;index"`
-	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`
+	ID                   uint64     `gorm:"primaryKey;autoIncrement;index:idx_mcp_executions_reconcile,priority:3"`
+	ExecutionID          string     `gorm:"size:96;not null;uniqueIndex"`
+	RunRef               string     `gorm:"size:96;not null;uniqueIndex:idx_mcp_execution_call"`
+	OrganizationID       uint64     `gorm:"not null;index"`
+	UserID               uint64     `gorm:"not null;index"`
+	AgentRunID           *uint64    `gorm:"index"`
+	WorkflowRunID        *uint64    `gorm:"index"`
+	InstallationID       uint64     `gorm:"not null;index"`
+	RevisionID           uint64     `gorm:"not null;index"`
+	ToolID               uint64     `gorm:"not null;index"`
+	ToolCallID           string     `gorm:"size:96;not null;index;uniqueIndex:idx_mcp_execution_call"`
+	Status               string     `gorm:"size:32;not null;index;index:idx_mcp_executions_reconcile,priority:1"`
+	InputJSON            string     `gorm:"type:longtext;not null"`
+	OutputJSON           string     `gorm:"type:longtext"`
+	SandboxJobID         string     `gorm:"size:160;index"`
+	SandboxRequestDigest string     `gorm:"size:64;not null;default:''"`
+	Attempts             int        `gorm:"not null;default:0"`
+	ReconcileAttempts    int        `gorm:"type:int;not null;default:0"`
+	NextReconcileAt      *time.Time `gorm:"precision:6;index:idx_mcp_executions_reconcile,priority:2"`
+	ErrorMessage         string     `gorm:"type:text"`
+	StartedAt            *time.Time `gorm:"index"`
+	CompletedAt          *time.Time `gorm:"index"`
+	ExpiresAt            time.Time  `gorm:"not null;index"`
+	CreatedAt            time.Time  `gorm:"autoCreateTime;index"`
+	UpdatedAt            time.Time  `gorm:"autoUpdateTime"`
 }
 
 func (MCPExecution) TableName() string { return "mcp_executions" }

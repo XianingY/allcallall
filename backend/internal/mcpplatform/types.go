@@ -7,18 +7,20 @@ import (
 )
 
 var (
-	ErrDisabled            = errors.New("mcp platform disabled")
-	ErrNotFound            = errors.New("mcp resource not found")
-	ErrForbidden           = errors.New("mcp resource forbidden")
-	ErrInvalidInput        = errors.New("invalid mcp input")
-	ErrInvalidState        = errors.New("invalid mcp state transition")
-	ErrQuotaExceeded       = errors.New("mcp installation quota exceeded")
-	ErrSandboxUnavailable  = errors.New("sandbox service unavailable")
-	ErrSecretUnavailable   = errors.New("secret store unavailable")
-	ErrApprovalRequired    = errors.New("mcp tool approval required")
-	ErrExecutionInProgress = errors.New("mcp execution in progress")
-	ErrExecutionTerminal   = errors.New("mcp execution already reached a failed terminal state")
-	ErrOutputTooLarge      = errors.New("mcp tool output too large")
+	ErrDisabled                 = errors.New("mcp platform disabled")
+	ErrNotFound                 = errors.New("mcp resource not found")
+	ErrForbidden                = errors.New("mcp resource forbidden")
+	ErrInvalidInput             = errors.New("invalid mcp input")
+	ErrInvalidState             = errors.New("invalid mcp state transition")
+	ErrQuotaExceeded            = errors.New("mcp installation quota exceeded")
+	ErrSandboxUnavailable       = errors.New("sandbox service unavailable")
+	ErrSandboxExecutionNotFound = errors.New("sandbox execution receipt not found")
+	ErrSandboxExecutionConflict = errors.New("sandbox execution receipt conflicts with request")
+	ErrSecretUnavailable        = errors.New("secret store unavailable")
+	ErrApprovalRequired         = errors.New("mcp tool approval required")
+	ErrExecutionInProgress      = errors.New("mcp execution in progress")
+	ErrExecutionTerminal        = errors.New("mcp execution already reached a failed terminal state")
+	ErrOutputTooLarge           = errors.New("mcp tool output too large")
 )
 
 const (
@@ -26,6 +28,15 @@ const (
 	DefaultOrganizationLimit         = 20
 	DefaultExecutionTimeout          = 30 * time.Second
 	DefaultOutputLimit               = 256 * 1024
+
+	SandboxExecutionStatusQueued         = "queued"
+	SandboxExecutionStatusStarting       = "starting"
+	SandboxExecutionStatusRunning        = "running"
+	SandboxExecutionStatusSucceeded      = "succeeded"
+	SandboxExecutionStatusFailed         = "failed"
+	SandboxExecutionStatusTimedOut       = "timed_out"
+	SandboxExecutionStatusCanceled       = "canceled"
+	SandboxExecutionStatusOutcomeUnknown = "outcome_unknown"
 )
 
 type InstallationDefinition struct {
@@ -81,8 +92,11 @@ type ExecutionRequest struct {
 	UserID          uint64                 `json:"user_id"`
 	ConversationID  uint64                 `json:"conversation_id"`
 	RunID           uint64                 `json:"run_id"`
+	RunRef          string                 `json:"run_ref"`
+	ToolCallID      string                 `json:"tool_call_id"`
 	InstallationID  uint64                 `json:"installation_id"`
 	RevisionID      uint64                 `json:"revision_id"`
+	ToolID          uint64                 `json:"tool_id"`
 	SourceType      string                 `json:"source_type"`
 	Definition      InstallationDefinition `json:"definition"`
 	ToolName        string                 `json:"tool_name"`
@@ -92,15 +106,37 @@ type ExecutionRequest struct {
 	OutputLimit     int                    `json:"output_limit"`
 }
 
-type ExecutionResult struct {
-	JobID  string         `json:"job_id"`
-	Output map[string]any `json:"output"`
+// SandboxExecutionReceipt is the durable, identity-bound result returned by
+// the trusted sandbox control plane. Secret wrapping tokens are never echoed.
+type SandboxExecutionReceipt struct {
+	ExecutionID    string         `json:"execution_id"`
+	RequestDigest  string         `json:"request_digest"`
+	Status         string         `json:"status"`
+	JobID          string         `json:"job_id"`
+	OrganizationID uint64         `json:"organization_id"`
+	UserID         uint64         `json:"user_id"`
+	ConversationID uint64         `json:"conversation_id"`
+	RunID          uint64         `json:"run_id"`
+	RunRef         string         `json:"run_ref"`
+	ToolCallID     string         `json:"tool_call_id"`
+	InstallationID uint64         `json:"installation_id"`
+	RevisionID     uint64         `json:"revision_id"`
+	ToolID         uint64         `json:"tool_id"`
+	ToolName       string         `json:"tool_name"`
+	Output         map[string]any `json:"output,omitempty"`
+	ErrorCode      string         `json:"error_code,omitempty"`
+	ErrorMessage   string         `json:"error_message,omitempty"`
+	StartedAt      *time.Time     `json:"started_at,omitempty"`
+	CompletedAt    *time.Time     `json:"completed_at,omitempty"`
 }
+
+type ExecutionResult = SandboxExecutionReceipt
 
 // SandboxClient is the only path from the control plane to untrusted MCP code.
 type SandboxClient interface {
 	Validate(context.Context, ValidationRequest) (ValidationResult, error)
 	Execute(context.Context, ExecutionRequest) (ExecutionResult, error)
+	LookupExecution(context.Context, string) (SandboxExecutionReceipt, error)
 }
 
 // SecretStore persists values outside MySQL and returns only an opaque path.

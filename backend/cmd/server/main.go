@@ -28,7 +28,6 @@ import (
 	"github.com/allcallall/backend/internal/knowledge"
 	"github.com/allcallall/backend/internal/logger"
 	"github.com/allcallall/backend/internal/mail"
-	"github.com/allcallall/backend/internal/mcpplatform"
 	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/presence"
 	"github.com/allcallall/backend/internal/ratelimit"
@@ -104,45 +103,15 @@ func main() {
 	outboxStore := events.NewStore(db)
 	collaborationSvc.WithOutbox(outboxStore)
 	agentSvc := agent.NewService(db, counterStore)
-	mcpEnabled := envFlagDefault("MCP_PLATFORM_ENABLED", true)
-	mcpSvc := mcpplatform.NewService(db, counterStore).WithEnabled(mcpEnabled)
-	var capabilityManager *mcpplatform.CapabilityManager
-	if mcpEnabled {
-		appEnvironment := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
-		if (appEnvironment == "production" || appEnvironment == "beta") && strings.TrimSpace(os.Getenv("MCP_CAPABILITY_ED25519_PRIVATE_KEY")) == "" {
-			appLogger.Fatal().Msg("MCP_CAPABILITY_ED25519_PRIVATE_KEY is required outside local development")
-		}
-		capabilityManager, err = mcpplatform.NewCapabilityManagerFromEnv()
-		if err != nil {
-			appLogger.Fatal().Err(err).Msg("failed to initialize MCP capability signer")
-		}
-		mcpSvc.WithCapabilityManager(capabilityManager)
+	mcpRuntime, err := appruntime.MCPPlatformFromEnv(db, counterStore, outboxStore, appLogger)
+	if err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to initialize MCP platform")
+	}
+	mcpSvc := mcpRuntime.Service
+	capabilityManager := mcpRuntime.CapabilityManager
+	if mcpRuntime.Enabled {
 		agentSvc.WithToolCapabilityProvider(mcpSvc)
 		agentSvc.WithMCPPlatform(mcpSvc)
-		if sandboxURL := strings.TrimSpace(os.Getenv("SANDBOX_CONTROL_PLANE_URL")); envFlagDefault("SANDBOX_EXECUTION_ENABLED", true) && sandboxURL != "" {
-			sandboxClient, sandboxErr := mcpplatform.NewHTTPSandboxClient(sandboxURL, 35*time.Second)
-			if sandboxErr != nil {
-				appLogger.Fatal().Err(sandboxErr).Msg("failed to initialize sandbox control plane client")
-			}
-			mcpSvc.WithSandbox(sandboxClient)
-			appLogger.Info().Str("url", sandboxURL).Msg("MCP sandbox control plane enabled")
-		} else if envFlagDefault("SANDBOX_EXECUTION_ENABLED", true) {
-			appLogger.Warn().Msg("MCP validation and execution disabled: SANDBOX_CONTROL_PLANE_URL is not configured")
-		} else {
-			appLogger.Info().Msg("MCP sandbox execution disabled by feature flag")
-		}
-		openBaoAddress := strings.TrimSpace(os.Getenv("OPENBAO_ADDR"))
-		openBaoToken := strings.TrimSpace(os.Getenv("OPENBAO_TOKEN"))
-		if openBaoAddress != "" || openBaoToken != "" {
-			secretStore, secretErr := mcpplatform.NewOpenBaoSecretStore(openBaoAddress, openBaoToken)
-			if secretErr != nil {
-				appLogger.Fatal().Err(secretErr).Msg("failed to initialize OpenBao secret store")
-			}
-			mcpSvc.WithSecretStore(secretStore)
-			appLogger.Info().Msg("OpenBao MCP secret store enabled")
-		} else {
-			appLogger.Warn().Msg("MCP secret storage disabled: OPENBAO_ADDR and OPENBAO_TOKEN are not configured")
-		}
 	}
 	agentSvc.WithOutbox(outboxStore)
 	knowledgeSvc := knowledge.NewService(db).WithOutbox(outboxStore)
@@ -397,6 +366,7 @@ func main() {
 		outboxEvents := []string{
 			appruntime.EventAgentRunRequested,
 			appruntime.EventWorkflowRequested,
+			appruntime.EventMCPExecutionTerminal,
 			appruntime.EventAgentRunCompleted,
 			appruntime.EventMessageCreated,
 			appruntime.EventSearchMessageIndex,
@@ -409,6 +379,10 @@ func main() {
 		}
 		appruntime.ConfigureOutboxProcessorFromEnv(outboxProcessor, "api-embedded-outbox", outboxEvents...)
 		appruntime.StartCleanupWorker(rootCtx, appLogger, collaborationSvc, refreshSessionSvc)
+		appruntime.StartAgentRecoveryWorker(rootCtx, appLogger, agentSvc)
+		if mcpRuntime.Enabled {
+			appruntime.StartMCPReconciliationWorker(rootCtx, appLogger, mcpSvc)
+		}
 		appruntime.StartOutboxWorker(rootCtx, appLogger, outboxProcessor)
 	} else {
 		appLogger.Info().Msg("embedded workers disabled; expecting standalone workers")
@@ -440,12 +414,4 @@ func main() {
 	} else {
 		appLogger.Info().Msg("http server gracefully stopped")
 	}
-}
-
-func envFlagDefault(name string, fallback bool) bool {
-	raw := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
-	if raw == "" {
-		return fallback
-	}
-	return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
 }

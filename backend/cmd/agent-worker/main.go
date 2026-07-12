@@ -40,6 +40,14 @@ func main() {
 	outboxStore := events.NewStore(db)
 	agentSvc := agent.NewService(db, counterStore)
 	agentSvc.WithOutbox(outboxStore)
+	mcpRuntime, err := appruntime.MCPPlatformFromEnv(db, counterStore, outboxStore, appLogger)
+	if err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to initialize MCP platform")
+	}
+	if mcpRuntime.Enabled {
+		agentSvc.WithToolCapabilityProvider(mcpRuntime.Service)
+		agentSvc.WithMCPPlatform(mcpRuntime.Service)
+	}
 	knowledgeSvc := knowledge.NewService(db).WithOutbox(outboxStore)
 	agentSvc.WithKnowledgeRetriever(knowledgeSvc)
 	planner, err := agent.NewPlanner(os.Getenv("AGENT_PROVIDER"))
@@ -78,7 +86,10 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	appruntime.StartAgentWorker(ctx, appLogger, processor)
+	appruntime.StartAgentWorker(ctx, appLogger, processor, agentSvc)
+	if mcpRuntime.Enabled {
+		appruntime.StartMCPReconciliationWorker(ctx, appLogger, mcpRuntime.Service)
+	}
 	appLogger.Info().Str("provider", planner.Name()).Msg("agent worker started")
 	<-ctx.Done()
 	appLogger.Info().Msg("agent worker stopped")

@@ -35,8 +35,11 @@ class ExecutionRequest(BaseModel):
     user_id: int
     conversation_id: int
     run_id: int
+    run_ref: str = ""
+    tool_call_id: str = ""
     installation_id: int
     revision_id: int
+    tool_id: int = 0
     source_type: Literal["oci", "https"]
     definition: InstallationDefinition
     tool_name: str

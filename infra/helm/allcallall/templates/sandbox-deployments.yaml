@@ -62,6 +62,16 @@ spec:
               value: :8092
             - name: SANDBOX_RUNNER_URL
               value: http://{{ include "allcallall.fullname" $root }}-sandbox-runner:8093
+            - name: SANDBOX_DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.external.mysql.secretName }}
+                  key: {{ $root.Values.external.mysql.sandboxReceiptDsnKey }}
+            - name: SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.external.mysql.secretName }}
+                  key: {{ $root.Values.external.mysql.sandboxCapabilityPublicKeyKey }}
             - name: TRIVY_CACHE_DIR
               value: /tmp/trivy-cache
             {{- else }}

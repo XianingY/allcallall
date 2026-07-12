@@ -324,7 +324,7 @@ spec:
     matchExpressions:
       - key: app.kubernetes.io/component
         operator: In
-        values: [api, agent-worker, outbox-worker, migration]
+        values: [api, agent-worker, outbox-worker, migration, sandbox-control-plane]
   policyTypes: [Egress]
   egress:
     {{- range .Values.external.mysql.egressCIDRs }}
@@ -359,7 +359,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "allcallall.fullname" . }}-api-openbao-external
+  name: {{ include "allcallall.fullname" . }}-backend-openbao-external
   labels:
     {{- include "allcallall.labels" . | nindent 4 }}
 spec:
@@ -367,7 +367,10 @@ spec:
     matchLabels:
       app.kubernetes.io/name: {{ include "allcallall.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name }}
-      app.kubernetes.io/component: api
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [api, agent-worker]
   policyTypes: [Egress]
   egress:
     {{- range .Values.external.openbao.egressCIDRs }}

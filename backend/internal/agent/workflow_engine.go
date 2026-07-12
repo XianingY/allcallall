@@ -125,12 +125,50 @@ func (s *Service) executeWorkflowTask(ctx context.Context, run models.WorkflowRu
 	task.Status = models.WorkflowTaskStatusRunning
 	output, err := execute(task)
 	if err != nil {
+		if isDeferredRunExecution(err) {
+			if persistErr := s.deferWorkflowTaskAttempt(ctx, run, task, err); persistErr != nil {
+				return persistErr
+			}
+			return err
+		}
 		if persistErr := s.finishWorkflowTaskAttempt(ctx, run, task, models.WorkflowTaskStatusFailed, nil, err); persistErr != nil {
 			return persistErr
 		}
 		return err
 	}
 	return s.finishWorkflowTaskAttempt(ctx, run, task, models.WorkflowTaskStatusReady, output, nil)
+}
+
+func (s *Service) deferWorkflowTaskAttempt(ctx context.Context, run models.WorkflowRun, task models.WorkflowTask, cause error) error {
+	message := ""
+	if cause != nil {
+		message = cause.Error()
+	}
+	return s.db.WithContext(context.WithoutCancel(ctx)).Transaction(func(tx *gorm.DB) error {
+		var lockedRun models.WorkflowRun
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND execution_lease_token = ? AND execution_lease_token <> '' AND status = ?", run.ID, run.ExecutionLeaseToken, models.WorkflowRunStatusRunning).
+			Take(&lockedRun).Error; err != nil {
+			return fmt.Errorf("%w: workflow task %s lost its execution lease while deferring retry", ErrWorkflowRuntimeConflict, task.Name)
+		}
+		updated := tx.Model(&models.WorkflowTask{}).
+			Where("id = ? AND status = ? AND attempts = ?", task.ID, models.WorkflowTaskStatusRunning, task.Attempts).
+			Updates(map[string]any{
+				"status":        models.WorkflowTaskStatusPending,
+				"attempts":      gorm.Expr("CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END"),
+				"lease_until":   nil,
+				"completed_at":  nil,
+				"error_message": message,
+				"updated_at":    time.Now().UTC(),
+			})
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected != 1 {
+			return fmt.Errorf("%w: workflow task %s attempt changed while deferring retry", ErrWorkflowRuntimeConflict, task.Name)
+		}
+		return nil
+	})
 }
 
 func (s *Service) finishWorkflowTaskAttempt(ctx context.Context, run models.WorkflowRun, task models.WorkflowTask, status string, output map[string]any, cause error) error {

@@ -2,6 +2,7 @@ nameOverride: ""
 fullnameOverride: ""
 
 global:
+  environment: production
   imagePullSecrets: []
   podAnnotations: {}
   podLabels: {}
@@ -39,6 +40,9 @@ external:
     secretName: allcallall-external
     dsnKey: mysql-dsn
     checkpointDsnKey: checkpoint-mysql-dsn
+    sandboxReceiptDsnKey: sandbox-receipt-mysql-dsn
+    mcpCapabilityPrivateKeyKey: mcp-capability-ed25519-private-key
+    sandboxCapabilityPublicKeyKey: sandbox-capability-ed25519-public-key
     egressCIDRs: []
   redis:
     address: redis.example.internal:6379
@@ -60,6 +64,12 @@ secrets:
   # Development convenience only. Use an external secret controller in production.
   mysqlDsn: ""
   checkpointMysqlDsn: ""
+  sandboxReceiptMysqlDsn: ""
+  # Generate the matching private seed/public key pair with:
+  # ./scripts/development/generate-agent-capability-keypair.sh
+  mcpCapabilityPrivateKey: ""
+  # Matching base64-encoded 32-byte Ed25519 public key.
+  sandboxCapabilityPublicKey: ""
   redisPassword: ""
   openbaoToken: ""
 

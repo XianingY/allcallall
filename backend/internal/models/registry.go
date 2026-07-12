@@ -18,7 +18,7 @@ func AllModels() []any {
 		&RAGSourceGroup{}, &RAGSourceDuplicate{}, &RAGSource{}, &RAGSourceVersion{}, &RAGChunk{},
 		&WorkflowRun{}, &WorkflowTask{}, &WorkflowHistoryEvent{}, &WorkflowSignal{}, &WorkflowTimer{},
 		&AgentMessage{}, &ToolPolicy{}, &ToolApproval{}, &MCPInstallation{},
-		&MCPInstallationRevision{}, &MCPTool{}, &MCPExecution{}, &AgentSkill{}, &AgentSkillTool{},
+		&MCPInstallationRevision{}, &MCPTool{}, &MCPExecution{}, &SandboxExecutionReceipt{}, &AgentSkill{}, &AgentSkillTool{},
 		&LangGraphCheckpointThread{}, &LangGraphCheckpoint{}, &LangGraphCheckpointWrite{}, &EventOutbox{},
 	}
 }

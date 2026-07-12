@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -23,7 +24,16 @@ func NewHTTPRunner(baseURL string) (*HTTPRunner, error) {
 	if baseURL == "" {
 		return nil, fmt.Errorf("runner URL is required")
 	}
-	return &HTTPRunner{baseURL: baseURL, client: &http.Client{Timeout: 35 * time.Second}}, nil
+	parsed, err := url.Parse(baseURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
+		return nil, fmt.Errorf("invalid runner URL")
+	}
+	return &HTTPRunner{baseURL: baseURL, client: &http.Client{
+		Timeout: 35 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}}, nil
 }
 
 func (r *HTTPRunner) Validate(ctx context.Context, request mcpplatform.ValidationRequest) (mcpplatform.ValidationResult, error) {

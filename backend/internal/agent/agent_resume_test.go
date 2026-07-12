@@ -168,11 +168,15 @@ func (s *resumeAgentMCPSandbox) Validate(context.Context, mcpplatform.Validation
 	return mcpplatform.ValidationResult{}, nil
 }
 
-func (s *resumeAgentMCPSandbox) Execute(context.Context, mcpplatform.ExecutionRequest) (mcpplatform.ExecutionResult, error) {
+func (s *resumeAgentMCPSandbox) Execute(_ context.Context, request mcpplatform.ExecutionRequest) (mcpplatform.ExecutionResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.executions++
-	return mcpplatform.ExecutionResult{JobID: "resume-agent-job", Output: map[string]any{"updated": true}}, nil
+	return fakeSuccessfulMCPReceipt(request, "resume-agent-job", map[string]any{"updated": true}), nil
+}
+
+func (s *resumeAgentMCPSandbox) LookupExecution(context.Context, string) (mcpplatform.SandboxExecutionReceipt, error) {
+	return mcpplatform.SandboxExecutionReceipt{}, mcpplatform.ErrSandboxExecutionNotFound
 }
 
 func (s *resumeAgentMCPSandbox) executionCount() int {

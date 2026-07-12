@@ -16,6 +16,7 @@ import (
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/knowledge"
+	"github.com/allcallall/backend/internal/mcpplatform"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/search"
 	"github.com/allcallall/backend/internal/settlement"
@@ -25,6 +26,7 @@ import (
 const (
 	EventAgentRunRequested               = "agent.run.requested"
 	EventWorkflowRequested               = agent.EventWorkflowRunRequested
+	EventMCPExecutionTerminal            = mcpplatform.EventMCPExecutionTerminal
 	EventAgentRunCompleted               = "agent.run.completed"
 	EventMessageCreated                  = "message.created"
 	EventSearchMessageIndex              = "search.message.index_requested"
@@ -137,6 +139,39 @@ func RegisterAgentOutboxHandlers(processor *events.Processor, agentSvc *agent.Se
 			Uint64("outbox_id", event.ID).
 			Uint64("workflow_run_id", payload.WorkflowRunID).
 			Msg("outbox workflow run executed")
+		return nil
+	})
+	processor.Register(EventMCPExecutionTerminal, func(ctx context.Context, event models.EventOutbox) error {
+		var payload struct {
+			ExecutionID     string  `json:"execution_id"`
+			MCPExecutionID  uint64  `json:"mcp_execution_id"`
+			AgentRunID      *uint64 `json:"agent_run_id"`
+			WorkflowRunID   *uint64 `json:"workflow_run_id"`
+			ExecutionStatus string  `json:"status"`
+		}
+		if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+			return err
+		}
+		if payload.MCPExecutionID == 0 {
+			payload.MCPExecutionID = event.AggregateID
+		}
+		if payload.MCPExecutionID == 0 {
+			return fmt.Errorf("MCP execution id missing in terminal outbox payload")
+		}
+		if err := agentSvc.RequeueParentRunAfterMCPExecution(ctx, agent.MCPExecutionTerminalInput{
+			ExecutionID:   payload.ExecutionID,
+			AgentRunID:    payload.AgentRunID,
+			WorkflowRunID: payload.WorkflowRunID,
+		}, time.Now().UTC()); err != nil {
+			return err
+		}
+		log.Info().
+			Str("request_id", trace.RequestID(ctx)).
+			Uint64("outbox_id", event.ID).
+			Uint64("mcp_execution_id", payload.MCPExecutionID).
+			Str("execution_id", payload.ExecutionID).
+			Str("status", payload.ExecutionStatus).
+			Msg("outbox MCP terminal execution scheduled parent recovery")
 		return nil
 	})
 }
@@ -275,9 +310,40 @@ func StartOutboxWorker(ctx context.Context, log zerolog.Logger, processor *event
 	go processor.Run(ctx, interval)
 }
 
-func StartAgentWorker(ctx context.Context, log zerolog.Logger, processor *events.Processor) {
-	ConfigureOutboxProcessorFromEnv(processor, workerIDFromEnv("agent-worker"), EventAgentRunRequested, EventWorkflowRequested)
+func StartAgentWorker(ctx context.Context, log zerolog.Logger, processor *events.Processor, services ...*agent.Service) {
+	ConfigureOutboxProcessorFromEnv(processor, workerIDFromEnv("agent-worker"), EventAgentRunRequested, EventWorkflowRequested, EventMCPExecutionTerminal)
 	StartOutboxWorker(ctx, log.With().Str("worker", "agent").Logger(), processor)
+	if len(services) > 0 {
+		StartAgentRecoveryWorker(ctx, log, services[0])
+	}
+}
+
+func StartAgentRecoveryWorker(ctx context.Context, log zerolog.Logger, agentSvc *agent.Service) {
+	if agentSvc == nil {
+		return
+	}
+	intervalSeconds := intFromEnv("AGENT_RECOVERY_SWEEP_INTERVAL_SEC", 30)
+	batchSize := intFromEnv("AGENT_RECOVERY_SWEEP_BATCH_SIZE", 100)
+	interval := time.Duration(intervalSeconds) * time.Second
+	log.Info().
+		Int("interval_sec", intervalSeconds).
+		Int("batch_size", batchSize).
+		Msg("agent run recovery sweep enabled")
+	go runTicker(ctx, interval, func() {
+		runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		result, err := agentSvc.RequeueExpiredAgentAndWorkflowRuns(runCtx, time.Now().UTC(), batchSize)
+		if err != nil {
+			log.Error().Err(err).Msg("agent run recovery sweep failed")
+			return
+		}
+		if result.AgentRuns > 0 || result.WorkflowRuns > 0 {
+			log.Info().
+				Int("agent_runs", result.AgentRuns).
+				Int("workflow_runs", result.WorkflowRuns).
+				Msg("agent run recovery sweep scheduled expired runs")
+		}
+	})
 }
 
 func StartCollaborationOutboxWorker(ctx context.Context, log zerolog.Logger, processor *events.Processor) {

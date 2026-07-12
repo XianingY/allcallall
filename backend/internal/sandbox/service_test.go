@@ -3,25 +3,49 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/mcpplatform"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/testutil"
 )
 
 type fakeRunner struct {
+	mu          sync.Mutex
 	validations int
 	executions  int
+	execute     func(context.Context, mcpplatform.ExecutionRequest) (mcpplatform.ExecutionResult, error)
 }
 
 func (f *fakeRunner) Validate(context.Context, mcpplatform.ValidationRequest) (mcpplatform.ValidationResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.validations++
 	return mcpplatform.ValidationResult{Tools: []mcpplatform.DiscoveredTool{{Name: "search", Risk: "read"}}}, nil
 }
 
-func (f *fakeRunner) Execute(context.Context, mcpplatform.ExecutionRequest) (mcpplatform.ExecutionResult, error) {
+func (f *fakeRunner) Execute(ctx context.Context, request mcpplatform.ExecutionRequest) (mcpplatform.ExecutionResult, error) {
+	f.mu.Lock()
 	f.executions++
-	return mcpplatform.ExecutionResult{Output: map[string]any{"ok": true}}, nil
+	execute := f.execute
+	f.mu.Unlock()
+	if execute != nil {
+		return execute(ctx, request)
+	}
+	return mcpplatform.ExecutionResult{ExecutionID: request.ExecutionID, JobID: request.ExecutionID, Output: map[string]any{"ok": true}}, nil
+}
+
+func (f *fakeRunner) executionCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.executions
 }
 
 type fixedScanner struct {
@@ -107,5 +131,339 @@ func TestReadRiskRequiresInstallerDeclarationAndRunnerClassification(t *testing.
 				t.Fatalf("unexpected verified risk: %#v", result.Tools)
 			}
 		})
+	}
+}
+
+func TestExecutionReceiptReplaysAcrossRestartAndExcludesWrapToken(t *testing.T) {
+	db := testutil.OpenSQLite(t, "sandbox-receipt-replay.db")
+	if err := db.AutoMigrate(&models.SandboxExecutionReceipt{}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	store := NewReceiptStore(db)
+	service := NewService(runner, fixedScanner{status: "passed"}).WithReceiptStore(store)
+	request := receiptExecutionRequest("wrap-token-first")
+
+	first, err := service.Execute(context.Background(), request)
+	if err != nil {
+		t.Fatalf("first execution: %v", err)
+	}
+	if first.Status != models.SandboxExecutionStatusSucceeded || first.Output["ok"] != true {
+		t.Fatalf("unexpected first receipt: %#v", first)
+	}
+	request.SecretWrapToken = "wrap-token-rotated"
+	second, err := service.Execute(context.Background(), request)
+	if err != nil {
+		t.Fatalf("replayed execution: %v", err)
+	}
+	if second.RequestDigest != first.RequestDigest || runner.executionCount() != 1 {
+		t.Fatalf("token rotation changed replay identity: first=%#v second=%#v calls=%d", first, second, runner.executionCount())
+	}
+
+	restarted := NewService(&fakeRunner{}, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
+	stored, err := restarted.LookupExecution(context.Background(), request.ExecutionID)
+	if err != nil || stored.Status != models.SandboxExecutionStatusSucceeded || stored.Output["ok"] != true {
+		t.Fatalf("lookup after restart: receipt=%#v err=%v", stored, err)
+	}
+	var row models.SandboxExecutionReceipt
+	if err := db.Where("execution_id = ?", request.ExecutionID).Take(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	persisted := fmt.Sprintf("%+v", row)
+	if containsAny(persisted, "wrap-token-first", "wrap-token-rotated") {
+		t.Fatalf("secret wrapping token was persisted: %s", persisted)
+	}
+}
+
+func TestConcurrentExecutionReceiptHasSingleRunnerWinner(t *testing.T) {
+	db := testutil.OpenSQLite(t, "sandbox-receipt-concurrent.db")
+	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&models.SandboxExecutionReceipt{}); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	runner := &fakeRunner{execute: func(_ context.Context, request mcpplatform.ExecutionRequest) (mcpplatform.ExecutionResult, error) {
+		once.Do(func() { close(started) })
+		<-release
+		return mcpplatform.ExecutionResult{ExecutionID: request.ExecutionID, JobID: request.ExecutionID, Output: map[string]any{"winner": true}}, nil
+	}}
+	service := NewService(runner, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
+	request := receiptExecutionRequest("wrap-token")
+
+	const concurrency = 50
+	errorsByCall := make(chan error, concurrency)
+	var wait sync.WaitGroup
+	wait.Add(concurrency)
+	for range concurrency {
+		go func() {
+			defer wait.Done()
+			_, executeErr := service.Execute(context.Background(), request)
+			if executeErr != nil && !errors.Is(executeErr, ErrExecutionInProgress) {
+				errorsByCall <- executeErr
+			}
+		}()
+	}
+	<-started
+	close(release)
+	wait.Wait()
+	close(errorsByCall)
+	for executeErr := range errorsByCall {
+		t.Fatalf("concurrent execution failed: %v", executeErr)
+	}
+	if runner.executionCount() != 1 {
+		t.Fatalf("Runner invoked %d times, want 1", runner.executionCount())
+	}
+	receipt, err := service.LookupExecution(context.Background(), request.ExecutionID)
+	if err != nil || receipt.Status != models.SandboxExecutionStatusSucceeded {
+		t.Fatalf("terminal receipt missing: receipt=%#v err=%v", receipt, err)
+	}
+}
+
+func TestExecutionReceiptRejectsDigestCollision(t *testing.T) {
+	db := testutil.OpenSQLite(t, "sandbox-receipt-conflict.db")
+	if err := db.AutoMigrate(&models.SandboxExecutionReceipt{}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	service := NewService(runner, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
+	request := receiptExecutionRequest("wrap-token")
+	if _, err := service.Execute(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	request.Arguments = map[string]any{"query": "different"}
+	if _, err := service.Execute(context.Background(), request); !errors.Is(err, ErrExecutionConflict) {
+		t.Fatalf("expected execution conflict, got %v", err)
+	}
+	if runner.executionCount() != 1 {
+		t.Fatalf("digest collision reached Runner %d times", runner.executionCount())
+	}
+}
+
+func TestTerminalReceiptPersistsAfterCallerCancellation(t *testing.T) {
+	db := testutil.OpenSQLite(t, "sandbox-receipt-cancel.db")
+	if err := db.AutoMigrate(&models.SandboxExecutionReceipt{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	runner := &fakeRunner{execute: func(executionCtx context.Context, request mcpplatform.ExecutionRequest) (mcpplatform.ExecutionResult, error) {
+		cancel()
+		select {
+		case <-executionCtx.Done():
+			return mcpplatform.ExecutionResult{}, fmt.Errorf("caller cancellation reached Runner: %w", executionCtx.Err())
+		default:
+		}
+		return mcpplatform.ExecutionResult{ExecutionID: request.ExecutionID, JobID: request.ExecutionID, Output: map[string]any{"persisted": true}}, nil
+	}}
+	service := NewService(runner, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
+	request := receiptExecutionRequest("wrap-token")
+	receipt, err := service.Execute(ctx, request)
+	if err != nil || receipt.Status != models.SandboxExecutionStatusSucceeded {
+		t.Fatalf("execute with canceled caller: receipt=%#v err=%v", receipt, err)
+	}
+	stored, err := service.LookupExecution(context.Background(), request.ExecutionID)
+	if err != nil || stored.Output["persisted"] != true {
+		t.Fatalf("detached terminal write was not durable: receipt=%#v err=%v", stored, err)
+	}
+}
+
+func TestTerminalReceiptRedactsSecretWrapTokenFromErrors(t *testing.T) {
+	db := testutil.OpenSQLite(t, "sandbox-receipt-redaction.db")
+	if err := db.AutoMigrate(&models.SandboxExecutionReceipt{}); err != nil {
+		t.Fatal(err)
+	}
+	const token = "one-time-sensitive-wrap-token"
+	runner := &fakeRunner{execute: func(context.Context, mcpplatform.ExecutionRequest) (mcpplatform.ExecutionResult, error) {
+		return mcpplatform.ExecutionResult{}, fmt.Errorf("unwrap failed for token %s", token)
+	}}
+	service := NewService(runner, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
+	receipt, err := service.Execute(context.Background(), receiptExecutionRequest(token))
+	if err != nil {
+		t.Fatalf("persist failed terminal receipt: %v", err)
+	}
+	if receipt.Status != models.SandboxExecutionStatusFailed || !strings.Contains(receipt.ErrorMessage, "[REDACTED]") {
+		t.Fatalf("unexpected redacted receipt: %#v", receipt)
+	}
+	var row models.SandboxExecutionReceipt
+	if err := db.Where("execution_id = ?", receipt.ExecutionID).Take(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(fmt.Sprintf("%+v", row), token) {
+		t.Fatal("secret wrapping token was persisted in a failed receipt")
+	}
+}
+
+func TestTerminalReceiptRetriesTransientDatabaseFailure(t *testing.T) {
+	db := testutil.OpenSQLite(t, "sandbox-receipt-terminal-retry.db")
+	if err := db.AutoMigrate(&models.SandboxExecutionReceipt{}); err != nil {
+		t.Fatal(err)
+	}
+	var attempts atomic.Int32
+	const callbackName = "sandbox:test_transient_terminal_failure"
+	if err := db.Callback().Update().Before("gorm:update").Register(callbackName, func(tx *gorm.DB) {
+		if attempts.Add(1) <= 2 {
+			tx.AddError(errors.New("transient receipt database failure"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Callback().Update().Remove(callbackName)
+
+	service := NewService(&fakeRunner{}, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
+	receipt, err := service.Execute(context.Background(), receiptExecutionRequest("wrap-token"))
+	if err != nil {
+		t.Fatalf("terminal retry failed: %v", err)
+	}
+	if receipt.Status != models.SandboxExecutionStatusSucceeded || attempts.Load() != 3 {
+		t.Fatalf("unexpected retry result: receipt=%#v attempts=%d", receipt, attempts.Load())
+	}
+}
+
+func TestStaleRunningReceiptBecomesOutcomeUnknownWithoutReplay(t *testing.T) {
+	db := testutil.OpenSQLite(t, "sandbox-receipt-stale.db")
+	if err := db.AutoMigrate(&models.SandboxExecutionReceipt{}); err != nil {
+		t.Fatal(err)
+	}
+	store := NewReceiptStore(db)
+	runner := &fakeRunner{}
+	service := NewService(runner, fixedScanner{status: "passed"}).WithReceiptStore(store)
+	request := normalizeExecutionRequest(receiptExecutionRequest("wrap-token"))
+	digest, err := executionRequestDigest(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	_, winner, err := store.Acquire(context.Background(), models.SandboxExecutionReceipt{
+		ExecutionID:    request.ExecutionID,
+		RequestDigest:  digest,
+		OrganizationID: request.OrganizationID,
+		UserID:         request.UserID,
+		ConversationID: request.ConversationID,
+		RunID:          request.RunID,
+		RunRef:         request.RunRef,
+		ToolCallID:     request.ToolCallID,
+		InstallationID: request.InstallationID,
+		RevisionID:     request.RevisionID,
+		ToolID:         request.ToolID,
+		ToolName:       request.ToolName,
+		SourceType:     request.SourceType,
+		Status:         models.SandboxExecutionStatusRunning,
+		TimeoutMS:      request.TimeoutMS,
+		StartedAt:      now.Add(-time.Minute),
+		StaleAt:        now.Add(-time.Second),
+		ExpiresAt:      now.Add(24 * time.Hour),
+	})
+	if err != nil || !winner {
+		t.Fatalf("seed running receipt: winner=%v err=%v", winner, err)
+	}
+	receipt, err := service.Execute(context.Background(), request)
+	if err != nil {
+		t.Fatalf("reconcile stale receipt: %v", err)
+	}
+	if receipt.Status != models.SandboxExecutionStatusOutcomeUnknown || receipt.ErrorCode != "SANDBOX_OUTCOME_UNKNOWN" {
+		t.Fatalf("unexpected stale receipt: %#v", receipt)
+	}
+	if runner.executionCount() != 0 {
+		t.Fatalf("stale unknown receipt replayed Runner %d times", runner.executionCount())
+	}
+}
+
+func TestReceiptInsertFailureDoesNotInvokeRunner(t *testing.T) {
+	db := testutil.OpenSQLite(t, "sandbox-receipt-missing-table.db")
+	runner := &fakeRunner{}
+	service := NewService(runner, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
+	if _, err := service.Execute(context.Background(), receiptExecutionRequest("wrap-token")); !errors.Is(err, ErrReceiptUnavailable) {
+		t.Fatalf("expected receipt dependency failure, got %v", err)
+	}
+	if runner.executionCount() != 0 {
+		t.Fatalf("Runner invoked after receipt insert failure %d times", runner.executionCount())
+	}
+}
+
+func TestReceiptStoreDeletesOnlyExpiredRows(t *testing.T) {
+	db := testutil.OpenSQLite(t, "sandbox-receipt-cleanup.db")
+	if err := db.AutoMigrate(&models.SandboxExecutionReceipt{}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, row := range []models.SandboxExecutionReceipt{
+		minimalReceipt("expired", now.Add(-time.Minute)),
+		minimalReceipt("retained", now.Add(time.Minute)),
+	} {
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	deleted, err := NewReceiptStore(db).DeleteExpired(context.Background(), now, 500)
+	if err != nil || deleted != 1 {
+		t.Fatalf("delete expired receipts: deleted=%d err=%v", deleted, err)
+	}
+	if _, err := NewReceiptStore(db).Get(context.Background(), "expired"); !errors.Is(err, ErrReceiptNotFound) {
+		t.Fatalf("expired receipt remained: %v", err)
+	}
+	if _, err := NewReceiptStore(db).Get(context.Background(), "retained"); err != nil {
+		t.Fatalf("unexpired receipt was deleted: %v", err)
+	}
+}
+
+func receiptExecutionRequest(secretWrapToken string) mcpplatform.ExecutionRequest {
+	return mcpplatform.ExecutionRequest{
+		ExecutionID:    "mcp:receipt-test",
+		OrganizationID: 1,
+		UserID:         7,
+		ConversationID: 42,
+		RunID:          99,
+		RunRef:         "agent:99",
+		ToolCallID:     "call-1",
+		InstallationID: 11,
+		RevisionID:     12,
+		ToolID:         13,
+		SourceType:     models.MCPInstallationSourceOCI,
+		Definition: mcpplatform.InstallationDefinition{
+			Transport: "stdio",
+			ImageRef:  "registry.example.com/tool@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		},
+		ToolName:        "search",
+		Arguments:       map[string]any{"query": "security"},
+		SecretWrapToken: secretWrapToken,
+		TimeoutMS:       30_000,
+		OutputLimit:     mcpplatform.DefaultOutputLimit,
+	}
+}
+
+func containsAny(value string, candidates ...string) bool {
+	for _, candidate := range candidates {
+		if candidate != "" && strings.Contains(value, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func minimalReceipt(executionID string, expiresAt time.Time) models.SandboxExecutionReceipt {
+	now := time.Now().UTC()
+	return models.SandboxExecutionReceipt{
+		ExecutionID:    executionID,
+		RequestDigest:  strings.Repeat("a", 64),
+		OrganizationID: 1,
+		UserID:         7,
+		ConversationID: 42,
+		RunID:          99,
+		RunRef:         "agent:99",
+		ToolCallID:     "call-1",
+		InstallationID: 11,
+		RevisionID:     12,
+		ToolID:         13,
+		ToolName:       "search",
+		SourceType:     models.MCPInstallationSourceOCI,
+		Status:         models.SandboxExecutionStatusSucceeded,
+		TimeoutMS:      30_000,
+		StartedAt:      now,
+		StaleAt:        now.Add(time.Minute),
+		CompletedAt:    &now,
+		ExpiresAt:      expiresAt,
 	}
 }

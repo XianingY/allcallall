@@ -27,6 +27,10 @@ var (
 	ErrAgentRunNotFound         = errors.New("agent run not found")
 )
 
+func isDeferredRunExecution(err error) bool {
+	return errors.Is(err, ErrCheckpointExecutionBusy) || errors.Is(err, mcpplatform.ErrExecutionInProgress)
+}
+
 const (
 	agentRunMaxAttempts   = 3
 	agentRunLeaseDuration = 5 * time.Minute

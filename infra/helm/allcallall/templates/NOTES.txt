@@ -2,6 +2,9 @@ AllCallAll {{ .Chart.AppVersion }} was rendered for namespace {{ .Release.Namesp
 
 Before workloads can start, verify these external dependencies:
   - MySQL DSN Secret: {{ .Values.external.mysql.secretName }}/{{ .Values.external.mysql.dsnKey }}
+  - Sandbox receipt DSN Secret: {{ .Values.external.mysql.secretName }}/{{ .Values.external.mysql.sandboxReceiptDsnKey }}
+  - MCP capability key Secret: {{ .Values.external.mysql.secretName }}/{{ .Values.external.mysql.mcpCapabilityPrivateKeyKey }}
+  - Sandbox capability public key Secret: {{ .Values.external.mysql.secretName }}/{{ .Values.external.mysql.sandboxCapabilityPublicKeyKey }}
   - Redis address: {{ .Values.external.redis.address }}
   - OpenBao address: {{ .Values.external.openbao.address }}
   - RuntimeClass: {{ .Values.components.sandboxRunner.runtimeClassName }}

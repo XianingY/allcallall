@@ -251,7 +251,8 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (result *RunResu
 		status := models.AgentRunStatusFailed
 		var completedAt any = failedAt
 		attempts := any(run.Attempts)
-		if errors.Is(resultErr, ErrCheckpointExecutionBusy) {
+		deferred := isDeferredRunExecution(resultErr)
+		if deferred {
 			status = models.AgentRunStatusPending
 			completedAt = nil
 			if run.Attempts > 0 {
@@ -272,7 +273,7 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (result *RunResu
 				"lease_until":           nil,
 				"execution_lease_token": "",
 			}).Error
-		if s.metrics != nil {
+		if s.metrics != nil && !deferred {
 			s.metrics.Inc("agent_run_failed_total")
 		}
 		span.End(resultErr)
