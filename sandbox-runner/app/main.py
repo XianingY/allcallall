@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from .mcp_runner import MCPRunnerError, execute_tool, validate_installation
 from .models import ExecutionRequest, ExecutionResponse, ValidationRequest, ValidationResponse
 from .security import RunnerSecurityError
+from .supervisor_transport import SupervisorTransportError
 
 
 app = FastAPI(title="AllCallAll Sandbox Runner", version="0.1.0")
@@ -19,7 +20,7 @@ async def health() -> dict[str, str]:
 async def validate(request: ValidationRequest) -> ValidationResponse:
     try:
         return await validate_installation(request)
-    except (MCPRunnerError, RunnerSecurityError, TimeoutError) as exc:
+    except (MCPRunnerError, RunnerSecurityError, SupervisorTransportError, TimeoutError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
@@ -29,5 +30,5 @@ async def execute(request: ExecutionRequest) -> ExecutionResponse:
         return await execute_tool(request)
     except TimeoutError as exc:
         raise HTTPException(status_code=504, detail="MCP execution timed out") from exc
-    except (MCPRunnerError, RunnerSecurityError) as exc:
+    except (MCPRunnerError, RunnerSecurityError, SupervisorTransportError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

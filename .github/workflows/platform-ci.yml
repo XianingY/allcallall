@@ -119,10 +119,33 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Test sandbox packages
         working-directory: backend
-        run: go test -race ./internal/mcpplatform ./internal/sandbox/... ./cmd/sandbox-service
+        run: >-
+          go test -race
+          ./internal/mcpplatform
+          ./internal/sandbox/...
+          ./internal/sandboxsupervisor
+          ./cmd/sandbox-service
+          ./cmd/sandbox-supervisor
       - name: Static analysis
         working-directory: backend
-        run: go vet ./internal/mcpplatform ./internal/sandbox/... ./cmd/sandbox-service
+        run: >-
+          go vet
+          ./internal/mcpplatform
+          ./internal/sandbox/...
+          ./internal/sandboxsupervisor
+          ./cmd/sandbox-service
+          ./cmd/sandbox-supervisor
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: sandbox-runner/pyproject.toml
+      - name: Verify Go/Python supervisor contract
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "./sandbox-runner[dev]"
+          (cd backend && CGO_ENABLED=0 go build -trimpath -o /tmp/sandbox-supervisor ./cmd/sandbox-supervisor)
+          (cd sandbox-runner && SANDBOX_SUPERVISOR_BINARY=/tmp/sandbox-supervisor python -m pytest -q tests/test_supervisor_transport.py -k go_supervisor_contract)
 
   openapi-drift:
     name: OpenAPI Contract Drift
@@ -256,6 +279,9 @@ jobs:
           - name: sandbox-control-plane
             context: backend
             dockerfile: backend/Dockerfile.sandbox
+          - name: sandbox-supervisor
+            context: backend
+            dockerfile: backend/Dockerfile.supervisor
           - name: agent-runtime
             context: .
             dockerfile: agent-runtime/Dockerfile
