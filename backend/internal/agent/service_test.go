@@ -906,13 +906,18 @@ func (p *failOncePlanner) Plan(ctx context.Context, input PlannerInput) (Planner
 	return RulesPlanner{}.Plan(ctx, input)
 }
 
-type blockingPlanner struct{}
+type blockingPlanner struct {
+	started chan<- struct{}
+}
 
 func (blockingPlanner) Name() string {
 	return models.AgentRunSourceRules
 }
 
-func (blockingPlanner) Plan(ctx context.Context, input PlannerInput) (PlannerOutput, error) {
+func (p blockingPlanner) Plan(ctx context.Context, input PlannerInput) (PlannerOutput, error) {
+	if p.started != nil {
+		p.started <- struct{}{}
+	}
 	<-ctx.Done()
 	return PlannerOutput{}, ctx.Err()
 }
@@ -950,10 +955,11 @@ func TestExecuteRunRetriesFailedRun(t *testing.T) {
 	}
 }
 
-func TestExecuteRunMarksPlannerTimeoutFailed(t *testing.T) {
+func TestExecuteRunMarksPlannerCancellationFailed(t *testing.T) {
 	svc, db, counters := newAgentServiceTestEnv(t)
 	conversation := seedAgentConversation(t, db)
-	svc.WithPlanner(blockingPlanner{})
+	plannerStarted := make(chan struct{}, 1)
+	svc.WithPlanner(blockingPlanner{started: plannerStarted})
 
 	queued, err := svc.RunConversationAssistant(context.Background(), conversation.OrganizationID, 7, RunInput{
 		ConversationID: conversation.ID,
@@ -962,25 +968,36 @@ func TestExecuteRunMarksPlannerTimeoutFailed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("queue run failed: %v", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	if _, err := svc.ExecuteRun(ctx, queued.Run.ID); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("expected planner deadline exceeded, got %v", err)
+	ctx, cancel := context.WithCancel(context.Background())
+	executionDone := make(chan error, 1)
+	go func() {
+		_, executeErr := svc.ExecuteRun(ctx, queued.Run.ID)
+		executionDone <- executeErr
+	}()
+	select {
+	case <-plannerStarted:
+		cancel()
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("planner did not start")
+	}
+	if err := <-executionDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected planner cancellation, got %v", err)
 	}
 
 	var failed models.AgentRun
 	if err := db.Take(&failed, queued.Run.ID).Error; err != nil {
-		t.Fatalf("load timed out run failed: %v", err)
+		t.Fatalf("load canceled run failed: %v", err)
 	}
 	if failed.Status != models.AgentRunStatusFailed || failed.Attempts != 1 || failed.LeaseUntil != nil {
-		t.Fatalf("expected failed run with cleared lease after planner timeout, got %+v", failed)
+		t.Fatalf("expected failed run with cleared lease after planner cancellation, got %+v", failed)
 	}
-	if !strings.Contains(failed.ErrorMessage, "context deadline exceeded") {
-		t.Fatalf("expected timeout error message, got %q", failed.ErrorMessage)
+	if !strings.Contains(failed.ErrorMessage, "context canceled") {
+		t.Fatalf("expected cancellation error message, got %q", failed.ErrorMessage)
 	}
 	snapshot := counters.Snapshot()
 	if snapshot["agent_run_failed_total"] != 1 || snapshot["agent_planner_error_total"] != 1 {
-		t.Fatalf("unexpected timeout metrics: %v", snapshot)
+		t.Fatalf("unexpected cancellation metrics: %v", snapshot)
 	}
 }
 

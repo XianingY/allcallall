@@ -11,7 +11,7 @@ Infrastructure assets for local development and interview/demo runtime profiles.
 ## Files
 
 - `docker-compose.yml`: local MySQL/Redis plus optional worker, Kafka-compatible, and Elasticsearch profiles.
-- `elasticsearch/Dockerfile`: Elasticsearch 8.15.3 with the checksum-pinned IK analysis plugin.
+- `elasticsearch/Dockerfile`: Elasticsearch 8.19.10 with the checksum-pinned IK analysis plugin.
 - `docker-compose.production.yml`: TLS Web/API, migration job, MySQL, Redis, persistent recordings, and Coturn Beta stack.
 
 Older production-specific Compose and tunnel notes were removed from the maintained docs because they were host-specific. Use the deployment guide as the current source of truth.
