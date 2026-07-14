@@ -39,7 +39,7 @@ class AgentRuntimeConfig(BaseSettings):
 
     # Prompt settings
     prompt_version: str = ""
-    enable_grounding_check: bool = False
+    enable_grounding_check: bool = True
 
     model_config = {"env_prefix": "PY_AGENT_"}
 

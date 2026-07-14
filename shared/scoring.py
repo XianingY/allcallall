@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import logging
 import re
 
+import jieba  # type: ignore[import-untyped]
+
 from .models import ContextChunk
+
+
+_TOKEN_PART = re.compile(r"[0-9a-z]+|[\u4e00-\u9fff]+")
+jieba.setLogLevel(logging.ERROR)
 
 
 def tokenize(text: str, remove_stopwords: bool = False) -> list[str]:
     """Tokenize text into unique tokens.
 
-    Splits on non-alphanumeric/non-CJK characters, lowercases, and optionally
-    removes common English stopwords. Tokens shorter than 2 characters are excluded.
+    Uses jieba for Chinese word boundaries while preserving alphanumeric terms,
+    lowercases, and optionally removes common English stopwords. Tokens shorter
+    than 2 characters are excluded.
     """
     stopwords = {
         "a",
@@ -28,12 +36,12 @@ def tokenize(text: str, remove_stopwords: bool = False) -> list[str]:
 
     out: list[str] = []
     seen: set[str] = set()
-    for token in re.split(r"[^0-9A-Za-z\u4e00-\u9fff]+", text.lower()):
-        token = token.strip()
-        if len(token) < 2 or token in seen or token in stopwords:
-            continue
-        seen.add(token)
-        out.append(token)
+    for segment in jieba.cut(text.lower(), cut_all=False):
+        for token in _TOKEN_PART.findall(segment):
+            if len(token) < 2 or token in seen or token in stopwords:
+                continue
+            seen.add(token)
+            out.append(token)
     return out
 
 

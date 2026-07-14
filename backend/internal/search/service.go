@@ -47,6 +47,19 @@ func NewService(indexer MessageIndexer) *Service {
 	return &Service{indexer: indexer}
 }
 
+func (s *Service) InitMessageIndex(ctx context.Context) error {
+	if s == nil || s.indexer == nil {
+		return errors.New("search indexer is not configured")
+	}
+	initializer, ok := s.indexer.(interface {
+		InitMessageIndex(context.Context) error
+	})
+	if !ok {
+		return nil
+	}
+	return initializer.InitMessageIndex(ctx)
+}
+
 func (s *Service) IndexMessage(ctx context.Context, doc MessageDocument) error {
 	if s == nil || s.indexer == nil {
 		return errors.New("search indexer is not configured")

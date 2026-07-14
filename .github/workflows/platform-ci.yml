@@ -282,6 +282,9 @@ jobs:
           - name: sandbox-supervisor
             context: backend
             dockerfile: backend/Dockerfile.supervisor
+          - name: elasticsearch-ik
+            context: infra/elasticsearch
+            dockerfile: infra/elasticsearch/Dockerfile
           - name: agent-runtime
             context: .
             dockerfile: agent-runtime/Dockerfile

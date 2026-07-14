@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/config"
@@ -34,6 +35,12 @@ func main() {
 	if err != nil {
 		appLogger.Fatal().Err(err).Msg("failed to initialize search service")
 	}
+	searchInitCtx, searchInitCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := searchSvc.InitMessageIndex(searchInitCtx); err != nil {
+		searchInitCancel()
+		appLogger.Fatal().Err(err).Msg("failed to initialize message search index")
+	}
+	searchInitCancel()
 	userSvc := user.NewService(user.NewRepository(db), user.WithPushDeviceSupport())
 	collaborationSvc := collaboration.NewService(db, userSvc)
 	processor := events.NewProcessor(events.NewStore(db), counterStore)

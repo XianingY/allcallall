@@ -11,6 +11,7 @@ Infrastructure assets for local development and interview/demo runtime profiles.
 ## Files
 
 - `docker-compose.yml`: local MySQL/Redis plus optional worker, Kafka-compatible, and Elasticsearch profiles.
+- `elasticsearch/Dockerfile`: Elasticsearch 8.15.3 with the checksum-pinned IK analysis plugin.
 - `docker-compose.production.yml`: TLS Web/API, migration job, MySQL, Redis, persistent recordings, and Coturn Beta stack.
 
 Older production-specific Compose and tunnel notes were removed from the maintained docs because they were host-specific. Use the deployment guide as the current source of truth.
@@ -33,3 +34,8 @@ docker compose -f infra/docker-compose.yml \
 # Validate the Beta stack after creating .env and infra/ssl certificates
 docker compose --env-file .env -f infra/docker-compose.production.yml config
 ```
+
+The Elasticsearch image exposes `ik_max_word` for indexing and `ik_smart` for
+queries. Existing indices created before IK was enabled must be reindexed; the
+backend intentionally rejects an existing incompatible mapping instead of
+silently continuing with the standard analyzer.

@@ -31,6 +31,7 @@ The Python runtime can plan retrieval and call read-only tools, but it cannot re
 - `retrieval_loop` executes at most three read-only retrieval steps, observes hit quality, and refines the next query when evidence coverage is below threshold.
 - `evidence_pack` keeps the final selected citations, snippets, source types, rejected count, and confidence.
 - RAG Runtime responses can expose raw hits, reranked hits, rejected chunks, retrieval route, attempts, evidence pack, and grounding result for Agent Lab inspection.
+- Chinese retrieval uses Elasticsearch IK (`ik_max_word` for indexing and `ik_smart` for queries), while Python rerank and grounding use pinned jieba word boundaries. Retrieval relevance and citation support remain separate checks.
 - `sufficiency_gate` blocks unsupported synthesis from producing side-effect proposals when evidence is missing.
 - Existing BM25/vector/RRF/rerank remains the Go-owned retriever and source-of-truth data path. The Python RAG Runtime controls retrieval strategy above that layer rather than replacing it.
 - Qdrant is available as an optional vector-store adapter for fixture/eval and specialized experiments; it is not the default production source of truth.

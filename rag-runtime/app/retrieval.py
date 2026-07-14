@@ -17,6 +17,9 @@ from .models import (
 )
 
 
+MIN_GROUNDING_TOKEN_COVERAGE = 0.5
+
+
 def rerank(query: str, chunks: list[ContextChunk], top_k: int = 8) -> RerankResponse:
     tokens = tokenize(query, remove_stopwords=True)
     scored: list[tuple[float, ContextChunk]] = []
@@ -86,13 +89,18 @@ def grounding_check(answer: str, citations: list[ContextChunk]) -> GroundingChec
         return GroundingCheckResponse(grounded=False, unsupported_claims=["empty_answer"], coverage=0)
     covered = [token for token in tokens if token in evidence]
     coverage = len(covered) / max(len(tokens), 1)
-    grounded = bool(citations) and coverage >= 0.2
+    grounded = bool(citations) and coverage >= MIN_GROUNDING_TOKEN_COVERAGE
     unsupported = [] if grounded else ["answer lacks enough overlap with supplied citations"]
     return GroundingCheckResponse(
         grounded=grounded,
         unsupported_claims=unsupported,
         coverage=coverage,
-        trace={"event": "grounding.check", "citation_count": len(citations), "coverage": coverage},
+        trace={
+            "event": "grounding.check",
+            "citation_count": len(citations),
+            "coverage": coverage,
+            "min_token_coverage": MIN_GROUNDING_TOKEN_COVERAGE,
+        },
     )
 
 

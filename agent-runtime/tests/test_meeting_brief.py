@@ -4,7 +4,7 @@ import pytest
 
 from app.eval_runner import run_eval
 from app.main import run_meeting_brief, run_react_agent, run_workflow
-from app.grounding import check_grounding
+from app.grounding import check_grounding, meaningful_tokens
 from app.llamaindex_adapter import run_fixture_retrieval
 from app.models import Citation, ContextChunk, MeetingBriefRequest, MeetingTranscriptSegment, WorkflowRequest
 from app.prompts import prompt_version_for, structured_prompt_for
@@ -122,6 +122,24 @@ def test_grounding_and_llamaindex_adapter_fallback() -> None:
         top_k=1,
     )
     assert result.hits
+
+
+def test_grounding_uses_jieba_for_chinese_claims() -> None:
+    tokens = meaningful_tokens("供应商审批流程需要安全团队复核")
+
+    assert {"供应商", "审批", "流程", "安全", "团队", "复核"}.issubset(tokens)
+
+    grounded = check_grounding(
+        "供应商审批流程需要安全团队复核",
+        [Citation(source_type="knowledge", source_id="1", snippet="供应商审批流程要求安全团队复核。")],
+    )
+    partial_overlap = check_grounding(
+        "供应商审批已经通过，财务预算也已批准",
+        [Citation(source_type="knowledge", source_id="1", snippet="供应商审批流程仍在安全团队复核中。")],
+    )
+
+    assert grounded.grounded is True
+    assert partial_overlap.grounded is False
 
 
 def test_runtime_supports_risk_review_follow_up_and_context_qa() -> None:
@@ -359,6 +377,7 @@ def test_python_eval_fixture_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     assert report.summary.total_cases >= 8
     assert report.summary.passed_cases == report.summary.total_cases
     assert report.summary.approval_safety_rate == 1
+    assert report.summary.grounding_check_rate == 1
 
 
 def test_openai_provider_requires_base_url_and_model(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -4,6 +4,11 @@ Python FastAPI runtime for Agent retrieval orchestration, rerank, grounding chec
 
 The service does not directly access AllCallAll business databases. In production it calls the Go backend internal retrieval bridge with `PY_RAG_TOOL_BRIDGE_BASE_URL` and `PY_RAG_TOOL_BRIDGE_TOKEN`; in eval/tests it can operate on inline fixture chunks.
 
+Chinese query and answer token boundaries use the pinned jieba dictionary through
+`allcallall-shared`. Elasticsearch uses IK separately for indexed retrieval;
+grounding still applies a bounded lexical coverage guard against the authorized
+citation text. This is not a semantic NLI proof.
+
 ## Run Locally
 
 ```bash

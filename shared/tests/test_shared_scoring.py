@@ -47,6 +47,15 @@ class TestTokenize:
         assert "action" in tokens
         assert "items" in tokens
 
+    def test_chinese_compound_is_segmented_for_grounding(self) -> None:
+        tokens = tokenize("供应商审批流程需要安全团队复核")
+        assert "供应商" in tokens
+        assert "审批" in tokens
+        assert "流程" in tokens
+        assert "安全" in tokens
+        assert "团队" in tokens
+        assert "复核" in tokens
+
     def test_punctuation_splitting(self) -> None:
         tokens = tokenize("hello,world;test:ok")
         assert tokens == ["hello", "world", "test", "ok"]

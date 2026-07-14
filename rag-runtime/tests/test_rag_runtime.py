@@ -78,6 +78,24 @@ def test_grounding_check_detects_missing_evidence() -> None:
     assert unsupported.unsupported_claims
 
 
+def test_grounding_check_segments_chinese_claims_with_jieba() -> None:
+    citation = ContextChunk(
+        chunk_id="knowledge-1",
+        source_type="knowledge",
+        source_id="policy-1",
+        snippet="供应商审批流程要求安全团队完成复核。",
+    )
+
+    grounded = grounding_check("供应商审批流程需要安全团队复核", [citation])
+    unsupported = grounding_check("财务已经批准预算增加", [citation])
+    partial_overlap = grounding_check("供应商审批已经通过，财务预算也已批准", [citation])
+
+    assert grounded.grounded is True
+    assert grounded.coverage >= 0.5
+    assert unsupported.grounded is False
+    assert partial_overlap.grounded is False
+
+
 def test_eval_fixture_passes() -> None:
     fixture = Path(__file__).resolve().parents[1] / "evals" / "cases.json"
 

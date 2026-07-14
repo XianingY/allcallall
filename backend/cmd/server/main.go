@@ -166,6 +166,12 @@ func main() {
 	if err != nil {
 		appLogger.Fatal().Err(err).Msg("failed to initialize search service")
 	}
+	searchInitCtx, searchInitCancel := context.WithTimeout(rootCtx, 10*time.Second)
+	if err := searchSvc.InitMessageIndex(searchInitCtx); err != nil {
+		searchInitCancel()
+		appLogger.Fatal().Err(err).Msg("failed to initialize message search index")
+	}
+	searchInitCancel()
 	appruntime.RegisterSearchOutboxHandlers(outboxProcessor, collaborationSvc, searchSvc, appLogger)
 	appLogger.Info().Str("driver", searchDriver).Msg("message search service enabled")
 	settlementProducer, settlementKafkaEnabled, err := appruntime.KafkaProducerFromEnv()

@@ -54,7 +54,11 @@ services:
 
   elasticsearch:
     profiles: ["interview-infra", "search"]
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    build:
+      context: ./elasticsearch
+      args:
+        ELASTICSEARCH_VERSION: "8.15.3"
+    image: ${ELASTICSEARCH_IMAGE:-allcallall-elasticsearch-ik:8.15.3}
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"

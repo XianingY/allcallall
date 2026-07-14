@@ -63,6 +63,7 @@ PY_AGENT_RUNTIME_STRICT=true
 - `PY_AGENT_ENABLE_AGENTIC_RAG=false`: enable bounded Agentic RAG retrieval planning and refinement.
 - `PY_AGENT_RAG_MAX_RETRIEVAL_STEPS=3`: hard cap for Agentic RAG read-tool retrieval attempts.
 - `PY_AGENT_RAG_MIN_CONFIDENCE=0.6`: confidence threshold for stopping retrieval refinement.
+- `PY_AGENT_ENABLE_GROUNDING_CHECK=true`: enable citation grounding; Chinese claims use the pinned jieba tokenizer from `allcallall-shared`.
 
 If the tool bridge is not configured, the runtime still uses context preloaded by Go. This keeps deterministic local evals independent from a running backend.
 
