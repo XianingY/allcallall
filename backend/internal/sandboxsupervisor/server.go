@@ -30,7 +30,7 @@ const (
 var (
 	ErrInvalidSocketPath = errors.New("invalid supervisor socket path")
 	ErrSessionRejected   = errors.New("supervisor session rejected")
-	errMissingNewline     = errors.New("child stdout line is not newline terminated")
+	errMissingNewline    = errors.New("child stdout line is not newline terminated")
 )
 
 // Server executes exactly one child process for exactly one Unix socket
@@ -425,7 +425,7 @@ func streamStdout(stdout io.Reader, writer *frameWriter, budget int64, events ch
 			return
 		}
 	}
-	if scanner.Err() != nil {
+	if err := scanner.Err(); err != nil && !errors.Is(err, os.ErrClosed) {
 		events <- sessionEvent{kind: eventInvalidOutput}
 	}
 }
