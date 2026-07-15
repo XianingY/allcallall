@@ -223,6 +223,9 @@ jobs:
                   assert security["capabilities"]["drop"] == ["ALL"]
                   assert security["seccompProfile"]["type"] == "RuntimeDefault"
 
+          assert deployments["sandbox-control-plane"]["spec"]["template"]["spec"]["automountServiceAccountToken"] is True
+          assert deployments["sandbox-runner"]["spec"]["template"]["spec"]["automountServiceAccountToken"] is False
+
           control_plane_env = {
               item["name"]: item
               for item in deployments["sandbox-control-plane"]["spec"]["template"]["spec"]["containers"][0]["env"]
@@ -240,6 +243,26 @@ jobs:
           assert "MCP_CAPABILITY_ED25519_PRIVATE_KEY" not in control_plane_env
           assert "MCP_CAPABILITY_ED25519_PRIVATE_KEY" not in runner_env
           assert "SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY" not in runner_env
+          assert control_plane_env["SANDBOX_KUBERNETES_EXECUTION_ENABLED"]["value"] == "1"
+          assert control_plane_env["SANDBOX_JOB_RUNTIME_CLASS"]["value"] == "gvisor"
+          assert control_plane_env["SANDBOX_JOB_SERVICE_ACCOUNT"]["value"].endswith("-sandbox-job")
+
+          service_accounts = {
+              item["metadata"]["labels"]["app.kubernetes.io/component"]: item
+              for item in resources
+              if item["kind"] == "ServiceAccount"
+          }
+          assert service_accounts["sandbox-control-plane"]["automountServiceAccountToken"] is True
+          assert service_accounts["sandbox-job"]["automountServiceAccountToken"] is False
+
+          sandbox_role = next(
+              item for item in resources
+              if item["kind"] == "Role" and item["metadata"]["name"].endswith("-sandbox-jobs")
+          )
+          assert sandbox_role["rules"] == [
+              {"apiGroups": ["batch"], "resources": ["jobs"], "verbs": ["create", "get", "delete"]},
+              {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list", "watch"]},
+          ]
 
           config = next(item for item in resources if item["kind"] == "ConfigMap")
           assert config["data"]["APP_ENV"] == "production"
@@ -264,6 +287,12 @@ jobs:
               and set(policy["spec"]["policyTypes"]) == {"Ingress", "Egress"}
               for policy in policies
           )
+          sandbox_job_policy = next(
+              policy for policy in policies
+              if policy["metadata"]["name"].endswith("-sandbox-job")
+          )
+          assert sandbox_job_policy["spec"]["policyTypes"] == ["Ingress", "Egress"]
+          assert not sandbox_job_policy["spec"].get("egress")
           PY
 
   images:

@@ -20,6 +20,7 @@ external:
   providerEgressCIDRs: []
   mcpEgressCIDRs: []
   registryEgressCIDRs: []
+  kubernetesApiCIDRs: ["10.96.0.1/32"]
 
 secrets:
   create: false
@@ -36,6 +37,9 @@ components:
   sandboxRunner:
     runtimeClassName: gvisor
     allowStdio: false
+  sandboxJobs:
+    enabled: true
+    runtimeClassName: gvisor
 
 observability:
   otlpEndpoint: https://otel-collector.production.internal:4318/v1/traces

@@ -56,9 +56,88 @@ func (s fixedScanner) Scan(context.Context, string) (ImageScanResult, error) {
 	return ImageScanResult{Status: s.status, Report: map[string]any{"critical_vulnerabilities": 1}}, nil
 }
 
+func newTestService(runner Runner, scanner ImageScanner) *Service {
+	return NewService(runner, scanner).WithOCIRunner(runner)
+}
+
+type receiptAwarePreparingRunner struct {
+	store    *ReceiptStore
+	executed atomic.Bool
+}
+
+func (r *receiptAwarePreparingRunner) Validate(context.Context, mcpplatform.ValidationRequest) (mcpplatform.ValidationResult, error) {
+	return mcpplatform.ValidationResult{}, nil
+}
+
+func (r *receiptAwarePreparingRunner) Execute(context.Context, mcpplatform.ExecutionRequest) (mcpplatform.ExecutionResult, error) {
+	return mcpplatform.ExecutionResult{}, errors.New("unprepared execution path used")
+}
+
+func (r *receiptAwarePreparingRunner) PrepareExecution(_ context.Context, request mcpplatform.ExecutionRequest) (PreparedExecution, error) {
+	return &receiptAwarePreparedExecution{runner: r, executionID: request.ExecutionID}, nil
+}
+
+type receiptAwarePreparedExecution struct {
+	runner      *receiptAwarePreparingRunner
+	executionID string
+}
+
+func (*receiptAwarePreparedExecution) JobID() string { return "sandbox-job-123" }
+
+func (p *receiptAwarePreparedExecution) Execute(ctx context.Context) (mcpplatform.ExecutionResult, error) {
+	receipt, err := p.runner.store.Get(ctx, p.executionID)
+	if err != nil {
+		return mcpplatform.ExecutionResult{}, err
+	}
+	if receipt.JobID != p.JobID() {
+		return mcpplatform.ExecutionResult{}, fmt.Errorf("side effect started before Job ID was durable")
+	}
+	p.runner.executed.Store(true)
+	return mcpplatform.ExecutionResult{JobID: p.JobID(), Output: map[string]any{"ok": true}}, nil
+}
+
+func (*receiptAwarePreparedExecution) Close(context.Context) error { return nil }
+
+func TestOCIRequestsNeverFallBackToSharedRunner(t *testing.T) {
+	shared := &fakeRunner{}
+	service := NewService(shared, fixedScanner{status: "passed"})
+	_, err := service.Validate(context.Background(), mcpplatform.ValidationRequest{
+		SourceType: models.MCPInstallationSourceOCI,
+		Definition: mcpplatform.InstallationDefinition{
+			ImageRef: "registry.example.com/tool@sha256:" + strings.Repeat("a", 64),
+		},
+	})
+	if !errors.Is(err, ErrImageRejected) {
+		t.Fatalf("expected isolated OCI runner rejection, got %v", err)
+	}
+	if shared.validations != 0 {
+		t.Fatal("OCI validation reached the shared HTTPS Runner")
+	}
+}
+
+func TestPreparedExecutionPersistsJobIDBeforeSideEffect(t *testing.T) {
+	db := testutil.OpenSQLite(t, "sandbox-prepared-job.db")
+	if err := db.AutoMigrate(&models.SandboxExecutionReceipt{}); err != nil {
+		t.Fatal(err)
+	}
+	store := NewReceiptStore(db)
+	runner := &receiptAwarePreparingRunner{store: store}
+	service := NewService(&fakeRunner{}, fixedScanner{status: "passed"}).
+		WithOCIRunner(runner).
+		WithReceiptStore(store)
+
+	receipt, err := service.Execute(context.Background(), receiptExecutionRequest("wrap-token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runner.executed.Load() || receipt.JobID != "sandbox-job-123" || receipt.Status != models.SandboxExecutionStatusSucceeded {
+		t.Fatalf("prepared execution was not durable before side effect: %#v", receipt)
+	}
+}
+
 func TestRejectsPrivateHTTPSDestination(t *testing.T) {
 	runner := &fakeRunner{}
-	service := NewService(runner, fixedScanner{status: "passed"})
+	service := newTestService(runner, fixedScanner{status: "passed"})
 	_, err := service.Validate(context.Background(), mcpplatform.ValidationRequest{
 		SourceType: models.MCPInstallationSourceHTTPS,
 		Definition: mcpplatform.InstallationDefinition{
@@ -77,7 +156,7 @@ func TestRejectsPrivateHTTPSDestination(t *testing.T) {
 
 func TestCriticalImageIsQuarantinedBeforeRunner(t *testing.T) {
 	runner := &fakeRunner{}
-	service := NewService(runner, fixedScanner{status: "critical"})
+	service := newTestService(runner, fixedScanner{status: "critical"})
 	result, err := service.Validate(context.Background(), mcpplatform.ValidationRequest{
 		SourceType: models.MCPInstallationSourceOCI,
 		Definition: mcpplatform.InstallationDefinition{
@@ -94,7 +173,7 @@ func TestCriticalImageIsQuarantinedBeforeRunner(t *testing.T) {
 }
 
 func TestRejectsMutableImageTag(t *testing.T) {
-	service := NewService(&fakeRunner{}, fixedScanner{status: "passed"})
+	service := newTestService(&fakeRunner{}, fixedScanner{status: "passed"})
 	_, err := service.Validate(context.Background(), mcpplatform.ValidationRequest{
 		SourceType: models.MCPInstallationSourceOCI,
 		Definition: mcpplatform.InstallationDefinition{Transport: "stdio", ImageRef: "registry.example.com/tool:latest"},
@@ -115,7 +194,7 @@ func TestReadRiskRequiresInstallerDeclarationAndRunnerClassification(t *testing.
 		{name: "declared", config: map[string]any{"read_tools": []any{"search"}}, wantVerify: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			service := NewService(&fakeRunner{}, fixedScanner{status: "passed"})
+			service := newTestService(&fakeRunner{}, fixedScanner{status: "passed"})
 			result, err := service.Validate(context.Background(), mcpplatform.ValidationRequest{
 				SourceType: models.MCPInstallationSourceOCI,
 				Definition: mcpplatform.InstallationDefinition{
@@ -141,7 +220,7 @@ func TestExecutionReceiptReplaysAcrossRestartAndExcludesWrapToken(t *testing.T) 
 	}
 	runner := &fakeRunner{}
 	store := NewReceiptStore(db)
-	service := NewService(runner, fixedScanner{status: "passed"}).WithReceiptStore(store)
+	service := newTestService(runner, fixedScanner{status: "passed"}).WithReceiptStore(store)
 	request := receiptExecutionRequest("wrap-token-first")
 
 	first, err := service.Execute(context.Background(), request)
@@ -160,7 +239,7 @@ func TestExecutionReceiptReplaysAcrossRestartAndExcludesWrapToken(t *testing.T) 
 		t.Fatalf("token rotation changed replay identity: first=%#v second=%#v calls=%d", first, second, runner.executionCount())
 	}
 
-	restarted := NewService(&fakeRunner{}, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
+	restarted := newTestService(&fakeRunner{}, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
 	stored, err := restarted.LookupExecution(context.Background(), request.ExecutionID)
 	if err != nil || stored.Status != models.SandboxExecutionStatusSucceeded || stored.Output["ok"] != true {
 		t.Fatalf("lookup after restart: receipt=%#v err=%v", stored, err)
@@ -191,7 +270,7 @@ func TestConcurrentExecutionReceiptHasSingleRunnerWinner(t *testing.T) {
 		<-release
 		return mcpplatform.ExecutionResult{ExecutionID: request.ExecutionID, JobID: request.ExecutionID, Output: map[string]any{"winner": true}}, nil
 	}}
-	service := NewService(runner, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
+	service := newTestService(runner, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
 	request := receiptExecutionRequest("wrap-token")
 
 	const concurrency = 50
@@ -229,7 +308,7 @@ func TestExecutionReceiptRejectsDigestCollision(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{}
-	service := NewService(runner, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
+	service := newTestService(runner, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
 	request := receiptExecutionRequest("wrap-token")
 	if _, err := service.Execute(context.Background(), request); err != nil {
 		t.Fatal(err)
@@ -258,7 +337,7 @@ func TestTerminalReceiptPersistsAfterCallerCancellation(t *testing.T) {
 		}
 		return mcpplatform.ExecutionResult{ExecutionID: request.ExecutionID, JobID: request.ExecutionID, Output: map[string]any{"persisted": true}}, nil
 	}}
-	service := NewService(runner, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
+	service := newTestService(runner, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
 	request := receiptExecutionRequest("wrap-token")
 	receipt, err := service.Execute(ctx, request)
 	if err != nil || receipt.Status != models.SandboxExecutionStatusSucceeded {
@@ -279,7 +358,7 @@ func TestTerminalReceiptRedactsSecretWrapTokenFromErrors(t *testing.T) {
 	runner := &fakeRunner{execute: func(context.Context, mcpplatform.ExecutionRequest) (mcpplatform.ExecutionResult, error) {
 		return mcpplatform.ExecutionResult{}, fmt.Errorf("unwrap failed for token %s", token)
 	}}
-	service := NewService(runner, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
+	service := newTestService(runner, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
 	receipt, err := service.Execute(context.Background(), receiptExecutionRequest(token))
 	if err != nil {
 		t.Fatalf("persist failed terminal receipt: %v", err)
@@ -312,7 +391,7 @@ func TestTerminalReceiptRetriesTransientDatabaseFailure(t *testing.T) {
 	}
 	defer db.Callback().Update().Remove(callbackName)
 
-	service := NewService(&fakeRunner{}, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
+	service := newTestService(&fakeRunner{}, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
 	receipt, err := service.Execute(context.Background(), receiptExecutionRequest("wrap-token"))
 	if err != nil {
 		t.Fatalf("terminal retry failed: %v", err)
@@ -329,7 +408,7 @@ func TestStaleRunningReceiptBecomesOutcomeUnknownWithoutReplay(t *testing.T) {
 	}
 	store := NewReceiptStore(db)
 	runner := &fakeRunner{}
-	service := NewService(runner, fixedScanner{status: "passed"}).WithReceiptStore(store)
+	service := newTestService(runner, fixedScanner{status: "passed"}).WithReceiptStore(store)
 	request := normalizeExecutionRequest(receiptExecutionRequest("wrap-token"))
 	digest, err := executionRequestDigest(request)
 	if err != nil {
@@ -374,7 +453,7 @@ func TestStaleRunningReceiptBecomesOutcomeUnknownWithoutReplay(t *testing.T) {
 func TestReceiptInsertFailureDoesNotInvokeRunner(t *testing.T) {
 	db := testutil.OpenSQLite(t, "sandbox-receipt-missing-table.db")
 	runner := &fakeRunner{}
-	service := NewService(runner, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
+	service := newTestService(runner, fixedScanner{status: "passed"}).WithReceiptStore(NewReceiptStore(db))
 	if _, err := service.Execute(context.Background(), receiptExecutionRequest("wrap-token")); !errors.Is(err, ErrReceiptUnavailable) {
 		t.Fatalf("expected receipt dependency failure, got %v", err)
 	}

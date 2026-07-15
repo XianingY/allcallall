@@ -39,6 +39,16 @@ type Runner interface {
 	Execute(context.Context, mcpplatform.ExecutionRequest) (mcpplatform.ExecutionResult, error)
 }
 
+type PreparedExecution interface {
+	JobID() string
+	Execute(context.Context) (mcpplatform.ExecutionResult, error)
+	Close(context.Context) error
+}
+
+type PreparingRunner interface {
+	PrepareExecution(context.Context, mcpplatform.ExecutionRequest) (PreparedExecution, error)
+}
+
 type ImageScanResult struct {
 	Status string
 	Report map[string]any
@@ -50,6 +60,7 @@ type ImageScanner interface {
 
 type Service struct {
 	runner            Runner
+	ociRunner         Runner
 	scanner           ImageScanner
 	resolver          *net.Resolver
 	receipts          *ReceiptStore
@@ -72,9 +83,18 @@ func (s *Service) WithReceiptStore(store *ReceiptStore) *Service {
 	return s
 }
 
+// WithOCIRunner installs the only execution path allowed to launch digest-pinned
+// user images. OCI requests never fall back to the shared HTTPS Runner.
+func (s *Service) WithOCIRunner(runner Runner) *Service {
+	s.ociRunner = runner
+	return s
+}
+
 func (s *Service) Validate(ctx context.Context, request mcpplatform.ValidationRequest) (mcpplatform.ValidationResult, error) {
-	if s.runner == nil {
-		return mcpplatform.ValidationResult{}, fmt.Errorf("runner unavailable")
+	request.SourceType = strings.ToLower(strings.TrimSpace(request.SourceType))
+	runner, err := s.runnerForSource(request.SourceType)
+	if err != nil {
+		return mcpplatform.ValidationResult{}, err
 	}
 	result := mcpplatform.ValidationResult{ScanStatus: "passed", ScanReport: map[string]any{}}
 	switch request.SourceType {
@@ -102,7 +122,7 @@ func (s *Service) Validate(ctx context.Context, request mcpplatform.ValidationRe
 	default:
 		return result, fmt.Errorf("unsupported MCP source type")
 	}
-	runnerResult, err := s.runner.Validate(ctx, request)
+	runnerResult, err := runner.Validate(ctx, request)
 	if err != nil {
 		return result, err
 	}
@@ -143,13 +163,14 @@ func configuredToolNames(config map[string]any, key string) map[string]bool {
 type ExecutionReceipt = mcpplatform.SandboxExecutionReceipt
 
 func (s *Service) Execute(ctx context.Context, request mcpplatform.ExecutionRequest) (ExecutionReceipt, error) {
-	if s.runner == nil {
-		return ExecutionReceipt{}, fmt.Errorf("runner unavailable")
-	}
 	if s.receipts == nil {
 		return ExecutionReceipt{}, ErrReceiptUnavailable
 	}
 	request = normalizeExecutionRequest(request)
+	runner, err := s.runnerForSource(request.SourceType)
+	if err != nil {
+		return ExecutionReceipt{}, err
+	}
 	if err := validateExecutionIdentity(request); err != nil {
 		return ExecutionReceipt{}, err
 	}
@@ -224,7 +245,26 @@ func (s *Service) Execute(ctx context.Context, request mcpplatform.ExecutionRequ
 		executionErr = fmt.Errorf("unsupported MCP source type")
 	}
 	if executionErr == nil {
-		result, executionErr = s.runner.Execute(executionCtx, request)
+		if preparingRunner, ok := runner.(PreparingRunner); ok {
+			var prepared PreparedExecution
+			prepared, executionErr = preparingRunner.PrepareExecution(executionCtx, request)
+			if executionErr == nil {
+				defer func() {
+					closeCtx, closeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer closeCancel()
+					_ = prepared.Close(closeCtx)
+				}()
+				persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), terminalReceiptWriteTimeout)
+				stored, executionErr = s.receipts.SetJobID(persistCtx, request.ExecutionID, digest, prepared.JobID())
+				persistCancel()
+				if executionErr == nil {
+					result, executionErr = prepared.Execute(executionCtx)
+					result.JobID = prepared.JobID()
+				}
+			}
+		} else {
+			result, executionErr = runner.Execute(executionCtx, request)
+		}
 	}
 
 	status := models.SandboxExecutionStatusSucceeded
@@ -270,6 +310,23 @@ func (s *Service) Execute(ctx context.Context, request mcpplatform.ExecutionRequ
 		}
 	}
 	return executionReceiptFromModel(stored)
+}
+
+func (s *Service) runnerForSource(sourceType string) (Runner, error) {
+	switch strings.ToLower(strings.TrimSpace(sourceType)) {
+	case models.MCPInstallationSourceOCI:
+		if s.ociRunner == nil {
+			return nil, fmt.Errorf("%w: isolated OCI runner unavailable", ErrImageRejected)
+		}
+		return s.ociRunner, nil
+	case models.MCPInstallationSourceHTTPS:
+		if s.runner == nil {
+			return nil, fmt.Errorf("HTTPS runner unavailable")
+		}
+		return s.runner, nil
+	default:
+		return nil, fmt.Errorf("unsupported MCP source type")
+	}
 }
 
 func (s *Service) LookupExecution(ctx context.Context, executionID string) (ExecutionReceipt, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -57,6 +58,28 @@ func (s *ReceiptStore) Get(ctx context.Context, executionID string) (*models.San
 		return nil, fmt.Errorf("read sandbox execution receipt: %w", err)
 	}
 	return &receipt, nil
+}
+
+// SetJobID durably records the isolated Job before the control plane sends the
+// request that can start user code.
+func (s *ReceiptStore) SetJobID(ctx context.Context, executionID, requestDigest, jobID string) (*models.SandboxExecutionReceipt, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("sandbox receipt store unavailable")
+	}
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" || len(jobID) > 160 {
+		return nil, fmt.Errorf("invalid sandbox Job ID")
+	}
+	result := s.db.WithContext(ctx).Model(&models.SandboxExecutionReceipt{}).
+		Where("execution_id = ? AND request_digest = ? AND status = ? AND (job_id = '' OR job_id = ?)", executionID, requestDigest, models.SandboxExecutionStatusRunning, jobID).
+		Update("job_id", jobID)
+	if result.Error != nil {
+		return nil, fmt.Errorf("persist sandbox Job ID: %w", result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return nil, ErrReceiptStateChanged
+	}
+	return s.Get(ctx, executionID)
 }
 
 func (s *ReceiptStore) Complete(

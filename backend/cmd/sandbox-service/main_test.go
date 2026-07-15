@@ -123,6 +123,16 @@ func TestConcurrentExecutionRouteReturnsAcceptedForRunningReceipt(t *testing.T) 
 	}
 }
 
+func TestParseImagePullSecrets(t *testing.T) {
+	parsed := parseImagePullSecrets(`[{"name":"registry-one"},{"name":" registry-two "},{"name":""}]`)
+	if len(parsed) != 2 || parsed[0] != "registry-one" || parsed[1] != "registry-two" {
+		t.Fatalf("unexpected image pull secrets: %v", parsed)
+	}
+	if parsed := parseImagePullSecrets("not-json"); parsed != nil {
+		t.Fatalf("invalid image pull secrets were accepted: %v", parsed)
+	}
+}
+
 func TestSandboxCapabilityMiddlewareRejectsMissingCrossOperationAndTamperedBody(t *testing.T) {
 	handler, signer := receiptHandler(t, &handlerRunner{})
 	original := handlerExecutionRequest()
@@ -203,7 +213,9 @@ func receiptHandler(t *testing.T, runner *handlerRunner) (http.Handler, *mcpplat
 	if err := db.AutoMigrate(&models.SandboxExecutionReceipt{}); err != nil {
 		t.Fatal(err)
 	}
-	service := sandbox.NewService(runner, nil).WithReceiptStore(sandbox.NewReceiptStore(db))
+	service := sandbox.NewService(runner, nil).
+		WithOCIRunner(runner).
+		WithReceiptStore(sandbox.NewReceiptStore(db))
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)

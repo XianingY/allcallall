@@ -4,9 +4,9 @@
 
 ## 部署拓扑
 
-Chart 包含 API、Agent worker、Outbox worker、Agent Runtime、RAG Runtime、Sandbox Control Plane、Sandbox Runner、Web、migration Job。每个工作负载使用独立 ServiceAccount，默认不挂载 Kubernetes API token。所有 Deployment 都包含资源 requests/limits、HPA 和 PDB。
+Chart 包含 API、Agent worker、Outbox worker、Agent Runtime、RAG Runtime、Sandbox Control Plane、共享 HTTPS Sandbox Runner、Web、migration Job，以及按 OCI 执行动态创建的短生命周期 Sandbox Job。每个工作负载使用独立 ServiceAccount；只有可信 Sandbox Control Plane 挂载 Kubernetes API token，并通过 namespace Role 仅获得创建/读取/删除 Job 与读取 Pod 状态的权限。不可信 Sandbox Job 使用独立 ServiceAccount 且显式禁用 token。所有常驻 Deployment 都包含资源 requests/limits、HPA 和 PDB。
 
-Sandbox Control Plane 与 Runner 默认指定 `runtimeClassName: gvisor`，以非 root 用户运行，根文件系统只读，禁用提权，丢弃全部 Linux capabilities，并使用 `RuntimeDefault` seccomp。临时数据和一次性 secret 只进入有容量上限的 memory-backed `emptyDir`；Chart 不创建 `hostPath` 或其他 host mount。
+Sandbox Control Plane、共享 Runner 与动态 Sandbox Job 默认指定 `runtimeClassName: gvisor`，以非 root 用户运行，根文件系统只读，禁用提权，丢弃全部 Linux capabilities，并使用 `RuntimeDefault` seccomp。OCI Job 的用户镜像必须固定到 digest；init container 将静态 supervisor 注入 memory-backed `emptyDir`，可信 Runner sidecar 通过 mode-0600 Unix socket 请求 supervisor 启动用户命令。临时数据只进入有容量上限的 memory-backed `emptyDir`；Chart 不创建 `hostPath` 或其他 host mount。
 
 ## 前置检查
 
@@ -18,7 +18,7 @@ kubectl api-resources | grep networkpolicies
 kubectl -n kube-system get pods -l k8s-app=kube-dns
 ```
 
-云厂商的 gVisor RuntimeClass 名称不同或由节点池限定时，在 values 中同时修改 `components.sandboxControlPlane.runtimeClassName` 和 `components.sandboxRunner.runtimeClassName`，并使用 `nodeSelector`、tolerations 将 Pod 调度到对应节点池。Chart 不创建 RuntimeClass，因为 handler 配置属于集群基础设施，而不是应用发布的一部分。
+云厂商的 gVisor RuntimeClass 名称不同或由节点池限定时，在 values 中同时修改 `components.sandboxControlPlane.runtimeClassName`、`components.sandboxRunner.runtimeClassName` 和 `components.sandboxJobs.runtimeClassName`，并使用 `nodeSelector`、tolerations 将 Pod 调度到对应节点池。Chart 不创建 RuntimeClass，因为 handler 配置属于集群基础设施，而不是应用发布的一部分。
 
 ## 外部依赖与 Secret
 
@@ -61,10 +61,11 @@ OpenBao 中只保存用户 MCP 凭据，数据库只保存 Vault path。Runner �
 - Web、Agent Runtime、RAG Runtime 到 API。
 - API/Agent worker 到 Agent/RAG Runtime 和 Sandbox Control Plane。
 - Agent Runtime 到 RAG Runtime。
-- Sandbox Control Plane 到 Runner 和回执 MySQL；Runner 本身没有数据库凭据或数据库出口。
+- Sandbox Control Plane 到共享 HTTPS Runner、动态 OCI Job、Kubernetes API 和回执 MySQL；Runner 本身没有数据库凭据或数据库出口。
+- OCI Job 默认没有外部 MCP 出口，只允许 DNS、Control Plane 入站和显式配置的 OpenBao CIDR。需要联网的 OCI 工具应在后续接入支持 FQDN policy 的 CNI 后按 installation allowlist 放行，不能复用共享 Runner 的宽出口。
 - DNS 到指定 kube-dns Pod。
 
-外部出口必须在 `external.*.egressCIDRs` 中显式配置。MySQL、Redis、OpenBao、模型 Provider、MCP endpoint 和镜像 Registry 分开维护 CIDR，Runner 不继承 API 的出口。空列表表示禁止该类出口，不表示允许所有地址。
+外部出口必须在 `external.*.egressCIDRs` 中显式配置。MySQL、Redis、OpenBao、模型 Provider、MCP endpoint、镜像 Registry 和 `external.kubernetesApiCIDRs` 分开维护 CIDR，Runner 不继承 API 的出口。`kubernetesApiCIDRs` 应填写 Pod 内 `KUBERNETES_SERVICE_HOST` 对应的 API Service 地址；空列表表示禁止该类出口，不表示允许所有地址。
 
 标准 Kubernetes NetworkPolicy 不能稳定按 FQDN 放行。托管服务 IP 会变化时，应使用 Cilium/Calico 的 FQDN policy，并继续保留 Chart 的 default deny；不要用 `0.0.0.0/0` 绕过控制。HTTPS MCP 仍须由 Sandbox 做 TLS、重定向、DNS rebinding 和私网地址校验。
 
@@ -90,6 +91,10 @@ Migration Job 是 `pre-install,pre-upgrade` hook，失败时 Helm 不推进新�
 kubectl -n allcallall get deploy,job,hpa,pdb,networkpolicy
 kubectl -n allcallall get pods -l app.kubernetes.io/component=sandbox-runner \
   -o jsonpath='{range .items[*]}{.metadata.name}{" runtime="}{.spec.runtimeClassName}{"\n"}{end}'
+kubectl -n allcallall auth can-i create jobs.batch \
+  --as=system:serviceaccount:allcallall:allcallall-allcallall-sandbox-control-plane
+kubectl -n allcallall auth can-i create pods \
+  --as=system:serviceaccount:allcallall:allcallall-allcallall-sandbox-control-plane
 kubectl -n allcallall port-forward svc/allcallall-allcallall-api 8080:8080
 curl --fail http://127.0.0.1:8080/api/v1/health
 curl --fail http://127.0.0.1:8080/api/v1/metrics
@@ -128,7 +133,7 @@ Go 在第一次调用 Python 前持久化去除短期 capability 的规范化 ru
 
 ### Sandbox 回执与崩溃恢复
 
-Sandbox Control Plane 以 `execution_id` 为主键，在调用 Runner 前先创建 durable receipt。请求摘要绑定 organization、user、run、installation revision、tool 和参数，但明确排除一次性 `secret_wrap_token`；相同 execution 和摘要只允许一个调用者进入 Runner，摘要漂移返回冲突。Runner 终态必须先写 receipt，再返回给 Go。Go 在重复执行、执行查询和后台扫描中读取 receipt，并以 CAS 将 `mcp_executions` 从 active 状态推进到终态；首次终态与 `mcp.execution.terminal` outbox 在同一业务事务提交。
+Sandbox Control Plane 以 `execution_id` 为主键，在调用 Runner 前先创建 durable receipt。请求摘要绑定 organization、user、run、installation revision、tool 和参数，但明确排除一次性 `secret_wrap_token`；相同 execution 和摘要只允许一个调用者进入 Runner，摘要漂移返回冲突。OCI 路径创建 Job 并等待 supervisor socket ready 后，必须先把 `job_id` 写入 running receipt，才把包含 wrapping token 的请求从内存直传到 Pod IP；token 不进入 Job spec、环境变量或 Kubernetes Event。Runner 终态必须先写 receipt，再返回给 Go。Go 在重复执行、执行查询和后台扫描中读取 receipt，并以 CAS 将 `mcp_executions` 从 active 状态推进到终态；首次终态与 `mcp.execution.terminal` outbox 在同一业务事务提交。
 
 父 Agent/Workflow 若仍持有旧 worker lease，terminal handler 会把恢复事件延迟到 lease 到期。独立 recovery sweep 同时扫描所有已过期的 running run，按旧 lease token 生成幂等 outbox，覆盖 worker 在发布后续事件前崩溃的通用窗口。API embedded worker 和独立 Agent worker 都必须启用 MCP reconciliation 与 run recovery，且使用同一套 MCP、Sandbox、OpenBao 和 capability 配置。
 

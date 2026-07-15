@@ -42,6 +42,26 @@ func main() {
 	receiptStore := sandbox.NewReceiptStore(db)
 	service := sandbox.NewService(runner, sandbox.TrivyScanner{Binary: os.Getenv("TRIVY_BINARY")}).
 		WithReceiptStore(receiptStore)
+	if envEnabled("SANDBOX_KUBERNETES_EXECUTION_ENABLED") {
+		ociRunner, err := sandbox.NewInClusterKubernetesRunner(sandbox.KubernetesRunnerConfig{
+			Namespace:        os.Getenv("SANDBOX_JOB_NAMESPACE"),
+			RunnerImage:      os.Getenv("SANDBOX_JOB_RUNNER_IMAGE"),
+			SupervisorImage:  os.Getenv("SANDBOX_JOB_SUPERVISOR_IMAGE"),
+			RuntimeClass:     os.Getenv("SANDBOX_JOB_RUNTIME_CLASS"),
+			ServiceAccount:   os.Getenv("SANDBOX_JOB_SERVICE_ACCOUNT"),
+			AppName:          os.Getenv("SANDBOX_JOB_APP_NAME"),
+			Instance:         os.Getenv("SANDBOX_JOB_INSTANCE"),
+			OpenBaoAddress:   os.Getenv("OPENBAO_ADDR"),
+			ImagePullSecrets: parseImagePullSecrets(os.Getenv("SANDBOX_JOB_IMAGE_PULL_SECRETS")),
+			CPU:              os.Getenv("SANDBOX_JOB_CPU"),
+			Memory:           os.Getenv("SANDBOX_JOB_MEMORY"),
+			StartupTimeout:   envDuration("SANDBOX_JOB_STARTUP_TIMEOUT", 30*time.Second),
+		})
+		if err != nil {
+			log.Fatal().Err(err).Msg("initialize isolated OCI Kubernetes runner")
+		}
+		service.WithOCIRunner(ociRunner)
+	}
 	handler := newHandler(service, capabilityVerifier)
 	address := strings.TrimSpace(os.Getenv("SANDBOX_ADDR"))
 	if address == "" {
@@ -70,6 +90,43 @@ func main() {
 	if err := server.Shutdown(shutdownContext); err != nil {
 		log.Error().Err(err).Msg("sandbox control plane shutdown failed")
 	}
+}
+
+func envEnabled(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func envDuration(name string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return fallback
+	}
+	return duration
+}
+
+func parseImagePullSecrets(value string) []string {
+	var references []struct {
+		Name string `json:"name"`
+	}
+	if strings.TrimSpace(value) == "" || json.Unmarshal([]byte(value), &references) != nil {
+		return nil
+	}
+	names := make([]string, 0, len(references))
+	for _, reference := range references {
+		if name := strings.TrimSpace(reference.Name); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func newHandler(service *sandbox.Service, capabilityVerifier *mcpplatform.SandboxCapabilityVerifier) http.Handler {

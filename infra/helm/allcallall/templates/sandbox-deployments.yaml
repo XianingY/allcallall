@@ -27,7 +27,7 @@ spec:
     spec:
       runtimeClassName: {{ $sandbox.values.runtimeClassName | quote }}
       serviceAccountName: {{ include "allcallall.serviceAccountName" (dict "root" $root "component" $sandbox.name) }}
-      automountServiceAccountToken: false
+      automountServiceAccountToken: {{ eq $sandbox.name "sandbox-control-plane" }}
       hostNetwork: false
       hostPID: false
       hostIPC: false
@@ -62,6 +62,32 @@ spec:
               value: :8092
             - name: SANDBOX_RUNNER_URL
               value: http://{{ include "allcallall.fullname" $root }}-sandbox-runner:8093
+            - name: SANDBOX_KUBERNETES_EXECUTION_ENABLED
+              value: {{ ternary "1" "0" (and $root.Values.features.sandboxExecutionEnabled $root.Values.components.sandboxJobs.enabled) | quote }}
+            - name: SANDBOX_JOB_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: SANDBOX_JOB_RUNNER_IMAGE
+              value: "{{ $root.Values.images.sandboxRunner.repository }}:{{ $root.Values.images.sandboxRunner.tag }}"
+            - name: SANDBOX_JOB_SUPERVISOR_IMAGE
+              value: "{{ $root.Values.images.sandboxSupervisor.repository }}:{{ $root.Values.images.sandboxSupervisor.tag }}"
+            - name: SANDBOX_JOB_IMAGE_PULL_SECRETS
+              value: {{ $root.Values.global.imagePullSecrets | toJson | quote }}
+            - name: SANDBOX_JOB_RUNTIME_CLASS
+              value: {{ $root.Values.components.sandboxJobs.runtimeClassName | quote }}
+            - name: SANDBOX_JOB_SERVICE_ACCOUNT
+              value: {{ include "allcallall.serviceAccountName" (dict "root" $root "component" "sandbox-job") | quote }}
+            - name: SANDBOX_JOB_APP_NAME
+              value: {{ include "allcallall.name" $root | quote }}
+            - name: SANDBOX_JOB_INSTANCE
+              value: {{ $root.Release.Name | quote }}
+            - name: SANDBOX_JOB_CPU
+              value: {{ $root.Values.components.sandboxJobs.resources.cpu | quote }}
+            - name: SANDBOX_JOB_MEMORY
+              value: {{ $root.Values.components.sandboxJobs.resources.memory | quote }}
+            - name: SANDBOX_JOB_STARTUP_TIMEOUT
+              value: {{ $root.Values.components.sandboxJobs.startupTimeout | quote }}
             - name: SANDBOX_DB_DSN
               valueFrom:
                 secretKeyRef:
