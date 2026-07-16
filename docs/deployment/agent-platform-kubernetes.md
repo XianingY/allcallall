@@ -4,7 +4,7 @@
 
 ## 部署拓扑
 
-Chart 包含 API、Agent worker、Outbox worker、Agent Runtime、RAG Runtime、Sandbox Control Plane、共享 HTTPS Sandbox Runner、Web、migration Job，以及按 OCI 执行动态创建的短生命周期 Sandbox Job。每个工作负载使用独立 ServiceAccount；只有可信 Sandbox Control Plane 挂载 Kubernetes API token，并通过 namespace Role 仅获得创建/读取/删除 Job 与读取 Pod 状态的权限。不可信 Sandbox Job 使用独立 ServiceAccount 且显式禁用 token。所有常驻 Deployment 都包含资源 requests/limits、HPA 和 PDB。
+Chart 包含 API、Agent worker、Outbox worker、Agent Runtime、RAG Runtime、Sandbox Control Plane、共享 HTTPS Sandbox Runner、Web、migration Job，以及按 OCI 执行动态创建的短生命周期 Sandbox Job。每个工作负载使用独立 ServiceAccount；只有可信 Sandbox Control Plane 挂载 Kubernetes API token，并通过 namespace Role 仅获得创建/读取/删除 Job、读取 Pod 状态和创建/删除该 Job 专属 NetworkPolicy 的权限。不可信 Sandbox Job 使用独立 ServiceAccount，并显式禁用 token。所有常驻 Deployment 都包含资源 requests/limits、HPA 和 PDB。
 
 Sandbox Control Plane、共享 Runner 与动态 Sandbox Job 默认指定 `runtimeClassName: gvisor`，以非 root 用户运行，根文件系统只读，禁用提权，丢弃全部 Linux capabilities，并使用 `RuntimeDefault` seccomp。OCI Job 的用户镜像必须固定到 digest；init container 将静态 supervisor 注入 memory-backed `emptyDir`，可信 Runner sidecar 通过 mode-0600 Unix socket 请求 supervisor 启动用户命令。临时数据只进入有容量上限的 memory-backed `emptyDir`；Chart 不创建 `hostPath` 或其他 host mount。
 
@@ -62,7 +62,7 @@ OpenBao 中只保存用户 MCP 凭据，数据库只保存 Vault path。Runner �
 - API/Agent worker 到 Agent/RAG Runtime 和 Sandbox Control Plane。
 - Agent Runtime 到 RAG Runtime。
 - Sandbox Control Plane 到共享 HTTPS Runner、动态 OCI Job、Kubernetes API 和回执 MySQL；Runner 本身没有数据库凭据或数据库出口。
-- OCI Job 默认没有外部 MCP 出口，只允许 DNS、Control Plane 入站和显式配置的 OpenBao CIDR。需要联网的 OCI 工具应在后续接入支持 FQDN policy 的 CNI 后按 installation allowlist 放行，不能复用共享 Runner 的宽出口。
+- OCI Job 默认没有外部 MCP 出口，只允许 DNS、Control Plane 入站和显式配置的 OpenBao CIDR。installation 声明的 OCI 网络 allowlist 只接受最多 32 个精确域名，不接受 wildcard 或直接 IP；Control Plane 拒绝任何私网或特殊用途网段解析，将最多 64 个公网解析结果同时固定到 Pod `hostAliases` 与 Job 专属 NetworkPolicy，并只开放 TCP/443。需要动态子域名的工具应接入支持 FQDN policy 的 CNI，不能用 `0.0.0.0/0` 或共享 Runner 宽出口绕过。
 - DNS 到指定 kube-dns Pod。
 
 外部出口必须在 `external.*.egressCIDRs` 中显式配置。MySQL、Redis、OpenBao、模型 Provider、MCP endpoint、镜像 Registry 和 `external.kubernetesApiCIDRs` 分开维护 CIDR，Runner 不继承 API 的出口。`kubernetesApiCIDRs` 应填写 Pod 内 `KUBERNETES_SERVICE_HOST` 对应的 API Service 地址；空列表表示禁止该类出口，不表示允许所有地址。

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -58,11 +59,15 @@ type ImageScanner interface {
 	Scan(context.Context, string) (ImageScanResult, error)
 }
 
+type ipResolver interface {
+	LookupIPAddr(context.Context, string) ([]net.IPAddr, error)
+}
+
 type Service struct {
 	runner            Runner
 	ociRunner         Runner
 	scanner           ImageScanner
-	resolver          *net.Resolver
+	resolver          ipResolver
 	receipts          *ReceiptStore
 	receiptRetention  time.Duration
 	receiptStaleGrace time.Duration
@@ -492,8 +497,36 @@ func (s *Service) validateHTTPSDestination(ctx context.Context, definition mcppl
 }
 
 func unsafeIP(ip net.IP) bool {
-	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsUnspecified() || ip.IsMulticast()
+	address, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return true
+	}
+	address = address.Unmap()
+	if !address.IsGlobalUnicast() || address.IsPrivate() {
+		return true
+	}
+	for _, network := range blockedSpecialUseNetworks {
+		if network.Contains(address) {
+			return true
+		}
+	}
+	return false
+}
+
+var blockedSpecialUseNetworks = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("100::/64"),
+	netip.MustParsePrefix("2001::/23"),
+	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("3fff::/20"),
 }
 
 func hostAllowed(host string, allowlist []string) bool {

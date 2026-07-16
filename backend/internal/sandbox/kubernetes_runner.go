@@ -9,11 +9,15 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	"golang.org/x/net/idna"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,13 +59,20 @@ type KubernetesRunner struct {
 	config         KubernetesRunnerConfig
 	httpClient     *http.Client
 	endpointForPod func(string) string
+	resolver       ipResolver
 }
 
 type kubernetesPreparedExecution struct {
-	runner   *KubernetesRunner
-	jobName  string
-	endpoint string
-	request  mcpplatform.ExecutionRequest
+	runner        *KubernetesRunner
+	jobName       string
+	networkPolicy string
+	endpoint      string
+	request       mcpplatform.ExecutionRequest
+}
+
+type pinnedNetworkDestination struct {
+	hostname  string
+	addresses []string
 }
 
 func NewInClusterKubernetesRunner(config KubernetesRunnerConfig) (*KubernetesRunner, error) {
@@ -113,8 +124,9 @@ func NewKubernetesRunner(client kubernetes.Interface, config KubernetesRunnerCon
 		config.PollInterval = defaultSandboxJobPollInterval
 	}
 	runner := &KubernetesRunner{
-		client: client,
-		config: config,
+		client:   client,
+		config:   config,
+		resolver: net.DefaultResolver,
 		httpClient: &http.Client{
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 				return http.ErrUseLastResponse
@@ -128,11 +140,11 @@ func NewKubernetesRunner(client kubernetes.Interface, config KubernetesRunnerCon
 }
 
 func (r *KubernetesRunner) Validate(ctx context.Context, request mcpplatform.ValidationRequest) (mcpplatform.ValidationResult, error) {
-	job, endpoint, err := r.preparePod(ctx, request.Definition, "validate", "")
+	job, policy, endpoint, err := r.preparePod(ctx, request.Definition, "validate", "")
 	if err != nil {
 		return mcpplatform.ValidationResult{}, err
 	}
-	defer r.deleteJob(job)
+	defer r.deleteResources(job, policy)
 	var result mcpplatform.ValidationResult
 	if err := r.post(ctx, endpoint+"/v1/validate", request, &result); err != nil {
 		return mcpplatform.ValidationResult{}, err
@@ -154,15 +166,16 @@ func (r *KubernetesRunner) Execute(ctx context.Context, request mcpplatform.Exec
 }
 
 func (r *KubernetesRunner) PrepareExecution(ctx context.Context, request mcpplatform.ExecutionRequest) (PreparedExecution, error) {
-	job, endpoint, err := r.preparePod(ctx, request.Definition, "execute", request.ExecutionID)
+	job, policy, endpoint, err := r.preparePod(ctx, request.Definition, "execute", request.ExecutionID)
 	if err != nil {
 		return nil, err
 	}
 	return &kubernetesPreparedExecution{
-		runner:   r,
-		jobName:  job,
-		endpoint: endpoint,
-		request:  request,
+		runner:        r,
+		jobName:       job,
+		networkPolicy: policy,
+		endpoint:      endpoint,
+		request:       request,
 	}, nil
 }
 
@@ -178,30 +191,41 @@ func (p *kubernetesPreparedExecution) Execute(ctx context.Context) (mcpplatform.
 }
 
 func (p *kubernetesPreparedExecution) Close(ctx context.Context) error {
-	return p.runner.deleteJobWithContext(ctx, p.jobName)
+	return p.runner.deleteResourcesWithContext(ctx, p.jobName, p.networkPolicy)
 }
 
-func (r *KubernetesRunner) preparePod(ctx context.Context, definition mcpplatform.InstallationDefinition, operation, executionID string) (string, string, error) {
+func (r *KubernetesRunner) preparePod(ctx context.Context, definition mcpplatform.InstallationDefinition, operation, executionID string) (string, string, string, error) {
 	if err := validateDigestPinned(definition.ImageRef); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	job := r.buildJob(definition.ImageRef, operation, executionID)
+	destinations, err := r.resolveNetworkAllowlist(ctx, definition.NetworkAllowlist)
+	if err != nil {
+		return "", "", "", err
+	}
+	job := r.buildJob(definition.ImageRef, operation, executionID, destinations)
 	created, err := r.client.BatchV1().Jobs(r.config.Namespace).Create(ctx, job, metav1.CreateOptions{})
 	if err != nil {
-		return "", "", fmt.Errorf("create isolated sandbox Job: %w", err)
+		return "", "", "", fmt.Errorf("create isolated sandbox Job: %w", err)
 	}
 	jobName := created.Name
+	policy := r.buildNetworkPolicy(created, destinations)
+	createdPolicy, err := r.client.NetworkingV1().NetworkPolicies(r.config.Namespace).Create(ctx, policy, metav1.CreateOptions{})
+	if err != nil {
+		r.deleteJob(jobName)
+		return "", "", "", fmt.Errorf("create isolated sandbox NetworkPolicy: %w", err)
+	}
+	policyName := createdPolicy.Name
 	waitCtx, cancel := context.WithTimeout(ctx, r.config.StartupTimeout)
 	defer cancel()
 	podIP, err := r.waitForRunner(waitCtx, jobName)
 	if err != nil {
-		r.deleteJob(jobName)
-		return "", "", err
+		r.deleteResources(jobName, policyName)
+		return "", "", "", err
 	}
-	return jobName, r.endpointForPod(podIP), nil
+	return jobName, policyName, r.endpointForPod(podIP), nil
 }
 
-func (r *KubernetesRunner) buildJob(imageRef, operation, executionID string) *batchv1.Job {
+func (r *KubernetesRunner) buildJob(imageRef, operation, executionID string, destinations []pinnedNetworkDestination) *batchv1.Job {
 	zero := int32(0)
 	ttl := int32(300)
 	deadline := int64((r.config.StartupTimeout + 35*time.Second + time.Second - 1) / time.Second)
@@ -215,6 +239,7 @@ func (r *KubernetesRunner) buildJob(imageRef, operation, executionID string) *ba
 		"app.kubernetes.io/instance":   r.config.Instance,
 		"app.kubernetes.io/component":  "sandbox-job",
 		"app.kubernetes.io/managed-by": "sandbox-control-plane",
+		"allcallall.io/sandbox-id":     uuid.NewString(),
 	}
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -303,10 +328,134 @@ func (r *KubernetesRunner) buildJob(imageRef, operation, executionID string) *ba
 			},
 		},
 	}
+	for _, destination := range destinations {
+		for _, address := range destination.addresses {
+			job.Spec.Template.Spec.HostAliases = append(job.Spec.Template.Spec.HostAliases, corev1.HostAlias{IP: address, Hostnames: []string{destination.hostname}})
+		}
+	}
 	for _, name := range r.config.ImagePullSecrets {
 		job.Spec.Template.Spec.ImagePullSecrets = append(job.Spec.Template.Spec.ImagePullSecrets, corev1.LocalObjectReference{Name: name})
 	}
 	return job
+}
+
+func (r *KubernetesRunner) buildNetworkPolicy(job *batchv1.Job, destinations []pinnedNetworkDestination) *networkingv1.NetworkPolicy {
+	policy := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      job.Name + "-egress",
+			Namespace: r.config.Namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":       r.config.AppName,
+				"app.kubernetes.io/instance":   r.config.Instance,
+				"app.kubernetes.io/component":  "sandbox-job-egress",
+				"app.kubernetes.io/managed-by": "sandbox-control-plane",
+			},
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{
+				"allcallall.io/sandbox-id": job.Spec.Template.Labels["allcallall.io/sandbox-id"],
+			}},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+			Egress:      []networkingv1.NetworkPolicyEgressRule{},
+		},
+	}
+	if job.UID != "" {
+		policy.OwnerReferences = []metav1.OwnerReference{{
+			APIVersion: batchv1.SchemeGroupVersion.String(),
+			Kind:       "Job",
+			Name:       job.Name,
+			UID:        job.UID,
+		}}
+	}
+	peers := make([]networkingv1.NetworkPolicyPeer, 0)
+	for _, destination := range destinations {
+		for _, address := range destination.addresses {
+			cidr := address + "/32"
+			if strings.Contains(address, ":") {
+				cidr = address + "/128"
+			}
+			peers = append(peers, networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: cidr}})
+		}
+	}
+	if len(peers) > 0 {
+		protocol := corev1.ProtocolTCP
+		port := intstr.FromInt32(443)
+		policy.Spec.Egress = append(policy.Spec.Egress, networkingv1.NetworkPolicyEgressRule{
+			To:    peers,
+			Ports: []networkingv1.NetworkPolicyPort{{Protocol: &protocol, Port: &port}},
+		})
+	}
+	return policy
+}
+
+func (r *KubernetesRunner) resolveNetworkAllowlist(ctx context.Context, allowlist []string) ([]pinnedNetworkDestination, error) {
+	if len(allowlist) > 32 {
+		return nil, fmt.Errorf("OCI network allowlist exceeds 32 domains")
+	}
+	destinations := make([]pinnedNetworkDestination, 0, len(allowlist))
+	seenHosts := make(map[string]struct{}, len(allowlist))
+	totalAddresses := 0
+	for _, rawHost := range allowlist {
+		host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(rawHost), "."))
+		if strings.Contains(host, "*") || net.ParseIP(host) != nil {
+			return nil, fmt.Errorf("OCI network allowlist requires exact DNS names")
+		}
+		asciiHost, err := idna.Lookup.ToASCII(host)
+		if err != nil || !validDNSName(asciiHost) {
+			return nil, fmt.Errorf("OCI network allowlist contains an invalid DNS name")
+		}
+		if _, exists := seenHosts[asciiHost]; exists {
+			continue
+		}
+		seenHosts[asciiHost] = struct{}{}
+		resolved, err := r.resolver.LookupIPAddr(ctx, asciiHost)
+		if err != nil {
+			return nil, fmt.Errorf("resolve OCI network allowlist domain: %w", err)
+		}
+		if len(resolved) == 0 {
+			return nil, fmt.Errorf("resolve OCI network allowlist domain: no addresses")
+		}
+		addresses := make([]string, 0, len(resolved))
+		seenAddresses := make(map[string]struct{}, len(resolved))
+		for _, item := range resolved {
+			if unsafeIP(item.IP) {
+				return nil, ErrPrivateAddress
+			}
+			address := item.IP.String()
+			if _, exists := seenAddresses[address]; exists {
+				continue
+			}
+			seenAddresses[address] = struct{}{}
+			addresses = append(addresses, address)
+		}
+		totalAddresses += len(addresses)
+		if totalAddresses > 64 {
+			return nil, fmt.Errorf("OCI network allowlist resolves to more than 64 addresses")
+		}
+		sort.Strings(addresses)
+		destinations = append(destinations, pinnedNetworkDestination{hostname: asciiHost, addresses: addresses})
+	}
+	sort.Slice(destinations, func(left, right int) bool {
+		return destinations[left].hostname < destinations[right].hostname
+	})
+	return destinations, nil
+}
+
+func validDNSName(host string) bool {
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, character := range label {
+			if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (r *KubernetesRunner) waitForRunner(ctx context.Context, jobName string) (string, error) {
@@ -388,6 +537,25 @@ func (r *KubernetesRunner) deleteJob(jobName string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = r.deleteJobWithContext(ctx, jobName)
+}
+
+func (r *KubernetesRunner) deleteResources(jobName, policyName string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = r.deleteResourcesWithContext(ctx, jobName, policyName)
+}
+
+func (r *KubernetesRunner) deleteResourcesWithContext(ctx context.Context, jobName, policyName string) error {
+	var policyErr error
+	if strings.TrimSpace(policyName) != "" {
+		policyErr = r.client.NetworkingV1().NetworkPolicies(r.config.Namespace).Delete(ctx, policyName, metav1.DeleteOptions{})
+		if apierrors.IsNotFound(policyErr) {
+			policyErr = nil
+		} else if policyErr != nil {
+			policyErr = fmt.Errorf("delete isolated sandbox NetworkPolicy: %w", policyErr)
+		}
+	}
+	return errors.Join(policyErr, r.deleteJobWithContext(ctx, jobName))
 }
 
 func (r *KubernetesRunner) deleteJobWithContext(ctx context.Context, jobName string) error {

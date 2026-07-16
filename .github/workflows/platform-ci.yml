@@ -262,6 +262,7 @@ jobs:
           assert sandbox_role["rules"] == [
               {"apiGroups": ["batch"], "resources": ["jobs"], "verbs": ["create", "get", "delete"]},
               {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list", "watch"]},
+              {"apiGroups": ["networking.k8s.io"], "resources": ["networkpolicies"], "verbs": ["create", "delete"]},
           ]
 
           config = next(item for item in resources if item["kind"] == "ConfigMap")

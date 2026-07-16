@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,6 +19,12 @@ import (
 
 	"github.com/allcallall/backend/internal/mcpplatform"
 )
+
+type staticIPResolver map[string][]net.IPAddr
+
+func (resolver staticIPResolver) LookupIPAddr(_ context.Context, host string) ([]net.IPAddr, error) {
+	return resolver[host], nil
+}
 
 func TestKubernetesJobIsolationContract(t *testing.T) {
 	runner, err := NewKubernetesRunner(fake.NewSimpleClientset(), KubernetesRunnerConfig{
@@ -37,7 +44,9 @@ func TestKubernetesJobIsolationContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	image := "registry.example.com/tool@sha256:" + strings.Repeat("a", 64)
-	job := runner.buildJob(image, "execute", "mcp:run-1:call-1")
+	destinations := []pinnedNetworkDestination{{hostname: "api.example.com", addresses: []string{"8.8.8.8", "2606:4700:4700::1111"}}}
+	job := runner.buildJob(image, "execute", "mcp:run-1:call-1", destinations)
+	job.Name = "allcallall-mcp-contract"
 	pod := job.Spec.Template.Spec
 	if pod.RuntimeClassName == nil || *pod.RuntimeClassName != "gvisor" {
 		t.Fatalf("runtime class=%v", pod.RuntimeClassName)
@@ -73,6 +82,13 @@ func TestKubernetesJobIsolationContract(t *testing.T) {
 			t.Fatalf("sandbox volume %q is not memory-backed", volume.Name)
 		}
 	}
+	if len(pod.HostAliases) != 2 || pod.HostAliases[0].Hostnames[0] != "api.example.com" {
+		t.Fatalf("declared network destination was not pinned in /etc/hosts: %v", pod.HostAliases)
+	}
+	policy := runner.buildNetworkPolicy(job, destinations)
+	if len(policy.Spec.Egress) != 1 || len(policy.Spec.Egress[0].To) != 2 || policy.Spec.Egress[0].To[0].IPBlock.CIDR != "8.8.8.8/32" || policy.Spec.Egress[0].To[1].IPBlock.CIDR != "2606:4700:4700::1111/128" {
+		t.Fatalf("unexpected pinned egress policy: %#v", policy.Spec.Egress)
+	}
 }
 
 func TestKubernetesRunnerRejectsMutableImageBeforeCreatingJob(t *testing.T) {
@@ -99,6 +115,68 @@ func TestKubernetesRunnerRejectsMutableImageBeforeCreatingJob(t *testing.T) {
 	jobs, listErr := client.BatchV1().Jobs("sandbox").List(context.Background(), metav1.ListOptions{})
 	if listErr != nil || len(jobs.Items) != 0 {
 		t.Fatalf("mutable image created Jobs: jobs=%d err=%v", len(jobs.Items), listErr)
+	}
+}
+
+func TestKubernetesRunnerRejectsUnsafeNetworkAllowlistBeforeCreatingJob(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	runner, err := NewKubernetesRunner(client, KubernetesRunnerConfig{
+		Namespace:       "sandbox",
+		RunnerImage:     "runner:v1",
+		SupervisorImage: "supervisor:v1",
+		RuntimeClass:    "gvisor",
+		ServiceAccount:  "sandbox-job",
+		AppName:         "allcallall",
+		Instance:        "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.resolver = staticIPResolver{
+		"rebind.example": {{IP: net.ParseIP("100.64.0.1")}},
+	}
+	image := "registry.example.com/tool@sha256:" + strings.Repeat("a", 64)
+	for _, allowlist := range [][]string{{"*.example.com"}, {"127.0.0.1"}, {"rebind.example"}} {
+		request := receiptExecutionRequest("wrap-token")
+		request.Definition.ImageRef = image
+		request.Definition.NetworkAllowlist = allowlist
+		if _, err := runner.PrepareExecution(context.Background(), request); err == nil {
+			t.Fatalf("unsafe allowlist was accepted: %v", allowlist)
+		}
+	}
+	jobs, listErr := client.BatchV1().Jobs("sandbox").List(context.Background(), metav1.ListOptions{})
+	if listErr != nil || len(jobs.Items) != 0 {
+		t.Fatalf("unsafe allowlist created Jobs: jobs=%d err=%v", len(jobs.Items), listErr)
+	}
+}
+
+func TestKubernetesRunnerPinsResolvedPublicDestinations(t *testing.T) {
+	runner, err := NewKubernetesRunner(fake.NewSimpleClientset(), KubernetesRunnerConfig{
+		Namespace:       "sandbox",
+		RunnerImage:     "runner:v1",
+		SupervisorImage: "supervisor:v1",
+		RuntimeClass:    "gvisor",
+		ServiceAccount:  "sandbox-job",
+		AppName:         "allcallall",
+		Instance:        "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.resolver = staticIPResolver{
+		"api.example.com": {
+			{IP: net.ParseIP("2606:4700:4700::1111")},
+			{IP: net.ParseIP("8.8.8.8")},
+			{IP: net.ParseIP("8.8.8.8")},
+		},
+	}
+	destinations, err := runner.resolveNetworkAllowlist(context.Background(), []string{"API.EXAMPLE.COM."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(destinations) != 1 || destinations[0].hostname != "api.example.com" ||
+		len(destinations[0].addresses) != 2 || destinations[0].addresses[0] != "2606:4700:4700::1111" || destinations[0].addresses[1] != "8.8.8.8" {
+		t.Fatalf("unexpected pinned destinations: %#v", destinations)
 	}
 }
 
@@ -161,6 +239,10 @@ func TestKubernetesPreparedExecutionKeepsRequestOutOfJobSpec(t *testing.T) {
 	if prepared.JobID() != jobName {
 		t.Fatalf("Job ID=%q", prepared.JobID())
 	}
+	policies, err := client.NetworkingV1().NetworkPolicies("sandbox").List(context.Background(), metav1.ListOptions{})
+	if err != nil || len(policies.Items) != 1 || len(policies.Items[0].Spec.Egress) != 0 {
+		t.Fatalf("zero-egress NetworkPolicy was not created: policies=%d err=%v", len(policies.Items), err)
+	}
 	encodedJob, err := json.Marshal(createdJob)
 	if err != nil {
 		t.Fatal(err)
@@ -174,6 +256,10 @@ func TestKubernetesPreparedExecutionKeepsRequestOutOfJobSpec(t *testing.T) {
 	}
 	if err := prepared.Close(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	policies, err = client.NetworkingV1().NetworkPolicies("sandbox").List(context.Background(), metav1.ListOptions{})
+	if err != nil || len(policies.Items) != 0 {
+		t.Fatalf("NetworkPolicy was not deleted: policies=%d err=%v", len(policies.Items), err)
 	}
 }
 

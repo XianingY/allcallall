@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -151,6 +152,30 @@ func TestRejectsPrivateHTTPSDestination(t *testing.T) {
 	}
 	if runner.validations != 0 {
 		t.Fatal("private endpoint reached runner")
+	}
+}
+
+func TestUnsafeIPRejectsSpecialUseNetworks(t *testing.T) {
+	for _, address := range []string{
+		"0.0.0.1",
+		"100.64.0.1",
+		"192.0.2.1",
+		"198.18.0.1",
+		"198.51.100.1",
+		"203.0.113.1",
+		"240.0.0.1",
+		"64:ff9b:1::1",
+		"2001:db8::1",
+		"3fff::1",
+	} {
+		if !unsafeIP(net.ParseIP(address)) {
+			t.Errorf("special-use address %s was accepted", address)
+		}
+	}
+	for _, address := range []string{"8.8.8.8", "2606:4700:4700::1111"} {
+		if unsafeIP(net.ParseIP(address)) {
+			t.Errorf("public address %s was rejected", address)
+		}
 	}
 }
 
