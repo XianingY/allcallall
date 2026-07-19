@@ -5,7 +5,7 @@ PYTHON ?= python3
 AGENT_RUNTIME_PYTHON ?= $(PYTHON)
 RAG_RUNTIME_PYTHON ?= $(PYTHON)
 
-.PHONY: help setup build-android build-ios clean test run-api run-agent-runtime run-rag-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval python-rag-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval ai-agent-jd-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check helm-check
+.PHONY: help setup build-android build-ios clean test run-api run-agent-runtime run-rag-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-up interview-smoke interview-chaos interview-status interview-down interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval python-rag-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval ai-agent-jd-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check helm-check
 
 # Default target
 help:
@@ -31,7 +31,11 @@ help:
 	@echo "  make run-search-worker - Start standalone Elasticsearch indexing worker"
 	@echo "  make run-cleanup-worker - Start standalone Cleanup worker"
 	@echo "  make beta-seed        - Seed a small-team Beta demo workspace"
-	@echo "  make interview-demo   - Run local interview demo evidence suite"
+	@echo "  make interview-up     - Start the full local interview stack"
+	@echo "  make interview-smoke  - Verify the running interview stack"
+	@echo "  make interview-chaos  - Restart Agent Runtime and verify recovery"
+	@echo "  make interview-down   - Remove the interview stack and temporary secrets"
+	@echo "  make interview-demo   - Start, verify, and print interview access details"
 	@echo "  make interview-demo-live - Start MySQL/Redis and seed live interview demo data"
 	@echo "  make interview-live-suite - Run MySQL/Redis live interview smoke suite"
 	@echo "  make interview-load-suite - Generate local interview load suite artifacts"
@@ -172,8 +176,28 @@ helm-check:
 	kubeconform -strict -summary -ignore-missing-schemas /tmp/allcallall-helm.yaml
 
 interview-demo:
-	@echo "Running local interview demo..."
-	bash scripts/interview-demo.sh
+	@echo "Starting and verifying the full interview stack..."
+	bash scripts/interview-stack.sh demo
+
+interview-up:
+	@echo "Starting the full interview stack..."
+	bash scripts/interview-stack.sh up
+
+interview-smoke:
+	@echo "Verifying the interview stack..."
+	bash scripts/interview-stack.sh smoke
+
+interview-chaos:
+	@echo "Restarting Agent Runtime and verifying recovery..."
+	bash scripts/interview-stack.sh chaos
+
+interview-status:
+	@echo "Inspecting the interview stack..."
+	bash scripts/interview-stack.sh status
+
+interview-down:
+	@echo "Stopping the interview stack..."
+	bash scripts/interview-stack.sh down
 
 interview-demo-live:
 	@echo "Running live interview demo seed..."

@@ -27,7 +27,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -ldflags='-w -s' -o /out/search-worker ./cmd/search-worker && \
     go build -ldflags='-w -s' -o /out/cleanup-worker ./cmd/cleanup-worker && \
     go build -ldflags='-w -s' -o /out/sandbox-service ./cmd/sandbox-service && \
-    go build -ldflags='-w -s' -o /out/migrate ./cmd/migrate
+    go build -ldflags='-w -s' -o /out/migrate ./cmd/migrate && \
+    go build -ldflags='-w -s' -o /out/interview-seed ./cmd/interview-seed
 
 FROM alpine:3.22
 
@@ -44,7 +45,9 @@ COPY --from=build /out/search-worker ./search-worker
 COPY --from=build /out/cleanup-worker ./cleanup-worker
 COPY --from=build /out/sandbox-service ./sandbox-service
 COPY --from=build /out/migrate ./migrate
+COPY --from=build /out/interview-seed ./interview-seed
 COPY configs ./configs
+COPY migrations ./migrations
 
 ENV CONFIG_PATH=/app/configs/config.yaml
 ENV HTTP_PORT=8080

@@ -1,0 +1,189 @@
+services:
+  mysql:
+    ports: !reset []
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}", "--silent"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    ports: !reset []
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  elasticsearch:
+    ports: !override
+      - "19200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  migration:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    entrypoint: ["/app/migrate"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment: &backend-environment
+      APP_ENV: interview
+      DB_AUTO_MIGRATE: "false"
+      DB_DSN: allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      CONFIG_PATH: /app/configs/config.yaml
+    volumes:
+      - ../backend/configs:/app/configs:ro
+    restart: "no"
+    networks: [allcallall_network]
+
+  interview-seed:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    entrypoint: ["/app/interview-seed"]
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+    environment:
+      <<: *backend-environment
+      AGENT_PROVIDER: rules
+      INTERVIEW_SEED_AGENT_KEY: interview-compose-seed-v1
+      INTERVIEW_SEED_PASSWORD: ${INTERVIEW_SEED_PASSWORD}
+    volumes:
+      - ../backend/configs:/app/configs:ro
+    restart: "no"
+    networks: [allcallall_network]
+
+  agent-runtime:
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+    environment:
+      APP_ENV: interview
+      PY_AGENT_PROVIDER: ${PY_AGENT_PROVIDER:-rules}
+      PY_AGENT_PROVIDER_STRICT: ${PY_AGENT_PROVIDER_STRICT:-true}
+      PY_AGENT_OPENAI_BASE_URL: ${PY_AGENT_OPENAI_BASE_URL:-}
+      PY_AGENT_OPENAI_API_KEY: ${PY_AGENT_OPENAI_API_KEY:-}
+      PY_AGENT_OPENAI_MODEL: ${PY_AGENT_OPENAI_MODEL:-}
+    ports: !override
+      - "18090:8090"
+
+  rag-runtime:
+    environment:
+      APP_ENV: interview
+    ports: !override
+      - "18091:8091"
+
+  openbao:
+    environment:
+      BAO_ADDR: http://127.0.0.1:8200
+    ports:
+      - "18200:8200"
+    networks:
+      allcallall_network:
+        aliases:
+          - openbao.localhost
+
+  sandbox-runner:
+    depends_on:
+      openbao:
+        condition: service_healthy
+    ports:
+      - "18093:8093"
+    environment:
+      OPENBAO_ADDR: http://openbao.localhost:8200
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8093/health', timeout=2)"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  sandbox-control-plane:
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+      openbao:
+        condition: service_healthy
+      sandbox-runner:
+        condition: service_healthy
+    environment:
+      APP_ENV: interview
+      OPENBAO_ADDR: http://openbao.localhost:8200
+    ports:
+      - "18092:8092"
+
+  backend:
+    depends_on:
+      interview-seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      agent-runtime:
+        condition: service_healthy
+      rag-runtime:
+        condition: service_healthy
+      sandbox-control-plane:
+        condition: service_started
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      APP_ENV: interview
+      DB_AUTO_MIGRATE: "false"
+      EMBEDDED_WORKERS: "1"
+      OUTBOX_WORKER_INTERVAL_SEC: "1"
+      AGENT_PROVIDER: rules
+      AGENT_RUNTIME: python_langgraph
+      MCP_PLATFORM_ENABLED: "true"
+      SANDBOX_EXECUTION_ENABLED: "true"
+      OPENBAO_TOKEN: ${OPENBAO_TOKEN}
+      OPENBAO_ADDR: http://openbao.localhost:8200
+      MCP_CAPABILITY_ED25519_PRIVATE_KEY: ${MCP_CAPABILITY_ED25519_PRIVATE_KEY}
+      SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY: ${SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY}
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX: allcallall_messages
+    ports: !override
+      - "18080:8080"
+
+  search-worker:
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      MCP_PLATFORM_ENABLED: "false"
+      SANDBOX_EXECUTION_ENABLED: "false"
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.web
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      PUBLIC_API_BASE_URL: /api/v1
+      PUBLIC_WS_BASE_URL: ""
+    ports:
+      - "3000:80"
+    volumes:
+      - ./nginx.interview.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    networks: [allcallall_network]

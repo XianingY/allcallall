@@ -88,11 +88,15 @@ type seedOutput struct {
 }
 
 func seedDemo(ctx context.Context, db *gorm.DB, log zerolog.Logger) (*seedOutput, error) {
-	owner, err := firstOrCreateUser(ctx, db, "interview.owner@example.com", "Interview Owner")
+	password := strings.TrimSpace(os.Getenv("INTERVIEW_SEED_PASSWORD"))
+	if password == "" {
+		password = "Interview1234"
+	}
+	owner, err := firstOrCreateUser(ctx, db, "interview.owner@example.com", "Interview Owner", password)
 	if err != nil {
 		return nil, err
 	}
-	peer, err := firstOrCreateUser(ctx, db, "interview.customer@example.com", "Interview Customer")
+	peer, err := firstOrCreateUser(ctx, db, "interview.customer@example.com", "Interview Customer", password)
 	if err != nil {
 		return nil, err
 	}
@@ -186,8 +190,8 @@ func seedDemo(ctx context.Context, db *gorm.DB, log zerolog.Logger) (*seedOutput
 	}, nil
 }
 
-func firstOrCreateUser(ctx context.Context, db *gorm.DB, email, displayName string) (*models.User, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte("Interview1234"), bcrypt.DefaultCost)
+func firstOrCreateUser(ctx context.Context, db *gorm.DB, email, displayName, password string) (*models.User, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
 	}
