@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, CheckCircle2, Edit3, Globe2, KeyRound, Package, Play, Search, ShieldAlert, ShieldCheck, UploadCloud } from "lucide-react";
+import { Ban, Bot, CheckCircle2, Edit3, Globe2, KeyRound, Package, Play, Search, ShieldAlert, ShieldCheck, UploadCloud } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 import {
   activateMCPInstallation,
@@ -11,6 +12,7 @@ import {
   publishMCPInstallation,
   validateMCPInstallation,
 } from "@/api/mcp";
+import { listConversations } from "@/api/collaboration";
 import { FormError } from "@/components/AuthLayout";
 import { EmptyPanel, StatusBadge } from "@/components/admin/AdminPrimitives";
 import { PageError, PageLoading } from "@/components/PageState";
@@ -28,6 +30,8 @@ export function MCPInstallationsPanel({ organizationId, organizationRole, select
   const queryClient = useQueryClient(); const [search, setSearch] = useState(""); const [scope, setScope] = useState<"all" | "personal" | "organization">("all");
   const [secretsOpen, setSecretsOpen] = useState(false); const [renameOpen, setRenameOpen] = useState(false);
   const installations = useQuery({ queryKey: ["organizations", organizationId, "mcp", "installations"], queryFn: listMCPInstallations, enabled: Boolean(organizationId) });
+  const conversations = useQuery({ queryKey: ["organizations", organizationId, "conversations", "mcp-tools"], queryFn: () => listConversations("open"), enabled: Boolean(organizationId) });
+  const conversationId = conversations.data?.[0]?.id ?? 0;
   const visible = useMemo(() => (installations.data ?? []).filter((item) => {
     const matchesScope = scope === "all" || item.scope === scope;
     return matchesScope && item.display_name.toLowerCase().includes(search.trim().toLowerCase());
@@ -73,7 +77,7 @@ export function MCPInstallationsPanel({ organizationId, organizationRole, select
           {canMutate && <div className="button-row"><button className="button-secondary" disabled={validate.isPending || installation.status === "validating"} onClick={() => validate.mutate()}><ShieldCheck size={16} />连接验证</button>{installation.status === "disabled" && <button className="button-primary" disabled={activate.isPending} onClick={() => activate.mutate()}><Play size={16} />启用</button>}{canPublishInstallation(installation, organizationRole) && <button className="button-secondary" disabled={publish.isPending} onClick={() => publish.mutate()}><UploadCloud size={16} />发布到组织</button>}{installation.status !== "disabled" && <button className="button-secondary text-danger" disabled={disable.isPending} onClick={() => disable.mutate()}><Ban size={16} />禁用</button>}</div>}
         </div>
         <section className="mcp-tools-section"><header><div><h3>工具目录</h3><p>{installationRevisionLabel(installation)} · MCP 返回内容按不可信数据处理</p></div><span>{tools.data?.length ?? 0} tools</span></header>
-          {tools.isLoading ? <PageLoading /> : tools.isError ? <PageError error={tools.error} retry={() => void tools.refetch()} /> : tools.data?.length ? <div className="table-wrap"><table><thead><tr><th>工具</th><th>风险</th><th>Revision</th><th>执行策略</th><th>状态</th></tr></thead><tbody>{tools.data.map((tool) => <tr key={tool.id}><td><div className="mcp-tool-name"><code>{tool.name}</code><span>{tool.description || tool.original_name}</span></div></td><td><span className={`mcp-risk risk-${tool.risk}`}>{tool.risk === "read" ? <CheckCircle2 size={13} /> : <ShieldAlert size={13} />}{toolRiskLabel(tool.risk)}</span></td><td>#{tool.revision_id}<small className="mcp-schema-version">schema {tool.schema_version}</small></td><td>{toolApprovalReason(tool.risk)}</td><td><StatusBadge value={tool.status} /></td></tr>)}</tbody></table></div> : <EmptyPanel>验证成功后显示发现的工具</EmptyPanel>}
+          {tools.isLoading ? <PageLoading /> : tools.isError ? <PageError error={tools.error} retry={() => void tools.refetch()} /> : tools.data?.length ? <div className="table-wrap"><table><thead><tr><th>工具</th><th>风险</th><th>Revision</th><th>执行策略</th><th>状态</th><th><span className="sr-only">操作</span></th></tr></thead><tbody>{tools.data.map((tool) => <tr key={tool.id}><td><div className="mcp-tool-name"><code>{tool.name}</code><span>{tool.description || tool.original_name}</span></div></td><td><span className={`mcp-risk risk-${tool.risk}`}>{tool.risk === "read" ? <CheckCircle2 size={13} /> : <ShieldAlert size={13} />}{toolRiskLabel(tool.risk)}</span></td><td>#{tool.revision_id}<small className="mcp-schema-version">schema {tool.schema_version}</small></td><td>{toolApprovalReason(tool.risk)}</td><td><StatusBadge value={tool.status} /></td><td><Link className="button-secondary mcp-lab-link" to={`/agent-lab?conversationId=${conversationId}&mode=react&goal=${encodeURIComponent(`请使用 ${tool.name} 完成当前会话目标，并展示工具来源、revision 与风险。`)}`}><Bot size={14} />Agent Lab</Link></td></tr>)}</tbody></table></div> : <EmptyPanel>验证成功后显示发现的工具</EmptyPanel>}
         </section>
       </>}
     </section>

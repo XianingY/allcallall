@@ -78,7 +78,7 @@ type knowledgeSourceVersionResponse struct {
 	Version        int        `json:"version"`
 	ContentHash    string     `json:"content_hash"`
 	NormalizedHash string     `json:"normalized_hash,omitempty"`
-	SimHash64      uint64     `json:"simhash64,omitempty"`
+	SimHash64      int64      `json:"simhash64,omitempty"`
 	Status         string     `json:"status"`
 	ChunkCount     int        `json:"chunk_count"`
 	LastError      string     `json:"last_error,omitempty"`

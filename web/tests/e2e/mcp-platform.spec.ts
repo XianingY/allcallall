@@ -10,6 +10,7 @@ test("installs, validates, publishes, and disables an MCP server", async ({ page
   await page.route("**/api/v1/auth/refresh", (route) => route.fulfill({ json: { access_token: "test-token", user: { id: 1, email: "owner@example.com", display_name: "Owner" } } }));
   await page.route("**/api/v1/organizations", (route) => route.fulfill({ json: { organizations: [{ id: 7, name: "Platform Team", slug: "platform", role: "owner" }] } }));
   await page.route("**/api/v1/realtime/tickets", (route) => route.fulfill({ status: 503, json: { code: "REALTIME_UNAVAILABLE" } }));
+  await page.route("**/api/v1/conversations?**", (route) => route.fulfill({ json: { conversations: [{ id: 12, organization_id: 7, type: "group", title: "支持升级", status: "open", priority: "high", unread_count: 0 }] } }));
   await page.route("**/api/v1/agent/mcp/installations", async (route) => {
     if (route.request().method() === "GET") return route.fulfill({ json: { installations } });
     createdBody = route.request().postDataJSON() as Record<string, unknown>;
@@ -32,9 +33,14 @@ test("installs, validates, publishes, and disables an MCP server", async ({ page
   await expect(page.getByRole("link", { name: "审批与 Trace" })).toHaveAttribute("href", "/agent-lab");
   await expect(page.getByText("mcp.101.create_issue")).toBeVisible();
   await expect(page.getByText("写入操作需要审批")).toBeVisible();
+  await expect(page.getByRole("table").getByRole("link", { name: "Agent Lab" })).toHaveAttribute("href", /conversationId=12.*mode=react.*mcp.101.create_issue/);
   await page.getByRole("button", { name: "连接验证" }).click();
+  await expect.poll(() => actions).toContain("validate");
   await page.getByRole("button", { name: "发布到组织" }).click();
-  await page.getByRole("button", { name: "禁用" }).click();
+  await expect.poll(() => actions).toContain("publish");
+  const disableButton = page.getByRole("button", { name: "禁用" });
+  await expect(disableButton).toBeVisible();
+  await disableButton.click({ force: true });
 
   await page.getByRole("button", { name: "安装 MCP" }).click();
   await page.getByRole("textbox", { name: "显示名称" }).fill("Internal CRM");

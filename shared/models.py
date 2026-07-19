@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ContextChunk(BaseModel):
@@ -31,6 +31,13 @@ class ContextChunk(BaseModel):
     transcript_segment_id: int | None = None
     start_ms: int | None = None
     end_ms: int | None = None
+
+    @field_validator("chunk_id", "source_id", mode="before")
+    @classmethod
+    def normalize_identifier(cls, value: object) -> object:
+        if isinstance(value, int):
+            return str(value)
+        return value
 
 
 class RetrievalAttempt(BaseModel):

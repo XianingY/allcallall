@@ -51,11 +51,13 @@ class TestContextChunk:
         assert chunk.start_ms == 1000
 
     def test_extra_fields_allowed(self) -> None:
-        chunk = ContextChunk(
-            source_type="test",
-            source_id="1",
-            snippet="text",
-            custom_field="custom_value",
+        chunk = ContextChunk.model_validate(
+            {
+                "source_type": "test",
+                "source_id": "1",
+                "snippet": "text",
+                "custom_field": "custom_value",
+            }
         )
         assert getattr(chunk, "custom_field") == "custom_value"
 
@@ -67,6 +69,18 @@ class TestContextChunk:
         chunk = ContextChunk(source_type="test", source_id="1", snippet="text")
         assert chunk.recording_session_id is None
         assert chunk.transcript_segment_id is None
+
+    def test_normalizes_numeric_go_ids(self) -> None:
+        chunk = ContextChunk.model_validate(
+            {
+                "source_type": "knowledge",
+                "source_id": 42,
+                "chunk_id": 7,
+                "snippet": "policy",
+            }
+        )
+        assert chunk.source_id == "42"
+        assert chunk.chunk_id == "7"
 
 
 class TestRetrievalAttempt:

@@ -156,7 +156,7 @@ assert_job_succeeded() {
 seed_mcp_platform() {
   local api_base login_payload access_token organization_id installations installation_id
   local installation_status installation_scope bearer secret_payload tools tool_ids skills skill_id
-  local create_payload skill_payload validated
+  local create_payload skill_payload validated knowledge_sources knowledge_payload knowledge_source_id conversation_id
   require_command jq
   # shellcheck disable=SC1090
   source "$ENV_FILE"
@@ -181,6 +181,29 @@ seed_mcp_platform() {
   }
 
   local auth_headers=(-H "Authorization: Bearer $access_token" -H "X-Organization-ID: $organization_id")
+  conversation_id="$(curl --fail --silent --show-error "${auth_headers[@]}" "$api_base/conversations" | \
+    jq -r '[.conversations[] | select(.title == "AI Agent customer escalation")][0].id // empty')"
+  [[ -n "$conversation_id" ]] || {
+    log "interview conversation was not found for knowledge seed"
+    return 1
+  }
+  knowledge_sources="$(curl --fail --silent --show-error "${auth_headers[@]}" "$api_base/knowledge/sources")"
+  knowledge_source_id="$(jq -r '[.sources[] | select(.title == "腾讯 Agent 工具审批政策")][0].id // empty' <<<"$knowledge_sources")"
+  if [[ -z "$knowledge_source_id" ]]; then
+    knowledge_payload="$(jq -cn --argjson conversation_id "$conversation_id" '{
+      kind:"manual_text",
+      title:"腾讯 Agent 工具审批政策",
+      conversation_id:$conversation_id,
+      text:"腾讯全栈 Agent 工具审批流程要求：只读工具可以自动执行；写入和未知风险工具必须经过管理员审批。审批后从 MySQL LangGraph checkpoint 恢复，MCP 输出始终按不可信数据处理。"
+    }')"
+    knowledge_source_id="$(curl --fail --silent --show-error "${auth_headers[@]}" \
+      -H 'Content-Type: application/json' --data "$knowledge_payload" \
+      "$api_base/knowledge/sources" | jq -r '.source.id')"
+  else
+    curl --fail --silent --show-error "${auth_headers[@]}" -X POST \
+      -H 'Content-Type: application/json' --data '{}' \
+      "$api_base/knowledge/sources/$knowledge_source_id/reingest" >/dev/null
+  fi
   installations="$(curl --fail --silent --show-error "${auth_headers[@]}" \
     "$api_base/agent/mcp/installations")"
   installation_id="$(jq -r \
@@ -256,7 +279,7 @@ seed_mcp_platform() {
       --data "$(jq -cn --argjson ids "$tool_ids" '{tool_ids:$ids}')" \
       "$api_base/agent/skills/$skill_id" >/dev/null
   fi
-  log "public API seed ready: organization=$organization_id installation=$installation_id"
+  log "public API seed ready: organization=$organization_id installation=$installation_id knowledge=$knowledge_source_id"
 }
 
 up() {
@@ -279,7 +302,8 @@ up() {
 
 smoke() {
   local login_payload login_response analyze_response access_token organization_id platform_state
-  local installation_id tools_state skills_state mcp_auth_code bearer
+  local installation_id tools_state skills_state mcp_auth_code bearer agent_metrics rag_metrics sandbox_metrics backend_metrics
+  local es_query es_hits rag_filter grounding_positive grounding_negative deadline user_id conversation_id
   require_command curl
   require_state
   # shellcheck disable=SC1090
@@ -306,10 +330,14 @@ smoke() {
     return 1
   }
   access_token="$(jq -r '.access_token' <<<"$login_response")"
+  user_id="$(jq -r '.user.id' <<<"$login_response")"
   organization_id="$(curl --fail --silent --show-error \
     -H "Authorization: Bearer $access_token" \
     http://localhost:18080/api/v1/organizations | \
     jq -r '[.organizations[] | select(.role == "owner")][0].id // empty')"
+  conversation_id="$(curl --fail --silent --show-error \
+    -H "Authorization: Bearer $access_token" -H "X-Organization-ID: $organization_id" \
+    http://localhost:18080/api/v1/conversations | jq -r '[.conversations[] | select(.title == "AI Agent customer escalation")][0].id // empty')"
   platform_state="$(curl --fail --silent --show-error \
     -H "Authorization: Bearer $access_token" \
     -H "X-Organization-ID: $organization_id" \
@@ -371,7 +399,46 @@ smoke() {
     log "search-worker is not running"
     return 1
   }
-  log "smoke passed: jobs, login, Web proxy, runtimes, Sandbox, and Elasticsearch IK"
+  es_query="$(jq -cn --argjson org "$organization_id" '{query:{bool:{filter:[{term:{organization_id:$org}},{term:{source_type:"knowledge"}}],must:[{match:{content:"腾讯 Agent 工具审批"}}]}}}')"
+  deadline=$(( $(date +%s) + 120 ))
+  while true; do
+    es_hits="$(curl --fail --silent --show-error -H 'Content-Type: application/json' \
+      --data "$es_query" http://localhost:19200/allcallall_context_chunks/_search | jq -r '.hits.total.value')"
+    if [[ "$es_hits" -ge 1 ]]; then break; fi
+    if (( $(date +%s) >= deadline )); then
+      log "Chinese knowledge source was not indexed with IK"
+      return 1
+    fi
+    sleep 2
+  done
+
+  rag_filter="$(curl --fail --silent --show-error -H 'Content-Type: application/json' \
+    --data "$(jq -cn --argjson org "$organization_id" --argjson user "$user_id" --argjson conversation "$conversation_id" '{organization_id:$org,user_id:$user,conversation_id:$conversation,query:"腾讯 Agent 工具审批",source_types:["knowledge"],top_k:5}')" \
+    http://localhost:18091/v1/retrieval/query)"
+  [[ "$(jq -r '.count > 0 and ([.chunks[].source_type] | all(. == "knowledge"))' <<<"$rag_filter")" == "true" ]] || {
+    log "RAG source filter returned non-knowledge chunks or no Chinese knowledge hit"
+    return 1
+  }
+  grounding_positive="$(curl --fail --silent --show-error -H 'Content-Type: application/json' \
+    --data '{"answer":"写入工具必须经过管理员审批","citations":[{"source_type":"knowledge","source_id":"policy-1","snippet":"写入和未知风险工具必须经过管理员审批"}]}' \
+    http://localhost:18091/v1/grounding/check)"
+  grounding_negative="$(curl --fail --silent --show-error -H 'Content-Type: application/json' \
+    --data '{"answer":"财务已经批准预算增加","citations":[{"source_type":"knowledge","source_id":"policy-1","snippet":"写入和未知风险工具必须经过管理员审批"}]}' \
+    http://localhost:18091/v1/grounding/check)"
+  [[ "$(jq -r '.grounded' <<<"$grounding_positive")" == "true" && "$(jq -r '.grounded' <<<"$grounding_negative")" == "false" ]] || {
+    log "jieba grounding positive/negative checks failed"
+    return 1
+  }
+
+  backend_metrics="$(curl --fail --silent --show-error http://localhost:18080/api/v1/metrics)"
+  agent_metrics="$(curl --fail --silent --show-error http://localhost:18090/metrics)"
+  rag_metrics="$(curl --fail --silent --show-error http://localhost:18091/metrics)"
+  sandbox_metrics="$(curl --fail --silent --show-error http://localhost:18093/metrics)"
+  [[ "$backend_metrics" == *"http_requests_total"* && "$agent_metrics" == *"agent_runtime_resume_total"* && "$rag_metrics" == *"rag_runtime_grounding_check_total"* && "$sandbox_metrics" == *"sandbox_runner_execute_total"* ]] || {
+    log "one or more core metrics endpoints are missing expected counters"
+    return 1
+  }
+  log "smoke passed: stack, metrics, Elasticsearch IK, RAG source filter, and jieba grounding"
 }
 
 mysql_scalar() {

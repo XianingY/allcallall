@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app.eval_runner import run_eval
-from app.main import run_meeting_brief, run_react_agent, run_workflow
+from app.main import app, run_meeting_brief, run_react_agent, run_workflow
 from app.grounding import check_grounding, meaningful_tokens
 from app.llamaindex_adapter import run_fixture_retrieval
 from app.models import Citation, ContextChunk, MeetingBriefRequest, MeetingTranscriptSegment, WorkflowRequest
@@ -245,6 +246,14 @@ def test_context_qa_guard_when_context_is_missing() -> None:
     assert "不足" in response.summary
     assert not response.citations
     assert not response.proposed_tool_calls
+
+
+def test_metrics_endpoint_exposes_checkpoint_and_resume_counters() -> None:
+    response = TestClient(app).get("/metrics")
+
+    assert response.status_code == 200
+    assert "agent_runtime_checkpoint_conflict_total" in response.text
+    assert "agent_runtime_resume_total" in response.text
 
 
 def test_mcp_node_executes_verified_reads_and_proposes_unknown_tools(

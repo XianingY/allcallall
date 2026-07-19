@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-
 func (s *Service) ProcessChunkIndex(ctx context.Context, chunkID uint64) error {
 	var chunk models.RAGChunk
 	if err := s.repo.DB().WithContext(ctx).Where("id = ?", chunkID).Take(&chunk).Error; err != nil {
@@ -17,13 +16,16 @@ func (s *Service) ProcessChunkIndex(ctx context.Context, chunkID uint64) error {
 	if err != nil {
 		return err
 	}
-	if s.indexer == nil || s.embedder == nil {
-		return s.markChunkIndexSkipped(ctx, chunk.ID, "vector indexer or embedding provider is not configured")
+	if s.indexer == nil {
+		return s.markChunkIndexSkipped(ctx, chunk.ID, "chunk indexer is not configured")
 	}
-	vec, err := s.embedder.CreateEmbedding(ctx, chunk.Content)
-	if err != nil {
-		_ = s.markChunkIndexFailed(ctx, chunk.ID, err)
-		return err
+	var vec []float32
+	if s.embedder != nil {
+		vec, err = s.embedder.CreateEmbedding(ctx, chunk.Content)
+		if err != nil {
+			_ = s.markChunkIndexFailed(ctx, chunk.ID, err)
+			return err
+		}
 	}
 	conversationID := uint64(0)
 	if chunk.ConversationID != nil {

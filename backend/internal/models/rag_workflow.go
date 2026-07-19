@@ -202,7 +202,7 @@ type RAGSourceVersion struct {
 	Version        int        `gorm:"not null;uniqueIndex:idx_rag_source_version"`
 	ContentHash    string     `gorm:"size:64;not null;index"`
 	NormalizedHash string     `gorm:"size:64;index"`
-	SimHash64      uint64     `gorm:"index"`
+	SimHash64      int64      `gorm:"index"`
 	RawText        string     `gorm:"type:longtext"`
 	Status         string     `gorm:"size:32;not null;default:'pending';index"`
 	ChunkCount     int        `gorm:"not null;default:0"`

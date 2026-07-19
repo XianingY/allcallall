@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-
 func (s *Service) CreateSource(ctx context.Context, organizationID, userID uint64, in CreateSourceInput) (*models.RAGSource, error) {
 	if err := s.ensureOrganizationMember(ctx, organizationID, userID); err != nil {
 		return nil, err
@@ -116,7 +115,7 @@ func (s *Service) CreateSource(ctx context.Context, organizationID, userID uint6
 				Version:        1,
 				ContentHash:    HashText(rawText),
 				NormalizedHash: HashText(rawText),
-				SimHash64:      SimHashText(rawText),
+				SimHash64:      int64(SimHashText(rawText)),
 				RawText:        rawText,
 				Status:         models.RAGSourceVersionStatusPending,
 				CreatedAt:      now,
@@ -376,7 +375,7 @@ func (s *Service) createDuplicateCandidatesTx(ctx context.Context, tx *gorm.DB, 
 		SourceGroupID  *uint64
 		ContentHash    string
 		NormalizedHash string
-		SimHash64      uint64
+		SimHash64      int64
 	}
 	if err := tx.WithContext(ctx).
 		Table("rag_source_versions").
@@ -403,7 +402,7 @@ func (s *Service) createDuplicateCandidatesTx(ctx context.Context, tx *gorm.DB, 
 			kind = models.RAGSourceDuplicateKindExact
 			similarity = 1
 		case candidate.SimHash64 != 0 && simHash != 0:
-			distance := bits.OnesCount64(candidate.SimHash64 ^ simHash)
+			distance := bits.OnesCount64(uint64(candidate.SimHash64) ^ simHash)
 			if distance <= nearDuplicateHammingMax {
 				kind = models.RAGSourceDuplicateKindNear
 				similarity = 1 - float64(distance)/64

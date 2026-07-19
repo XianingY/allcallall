@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager, asynccontextmanager, nullcontext
 from threading import Lock
+import time
 from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import PlainTextResponse
 from langgraph.types import Command
 from pydantic import ValidationError
 
@@ -32,6 +34,7 @@ from .checkpoint import (
 )
 from .providers import ProviderError, create_provider
 from .prompts import prompt_version_for
+from .metrics import metrics
 
 
 _graph: Any | None = None
@@ -199,6 +202,7 @@ def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
         with graph_execution_guard(graph, runtime_config):
             existing_execution_config = execution_checkpoint_config(graph, runtime_config)
             if existing_execution_config is not None:
+                metrics.inc("agent_runtime_checkpoint_replay_total")
                 runtime_config = existing_execution_config
                 snapshot = graph.get_state(runtime_config)
                 validate_run_request(snapshot, request)
@@ -261,11 +265,13 @@ def run_workflow(request: WorkflowRequest) -> WorkflowResponse:
                             )
                     snapshot = graph.get_state(runtime_config)
     except CheckpointExecutionBusy as exc:
+        metrics.inc("agent_runtime_checkpoint_busy_total")
         raise HTTPException(
             status_code=409,
             detail={"code": "checkpoint_execution_busy", "message": str(exc)},
         ) from exc
     except CheckpointVersionConflict as exc:
+        metrics.inc("agent_runtime_checkpoint_conflict_total")
         raise HTTPException(
             status_code=409,
             detail={
@@ -314,6 +320,7 @@ def resume_workflow(request: WorkflowResumeRequest, preset: str) -> WorkflowResp
         with graph_execution_guard(graph, runtime_config):
             existing_execution_config = execution_checkpoint_config(graph, runtime_config)
             if existing_execution_config is not None:
+                metrics.inc("agent_runtime_resume_replay_total")
                 runtime_config = existing_execution_config
                 snapshot = graph.get_state(runtime_config)
                 validate_resume_scope(snapshot, request, normalized_preset)
@@ -376,11 +383,13 @@ def resume_workflow(request: WorkflowResumeRequest, preset: str) -> WorkflowResp
                     detail={"code": "approval_not_pending", "message": "no approval interrupt is pending"},
                 )
     except CheckpointExecutionBusy as exc:
+        metrics.inc("agent_runtime_checkpoint_busy_total")
         raise HTTPException(
             status_code=409,
             detail={"code": "checkpoint_execution_busy", "message": str(exc)},
         ) from exc
     except CheckpointVersionConflict as exc:
+        metrics.inc("agent_runtime_checkpoint_conflict_total")
         raise HTTPException(
             status_code=409,
             detail={
@@ -647,6 +656,11 @@ def ready() -> dict[str, str]:
     return {"status": "ready"}
 
 
+@app.get("/metrics", response_class=PlainTextResponse)
+def prometheus_metrics() -> PlainTextResponse:
+    return PlainTextResponse(metrics.prometheus(), media_type="text/plain; version=0.0.4")
+
+
 @app.get("/v1/workflows")
 def workflows() -> dict[str, list[str]]:
     return {"workflows": sorted(SUPPORTED_WORKFLOWS)}
@@ -664,12 +678,24 @@ def capabilities() -> dict[str, object]:
 
 @app.post("/v1/agents/react/run", response_model=AgentRunResponse)
 def react_run(request: AgentRunRequest) -> AgentRunResponse:
-    return run_react_agent(request)
+    metrics.inc("agent_runtime_run_total")
+    started = time.perf_counter()
+    try:
+        return run_react_agent(request)
+    finally:
+        metrics.inc("agent_runtime_run_duration_ms_count")
+        metrics.inc("agent_runtime_run_duration_ms_sum", int((time.perf_counter() - started) * 1000))
 
 
 @app.post("/v1/agents/react/resume", response_model=AgentRunResponse)
 def react_resume(request: WorkflowResumeRequest) -> AgentRunResponse:
-    return resume_workflow(request, "react_general")
+    metrics.inc("agent_runtime_resume_total")
+    started = time.perf_counter()
+    try:
+        return resume_workflow(request, "react_general")
+    finally:
+        metrics.inc("agent_runtime_resume_duration_ms_count")
+        metrics.inc("agent_runtime_resume_duration_ms_sum", int((time.perf_counter() - started) * 1000))
 
 
 @app.post("/v1/workflows/meeting-brief/run")

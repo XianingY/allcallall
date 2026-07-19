@@ -1,7 +1,6 @@
 package evals
 
 import (
-
 	"context"
 	"encoding/json"
 	"fmt"
@@ -641,7 +640,7 @@ func seedRAGEvalSource(ctx context.Context, db *gorm.DB, orgID, userID, conversa
 			Version:        1,
 			ContentHash:    knowledge.HashText(item.Text),
 			NormalizedHash: knowledge.HashText(knowledge.NormalizeText(item.Text)),
-			SimHash64:      uint64(index),
+			SimHash64:      int64(index),
 			RawText:        item.Text,
 			Status:         models.RAGSourceVersionStatusActive,
 			ChunkCount:     1,

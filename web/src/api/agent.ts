@@ -16,6 +16,7 @@ const query = (values: Record<string, string | number | undefined>) => { const p
 
 export const createAgentRun = (conversationId: number, goal: string) => apiRequest<AgentRunResult>("/agent/runs", { method: "POST", body: JSON.stringify({ conversation_id: conversationId, goal }) });
 export const getAgentRun = (id: number) => apiRequest<AgentRunResult>(`/agent/runs/${id}`);
+export const submitAgentToolOutputs = (id: number, toolCallId: string, action: "approve" | "reject") => apiRequest<AgentRunResult>(`/agent/runs/${id}/submit-tool-outputs`, { method: "POST", body: JSON.stringify({ outputs: [{ tool_call_id: toolCallId, action }] }) });
 export const getAgentRunEvents = (id: number) => apiRequest<{ events: Array<Record<string, unknown>> }>(`/agent/runs/${id}/events`).then((value) => value.events ?? []);
 export const createWorkflow = (conversationId: number, goal: string, preset: string) => apiRequest<WorkflowResult>("/agent/workflows", { method: "POST", body: JSON.stringify({ conversation_id: conversationId, goal, preset }) });
 export const listWorkflows = (conversationId?: number) => apiRequest<{ workflows: WorkflowResult[] }>(`/agent/workflows${query({ conversation_id: conversationId, limit: 25 })}`).then((value) => value.workflows ?? []);

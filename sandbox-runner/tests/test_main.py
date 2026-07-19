@@ -4,8 +4,9 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
-from app.main import claim_one_shot, health, reset_one_shot_for_test
+from app.main import app, claim_one_shot, health, reset_one_shot_for_test
 
 
 @pytest.fixture(autouse=True)
@@ -49,3 +50,11 @@ async def test_one_shot_health_waits_for_supervisor_socket(
     with pytest.raises(HTTPException) as unavailable:
         await health()
     assert unavailable.value.status_code == 503
+
+
+def test_metrics_endpoint_exposes_runner_operations() -> None:
+    response = TestClient(app).get("/metrics")
+
+    assert response.status_code == 200
+    assert "sandbox_runner_validate_total" in response.text
+    assert "sandbox_runner_execute_total" in response.text

@@ -3,15 +3,18 @@ from __future__ import annotations
 import os
 import stat
 import threading
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import PlainTextResponse
 
 from .mcp_runner import MCPRunnerError, execute_tool, validate_installation
 from .models import ExecutionRequest, ExecutionResponse, ValidationRequest, ValidationResponse
 from .security import RunnerSecurityError, validate_interview_network_config
 from .supervisor_transport import SupervisorTransportError
+from .metrics import metrics
 
 
 _one_shot_lock = threading.Lock()
@@ -39,24 +42,46 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/metrics", response_class=PlainTextResponse)
+async def prometheus_metrics() -> PlainTextResponse:
+    return PlainTextResponse(metrics.prometheus(), media_type="text/plain; version=0.0.4")
+
+
 @app.post("/v1/validate", response_model=ValidationResponse)
 async def validate(request: ValidationRequest) -> ValidationResponse:
+    metrics.inc("sandbox_runner_validate_total")
+    started = time.perf_counter()
     claim_one_shot("validate")
     try:
         return await validate_installation(request)
     except (MCPRunnerError, RunnerSecurityError, SupervisorTransportError, TimeoutError) as exc:
+        metrics.inc("sandbox_runner_validate_failed_total")
+        if "unwrap" in str(exc).lower():
+            metrics.inc("sandbox_runner_secret_unwrap_failed_total")
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        metrics.inc("sandbox_runner_validate_duration_ms_count")
+        metrics.inc("sandbox_runner_validate_duration_ms_sum", int((time.perf_counter() - started) * 1000))
 
 
 @app.post("/v1/execute", response_model=ExecutionResponse)
 async def execute(request: ExecutionRequest) -> ExecutionResponse:
+    metrics.inc("sandbox_runner_execute_total")
+    started = time.perf_counter()
     claim_one_shot("execute", request.execution_id)
     try:
         return await execute_tool(request)
     except TimeoutError as exc:
+        metrics.inc("sandbox_runner_timeout_total")
         raise HTTPException(status_code=504, detail="MCP execution timed out") from exc
     except (MCPRunnerError, RunnerSecurityError, SupervisorTransportError) as exc:
+        metrics.inc("sandbox_runner_execute_failed_total")
+        if "unwrap" in str(exc).lower():
+            metrics.inc("sandbox_runner_secret_unwrap_failed_total")
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        metrics.inc("sandbox_runner_execute_duration_ms_count")
+        metrics.inc("sandbox_runner_execute_duration_ms_sum", int((time.perf_counter() - started) * 1000))
 
 
 def claim_one_shot(operation: str, execution_id: str = "") -> None:

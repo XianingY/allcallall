@@ -18,7 +18,6 @@ import (
 	"time"
 )
 
-
 func (s *Service) ProcessSourceIngest(ctx context.Context, sourceID uint64) error {
 	source, err := s.repo.GetSourceByIDOnly(ctx, sourceID)
 	if err != nil {
@@ -47,11 +46,43 @@ func (s *Service) ProcessSourceIngest(ctx context.Context, sourceID uint64) erro
 						return err
 					}
 				}
-				return s.repo.UpdateSourceFields(ctx, source.ID, map[string]any{
+				if err := s.repo.UpdateSourceFields(ctx, source.ID, map[string]any{
 					"status":     models.RAGSourceStatusReady,
 					"last_error": "",
 					"updated_at": now,
-				})
+				}); err != nil {
+					return err
+				}
+				var retryChunks []models.RAGChunk
+				if err := tx.Where("source_version_id = ? AND index_status <> ?", active.ID, models.RAGChunkIndexStatusIndexed).
+					Find(&retryChunks).Error; err != nil {
+					return err
+				}
+				for _, chunk := range retryChunks {
+					if err := tx.Model(&models.RAGChunk{}).Where("id = ?", chunk.ID).Updates(map[string]any{
+						"index_status": models.RAGChunkIndexStatusPending,
+						"last_error":   "",
+						"updated_at":   now,
+					}).Error; err != nil {
+						return err
+					}
+					if s.outbox != nil {
+						if _, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
+							AggregateType:  "rag_chunk",
+							AggregateID:    chunk.ID,
+							Event:          EventChunkIndexRequested,
+							IdempotencyKey: fmt.Sprintf("rag.chunk.reindex:%d:%d", chunk.ID, now.UnixNano()),
+							Payload: map[string]any{
+								"chunk_id":        chunk.ID,
+								"source_id":       source.ID,
+								"organization_id": source.OrganizationID,
+							},
+						}); err != nil {
+							return err
+						}
+					}
+				}
+				return nil
 			})
 		}
 	}
