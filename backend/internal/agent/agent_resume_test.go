@@ -350,6 +350,17 @@ func TestAgentApprovalResumeExecutesOnlyApprovedToolsInWorker(t *testing.T) {
 	if messages, memories, followups := countAgentSideEffects(t, db, conversation.ID); messages != 1 || memories != 0 || followups != 0 {
 		t.Fatalf("mixed decisions executed wrong side effects: messages=%d memories=%d followups=%d", messages, memories, followups)
 	}
+	duplicate, err := svc.SubmitToolOutputs(context.Background(), conversation.OrganizationID, 7, queued.Run.ID, map[string]string{
+		"agent:write-message": "approve",
+	})
+	if err != nil || duplicate.Run.Status != models.AgentRunStatusReady {
+		t.Fatalf("completed approval replay should be idempotent: run=%+v err=%v", duplicate, err)
+	}
+	if _, err := svc.SubmitToolOutputs(context.Background(), conversation.OrganizationID, 7, queued.Run.ID, map[string]string{
+		"agent:write-message": "reject",
+	}); !errors.Is(err, ErrApprovalDecisionConflict) {
+		t.Fatalf("completed opposite approval should conflict, got %v", err)
+	}
 
 	if _, err := svc.ExecuteRun(context.Background(), queued.Run.ID); err != nil {
 		t.Fatal(err)

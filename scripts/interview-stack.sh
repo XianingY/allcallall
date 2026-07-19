@@ -374,17 +374,206 @@ smoke() {
   log "smoke passed: jobs, login, Web proxy, runtimes, Sandbox, and Elasticsearch IK"
 }
 
+mysql_scalar() {
+  local query="$1"
+  source "$ENV_FILE"
+  docker exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$(compose ps -q mysql)" \
+    mysql -uroot --batch --skip-column-names allcallall_db -e "$query"
+}
+
+login_context() {
+  local login_payload access_token organization_id
+  source "$ENV_FILE"
+  login_payload="$(jq -cn --arg email interview.owner@example.com --arg password "$INTERVIEW_SEED_PASSWORD" '{email:$email,password:$password}')"
+  access_token="$(curl --fail --silent --show-error -H 'Content-Type: application/json' \
+    --data "$login_payload" http://localhost:18080/api/v1/auth/login | jq -r '.access_token')"
+  organization_id="$(curl --fail --silent --show-error -H "Authorization: Bearer $access_token" \
+    http://localhost:18080/api/v1/organizations | jq -r '[.organizations[] | select(.role == "owner")][0].id // empty')"
+  [[ -n "$access_token" && "$access_token" != "null" && -n "$organization_id" ]] || {
+    log "could not establish interview API context"
+    return 1
+  }
+  printf '%s\n%s\n' "$access_token" "$organization_id"
+}
+
+wait_agent_run() {
+  local access_token="$1" organization_id="$2" run_id="$3" expected="$4" response status deadline
+  deadline=$(( $(date +%s) + 180 ))
+  while true; do
+    response="$(curl --fail --silent --show-error \
+      -H "Authorization: Bearer $access_token" -H "X-Organization-ID: $organization_id" \
+      "http://localhost:18080/api/v1/agent/runs/$run_id")"
+    status="$(jq -r '.run.status' <<<"$response")"
+    if [[ "$status" == "$expected" ]]; then
+      printf '%s' "$response"
+      return 0
+    fi
+    if [[ "$status" == "failed" ]]; then
+      log "Agent run $run_id failed: $(jq -r '.run.error_message // "unknown"' <<<"$response")"
+      return 1
+    fi
+    if (( $(date +%s) >= deadline )); then
+      log "Agent run $run_id did not reach $expected (current=$status)"
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+interview_chain() {
+  local context access_token organization_id conversations conversation_id installation_id
+  local read_response read_run_id read_replay read_execution_count
+  local write_response write_run_id write_replay write_pending write_status write_call_id write_input write_key
+  local approval_response final_response write_execution_count ticket_count
+  require_command jq
+  require_state
+  wait_http backend http://localhost:18080/api/v1/ready
+  wait_http agent-runtime http://localhost:18090/ready
+  context="$(login_context)"
+  access_token="$(sed -n '1p' <<<"$context")"
+  organization_id="$(sed -n '2p' <<<"$context")"
+  conversations="$(curl --fail --silent --show-error \
+    -H "Authorization: Bearer $access_token" -H "X-Organization-ID: $organization_id" \
+    http://localhost:18080/api/v1/conversations)"
+  conversation_id="$(jq -r '[.conversations[] | select(.title == "AI Agent customer escalation")][0].id // empty' <<<"$conversations")"
+  [[ -n "$conversation_id" ]] || {
+    log "seed interview conversation was not found"
+    return 1
+  }
+  installation_id="$(curl --fail --silent --show-error \
+    -H "Authorization: Bearer $access_token" -H "X-Organization-ID: $organization_id" \
+    http://localhost:18080/api/v1/agent/mcp/installations | \
+    jq -r '[.installations[] | select(.display_name == "Interview Support MCP")][0].id // empty')"
+  [[ -n "$installation_id" ]] || {
+    log "published interview MCP installation was not found"
+    return 1
+  }
+
+  read_response="$(curl --fail --silent --show-error \
+    -H "Authorization: Bearer $access_token" -H "X-Organization-ID: $organization_id" \
+    -H 'Content-Type: application/json' -H 'Idempotency-Key: interview-read-chain-v2' \
+    --data "$(jq -cn --argjson id "$conversation_id" --arg goal "请使用 mcp.$installation_id.lookup_policy 查询中文客户支持响应政策，并把 MCP 返回标记为不可信数据。" '{conversation_id:$id,goal:$goal}')" \
+    http://localhost:18080/api/v1/agent/runs)"
+  read_run_id="$(jq -r '.run.id' <<<"$read_response")"
+  [[ -n "$read_run_id" && "$read_run_id" != "null" ]] || {
+    log "read Agent run was not created"
+    return 1
+  }
+  read_replay="$(curl --fail --silent --show-error \
+    -H "Authorization: Bearer $access_token" -H "X-Organization-ID: $organization_id" \
+    -H 'Idempotency-Key: interview-read-chain-v2' http://localhost:18080/api/v1/agent/runs \
+    -X POST -H 'Content-Type: application/json' \
+    --data "$(jq -cn --argjson id "$conversation_id" --arg goal "请使用 mcp.$installation_id.lookup_policy 查询中文客户支持响应政策，并把 MCP 返回标记为不可信数据。" '{conversation_id:$id,goal:$goal}')")"
+  [[ "$(jq -r '.run.id' <<<"$read_replay")" == "$read_run_id" ]] || {
+    log "read idempotency replay returned a different run"
+    return 1
+  }
+  read_response="$(wait_agent_run "$access_token" "$organization_id" "$read_run_id" ready)"
+  [[ "$(jq -r '[.steps[]?.output_json? | fromjson? | .trace_events[]? | select(.event == "mcp.tool.result" and .metadata.untrusted == true)] | length' <<<"$read_response")" == "1" ]] || {
+    log "read run did not record untrusted MCP output"
+    return 1
+  }
+  read_execution_count="$(mysql_scalar "SELECT COUNT(*) FROM mcp_executions WHERE agent_run_id = $read_run_id;")"
+  [[ "$read_execution_count" == "1" ]] || {
+    log "read run created $read_execution_count MCP executions; expected one"
+    return 1
+  }
+  log "read chain passed: run=$read_run_id MCP output marked untrusted and execution=$read_execution_count"
+
+  write_response="$(curl --fail --silent --show-error \
+    -H "Authorization: Bearer $access_token" -H "X-Organization-ID: $organization_id" \
+    -H 'Content-Type: application/json' -H 'Idempotency-Key: interview-write-chain-v2' \
+    --data "$(jq -cn --argjson id "$conversation_id" --arg goal "请使用 mcp.$installation_id.create_support_ticket 创建客户升级工单，说明需要中文支持政策确认。" '{conversation_id:$id,goal:$goal}')" \
+    http://localhost:18080/api/v1/agent/runs)"
+  write_run_id="$(jq -r '.run.id' <<<"$write_response")"
+  [[ -n "$write_run_id" && "$write_run_id" != "null" ]] || {
+    log "write Agent run was not created"
+    return 1
+  }
+  write_replay="$(curl --fail --silent --show-error \
+    -H "Authorization: Bearer $access_token" -H "X-Organization-ID: $organization_id" \
+    -H 'Idempotency-Key: interview-write-chain-v2' -X POST -H 'Content-Type: application/json' \
+    --data "$(jq -cn --argjson id "$conversation_id" --arg goal "请使用 mcp.$installation_id.create_support_ticket 创建客户升级工单，说明需要中文支持政策确认。" '{conversation_id:$id,goal:$goal}')" \
+    http://localhost:18080/api/v1/agent/runs)"
+  [[ "$(jq -r '.run.id' <<<"$write_replay")" == "$write_run_id" ]] || {
+    log "write idempotency replay returned a different run"
+    return 1
+  }
+  write_status="$(jq -r '.run.status' <<<"$write_replay")"
+  if [[ "$write_status" == "requires_action" ]]; then
+    write_pending="$(wait_agent_run "$access_token" "$organization_id" "$write_run_id" requires_action)"
+  elif [[ "$write_status" == "ready" ]]; then
+    write_pending="$write_replay"
+  else
+    log "write run reached unexpected status: $write_status"
+    return 1
+  fi
+  write_call_id="$(jq -r '.tool_calls[0].call_id // empty' <<<"$write_pending")"
+  write_input="$(jq -r '.tool_calls[0].input_json // empty' <<<"$write_pending")"
+  write_key="$(jq -r '.idempotency_key // empty' <<<"$write_input")"
+  [[ "$(jq -r '.tool_calls[0].tool_name // empty' <<<"$write_pending")" == "mcp.$installation_id.create_support_ticket" ]] || {
+    log "write run proposed an unexpected tool"
+    return 1
+  }
+  [[ "$write_key" == agent:"$write_run_id":* ]] || {
+    log "write run idempotency key is not scoped to its run: $write_key"
+    return 1
+  }
+  [[ -n "$write_call_id" ]] || {
+    log "write run did not persist an approval tool call"
+    return 1
+  }
+  if [[ "$write_status" == "requires_action" ]]; then
+    log "approval paused: run=$write_run_id call=$write_call_id checkpoint=$(jq -r '.run.checkpoint_id' <<<"$write_pending")"
+    log "restarting Agent Runtime while LangGraph is paused"
+    compose restart agent-runtime >/dev/null
+    wait_http agent-runtime http://localhost:18090/ready
+
+    approval_response="$(curl --fail --silent --show-error \
+      -H "Authorization: Bearer $access_token" -H "X-Organization-ID: $organization_id" \
+      -H 'Content-Type: application/json' \
+      --data "$(jq -cn --arg call "$write_call_id" '{outputs:[{tool_call_id:$call,action:"approve"}]}')" \
+      "http://localhost:18080/api/v1/agent/runs/$write_run_id/submit-tool-outputs")"
+    final_response="$(wait_agent_run "$access_token" "$organization_id" "$write_run_id" ready)"
+  else
+    final_response="$write_pending"
+  fi
+  if [[ -n "$write_call_id" ]]; then
+    curl --fail --silent --show-error \
+      -H "Authorization: Bearer $access_token" -H "X-Organization-ID: $organization_id" \
+      -H 'Content-Type: application/json' \
+      --data "$(jq -cn --arg call "$write_call_id" '{outputs:[{tool_call_id:$call,action:"approve"}]}')" \
+      "http://localhost:18080/api/v1/agent/runs/$write_run_id/submit-tool-outputs" >/dev/null
+  fi
+  write_execution_count="$(mysql_scalar "SELECT COUNT(*) FROM mcp_executions WHERE agent_run_id = $write_run_id;")"
+  [[ "$write_execution_count" == "1" ]] || {
+    log "write run created $write_execution_count MCP executions; expected one"
+    return 1
+  }
+  ticket_count="$(docker exec -i "$(compose ps -q interview-mcp)" python -c \
+    'import sqlite3,sys; c=sqlite3.connect("/data/tickets.sqlite3"); print(c.execute("select count(*) from support_tickets where idempotency_key=?", (sys.argv[1],)).fetchone()[0])' \
+    "$write_key")"
+  [[ "$ticket_count" == "1" ]] || {
+    log "write run created $ticket_count external tickets; expected one"
+    return 1
+  }
+  [[ -z "$approval_response" || "$(jq -r '.run.status' <<<"$approval_response")" == "pending" || "$(jq -r '.run.status' <<<"$approval_response")" == "ready" ]] || {
+    log "approval response did not enqueue resume"
+    return 1
+  }
+  log "write chain passed: run=$write_run_id resumed from checkpoint, execution=$write_execution_count, external_tickets=$ticket_count"
+  log "interview chain passed: Go -> Python LangGraph -> checkpoint -> approval -> Sandbox -> HTTPS MCP -> audit"
+}
+
 chaos() {
   require_state
-  log "restarting Agent Runtime"
-  compose restart agent-runtime
-  wait_http agent-runtime http://localhost:18090/ready
-  log "basic runtime restart probe passed; approval-aware recovery is added in phase 3"
+  interview_chain
 }
 
 demo() {
   up
   smoke
+  interview_chain
   show_access
 }
 

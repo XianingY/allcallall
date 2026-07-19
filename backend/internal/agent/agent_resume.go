@@ -15,8 +15,9 @@ import (
 )
 
 func (s *Service) resumeExternalAgentIfReady(ctx context.Context, run models.AgentRun) (*RunResult, error) {
-	resumer, ok := s.workflowRuntime.(AgentRuntimeResumer)
-	if !ok {
+	runtime, ok := s.externalAgentRuntime()
+	resumer, resumable := runtime.(AgentRuntimeResumer)
+	if !ok || !resumable {
 		return nil, fmt.Errorf("agent runtime cannot resume a checkpoint-owned approval")
 	}
 	var calls []models.AgentToolCall

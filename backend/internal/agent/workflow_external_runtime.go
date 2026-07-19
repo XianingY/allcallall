@@ -333,6 +333,10 @@ func WorkflowRuntimeFromEnvName() string {
 	return NormalizeWorkflowRuntimeForDisplay(os.Getenv("AGENT_RUNTIME"))
 }
 
+func NormalizeWorkflowRuntimeFromEnv() string {
+	return NormalizeWorkflowRuntime(os.Getenv("AGENT_RUNTIME"))
+}
+
 func (r *PythonLangGraphRuntime) Name() string {
 	return WorkflowRuntimePythonLangGraph
 }

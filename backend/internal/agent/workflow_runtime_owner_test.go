@@ -64,6 +64,17 @@ func TestWorkflowRuntimeOwnerFailsClosedWhenPythonUnavailable(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeLazilyLoadsForPythonOwnedWorker(t *testing.T) {
+	t.Setenv("AGENT_RUNTIME", WorkflowRuntimePythonLangGraph)
+	svc, _ := newWorkflowTestService(t)
+	svc.WithWorkflowRuntime(nil)
+
+	runtime, ok := svc.externalAgentRuntime()
+	if !ok || runtime.Name() != WorkflowRuntimePythonLangGraph {
+		t.Fatalf("Python-owned worker did not restore its runtime: runtime=%T ok=%v", runtime, ok)
+	}
+}
+
 func TestWorkflowCheckpointBusyReleasesLeaseWithoutAttemptCost(t *testing.T) {
 	ctx := context.Background()
 	svc, db := newWorkflowTestService(t)

@@ -13,15 +13,25 @@ import (
 )
 
 func (s *Service) shouldUseExternalAgentRuntime() bool {
-	if s.workflowRuntime == nil {
-		return false
-	}
-	_, ok := s.workflowRuntime.(AgentRuntime)
+	_, ok := s.externalAgentRuntime()
 	return ok
 }
 
+// externalAgentRuntime keeps persisted Python-owned runs executable even when
+// a standalone/embedded worker was constructed before runtime wiring completed.
+func (s *Service) externalAgentRuntime() (AgentRuntime, bool) {
+	if runtime, ok := s.workflowRuntime.(AgentRuntime); ok {
+		return runtime, true
+	}
+	if NormalizeWorkflowRuntimeFromEnv() == WorkflowRuntimePythonLangGraph {
+		runtime := NewPythonLangGraphRuntimeFromEnv()
+		return runtime, true
+	}
+	return nil, false
+}
+
 func (s *Service) executeAgentRunWithExternalRuntime(ctx context.Context, run models.AgentRun, goal string) (*RunResult, error) {
-	runtime, ok := s.workflowRuntime.(AgentRuntime)
+	runtime, ok := s.externalAgentRuntime()
 	if !ok {
 		return nil, fmt.Errorf("agent runtime is unavailable")
 	}

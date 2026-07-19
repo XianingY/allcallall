@@ -6,6 +6,7 @@ from typing import Any, Protocol
 from abc import abstractmethod
 
 import app.config as _cfg
+from app.helpers import runtime_subject_id
 from app.models import WorkflowRequest
 
 
@@ -73,7 +74,11 @@ class RulesProvider:
         if not explicit:
             return ()
         tool = explicit[0]
-        arguments = default_tool_arguments(request, tool.get("input_schema"))
+        arguments = default_tool_arguments(
+            request,
+            tool.get("input_schema"),
+            tool_name=str(tool.get("name", "")),
+        )
         if arguments is None:
             return ()
         return (
@@ -85,7 +90,12 @@ class RulesProvider:
         )
 
 
-def default_tool_arguments(request: WorkflowRequest, raw_schema: object) -> dict[str, Any] | None:
+def default_tool_arguments(
+    request: WorkflowRequest,
+    raw_schema: object,
+    *,
+    tool_name: str = "",
+) -> dict[str, Any] | None:
     schema = raw_schema if isinstance(raw_schema, dict) else {}
     raw_properties = schema.get("properties")
     properties = raw_properties if isinstance(raw_properties, dict) else {}
@@ -100,6 +110,13 @@ def default_tool_arguments(request: WorkflowRequest, raw_schema: object) -> dict
         lowered = name.lower()
         if lowered in {"query", "search", "text", "prompt", "goal"} and value_type in {None, "string"}:
             arguments[name] = request.goal
+        elif lowered in {"description", "details", "reason"} and value_type in {None, "string"}:
+            arguments[name] = request.goal
+        elif lowered in {"subject", "title"} and value_type in {None, "string"}:
+            arguments[name] = "AllCallAll Agent interview support request"
+        elif lowered == "idempotency_key" and value_type in {None, "string"}:
+            normalized_tool_name = tool_name.strip() or "external_tool"
+            arguments[name] = f"{runtime_subject_id(request)}:{normalized_tool_name}"
         elif lowered == "conversation_id" and value_type in {None, "integer", "number"}:
             arguments[name] = request.conversation_id
         elif lowered == "limit" and value_type in {None, "integer", "number"}:

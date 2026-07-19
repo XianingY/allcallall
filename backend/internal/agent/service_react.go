@@ -438,9 +438,6 @@ func (s *Service) SubmitToolOutputs(ctx context.Context, orgID, userID, runID ui
 			if call.ApprovalRequestID != roundRequestID || call.ApprovalCheckpointVersion != roundVersion {
 				return fmt.Errorf("tool decisions span multiple approval rounds")
 			}
-			if call.ApprovalRequestID != run.ApprovalRequestID || call.ApprovalCheckpointVersion != run.CheckpointVersion {
-				return fmt.Errorf("%w: tool call belongs to a stale approval round", ErrApprovalDecisionConflict)
-			}
 			action := normalized[call.CallID]
 			recorded := strings.ToLower(strings.TrimSpace(call.Decision))
 			if call.Status != models.ToolCallStatusPending {
@@ -448,6 +445,9 @@ func (s *Service) SubmitToolOutputs(ctx context.Context, orgID, userID, runID ui
 					continue
 				}
 				return ErrApprovalDecisionConflict
+			}
+			if call.ApprovalRequestID != run.ApprovalRequestID || call.ApprovalCheckpointVersion != run.CheckpointVersion {
+				return fmt.Errorf("%w: tool call belongs to a stale approval round", ErrApprovalDecisionConflict)
 			}
 			allIdempotent = false
 			if run.Status != models.AgentRunStatusRequiresAction {

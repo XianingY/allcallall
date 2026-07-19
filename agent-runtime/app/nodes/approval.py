@@ -45,9 +45,14 @@ def propose_tools(state: GraphState) -> GraphState:
         "citations": [citation.model_dump(exclude_none=True) for citation in state.get("citations", [])],
     }
     sufficiency = state.get("context_sufficiency", ContextSufficiency())
+    mcp_proposals = state.get("mcp_tool_proposals", [])
+    explicit_mcp_interaction = bool(state.get("external_tool_context_chunks") or mcp_proposals)
+    workflow_proposals = (
+        [] if explicit_mcp_interaction else workflow_tool_proposals(request, base, message_arguments)
+    )
     proposals = [] if not sufficiency.sufficient else [
-        *workflow_tool_proposals(request, base, message_arguments),
-        *state.get("mcp_tool_proposals", []),
+        *workflow_proposals,
+        *mcp_proposals,
     ]
     trace = []
     trace.append(TraceEvent(event="graph.node.started", node="propose_tools", status="running"))
