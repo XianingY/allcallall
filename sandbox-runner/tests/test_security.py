@@ -12,6 +12,7 @@ from app.security import (
     RunnerSecurityError,
     host_allowed,
     unsafe_ip,
+    validate_interview_network_config,
     validate_https_endpoint,
 )
 
@@ -53,6 +54,39 @@ def test_allowlist_supports_explicit_wildcard_only() -> None:
     assert host_allowed("mcp.example.com", ["*.example.com"])
     assert not host_allowed("example.com", ["*.example.com"])
     assert not host_allowed("example.com.attacker.test", ["*.example.com"])
+
+
+def test_interview_trust_config_fails_closed_outside_interview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("MCP_INTERVIEW_TRUSTED_HOSTS", "interview-mcp")
+    with pytest.raises(RunnerSecurityError):
+        validate_interview_network_config()
+
+
+@pytest.mark.anyio
+async def test_interview_exact_host_accepts_private_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "interview")
+    monkeypatch.setenv("MCP_INTERVIEW_TRUSTED_HOSTS", "interview-mcp")
+
+    def resolve(*_args: object, **_kwargs: object) -> list[tuple[object, ...]]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("172.20.0.10", 8443))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    destination = await validate_https_endpoint(
+        "https://interview-mcp:8443/mcp",
+        ["interview-mcp"],
+    )
+    assert destination.ip_address == "172.20.0.10"
+
+    with pytest.raises(RunnerSecurityError):
+        await validate_https_endpoint(
+            "https://interview-mcp:8443/mcp",
+            ["*.local"],
+        )
 
 
 @pytest.mark.anyio

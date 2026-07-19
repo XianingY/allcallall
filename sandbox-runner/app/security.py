@@ -15,6 +15,39 @@ class RunnerSecurityError(RuntimeError):
     pass
 
 
+def _is_ip(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
+def validate_interview_network_config() -> None:
+    raw = os.getenv("MCP_INTERVIEW_TRUSTED_HOSTS", "").strip()
+    if not raw:
+        return
+    if os.getenv("APP_ENV", "").strip().lower() != "interview":
+        raise RunnerSecurityError(
+            "MCP_INTERVIEW_TRUSTED_HOSTS is only allowed when APP_ENV=interview"
+        )
+    for item in raw.split(","):
+        host = item.strip().lower().rstrip(".")
+        if not host or "*" in host or _is_ip(host):
+            raise RunnerSecurityError("MCP_INTERVIEW_TRUSTED_HOSTS must contain exact DNS names")
+
+
+def _interview_trusted_hosts() -> set[str]:
+    validate_interview_network_config()
+    if os.getenv("APP_ENV", "").strip().lower() != "interview":
+        return set()
+    return {
+        item.strip().lower().rstrip(".")
+        for item in os.getenv("MCP_INTERVIEW_TRUSTED_HOSTS", "").split(",")
+        if item.strip()
+    }
+
+
 @dataclass(frozen=True)
 class ResolvedHTTPSDestination:
     hostname: str
@@ -31,10 +64,13 @@ def host_allowed(host: str, allowlist: list[str]) -> bool:
     if not allowlist:
         return False
     normalized = host.lower().rstrip(".")
+    trusted = normalized in _interview_trusted_hosts()
     for item in allowlist:
         allowed = item.strip().lower().rstrip(".")
         if normalized == allowed:
             return True
+        if trusted:
+            continue
         if allowed.startswith("*.") and normalized.endswith(allowed[1:]) and normalized != allowed[2:]:
             return True
     return False
@@ -66,7 +102,8 @@ async def validate_https_endpoint(
         )
 
     addresses = sorted(await anyio.to_thread.run_sync(resolve))
-    if not addresses or any(unsafe_ip(address) for address in addresses):
+    trusted = hostname in _interview_trusted_hosts()
+    if not addresses or (not trusted and any(unsafe_ip(address) for address in addresses)):
         raise RunnerSecurityError("MCP endpoint resolved to a non-public address")
     return ResolvedHTTPSDestination(hostname=hostname, port=port, ip_address=addresses[0])
 
@@ -80,7 +117,8 @@ class PinnedHTTPSAsyncTransport(httpx.AsyncBaseTransport):
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._destination = destination
-        self._transport = transport or httpx.AsyncHTTPTransport(trust_env=False)
+        verify = os.getenv("MCP_CA_CERT_FILE", "").strip() or True
+        self._transport = transport or httpx.AsyncHTTPTransport(trust_env=False, verify=verify)
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         request_hostname = request.url.host.encode("idna").decode("ascii").lower().rstrip(".")

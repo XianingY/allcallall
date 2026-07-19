@@ -28,6 +28,9 @@ func MCPPlatformFromEnv(
 	outbox *events.Store,
 	log zerolog.Logger,
 ) (MCPPlatformRuntime, error) {
+	if err := mcpplatform.ValidateInterviewNetworkConfig(); err != nil {
+		return MCPPlatformRuntime{}, fmt.Errorf("validate MCP interview network config: %w", err)
+	}
 	enabled := runtimeEnvFlagDefault("MCP_PLATFORM_ENABLED", true)
 	service := mcpplatform.NewService(db, metricStore).WithEnabled(enabled).WithOutbox(outbox)
 	result := MCPPlatformRuntime{Service: service, Enabled: enabled}

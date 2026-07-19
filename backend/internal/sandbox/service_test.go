@@ -53,6 +53,14 @@ type fixedScanner struct {
 	status string
 }
 
+type fixedResolver struct {
+	addresses []net.IPAddr
+}
+
+func (r fixedResolver) LookupIPAddr(context.Context, string) ([]net.IPAddr, error) {
+	return r.addresses, nil
+}
+
 func (s fixedScanner) Scan(context.Context, string) (ImageScanResult, error) {
 	return ImageScanResult{Status: s.status, Report: map[string]any{"critical_vulnerabilities": 1}}, nil
 }
@@ -152,6 +160,33 @@ func TestRejectsPrivateHTTPSDestination(t *testing.T) {
 	}
 	if runner.validations != 0 {
 		t.Fatal("private endpoint reached runner")
+	}
+}
+
+func TestInterviewHostAllowsOnlyExactConfiguredPrivateDestination(t *testing.T) {
+	t.Setenv("APP_ENV", "interview")
+	t.Setenv("MCP_INTERVIEW_TRUSTED_HOSTS", "interview-mcp")
+	runner := &fakeRunner{}
+	service := newTestService(runner, fixedScanner{status: "passed"})
+	service.resolver = fixedResolver{addresses: []net.IPAddr{{IP: net.ParseIP("172.20.0.10")}}}
+	request := mcpplatform.ValidationRequest{
+		SourceType: models.MCPInstallationSourceHTTPS,
+		Definition: mcpplatform.InstallationDefinition{
+			Transport:        "streamable_http",
+			EndpointURL:      "https://interview-mcp:8443/mcp",
+			NetworkAllowlist: []string{"interview-mcp"},
+		},
+	}
+	if _, err := service.Validate(context.Background(), request); err != nil {
+		t.Fatalf("expected exact interview host to be accepted: %v", err)
+	}
+	if runner.validations != 1 {
+		t.Fatalf("expected runner validation, got %d", runner.validations)
+	}
+
+	request.Definition.NetworkAllowlist = []string{"*.local"}
+	if _, err := service.Validate(context.Background(), request); err == nil {
+		t.Fatal("expected wildcard interview allowlist rejection")
 	}
 }
 

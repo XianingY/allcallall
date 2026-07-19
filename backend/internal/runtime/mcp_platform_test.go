@@ -49,6 +49,17 @@ func TestMCPPlatformFromEnvAllowsMissingKeyWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestMCPPlatformFromEnvRejectsInterviewTrustOutsideInterview(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("MCP_INTERVIEW_TRUSTED_HOSTS", "interview-mcp")
+	t.Setenv("MCP_PLATFORM_ENABLED", "false")
+
+	_, err := MCPPlatformFromEnv(nil, nil, nil, zerolog.Nop())
+	if err == nil || !strings.Contains(err.Error(), "APP_ENV=interview") {
+		t.Fatalf("expected interview trust config rejection, got %v", err)
+	}
+}
+
 func TestMCPPlatformFromEnvRequiresMatchingSandboxPublicKey(t *testing.T) {
 	seed := bytes.Repeat([]byte{1}, ed25519.SeedSize)
 	privateKey := ed25519.NewKeyFromSeed(seed)

@@ -102,6 +102,11 @@ services:
       - "18093:8093"
     environment:
       OPENBAO_ADDR: http://openbao.localhost:8200
+      APP_ENV: interview
+      MCP_INTERVIEW_TRUSTED_HOSTS: interview-mcp
+      MCP_CA_CERT_FILE: /run/interview-tls/ca.crt
+    volumes:
+      - ${INTERVIEW_STATE_DIR}/tls:/run/interview-tls:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8093/health', timeout=2)"]
       interval: 3s
@@ -119,6 +124,7 @@ services:
     environment:
       APP_ENV: interview
       OPENBAO_ADDR: http://openbao.localhost:8200
+      MCP_INTERVIEW_TRUSTED_HOSTS: interview-mcp
     ports:
       - "18092:8092"
 
@@ -147,12 +153,34 @@ services:
       SANDBOX_EXECUTION_ENABLED: "true"
       OPENBAO_TOKEN: ${OPENBAO_TOKEN}
       OPENBAO_ADDR: http://openbao.localhost:8200
+      MCP_INTERVIEW_TRUSTED_HOSTS: interview-mcp
       MCP_CAPABILITY_ED25519_PRIVATE_KEY: ${MCP_CAPABILITY_ED25519_PRIVATE_KEY}
       SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY: ${SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY}
       ELASTICSEARCH_URL: http://elasticsearch:9200
       ELASTICSEARCH_INDEX: allcallall_messages
     ports: !override
       - "18080:8080"
+
+  interview-mcp:
+    build:
+      context: ../interview-mcp
+      dockerfile: Dockerfile
+    environment:
+      INTERVIEW_MCP_BEARER_TOKEN_FILE: /run/secrets/mcp-bearer-token
+      INTERVIEW_MCP_DB_PATH: /data/tickets.sqlite3
+    volumes:
+      - ${INTERVIEW_STATE_DIR}/tls:/run/interview-tls:ro
+      - ${INTERVIEW_STATE_DIR}/secrets/interview-mcp-bearer-token:/run/secrets/mcp-bearer-token:ro
+      - interview_mcp_data:/data
+    ports:
+      - "18443:8443"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import ssl,urllib.request; c=ssl.create_default_context(cafile='/run/interview-tls/ca.crt'); urllib.request.urlopen('https://interview-mcp:8443/health', context=c, timeout=2)"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    networks: [allcallall_network]
 
   search-worker:
     depends_on:
@@ -187,3 +215,6 @@ services:
       retries: 30
     restart: unless-stopped
     networks: [allcallall_network]
+
+volumes:
+  interview_mcp_data:

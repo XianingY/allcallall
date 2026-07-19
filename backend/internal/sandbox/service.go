@@ -484,12 +484,16 @@ func (s *Service) validateHTTPSDestination(ctx context.Context, definition mcppl
 	if !hostAllowed(host, definition.NetworkAllowlist) {
 		return fmt.Errorf("endpoint host is not in the declared network allowlist")
 	}
+	trustedInterviewHost := mcpplatform.InterviewTrustedHost(host)
+	if trustedInterviewHost && !mcpplatform.ExactNetworkAllowlist(host, definition.NetworkAllowlist) {
+		return fmt.Errorf("interview private endpoint requires an exact network allowlist entry")
+	}
 	addresses, err := s.resolver.LookupIPAddr(ctx, host)
 	if err != nil || len(addresses) == 0 {
 		return fmt.Errorf("resolve MCP endpoint: %w", err)
 	}
 	for _, address := range addresses {
-		if unsafeIP(address.IP) {
+		if unsafeIP(address.IP) && !trustedInterviewHost {
 			return ErrPrivateAddress
 		}
 	}

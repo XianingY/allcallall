@@ -26,6 +26,9 @@ import (
 
 func main() {
 	log := zerolog.New(os.Stdout).With().Timestamp().Str("service", "sandbox-control-plane").Logger()
+	if err := mcpplatform.ValidateInterviewNetworkConfig(); err != nil {
+		log.Fatal().Err(err).Msg("validate MCP interview network config")
+	}
 	capabilityVerifier, err := mcpplatform.NewSandboxCapabilityVerifierFromEnv()
 	if err != nil {
 		log.Fatal().Err(err).Msg("initialize sandbox capability verifier")

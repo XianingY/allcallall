@@ -3,18 +3,28 @@ from __future__ import annotations
 import os
 import stat
 import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 
 from .mcp_runner import MCPRunnerError, execute_tool, validate_installation
 from .models import ExecutionRequest, ExecutionResponse, ValidationRequest, ValidationResponse
-from .security import RunnerSecurityError
+from .security import RunnerSecurityError, validate_interview_network_config
 from .supervisor_transport import SupervisorTransportError
 
 
-app = FastAPI(title="AllCallAll Sandbox Runner", version="0.1.0")
 _one_shot_lock = threading.Lock()
 _one_shot_consumed = False
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    validate_interview_network_config()
+    yield
+
+
+app = FastAPI(title="AllCallAll Sandbox Runner", version="0.1.0", lifespan=lifespan)
 
 
 @app.get("/health")

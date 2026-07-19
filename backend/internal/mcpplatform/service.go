@@ -1451,8 +1451,11 @@ func validateDefinition(sourceType string, definition InstallationDefinition) er
 			endpoint.RawQuery != "" || endpoint.Fragment != "" {
 			return fmt.Errorf("%w: endpoint_url must be an HTTPS URL without credentials", ErrInvalidInput)
 		}
-		if isPrivateHost(endpoint.Hostname()) {
+		if isPrivateHost(endpoint.Hostname()) && !interviewTrustedHost(endpoint.Hostname()) {
 			return fmt.Errorf("%w: private endpoint addresses are not allowed", ErrInvalidInput)
+		}
+		if interviewTrustedHost(endpoint.Hostname()) && !exactNetworkAllowlist(endpoint.Hostname(), definition.NetworkAllowlist) {
+			return fmt.Errorf("%w: interview private endpoint requires an exact network allowlist entry", ErrInvalidInput)
 		}
 	default:
 		return fmt.Errorf("%w: unsupported source type", ErrInvalidInput)
