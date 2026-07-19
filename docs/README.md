@@ -16,6 +16,10 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 ## Interview / Portfolio
 
 - [Interview README](./interview/README.md): suggested reading path and interview narrative.
+- [Interview Chain](./interview/interview-chain.md): current Compose Agent/MCP chain, authority boundaries, approval recovery, security, and failure matrix.
+- [Interview Acceptance](./interview/interview-acceptance.md): latest live smoke/chaos evidence and non-claims.
+- [Five-Minute Demo Script](./interview/demo-script.md): exact Web and terminal walkthrough for the primary interview path.
+- [Tencent Interview Questions](./interview/tencent-interview-questions.md): evidence-backed reference answers for Go, LangGraph, MCP, security, RAG, and frontend.
 - [System Design](./interview/system-design.md): current architecture and data flow.
 - [Backend Deep Dive](./interview/backend-deep-dive.md): backend module explanation.
 - [AI Agent Design](./interview/ai-agent-design.md): Agent runs, tools, approvals, memory, and RAG.

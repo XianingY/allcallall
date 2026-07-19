@@ -1,5 +1,10 @@
 # Tencent Full-Stack JD Fit
 
+For interview drill-down questions and answers, use
+[Tencent Full-Stack / Agent Interview Questions](tencent-interview-questions.md). For the current
+end-to-end implementation rather than the broader product surface, start with
+[Interview Chain](interview-chain.md).
+
 This page maps AllCallAll to the Tencent campus full-stack development JD. Use it when the interview is about internal IT systems, business management platforms, React engineering, backend services, MySQL/Redis, and performance optimization.
 
 ## Positioning
@@ -51,6 +56,9 @@ make web-performance-check
 7. If time remains, show collaboration workspace: message pagination/windowing, realtime replay, meeting recording/transcript, and Agent meeting recap.
 
 ## Performance Evidence
+
+The table below is a historical local snapshot. Re-run the listed command before quoting a number;
+the current acceptance gate is `make interview-smoke && make interview-chaos`, not these latency values.
 
 Current local functional benchmarks, measured on June 30, 2026 with temporary SQLite and miniredis:
 

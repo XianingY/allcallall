@@ -1,5 +1,10 @@
 # System Design: AI-Powered Realtime Collaboration Backend
 
+The current interview-primary Agent/MCP path, including Go/Python authority boundaries, approval
+resume sequence, sandbox security, data relationships, and failure matrix, is documented in
+[Interview Chain](interview-chain.md). This document keeps the broader collaboration, WebRTC,
+recording, gRPC, Kafka, and search system-design view.
+
 AllCallAll is best presented as a backend system-design case study: realtime collaboration, WebRTC meetings, recording storage/transcription, AI Agent execution, durable outbox workers, and a microservice-friendly evolution path.
 
 ## Problem Statement

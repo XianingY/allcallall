@@ -198,6 +198,8 @@ lcov.info
 .eslintcache
 .parcel-cache
 .cache
+.playwright-cli/
+output/playwright/
 .parcel-cache
 .next
 .nuxt

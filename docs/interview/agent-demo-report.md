@@ -53,3 +53,5 @@ What this proves:
 - RAG eval uses a local in-memory vector index so vector behavior is testable without Elasticsearch, and includes no-answer cases that are reported separately from answerable Recall/MRR.
 - Workflow eval runs against a temporary SQLite database and still exercises real service code, bounded role ReAct, task state, approvals, and tool execution.
 - The generated Markdown is for humans; the JSON files are for automated regression checks.
+- The report does not replace the live Compose chain. Use `make interview-smoke` for IK/jieba/
+  secret/metrics checks and `make interview-chaos` for checkpoint recovery and exactly-once demo evidence.
