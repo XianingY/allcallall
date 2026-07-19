@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
-
+from typing import Annotated, Any, TypedDict
+import operator
 from .models import (
-    AgenticRAGConfig,
+    ApprovalDecision,
+    ApprovalInterrupt,
     Citation,
     ContextChunk,
     ContextSufficiency,
@@ -23,8 +24,8 @@ class GraphState(TypedDict, total=False):
     """State type for the LangGraph workflow."""
 
     request: WorkflowRequest
-    trace_events: list[TraceEvent]
-    role_results: list[RoleResult]
+    trace_events: Annotated[list[TraceEvent], operator.add]
+    role_results: Annotated[list[RoleResult], operator.add]
     agentic_rag_enabled: bool
     retrieval_plan: RetrievalPlan
     retrieval_attempts: list[RetrievalAttempt]
@@ -42,5 +43,11 @@ class GraphState(TypedDict, total=False):
     risk_flags: list[str]
     citations: list[Citation]
     proposed_tool_calls: list[ToolProposal]
+    pending_approval: ApprovalInterrupt | None
+    approval_decisions: list[ApprovalDecision]
     prompt_version: str
     grounding_check_result: dict[str, Any]
+    active_skills_prompt: str
+    authorized_mcp_tools: list[dict[str, Any]]
+    external_tool_context_chunks: list[ContextChunk]
+    mcp_tool_proposals: list[ToolProposal]

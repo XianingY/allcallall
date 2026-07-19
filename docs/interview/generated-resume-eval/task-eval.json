@@ -1,5 +1,6 @@
 {
   "mode": "task_eval",
+  "runtime": "legacy_go",
   "cases": 8,
   "passed": 8,
   "failed": 0,

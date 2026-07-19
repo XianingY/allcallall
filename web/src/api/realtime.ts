@@ -1,5 +1,5 @@
 import { apiRequest } from "@/api/http";
-import type { components } from "@/api/schema";
+import type { components } from "@allcallall/api-types";
 
 export type RealtimeTicket = components["schemas"]["RealtimeTicket"];
 

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from ..models import (
     Citation,
-    ContextChunk,
     ContextSufficiency,
     RoleResult,
     TraceEvent,
@@ -17,11 +16,10 @@ from ..providers import create_provider
 from ..helpers import (
     READ_TOOL_CONTEXT_CHUNKS,
     READ_TOOL_RECENT_MEETINGS,
-    chunk_key,
     citations_from_chunks,
-    contains_any,
     dedupe_citations,
     request_with_runtime_context,
+    request_with_tool_capability,
     select_chunks,
     summarize_observation,
     top_snippets,
@@ -38,7 +36,7 @@ from ..state import GraphState
 
 def decompose(state: GraphState) -> GraphState:
     """Decompose the workflow into role-based tasks."""
-    trace = state.get("trace_events", [])
+    trace = []
     trace.append(TraceEvent(event="graph.node.started", node="decompose", status="running"))
     trace.append(
         TraceEvent(
@@ -56,8 +54,10 @@ def decompose(state: GraphState) -> GraphState:
 
 def searcher(state: GraphState) -> GraphState:
     """Execute bounded ReAct search for the searcher role."""
-    request = request_with_runtime_context(state)
-    trace = state.get("trace_events", [])
+    request = request_with_tool_capability(
+        request_with_runtime_context(cast(dict[str, Any], state))
+    )
+    trace = []
     trace.append(TraceEvent(event="graph.node.started", node="searcher", role="searcher", status="running"))
     result = bounded_react_search(
         request=request,
@@ -68,18 +68,17 @@ def searcher(state: GraphState) -> GraphState:
     )
     trace.extend(result.react_trace)
     trace.append(TraceEvent(event="graph.node.completed", node="searcher", role="searcher"))
-    role_results = state.get("role_results", [])
-    role_results.append(result)
-    return {"trace_events": trace, "role_results": role_results, "searcher": result}
+    return {"trace_events": trace, "role_results": [result], "searcher": result}
 
 
 def synthesize(state: GraphState) -> GraphState:
     """Synthesize summary, action items, and next step."""
-    request = request_with_runtime_context(state)
+    request = request_with_runtime_context(cast(dict[str, Any], state))
     citations = citations_from_chunks(request.context_chunks)
     snippets = top_snippets(request.context_chunks, 4)
     sufficiency = state.get("context_sufficiency", ContextSufficiency())
-    synthesis = create_provider().synthesize(request, snippets) if sufficiency.sufficient else None
+    active_skills = state.get("active_skills_prompt", "")
+    synthesis = create_provider().synthesize(request, snippets, active_skills) if sufficiency.sufficient else None
     if synthesis:
         summary = synthesis.summary or synthesize_summary(request, snippets)
         action_items = list(synthesis.action_items) or synthesize_action_items(request)
@@ -100,7 +99,7 @@ def synthesize(state: GraphState) -> GraphState:
         citations=citations,
         snippets=snippets,
     )
-    trace = state.get("trace_events", [])
+    trace = []
     trace.append(TraceEvent(event="graph.node.started", node="synthesize", role="summarizer", status="running"))
     if synthesis:
         trace.append(
@@ -119,9 +118,7 @@ def synthesize(state: GraphState) -> GraphState:
             metadata={"prompt_version": state.get("prompt_version", "")},
         )
     )
-    role_results = state.get("role_results", [])
-    role_results.append(result)
-    return {"trace_events": trace, "role_results": role_results, "summarizer": result}
+    return {"trace_events": trace, "role_results": [result], "summarizer": result}
 
 
 def bounded_react_search(
@@ -278,8 +275,10 @@ def insufficient_context_summary(request: WorkflowRequest, sufficiency: ContextS
 
 def risk_analyst(state: GraphState) -> GraphState:
     """Execute bounded ReAct search for the risk analyst role."""
-    request = request_with_runtime_context(state)
-    trace = state.get("trace_events", [])
+    request = request_with_tool_capability(
+        request_with_runtime_context(cast(dict[str, Any], state))
+    )
+    trace = []
     trace.append(
         TraceEvent(event="graph.node.started", node="risk_analyst", role="risk_analyst", status="running")
     )
@@ -302,6 +301,4 @@ def risk_analyst(state: GraphState) -> GraphState:
         )
     )
     trace.append(TraceEvent(event="graph.node.completed", node="risk_analyst", role="risk_analyst"))
-    role_results = state.get("role_results", [])
-    role_results.append(result)
-    return {"trace_events": trace, "role_results": role_results, "risk_analyst": result}
+    return {"trace_events": trace, "role_results": [result], "risk_analyst": result}

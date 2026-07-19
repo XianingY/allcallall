@@ -109,6 +109,10 @@ services:
       PY_AGENT_RUNTIME_TIMEOUT_SEC: "${PY_AGENT_RUNTIME_TIMEOUT_SEC:-60}"
       PY_AGENT_RUNTIME_STRICT: "${PY_AGENT_RUNTIME_STRICT:-true}"
       AGENT_RUNTIME_TOOL_TOKEN: "${AGENT_RUNTIME_TOOL_TOKEN:-}"
+      # Legacy Compose fallback has no Sandbox/OpenBao control plane. The
+      # productized MCP platform is deployed through the Kubernetes chart.
+      MCP_PLATFORM_ENABLED: "false"
+      SANDBOX_EXECUTION_ENABLED: "false"
       SUPPORT_INTERNAL_ONLY: "true"
     ports:
       - "127.0.0.1:8080:8080"

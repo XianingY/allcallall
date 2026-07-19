@@ -1,0 +1,50 @@
+{{- $root := . }}
+{{- $targets := list
+      (dict "name" "api" "values" .Values.components.api)
+      (dict "name" "agent-worker" "values" .Values.components.agentWorker)
+      (dict "name" "outbox-worker" "values" .Values.components.outboxWorker)
+      (dict "name" "agent-runtime" "values" .Values.components.agentRuntime)
+      (dict "name" "rag-runtime" "values" .Values.components.ragRuntime)
+      (dict "name" "sandbox-control-plane" "values" .Values.components.sandboxControlPlane)
+      (dict "name" "sandbox-runner" "values" .Values.components.sandboxRunner)
+      (dict "name" "web" "values" .Values.components.web)
+}}
+{{- range $target := $targets }}
+{{- if $target.values.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "allcallall.componentName" (dict "root" $root "component" $target.name) }}
+  labels:
+    {{- include "allcallall.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $target.name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "allcallall.componentName" (dict "root" $root "component" $target.name) }}
+  minReplicas: {{ $target.values.autoscaling.minReplicas }}
+  maxReplicas: {{ $target.values.autoscaling.maxReplicas }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $target.values.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}

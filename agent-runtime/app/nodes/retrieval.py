@@ -2,23 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from ..models import (
     ContextChunk,
     EvidencePack,
     RetrievalAttempt,
     RetrievalPlan,
-    RetrievalPlanStep,
     TraceEvent,
-    WorkflowRequest,
 )
 from ..rag_runtime_client import RAGRuntimeClient, RAGRuntimeError
 from ..retrieval import rerank_context_chunks, retrieve_context_chunks
-from ..tool_bridge import GoToolBridge, ToolBridgeError
+from ..tool_bridge import UnifiedToolRegistry, ToolBridgeError
 from ..helpers import (
-    READ_TOOL_CONTEXT_CHUNKS,
-    READ_TOOL_RECENT_MEETINGS,
     chunk_key,
     citations_from_chunks,
     dedupe_citations,
@@ -26,6 +20,7 @@ from ..helpers import (
     evaluate_context_sufficiency,
     first_non_empty,
     local_agentic_retrieval,
+    request_with_tool_capability,
     summarize_observation,
     top_snippets,
     unique_strings,
@@ -37,7 +32,8 @@ from ..synthesis import synthesize_action_items
 def retrieval_loop(state: GraphState) -> GraphState:
     """Execute bounded retrieval loop with refinement."""
     request = state["request"]
-    trace = state.get("trace_events", [])
+    bridge_request = request_with_tool_capability(request)
+    trace = []
     plan = state.get("retrieval_plan", RetrievalPlan())
     trace.append(TraceEvent(event="graph.node.started", node="retrieval_loop", status="running"))
     if not plan.enabled:
@@ -53,7 +49,7 @@ def retrieval_loop(state: GraphState) -> GraphState:
         trace.append(TraceEvent(event="graph.node.completed", node="retrieval_loop", status="completed"))
         return {"trace_events": trace, "retrieval_attempts": [], "agentic_context_chunks": []}
 
-    bridge = GoToolBridge()
+    bridge = UnifiedToolRegistry.get_instance()
     rag_runtime = RAGRuntimeClient()
     attempts: list[RetrievalAttempt] = []
     gathered: list[ContextChunk] = []
@@ -117,7 +113,7 @@ def retrieval_loop(state: GraphState) -> GraphState:
             selected = local_agentic_retrieval(request.context_chunks, step)
         if not used_runtime:
             try:
-                bridge_observation = bridge.execute_read_tool(request, step.tool_name, tool_input)
+                bridge_observation = bridge.execute_read_tool(bridge_request, step.tool_name, tool_input)
                 if bridge_observation is not None:
                     selected = list(bridge_observation.chunks)
                     observation_suffix = " via go_tool_bridge"
@@ -197,10 +193,11 @@ def retrieval_loop(state: GraphState) -> GraphState:
 def retrieve_context(state: GraphState) -> GraphState:
     """Retrieve context chunks from agentic or preloaded sources."""
     request = state["request"]
-    trace = state.get("trace_events", [])
+    trace = []
     trace.append(TraceEvent(event="graph.node.started", node="retrieve_context", status="running"))
     agentic_chunks = state.get("agentic_context_chunks", [])
-    chunks = retrieve_context_chunks(agentic_chunks or request.context_chunks)
+    external_chunks = state.get("external_tool_context_chunks", [])
+    chunks = retrieve_context_chunks([*(agentic_chunks or request.context_chunks), *external_chunks])
     trace.append(
         TraceEvent(
             event="retrieval.context_loaded",
@@ -220,7 +217,7 @@ def retrieve_context(state: GraphState) -> GraphState:
 def rerank_context(state: GraphState) -> GraphState:
     """Rerank context chunks based on relevance."""
     request = state["request"]
-    trace = state.get("trace_events", [])
+    trace = []
     trace.append(TraceEvent(event="graph.node.started", node="rerank_context", status="running"))
     output = rerank_context_chunks(request.goal, state.get("retrieved_context_chunks", []))
     trace.append(output.trace)
@@ -243,7 +240,7 @@ def build_evidence_pack(state: GraphState) -> GraphState:
         snippets=snippets,
         citations=citations,
     )
-    trace = state.get("trace_events", [])
+    trace = []
     trace.append(TraceEvent(event="graph.node.started", node="evidence_pack", status="running"))
     trace.append(
         TraceEvent(
@@ -268,7 +265,7 @@ def sufficiency_gate(state: GraphState) -> GraphState:
     request = state["request"]
     pack = state.get("evidence_pack", EvidencePack())
     result = evaluate_context_sufficiency(request, pack)
-    trace = state.get("trace_events", [])
+    trace = []
     trace.append(TraceEvent(event="graph.node.started", node="sufficiency_gate", status="running"))
     trace.append(
         TraceEvent(
@@ -301,7 +298,7 @@ def merge(state: GraphState) -> GraphState:
         summary = "Python LangGraph meeting brief completed using the supplied meeting transcript context."
     if not action_items:
         action_items = synthesize_action_items(state["request"])
-    trace = state.get("trace_events", [])
+    trace = []
     trace.append(TraceEvent(event="graph.node.started", node="merge", status="running"))
     trace.append(
         TraceEvent(
@@ -325,7 +322,7 @@ def grounding_check(state: GraphState) -> GraphState:
     """Check grounding of summary against citations."""
     from ..grounding import check_grounding
 
-    trace = state.get("trace_events", [])
+    trace = []
     trace.append(TraceEvent(event="graph.node.started", node="grounding_check", status="running"))
     result = check_grounding(state.get("summary", ""), state.get("citations", []))
     trace.append(result.trace)

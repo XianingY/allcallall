@@ -9,7 +9,7 @@ export class TicketSocket<T> {
 
   constructor(
     private readonly channel: RealtimeTicket["channel"],
-    private readonly query: Record<string, string | number>,
+    private readonly query: Record<string, string | number> | (() => Record<string, string | number>),
     private readonly onMessage: (message: T) => void,
     private readonly onState: (connected: boolean) => void,
   ) {}
@@ -21,7 +21,8 @@ export class TicketSocket<T> {
       const issued = await issueRealtimeTicket(this.channel);
       if (this.closed) return;
       const params = new URLSearchParams({ ticket: issued.ticket });
-      Object.entries(this.query).forEach(([key, value]) => params.set(key, String(value)));
+      const query = typeof this.query === "function" ? this.query() : this.query;
+      Object.entries(query).forEach(([key, value]) => params.set(key, String(value)));
       this.socket = new WebSocket(`${runtimeConfig.wsBaseUrl}${issued.websocket_path}?${params}`);
       this.socket.onopen = () => { this.attempt = 0; this.onState(true); };
       this.socket.onmessage = (event) => {
@@ -57,4 +58,3 @@ export class TicketSocket<T> {
     this.onState(false);
   }
 }
-

@@ -1,0 +1,242 @@
+nameOverride: ""
+fullnameOverride: ""
+
+global:
+  environment: production
+  imagePullSecrets: []
+  podAnnotations: {}
+  podLabels: {}
+
+images:
+  backend:
+    repository: ghcr.io/xianingy/allcallall/backend
+    tag: v0.3.0
+    pullPolicy: IfNotPresent
+  agentRuntime:
+    repository: ghcr.io/xianingy/allcallall-agent-runtime/agent-runtime
+    tag: v0.3.0
+    pullPolicy: IfNotPresent
+  ragRuntime:
+    repository: ghcr.io/xianingy/allcallall-agent-runtime/rag-runtime
+    tag: v0.3.0
+    pullPolicy: IfNotPresent
+  sandboxControlPlane:
+    repository: ghcr.io/xianingy/allcallall/sandbox-control-plane
+    tag: v0.3.0
+    pullPolicy: IfNotPresent
+  sandboxRunner:
+    repository: ghcr.io/xianingy/allcallall/sandbox-runner
+    tag: v0.3.0
+    pullPolicy: IfNotPresent
+  sandboxSupervisor:
+    repository: ghcr.io/xianingy/allcallall/sandbox-supervisor
+    tag: v0.3.0
+    pullPolicy: IfNotPresent
+  web:
+    repository: ghcr.io/xianingy/allcallall/web
+    tag: v0.3.0
+    pullPolicy: IfNotPresent
+
+# All databases and secret stores are external to this chart. Create the named
+# Secret before installation, or enable secrets.create only for disposable environments.
+external:
+  mysql:
+    secretName: allcallall-external
+    dsnKey: mysql-dsn
+    checkpointDsnKey: checkpoint-mysql-dsn
+    sandboxReceiptDsnKey: sandbox-receipt-mysql-dsn
+    mcpCapabilityPrivateKeyKey: mcp-capability-ed25519-private-key
+    sandboxCapabilityPublicKeyKey: sandbox-capability-ed25519-public-key
+    egressCIDRs: []
+  redis:
+    address: redis.example.internal:6379
+    secretName: allcallall-external
+    passwordKey: redis-password
+    egressCIDRs: []
+  openbao:
+    address: https://openbao.example.internal:8200
+    secretName: allcallall-external
+    tokenKey: openbao-token
+    egressCIDRs: []
+  # Provider, HTTPS MCP, object storage and image registry destinations.
+  providerEgressCIDRs: []
+  mcpEgressCIDRs: []
+  registryEgressCIDRs: []
+  # ClusterIP or control-plane addresses used by the in-cluster Kubernetes API.
+  kubernetesApiCIDRs: []
+
+secrets:
+  create: false
+  # Development convenience only. Use an external secret controller in production.
+  mysqlDsn: ""
+  checkpointMysqlDsn: ""
+  sandboxReceiptMysqlDsn: ""
+  # Generate the matching private seed/public key pair with:
+  # ./scripts/development/generate-agent-capability-keypair.sh
+  mcpCapabilityPrivateKey: ""
+  # Matching base64-encoded 32-byte Ed25519 public key.
+  sandboxCapabilityPublicKey: ""
+  redisPassword: ""
+  openbaoToken: ""
+
+features:
+  mcpPlatformEnabled: true
+  sandboxExecutionEnabled: true
+  langgraphMysqlCheckpointEnabled: true
+  legacyGoRuntimeEnabled: true
+
+platform:
+  limits:
+    personalInstallationsPerUser: 5
+    publishedInstallationsPerOrganization: 20
+    concurrentExecutionsPerUser: 2
+    concurrentExecutionsPerOrganization: 10
+    executionTimeoutSeconds: 30
+    executionCPU: 500m
+    executionMemory: 512Mi
+    maximumOutputBytes: 262144
+  retention:
+    checkpointPayloadDays: 30
+    toolPayloadDays: 30
+    organizationAuditDays: 180
+
+observability:
+  otlpEndpoint: ""
+  otlpEgressCIDRs: []
+  prometheus:
+    scrape: true
+    namespace: monitoring
+
+serviceAccount:
+  create: true
+  # Shared pre-created account used when create=false. Empty selects "default".
+  name: ""
+  annotations: {}
+
+components:
+  api:
+    replicas: 2
+    resources:
+      requests: {cpu: 250m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 10
+      targetCPUUtilizationPercentage: 70
+    pdb: {enabled: true, minAvailable: 1}
+  agentWorker:
+    replicas: 2
+    resources:
+      requests: {cpu: 200m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 10
+      targetCPUUtilizationPercentage: 70
+    pdb: {enabled: true, minAvailable: 1}
+  outboxWorker:
+    replicas: 2
+    resources:
+      requests: {cpu: 150m, memory: 192Mi}
+      limits: {cpu: 750m, memory: 768Mi}
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 8
+      targetCPUUtilizationPercentage: 70
+    pdb: {enabled: true, minAvailable: 1}
+  agentRuntime:
+    replicas: 2
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {cpu: "1", memory: 2Gi}
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 12
+      targetCPUUtilizationPercentage: 65
+    pdb: {enabled: true, minAvailable: 1}
+  ragRuntime:
+    replicas: 2
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {cpu: "1", memory: 2Gi}
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 12
+      targetCPUUtilizationPercentage: 65
+    pdb: {enabled: true, minAvailable: 1}
+  sandboxControlPlane:
+    replicas: 2
+    runtimeClassName: gvisor
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {cpu: "1", memory: 1Gi}
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 10
+      targetCPUUtilizationPercentage: 60
+    pdb: {enabled: true, minAvailable: 1}
+  sandboxRunner:
+    replicas: 2
+    runtimeClassName: gvisor
+    allowStdio: false
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 20
+      targetCPUUtilizationPercentage: 60
+    pdb: {enabled: true, minAvailable: 1}
+  sandboxJobs:
+    enabled: true
+    runtimeClassName: gvisor
+    startupTimeout: 30s
+    resources:
+      cpu: 500m
+      memory: 512Mi
+  web:
+    replicas: 2
+    publicApiBaseUrl: /api/v1
+    publicWsBaseUrl: ""
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: 250m, memory: 256Mi}
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+    pdb: {enabled: true, minAvailable: 1}
+
+migration:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+networkPolicy:
+  enabled: true
+  ingressControllerNamespace: ingress-nginx
+  dnsNamespace: kube-system
+  dnsPodLabels:
+    k8s-app: kube-dns
+
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  webHost: app.example.com
+  apiHost: api.example.com
+  tls: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

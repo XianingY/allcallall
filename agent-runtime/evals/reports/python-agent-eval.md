@@ -10,7 +10,7 @@ Scope: deterministic Python LangGraph task fixtures. These numbers are regressio
 - Tool intent match: `100.0%`
 - Approval safety: `100.0%`
 - Prompt schema valid: `100.0%`
-- Grounding check: `88.9%`
+- Grounding check: `100.0%`
 - Agentic retrieval refinement: `100.0%`
 - Evidence citation coverage: `100.0%`
 - Max iteration compliance: `100.0%`

@@ -1,7 +1,10 @@
-import type { WorkflowTaskRecord } from "../api/agent";
+import type {
+  CreateWorkflowRequest,
+  WorkflowTaskRecord,
+} from "../api/agent";
 
 export type LabTab = "knowledge" | "run" | "graph" | "approvals" | "eval";
-export type WorkflowPreset = "meeting_brief" | "follow_up" | "risk_review";
+export type WorkflowPreset = NonNullable<CreateWorkflowRequest["preset"]>;
 export type ApprovalFilter = "pending" | "all";
 
 export const tabs: Array<{ key: LabTab; label: string }> = [
@@ -17,7 +20,7 @@ export const defaultGoal =
 
 export const workflowPresets: Array<{ key: WorkflowPreset; label: string }> = [
   { key: "meeting_brief", label: "Meeting Brief" },
-  { key: "follow_up", label: "Follow-up" },
+  { key: "follow_up_planner", label: "Follow-up" },
   { key: "risk_review", label: "Risk Review" },
 ];
 

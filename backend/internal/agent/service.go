@@ -4,6 +4,7 @@ import (
 	"github.com/allcallall/backend/internal/metrics"
 
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/knowledge"
+	"github.com/allcallall/backend/internal/mcpplatform"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/search"
 	"github.com/allcallall/backend/internal/trace"
@@ -24,6 +26,10 @@ var (
 	ErrConversationAccessDenied = errors.New("conversation access denied")
 	ErrAgentRunNotFound         = errors.New("agent run not found")
 )
+
+func isDeferredRunExecution(err error) bool {
+	return errors.Is(err, ErrCheckpointExecutionBusy) || errors.Is(err, mcpplatform.ErrExecutionInProgress)
+}
 
 const (
 	agentRunMaxAttempts   = 3
@@ -43,6 +49,10 @@ type KnowledgeRetriever interface {
 	Search(ctx context.Context, organizationID uint64, conversationID *uint64, query string, limit int) ([]knowledge.SearchResult, error)
 }
 
+type ToolCapabilityProvider interface {
+	IssueForRun(ctx context.Context, organizationID, userID, conversationID uint64, runRef string) (string, error)
+}
+
 type Service struct {
 	db                 *gorm.DB
 	metrics            metrics.Recorder
@@ -54,6 +64,8 @@ type Service struct {
 	streamPublisher    StreamPublisher
 	strictProvider     bool
 	workflowRuntime    WorkflowRuntime
+	toolCapabilities   ToolCapabilityProvider
+	mcpPlatform        *mcpplatform.Service
 }
 
 type RunInput struct {
@@ -165,6 +177,16 @@ func (s *Service) WithStreamPublisher(p StreamPublisher) *Service {
 
 func (s *Service) WithWorkflowRuntime(runtime WorkflowRuntime) *Service {
 	s.workflowRuntime = runtime
+	return s
+}
+
+func (s *Service) WithToolCapabilityProvider(provider ToolCapabilityProvider) *Service {
+	s.toolCapabilities = provider
+	return s
+}
+
+func (s *Service) WithMCPPlatform(platform *mcpplatform.Service) *Service {
+	s.mcpPlatform = platform
 	return s
 }
 
@@ -438,7 +460,42 @@ func (s *Service) recordToolCall(ctx context.Context, toolCall models.AgentToolC
 	if toolCall.ToolSchemaVersion == "" {
 		toolCall.ToolSchemaVersion = CurrentToolSchemaVersion
 	}
-	return s.db.WithContext(ctx).Create(&toolCall).Error
+	ensureToolCallID(&toolCall)
+	expected := toolCall
+	stored := toolCall
+	if err := s.db.WithContext(ctx).
+		Where("run_id = ? AND call_id = ?", toolCall.RunID, toolCall.CallID).
+		Attrs(toolCall).
+		FirstOrCreate(&stored).Error; err != nil {
+		return err
+	}
+	if stored.ToolName != expected.ToolName || stored.Status != expected.Status ||
+		stored.ToolSchemaVersion != expected.ToolSchemaVersion || stored.InputJSON != expected.InputJSON ||
+		stored.OutputJSON != expected.OutputJSON || stored.ErrorMessage != expected.ErrorMessage ||
+		!sameOptionalUint64(stored.StepID, expected.StepID) {
+		return fmt.Errorf("%w: tool call %q does not match its persisted payload", ErrWorkflowRuntimeConflict, expected.CallID)
+	}
+	return nil
+}
+
+func sameOptionalUint64(left, right *uint64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func ensureToolCallID(toolCall *models.AgentToolCall) {
+	if toolCall == nil {
+		return
+	}
+	callID := strings.TrimSpace(toolCall.CallID)
+	if callID != "" && len(callID) <= 96 {
+		toolCall.CallID = callID
+		return
+	}
+	digest := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%s\x00%s\x00%s", toolCall.RunID, callID, toolCall.ToolName, toolCall.InputJSON)))
+	toolCall.CallID = fmt.Sprintf("agent:%d:%x", toolCall.RunID, digest[:12])
 }
 
 func (s *Service) writeConversationMessage(ctx context.Context, run models.AgentRun, summary string, actionItems []string, nextStep string, riskFlags []string, citations []Citation) (models.AgentToolCall, error) {
@@ -470,6 +527,7 @@ func (s *Service) writeConversationMessage(ctx context.Context, run models.Agent
 		Status:    models.AgentRunStatusRunning,
 		InputJSON: mustJSONString(input),
 	}
+	ensureToolCallID(&toolCall)
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&message).Error; err != nil {
 			return err
@@ -561,6 +619,7 @@ func (s *Service) createFollowUpTask(ctx context.Context, run models.AgentRun, n
 		Status:    models.AgentRunStatusRunning,
 		InputJSON: mustJSONString(input),
 	}
+	ensureToolCallID(&toolCall)
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&task).Error; err != nil {
 			return err
@@ -597,6 +656,7 @@ func (s *Service) upsertConversationMemory(ctx context.Context, run models.Agent
 			"key":             metadata.Key,
 		}),
 	}
+	ensureToolCallID(&toolCall)
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var memory models.AgentMemory
 		err := tx.Where("organization_id = ? AND user_id = ? AND conversation_id = ? AND `key` = ?", run.OrganizationID, run.UserID, run.ConversationID, metadata.Key).

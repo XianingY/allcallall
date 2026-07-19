@@ -24,6 +24,7 @@ import OrganizationsScreen from "../screens/OrganizationsScreen";
 import ConversationsScreen from "../screens/ConversationsScreen";
 import ConversationDetailScreen from "../screens/ConversationDetailScreen";
 import AgentDemoScreen from "../screens/AgentDemoScreen";
+import MCPPlatformScreen from "../screens/MCPPlatformScreen";
 import DealsScreen from "../screens/DealsScreen";
 import DealDetailScreen from "../screens/DealDetailScreen";
 import RoomsScreen from "../screens/RoomsScreen";
@@ -67,6 +68,7 @@ export type RootStackParamList = {
     conversationId?: number;
   };
   AgentDemo: undefined;
+  MCPPlatform: undefined;
   KnowledgeCenter: undefined;
   Deals: undefined;
   DealDetail: { deal: DealRecord };
@@ -119,6 +121,11 @@ const AppNavigator: React.FC = () => {
             name="AgentDemo"
             component={AgentSurfaceScreen}
             options={{ title: "Agent Lab" }}
+          />
+          <Stack.Screen
+            name="MCPPlatform"
+            component={MCPPlatformScreen}
+            options={{ title: "Agent 工具 / MCP & Skills" }}
           />
           <Stack.Screen
             name="KnowledgeCenter"

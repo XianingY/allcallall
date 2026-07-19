@@ -17,6 +17,9 @@ from .models import (
 )
 
 
+MIN_GROUNDING_TOKEN_COVERAGE = 0.5
+
+
 def rerank(query: str, chunks: list[ContextChunk], top_k: int = 8) -> RerankResponse:
     tokens = tokenize(query, remove_stopwords=True)
     scored: list[tuple[float, ContextChunk]] = []
@@ -86,13 +89,18 @@ def grounding_check(answer: str, citations: list[ContextChunk]) -> GroundingChec
         return GroundingCheckResponse(grounded=False, unsupported_claims=["empty_answer"], coverage=0)
     covered = [token for token in tokens if token in evidence]
     coverage = len(covered) / max(len(tokens), 1)
-    grounded = bool(citations) and coverage >= 0.2
+    grounded = bool(citations) and coverage >= MIN_GROUNDING_TOKEN_COVERAGE
     unsupported = [] if grounded else ["answer lacks enough overlap with supplied citations"]
     return GroundingCheckResponse(
         grounded=grounded,
         unsupported_claims=unsupported,
         coverage=coverage,
-        trace={"event": "grounding.check", "citation_count": len(citations), "coverage": coverage},
+        trace={
+            "event": "grounding.check",
+            "citation_count": len(citations),
+            "coverage": coverage,
+            "min_token_coverage": MIN_GROUNDING_TOKEN_COVERAGE,
+        },
     )
 
 
@@ -100,8 +108,7 @@ def filter_chunks(chunks: list[ContextChunk], source_types: list[str]) -> list[C
     allowed = {item.strip() for item in source_types if item.strip()}
     if not allowed:
         return chunks
-    scoped = [chunk for chunk in chunks if chunk.source_type in allowed]
-    return scoped or chunks
+    return [chunk for chunk in chunks if chunk.source_type in allowed]
 
 
 def build_queries(query: str, source_types: list[str], max_steps: int) -> list[str]:

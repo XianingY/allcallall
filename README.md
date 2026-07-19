@@ -95,6 +95,9 @@ make run-rag-runtime
 # Deterministic interview/demo harnesses
 make beta-seed
 make interview-demo
+make interview-smoke
+make interview-chaos
+make interview-down
 make interview-microservice-demo
 make agent-eval
 make rag-eval
@@ -213,6 +216,9 @@ Start with:
 - [Quick Start](docs/getting-started/quick-start.md)
 - [Configuration](docs/configuration/configuration.md)
 - [Interview README](docs/interview/README.md)
+- [Interview Chain](docs/interview/interview-chain.md)
+- [Five-Minute Demo Script](docs/interview/demo-script.md)
+- [Tencent Interview Questions](docs/interview/tencent-interview-questions.md)
 - [Tencent Full-Stack JD Fit](docs/interview/tencent-fullstack-jd-fit.md)
 - [System Design](docs/interview/system-design.md)
 - [AI Agent Design](docs/interview/ai-agent-design.md)

@@ -2,37 +2,49 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/models"
 )
 
 func (s *Service) shouldUseExternalAgentRuntime() bool {
-	if s.workflowRuntime == nil {
-		return false
-	}
-	_, ok := s.workflowRuntime.(AgentRuntime)
+	_, ok := s.externalAgentRuntime()
 	return ok
 }
 
-func (s *Service) executeAgentRunWithExternalRuntime(ctx context.Context, run models.AgentRun, goal string) (*RunResult, error) {
-	runtime, ok := s.workflowRuntime.(AgentRuntime)
-	if !ok {
-		return s.executeLegacyAgentRun(ctx, run, goal)
+// externalAgentRuntime keeps persisted Python-owned runs executable even when
+// a standalone/embedded worker was constructed before runtime wiring completed.
+func (s *Service) externalAgentRuntime() (AgentRuntime, bool) {
+	if runtime, ok := s.workflowRuntime.(AgentRuntime); ok {
+		return runtime, true
 	}
-	conversationCtx, err := s.loadConversationContext(ctx, run.OrganizationID, run.UserID, run.ConversationID, goal)
-	if err != nil {
-		return nil, err
+	if NormalizeWorkflowRuntimeFromEnv() == WorkflowRuntimePythonLangGraph {
+		runtime := NewPythonLangGraphRuntimeFromEnv()
+		return runtime, true
 	}
-	contextToolCalls, err := s.recordContextToolCalls(ctx, run, conversationCtx)
-	if err != nil {
-		return nil, err
-	}
-	s.recordAgentToolCalls(contextToolCalls)
+	return nil, false
+}
 
-	request := buildAgentRuntimeRequest(run, goal, conversationCtx)
+func (s *Service) executeAgentRunWithExternalRuntime(ctx context.Context, run models.AgentRun, goal string) (*RunResult, error) {
+	runtime, ok := s.externalAgentRuntime()
+	if !ok {
+		return nil, fmt.Errorf("agent runtime is unavailable")
+	}
+	request, err := s.loadOrFreezeAgentRuntimeRequest(ctx, &run, goal)
+	if err != nil {
+		return nil, err
+	}
+	if s.toolCapabilities != nil {
+		request.ToolCapability, err = s.toolCapabilities.IssueForRun(ctx, run.OrganizationID, run.UserID, run.ConversationID, fmt.Sprintf("agent:%d", run.ID))
+		if err != nil {
+			return nil, fmt.Errorf("issue agent tool capability: %w", err)
+		}
+	}
 	started := time.Now()
 	response, err := runtime.RunAgent(ctx, request)
 	if s.metrics != nil {
@@ -46,24 +58,76 @@ func (s *Service) executeAgentRunWithExternalRuntime(ctx context.Context, run mo
 	if err != nil {
 		return nil, err
 	}
+	if err := validateInitialAgentRuntimeResponse(run, request.ExecutionID, response); err != nil {
+		return nil, fmt.Errorf("%w: validate agent runtime response: %w", ErrWorkflowRuntimeConflict, err)
+	}
 	if strings.TrimSpace(response.Runtime) == "" {
 		response.Runtime = runtime.Name()
 	}
 	if strings.TrimSpace(response.Provider) == "" {
 		response.Provider = "rules"
 	}
-	return s.persistExternalAgentRunOutput(ctx, run, conversationCtx, response)
+	return s.persistExternalAgentRunOutput(ctx, run, conversationContextFromRuntimeRequest(request), response)
+}
+
+func (s *Service) loadOrFreezeAgentRuntimeRequest(ctx context.Context, run *models.AgentRun, goal string) (WorkflowRuntimeRequest, error) {
+	if run == nil {
+		return WorkflowRuntimeRequest{}, fmt.Errorf("agent run is required")
+	}
+	if strings.TrimSpace(run.RuntimeRequestJSON) != "" {
+		request, err := decodeFrozenRuntimeRequest(run.RuntimeRequestJSON)
+		if err != nil {
+			return request, err
+		}
+		return request, validateFrozenAgentRuntimeRequest(*run, request)
+	}
+	conversationCtx, err := s.loadConversationContext(ctx, run.OrganizationID, run.UserID, run.ConversationID, goal)
+	if err != nil {
+		return WorkflowRuntimeRequest{}, err
+	}
+	request := buildAgentRuntimeRequest(*run, goal, conversationCtx)
+	request.ToolCapability = ""
+	raw, err := json.Marshal(request)
+	if err != nil {
+		return WorkflowRuntimeRequest{}, err
+	}
+	updated := s.db.WithContext(ctx).Model(&models.AgentRun{}).
+		Where("id = ? AND execution_lease_token = ? AND runtime_owner = ? AND (runtime_request_json IS NULL OR runtime_request_json = '')", run.ID, run.ExecutionLeaseToken, WorkflowRuntimePythonLangGraph).
+		Updates(map[string]any{"runtime_request_json": string(raw), "source": WorkflowRuntimePythonLangGraph, "updated_at": time.Now().UTC()})
+	if updated.Error != nil {
+		return WorkflowRuntimeRequest{}, updated.Error
+	}
+	if updated.RowsAffected != 1 {
+		var stored models.AgentRun
+		if err := s.db.WithContext(ctx).Where("id = ?", run.ID).Take(&stored).Error; err != nil {
+			return WorkflowRuntimeRequest{}, err
+		}
+		if stored.ExecutionLeaseToken != run.ExecutionLeaseToken {
+			return WorkflowRuntimeRequest{}, fmt.Errorf("%w: agent execution lease was lost", ErrWorkflowRuntimeConflict)
+		}
+		request, err = decodeFrozenRuntimeRequest(stored.RuntimeRequestJSON)
+		if err != nil {
+			return WorkflowRuntimeRequest{}, err
+		}
+		*run = stored
+		return request, validateFrozenAgentRuntimeRequest(stored, request)
+	}
+	run.RuntimeRequestJSON = string(raw)
+	run.Source = WorkflowRuntimePythonLangGraph
+	return request, nil
 }
 
 func buildAgentRuntimeRequest(run models.AgentRun, goal string, conversationCtx *conversationContext) WorkflowRuntimeRequest {
 	request := WorkflowRuntimeRequest{
-		RequestID:      run.RequestID,
-		OrganizationID: run.OrganizationID,
-		UserID:         run.UserID,
-		ConversationID: run.ConversationID,
-		AgentRunID:     run.ID,
-		Preset:         "react_general",
-		Goal:           goal,
+		RequestID:          run.RequestID,
+		ExecutionID:        fmt.Sprintf("agent:%d", run.ID),
+		ExpectedCheckpoint: run.CheckpointVersion,
+		OrganizationID:     run.OrganizationID,
+		UserID:             run.UserID,
+		ConversationID:     run.ConversationID,
+		AgentRunID:         run.ID,
+		Preset:             "react_general",
+		Goal:               goal,
 		ToolPolicy: WorkflowRuntimeToolPolicy{
 			ReadTools: []string{
 				ToolQueryContextChunks,
@@ -141,6 +205,77 @@ func appendRuntimeConversationContext(request *WorkflowRuntimeRequest, conversat
 }
 
 func (s *Service) persistExternalAgentRunOutput(ctx context.Context, run models.AgentRun, conversationCtx *conversationContext, response WorkflowRuntimeResponse) (*RunResult, error) {
+	var result *RunResult
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		transactional := *s
+		transactional.db = tx
+		var persistErr error
+		result, persistErr = transactional.persistExternalAgentRunOutputTx(ctx, run, conversationCtx, response)
+		return persistErr
+	})
+	return result, err
+}
+
+func (s *Service) persistExternalAgentRunOutputTx(ctx context.Context, run models.AgentRun, conversationCtx *conversationContext, response WorkflowRuntimeResponse) (*RunResult, error) {
+	approvalRequestID := ""
+	if response.PendingApproval != nil {
+		approvalRequestID = response.PendingApproval.ApprovalRequestID
+	}
+	proposals, err := s.buildExternalAgentApprovalCalls(ctx, run, response, approvalRequestID)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	status := models.AgentRunStatusReady
+	var completedAt any = now
+	if approvalRequestID != "" {
+		status = models.AgentRunStatusRequiresAction
+		completedAt = nil
+	}
+	updates := map[string]any{
+		"status":                status,
+		"summary":               response.Summary,
+		"action_items_json":     mustJSONString(response.ActionItems),
+		"next_step":             response.NextStep,
+		"risk_flags_json":       mustJSONString(response.RiskFlags),
+		"completed_at":          completedAt,
+		"lease_until":           nil,
+		"prompt_version":        FirstNonEmptyString(response.PromptVersion, run.PromptVersion),
+		"checkpoint_id":         response.CheckpointID,
+		"checkpoint_version":    response.CheckpointVersion,
+		"approval_request_id":   approvalRequestID,
+		"execution_lease_token": "",
+		"updated_at":            now,
+	}
+	updated := s.db.WithContext(ctx).Model(&models.AgentRun{}).
+		Where("id = ? AND checkpoint_version = ? AND execution_lease_token = ?", run.ID, run.CheckpointVersion, run.ExecutionLeaseToken).
+		Updates(updates)
+	if updated.Error != nil {
+		return nil, updated.Error
+	}
+	if updated.RowsAffected != 1 {
+		var stored models.AgentRun
+		if err := s.db.WithContext(ctx).Where("id = ?", run.ID).Take(&stored).Error; err != nil {
+			return nil, err
+		}
+		if stored.CheckpointID != response.CheckpointID || stored.CheckpointVersion != response.CheckpointVersion || stored.ApprovalRequestID != approvalRequestID {
+			return nil, fmt.Errorf("%w: agent checkpoint changed while persisting runtime output", ErrCheckpointVersionConflict)
+		}
+		if approvalRequestID != "" {
+			var storedCount int64
+			if err := s.db.WithContext(ctx).Model(&models.AgentToolCall{}).
+				Where("run_id = ? AND approval_request_id = ? AND approval_checkpoint_version = ?", run.ID, approvalRequestID, response.CheckpointVersion).
+				Count(&storedCount).Error; err != nil {
+				return nil, err
+			}
+			if storedCount != int64(len(proposals)) {
+				return nil, fmt.Errorf("%w: persisted agent approval set is incomplete", ErrWorkflowRuntimeConflict)
+			}
+		}
+		return s.buildRunResult(ctx, stored)
+	}
+
 	if _, err := s.createStep(ctx, run.ID, "python_collect_context", map[string]any{
 		"goal":            run.Goal,
 		"conversation_id": run.ConversationID,
@@ -190,63 +325,101 @@ func (s *Service) persistExternalAgentRunOutput(ctx context.Context, run models.
 		return nil, err
 	}
 
-	pendingProposals := 0
-	for index, proposal := range response.ProposedToolCalls {
-		inputJSON := mustJSONString(proposal.Arguments)
-		descriptor, ok := ToolDescriptorByName(proposal.ToolName)
-		status := models.ToolCallStatusPending
-		errorMessage := ""
-		if !ok {
-			status = models.ToolCallStatusFailed
-			errorMessage = "unknown tool: " + proposal.ToolName
-		} else if descriptor.Kind != ToolKindSideEffect || !proposal.ApprovalRequired {
-			status = models.ToolCallStatusFailed
-			errorMessage = "python runtime may only propose approval-required write tools"
-		} else if err := ValidateToolArguments(proposal.ToolName, inputJSON); err != nil {
-			status = models.ToolCallStatusFailed
-			errorMessage = err.Error()
-		} else {
-			pendingProposals++
-		}
-		callID := strings.TrimSpace(proposal.IdempotencyKey)
-		if callID == "" {
-			callID = fmt.Sprintf("python:%d:%d", run.ID, index+1)
-		}
-		if err := s.recordToolCall(ctx, models.AgentToolCall{
-			RunID:        run.ID,
-			CallID:       callID,
-			ToolName:     proposal.ToolName,
-			Status:       status,
-			InputJSON:    inputJSON,
-			ErrorMessage: errorMessage,
-		}); err != nil {
+	for _, proposal := range proposals {
+		stored := proposal
+		if err := s.db.WithContext(ctx).
+			Where("run_id = ? AND call_id = ?", run.ID, proposal.CallID).
+			Attrs(proposal).
+			FirstOrCreate(&stored).Error; err != nil {
 			return nil, err
+		}
+		if stored.ToolName != proposal.ToolName || stored.InputJSON != proposal.InputJSON || stored.ToolSchemaVersion != proposal.ToolSchemaVersion || stored.ApprovalRequestID != proposal.ApprovalRequestID || stored.ApprovalCheckpointVersion != proposal.ApprovalCheckpointVersion || stored.MCPInstallationID != proposal.MCPInstallationID || stored.MCPRevisionID != proposal.MCPRevisionID || stored.MCPToolID != proposal.MCPToolID {
+			return nil, fmt.Errorf("%w: agent tool call %q does not match its persisted approval payload", ErrWorkflowRuntimeConflict, proposal.CallID)
+		}
+	}
+	if approvalRequestID != "" {
+		var storedCount int64
+		if err := s.db.WithContext(ctx).Model(&models.AgentToolCall{}).
+			Where("run_id = ? AND approval_request_id = ? AND approval_checkpoint_version = ?", run.ID, approvalRequestID, response.CheckpointVersion).
+			Count(&storedCount).Error; err != nil {
+			return nil, err
+		}
+		if storedCount != int64(len(proposals)) {
+			return nil, fmt.Errorf("%w: persisted agent approval set is incomplete", ErrWorkflowRuntimeConflict)
 		}
 	}
 
-	completedAt := time.Now().UTC()
-	status := models.AgentRunStatusReady
-	if pendingProposals > 0 {
-		status = models.AgentRunStatusRequiresAction
-	}
-	updates := map[string]any{
-		"status":            status,
-		"summary":           response.Summary,
-		"action_items_json": mustJSONString(response.ActionItems),
-		"next_step":         response.NextStep,
-		"risk_flags_json":   mustJSONString(response.RiskFlags),
-		"completed_at":      completedAt,
-		"lease_until":       nil,
-		"prompt_version":    run.PromptVersion,
-	}
-	if err := s.db.WithContext(ctx).Model(&models.AgentRun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
-		return nil, err
-	}
 	run.Status = status
 	run.Summary = response.Summary
 	run.ActionItemsJSON = mustJSONString(response.ActionItems)
 	run.NextStep = response.NextStep
 	run.RiskFlagsJSON = mustJSONString(response.RiskFlags)
-	run.CompletedAt = &completedAt
+	if status == models.AgentRunStatusReady {
+		run.CompletedAt = &now
+	} else {
+		run.CompletedAt = nil
+	}
+	run.CheckpointID = response.CheckpointID
+	run.CheckpointVersion = response.CheckpointVersion
+	run.ApprovalRequestID = approvalRequestID
 	return s.buildRunResult(ctx, run)
+}
+
+func (s *Service) buildExternalAgentApprovalCalls(ctx context.Context, run models.AgentRun, response WorkflowRuntimeResponse, approvalRequestID string) ([]models.AgentToolCall, error) {
+	proposals := make([]models.AgentToolCall, 0, len(response.ProposedToolCalls))
+	for _, proposal := range response.ProposedToolCalls {
+		inputJSON := mustJSONString(proposal.Arguments)
+		schemaVersion := CurrentToolSchemaVersion
+		var mcpInstallationID, mcpRevisionID, mcpToolID uint64
+		if strings.HasPrefix(proposal.ToolName, "mcp.") {
+			if s.mcpPlatform == nil {
+				return nil, fmt.Errorf("MCP platform is unavailable")
+			}
+			if !proposal.ApprovalRequired {
+				return nil, fmt.Errorf("MCP write and unknown-risk tools require approval")
+			}
+			tool, err := s.mcpPlatform.ValidateArguments(ctx, run.OrganizationID, run.UserID, proposal.ToolName, proposal.Arguments)
+			if err != nil {
+				return nil, err
+			}
+			if tool.InstallationID != proposal.MCPInstallationID || tool.RevisionID != proposal.MCPRevisionID || tool.ID != proposal.MCPToolID {
+				return nil, fmt.Errorf("%w: MCP tool revision changed after runtime catalog resolution", ErrWorkflowRuntimeConflict)
+			}
+			if tool.Risk == models.MCPToolRiskRead {
+				return nil, fmt.Errorf("verified read MCP tools must execute through the runtime gateway")
+			}
+			schemaVersion = tool.SchemaVersion
+			mcpInstallationID = tool.InstallationID
+			mcpRevisionID = tool.RevisionID
+			mcpToolID = tool.ID
+		} else {
+			if proposal.MCPInstallationID != 0 || proposal.MCPRevisionID != 0 || proposal.MCPToolID != 0 {
+				return nil, fmt.Errorf("%w: local tool contains MCP identity", ErrWorkflowRuntimeConflict)
+			}
+			descriptor, ok := ToolDescriptorByName(proposal.ToolName)
+			if !ok {
+				return nil, fmt.Errorf("unknown tool: %s", proposal.ToolName)
+			}
+			if descriptor.Kind != ToolKindSideEffect || !proposal.ApprovalRequired {
+				return nil, fmt.Errorf("python runtime may only propose approval-required write tools")
+			}
+			if err := ValidateToolArguments(proposal.ToolName, inputJSON); err != nil {
+				return nil, err
+			}
+		}
+		proposals = append(proposals, models.AgentToolCall{
+			RunID:                     run.ID,
+			CallID:                    proposal.ToolCallID,
+			ToolName:                  proposal.ToolName,
+			Status:                    models.ToolCallStatusPending,
+			ToolSchemaVersion:         schemaVersion,
+			ApprovalRequestID:         approvalRequestID,
+			ApprovalCheckpointVersion: response.CheckpointVersion,
+			MCPInstallationID:         mcpInstallationID,
+			MCPRevisionID:             mcpRevisionID,
+			MCPToolID:                 mcpToolID,
+			InputJSON:                 inputJSON,
+		})
+	}
+	return proposals, nil
 }

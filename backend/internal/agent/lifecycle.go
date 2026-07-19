@@ -24,6 +24,7 @@ func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, 
 		role = "primary"
 	}
 	idempotencyKey := strings.TrimSpace(in.IdempotencyKey)
+	dedupeKey := nonEmptyStringPointer(idempotencyKey)
 	if in.ConversationID == 0 {
 		return nil, ErrConversationAccessDenied
 	}
@@ -46,8 +47,10 @@ func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, 
 		UserID:            userID,
 		ConversationID:    in.ConversationID,
 		IdempotencyKey:    idempotencyKey,
+		DedupeKey:         dedupeKey,
 		RequestID:         trace.RequestID(ctx),
 		Source:            s.agentRunSource(),
+		RuntimeOwner:      s.agentRuntimeOwner(),
 		Role:              role,
 		Status:            models.AgentRunStatusPending,
 		PromptVersion:     CurrentWorkflowPromptVersion,
@@ -79,6 +82,11 @@ func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, 
 		}
 		return nil
 	}); err != nil {
+		if dedupeKey != nil {
+			if existing, findErr := s.findRunByIdempotencyKey(ctx, organizationID, userID, in.ConversationID, idempotencyKey); findErr == nil && existing != nil {
+				return s.buildRunResult(ctx, *existing)
+			}
+		}
 		return nil, err
 	}
 	if s.metrics != nil {
@@ -87,11 +95,26 @@ func (s *Service) RunConversationAssistant(ctx context.Context, organizationID, 
 	return s.buildRunResult(ctx, run)
 }
 
+func nonEmptyStringPointer(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
 func (s *Service) agentRunSource() string {
 	if s.shouldUseExternalAgentRuntime() {
 		return WorkflowRuntimePythonLangGraph
 	}
 	return s.planner.Name()
+}
+
+func (s *Service) agentRuntimeOwner() string {
+	if s.shouldUseExternalAgentRuntime() {
+		return WorkflowRuntimePythonLangGraph
+	}
+	return WorkflowRuntimeLegacyGo
 }
 
 func (s *Service) findRunByIdempotencyKey(ctx context.Context, organizationID, userID, conversationID uint64, key string) (*models.AgentRun, error) {
@@ -149,6 +172,11 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (result *RunResu
 
 	startedAt := time.Now().UTC()
 	leaseUntil := startedAt.Add(agentRunLeaseDuration)
+	leaseToken, err := newExecutionLeaseToken()
+	if err != nil {
+		span.End(err)
+		return nil, err
+	}
 	update := s.db.WithContext(ctx).Model(&models.AgentRun{}).
 		Where(
 			"id = ? AND (status = ? OR (status = ? AND attempts < ?) OR (status = ? AND (lease_until IS NULL OR lease_until <= ?)))",
@@ -160,13 +188,14 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (result *RunResu
 			startedAt,
 		).
 		Updates(map[string]any{
-			"status":        models.AgentRunStatusRunning,
-			"attempts":      gorm.Expr("attempts + 1"),
-			"started_at":    startedAt,
-			"lease_until":   leaseUntil,
-			"error_message": "",
-			"completed_at":  nil,
-			"updated_at":    startedAt,
+			"status":                models.AgentRunStatusRunning,
+			"attempts":              gorm.Expr("attempts + 1"),
+			"started_at":            startedAt,
+			"lease_until":           leaseUntil,
+			"execution_lease_token": leaseToken,
+			"error_message":         "",
+			"completed_at":          nil,
+			"updated_at":            startedAt,
 		})
 	if update.Error != nil {
 		span.End(update.Error)
@@ -201,29 +230,50 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (result *RunResu
 	if goal == "" {
 		goal = "summarize_conversation_next_steps"
 	}
-	if s.shouldUseExternalAgentRuntime() {
+	decidedTools, decidedErr := s.hasDecidedAgentTools(ctx, run.ID)
+	if decidedErr != nil {
+		resultErr = decidedErr
+	} else if run.ApprovalRequestID != "" {
+		result, resultErr = s.resumeExternalAgentIfReady(ctx, run)
+	} else if decidedTools {
+		result, resultErr = s.executeDecidedAgentTools(ctx, run)
+	} else if run.RuntimeOwner == WorkflowRuntimePythonLangGraph && s.shouldUseExternalAgentRuntime() {
 		result, resultErr = s.executeAgentRunWithExternalRuntime(ctx, run, goal)
-		if resultErr != nil && !workflowRuntimeStrictFromEnv() {
-			if s.metrics != nil {
-				s.metrics.Inc("agent_runtime_fallback_total")
-			}
-			result, resultErr = s.executeLegacyAgentRun(ctx, run, goal)
-		}
-	} else {
+	} else if run.RuntimeOwner == WorkflowRuntimePythonLangGraph {
+		resultErr = fmt.Errorf("%w: checkpoint-owned agent runtime is unavailable", ErrWorkflowRuntimeUnavailable)
+	} else if run.RuntimeOwner == WorkflowRuntimeLegacyGo || run.RuntimeOwner == "" {
 		result, resultErr = s.executeLegacyAgentRun(ctx, run, goal)
+	} else {
+		resultErr = fmt.Errorf("unsupported agent runtime owner %q", run.RuntimeOwner)
 	}
 	if resultErr != nil {
 		failedAt := time.Now().UTC()
+		status := models.AgentRunStatusFailed
+		var completedAt any = failedAt
+		attempts := any(run.Attempts)
+		deferred := isDeferredRunExecution(resultErr)
+		if deferred {
+			status = models.AgentRunStatusPending
+			completedAt = nil
+			if run.Attempts > 0 {
+				attempts = run.Attempts - 1
+			}
+		}
+		if errors.Is(resultErr, ErrCheckpointTransactionTooLarge) {
+			attempts = agentRunMaxAttempts
+		}
 		// Persist terminal state even when the execution context timed out or was canceled.
 		_ = s.db.WithContext(context.WithoutCancel(ctx)).Model(&models.AgentRun{}).
-			Where("id = ?", run.ID).
+			Where("id = ? AND execution_lease_token = ? AND status = ?", run.ID, run.ExecutionLeaseToken, models.AgentRunStatusRunning).
 			Updates(map[string]any{
-				"status":        models.AgentRunStatusFailed,
-				"error_message": resultErr.Error(),
-				"completed_at":  failedAt,
-				"lease_until":   nil,
+				"status":                status,
+				"error_message":         resultErr.Error(),
+				"completed_at":          completedAt,
+				"attempts":              attempts,
+				"lease_until":           nil,
+				"execution_lease_token": "",
 			}).Error
-		if s.metrics != nil {
+		if s.metrics != nil && !deferred {
 			s.metrics.Inc("agent_run_failed_total")
 		}
 		span.End(resultErr)

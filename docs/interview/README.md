@@ -1,6 +1,18 @@
-# AllCallAll Interview Positioning
+# AllCallAll 面试材料入口
 
-AllCallAll is positioned as an enterprise realtime collaboration project for full-stack, backend systems, and AI Agent engineering interviews. For full-stack roles, lead with the Web admin console, generated API contract, Go/Gin backend, MySQL/Redis data paths, realtime collaboration, tests, and performance gates. For AI roles, shift emphasis to Agent orchestration, RAG, citations, and approval safety.
+当前主演示是一个企业 Agent 工具平台：Web 发起 run，Go 通过 outbox 调度 Python
+LangGraph，Python 使用 MySQL checkpoint 暂停/恢复，所有 MCP 工具再经 Go Gateway、
+Sandbox Runner 和 HTTPS MCP 执行。默认 rules Provider 保证离线稳定；真实模型是显式配置项。
+
+第一次阅读请按以下顺序：
+
+1. [面试级主演示链路](interview-chain.md)：当前事实、架构图、权威边界、数据关系、故障矩阵和安全边界。
+2. [五分钟演示脚本](demo-script.md)：现场按分钟执行的 Web + chaos 路径。
+3. [腾讯面试问题与参考回答](tencent-interview-questions.md)：Go、Python、MCP、RAG、Web 和故障恢复追问。
+4. [最新链路验收记录](interview-acceptance.md)：smoke/chaos 的可复查结果和边界。
+5. [Resume Eval](resume-eval.md)：可重跑 fixture/benchmark 的事实边界。
+
+实时协作、WebRTC、录音转写、gRPC/Kafka 演进仍是项目能力，但不应抢占主演示链路。
 
 ## Why This Project Fits Full-Stack / Backend Roles
 
@@ -15,6 +27,8 @@ AllCallAll is positioned as an enterprise realtime collaboration project for ful
 
 ## Document Map
 
+- [Interview Chain](interview-chain.md): current Compose architecture, authority boundaries, approval sequence, data relationships, failure matrix, and security boundary.
+- [Interview Acceptance](interview-acceptance.md): latest smoke/chaos evidence and explicit non-claims.
 - [System Design](system-design.md): system-design interview view of the whole backend.
 - [Backend Deep Dive](backend-deep-dive.md): Go, transactions, realtime, auth, storage, and reliability talking points.
 - [AI Agent Design](ai-agent-design.md): Agent state machine, provider seam, tool calling, memory, guardrails.
@@ -22,6 +36,7 @@ AllCallAll is positioned as an enterprise realtime collaboration project for ful
 - [Python Agent Runtime](python-agent-runtime.md): LangGraph runtime split, Go/Python boundary, tool bridge, and Python eval.
 - [AI Agent JD Fit](ai-portfolio-jd-fit.md): JD capability mapping for LangGraph, LangChain, Rerank, LlamaIndex, prompt engineering, and eval.
 - [Tencent Full-Stack JD Fit](tencent-fullstack-jd-fit.md): JD capability mapping for React/Vite, Go/Gin, MySQL, Redis, Node.js tooling, admin dashboard, and performance evidence.
+- [Tencent Interview Questions](tencent-interview-questions.md): evidence-backed Go, LangGraph, MCP, security, RAG, frontend, and recovery questions.
 - [Microservice Evolution](microservice-evolution.md): modular monolith to microservice-ready worker migration path.
 - [gRPC, Kafka, and Elasticsearch Evolution](grpc-kafka-es-evolution.md): synchronous service split, async settlement pipeline, and message search index.
 - [Worker Runtime](worker-runtime.md): API-embedded workers, standalone worker commands, event ownership, and failure semantics.
@@ -39,34 +54,30 @@ AllCallAll is positioned as an enterprise realtime collaboration project for ful
 
 ## Suggested Interview Demo Path
 
-1. Show the backend module boundaries: `auth`, `collaboration`, `agent`, `events`, `storage`, and `signaling`. Mention `commerce` only as supporting domain surface, not the main portfolio story.
-2. Walk through `POST /api/v1/agent/runs`: auth claims, organization header, membership guard, pending run creation, `agent.run.requested` outbox enqueue, worker execution, steps, tool calls, and metrics.
-3. Show how collaboration and meeting data feed the Agent: messages, internal notes, priority, assignee, room state, call follow-ups, and meeting recording transcript segments.
-4. Explain the microservice evolution path: API/signaling gateway calls User Service through gRPC when `USER_SERVICE_GRPC_ADDR` is configured.
-5. Explain async peak shaving: room-ended settlement events are written to outbox, bridged to Kafka, then consumed by `data-worker` into `room_settlements`.
-6. Explain search scaling: message writes enqueue `search.message.index_requested`, `search-worker` indexes ES, and `/search/messages` re-applies conversation membership checks.
-7. Explain why v1 Agent is rules-based by default: stable tests, deterministic demos, no API-key dependency, and a seam for mock/OpenAI-compatible providers.
-8. Show idempotency: repeat a run with the same `Idempotency-Key` and explain why tool side effects do not duplicate.
-9. Show observability: send `X-Request-ID`, trigger an Agent run, and explain how the same ID is saved on `agent_runs` and `event_outbox`.
-10. Show realtime replay: connect to `/api/v1/chat/ws?since_id=...` and point out `event_id`, `sequence`, and durable MySQL-backed replay.
-11. Open `/api/v1/metrics` and point to Agent and outbox counters such as `agent_run_queued_total`, `agent_run_started_total`, `agent_run_total`, `agent_run_failed_total`, `agent_tool_call_total`, `agent_memory_write_total`, `outbox_publish_total`, and `outbox_publish_retry_total`.
-12. If recording transcription is enabled, stop a meeting recording and show `recording.transcription.requested`, `recording_transcriptions`, `meeting_transcript_segments`, and the Agent's ability to retrieve meeting transcript context.
+1. Open MCP installations and show immutable revision, risk, Skill binding, and secret-configured state.
+2. Launch `lookup_policy` from its prefilled Agent Lab link; show automatic read execution and untrusted MCP output.
+3. Launch `create_support_ticket`; show LangGraph interrupt, checkpoint version, approval reason, and fixed tool revision.
+4. Run `make interview-chaos`; explain restart recovery and why execution/ticket counts remain one under replay.
+5. Run `make interview-smoke`; show Elasticsearch IK, source-filtered Chinese retrieval, jieba grounding, metrics, and secret-leak checks.
+6. Close with boundaries: Compose uses rules/OpenBao dev mode/interview trust; external OpenBao, gVisor, NetworkPolicy, multi-Pod capacity, and real LLM quality require staging evidence.
+
+Use gRPC/Kafka/WebRTC/recording paths only as follow-up system-design material after this chain is clear.
 
 ## One-Command Demo
 
-For a deterministic demo that does not require MySQL, Redis, JWTs, or external model credentials:
+The current primary demo starts the full MySQL/Redis/OpenBao/Elasticsearch/Go/Python/Sandbox/MCP/Web stack. It does not require external model credentials:
 
 ```bash
 make interview-demo
 ```
 
-For a live backend seed path that starts MySQL/Redis and writes demo data:
+Use the printed credentials at `http://localhost:3000/agent-tools`, then verify restart recovery:
 
 ```bash
-make interview-demo-live
+make interview-chaos
 ```
 
-See [Demo Script](demo-script.md) for the full walkthrough.
+`make interview-smoke` checks service readiness, secret leakage, Elasticsearch IK, RAG source filtering, jieba grounding, and metrics. The older SQLite benchmark and partial live-backend commands remain secondary evidence, not the primary demo.
 
 ## Demo Seed Command
 
@@ -150,6 +161,8 @@ make interview-load-suite
 
 ## What To Improve Next For Interviews
 
+- Run the Helm/gVisor design in a real multi-node staging cluster and capture NetworkPolicy and Pod-kill evidence.
+- Replace in-process demo counters with OTel/Prometheus persistence and dashboards.
 - Add live LLM token streaming behind the existing OpenAI-compatible planner if a demo needs model-output streaming in addition to backend tool-event streaming.
 - Extend benchmark/load tests to authenticated WebSocket replay and meeting room event throughput.
 - Replace the current observed outbox handler with production publishers when the deployment target is clear.

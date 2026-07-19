@@ -24,6 +24,10 @@ class AgentRuntimeConfig(BaseSettings):
     tool_bridge_token: str = ""
     tool_bridge_timeout_sec: float = 10.0
 
+    # Durable LangGraph checkpoints
+    checkpoint_mysql_enabled: bool = False
+    checkpoint_mysql_dsn: str = ""
+
     # RAG runtime settings
     rag_runtime_base_url: str = ""
     rag_runtime_timeout_sec: float = 10.0
@@ -35,7 +39,7 @@ class AgentRuntimeConfig(BaseSettings):
 
     # Prompt settings
     prompt_version: str = ""
-    enable_grounding_check: bool = False
+    enable_grounding_check: bool = True
 
     model_config = {"env_prefix": "PY_AGENT_"}
 

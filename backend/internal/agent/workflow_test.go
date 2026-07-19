@@ -1,8 +1,12 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -117,7 +121,14 @@ func seedReadyMeetingTranscript(t *testing.T, db *gorm.DB, conversation models.C
 }
 
 type fakeMeetingBriefRuntime struct {
-	calls int
+	calls            int
+	runErr           error
+	resumeCalls      int
+	resumeErr        error
+	lastRun          WorkflowRuntimeRequest
+	lastResume       WorkflowRuntimeResumeRequest
+	resumeExecutions []string
+	runRequests      []WorkflowRuntimeRequest
 }
 
 func (r *fakeMeetingBriefRuntime) Name() string {
@@ -130,6 +141,11 @@ func (r *fakeMeetingBriefRuntime) Supports(run models.WorkflowRun) bool {
 
 func (r *fakeMeetingBriefRuntime) RunWorkflow(ctx context.Context, input WorkflowRuntimeRequest) (WorkflowRuntimeResponse, error) {
 	r.calls++
+	r.lastRun = input
+	r.runRequests = append(r.runRequests, input)
+	if r.runErr != nil {
+		return WorkflowRuntimeResponse{}, r.runErr
+	}
 	iteration := 1
 	citation := Citation{
 		ChunkID:             "segment-1",
@@ -165,26 +181,75 @@ func (r *fakeMeetingBriefRuntime) RunWorkflow(ctx context.Context, input Workflo
 		"risk_flags":      []string{"unresolved_meeting_risk"},
 	}
 	messageInput := cloneMapWith(baseInput, map[string]any{"citations": []Citation{citation}})
+	proposals := []WorkflowRuntimeToolCall{
+		{ToolCallID: "fake:write", ToolName: ToolWriteConversationMessage, Arguments: messageInput, Reason: "write grounded recap", IdempotencyKey: "fake:write", ApprovalRequired: true},
+		{ToolCallID: "fake:memory", ToolName: ToolUpsertConversationMemory, Arguments: cloneMapWith(baseInput, map[string]any{"key": models.AgentMemoryKeyLatestMeetingBrief}), Reason: "store latest meeting brief", IdempotencyKey: "fake:memory", ApprovalRequired: true},
+	}
 	return WorkflowRuntimeResponse{
-		Status:      models.WorkflowRunStatusRequiresAction,
-		Runtime:     WorkflowRuntimePythonLangGraph,
-		Provider:    "rules",
-		Summary:     "Python LangGraph meeting brief summary",
-		ActionItems: []string{"Confirm quality regression owner."},
-		NextStep:    "Review citations and approve write-back.",
-		RiskFlags:   []string{"unresolved_meeting_risk"},
-		Citations:   []Citation{citation},
+		Status:            models.WorkflowRunStatusRequiresAction,
+		Runtime:           WorkflowRuntimePythonLangGraph,
+		Provider:          "rules",
+		ExecutionID:       input.ExecutionID,
+		CheckpointID:      "checkpoint-paused",
+		CheckpointVersion: 1,
+		Summary:           "Python LangGraph meeting brief summary",
+		ActionItems:       []string{"Confirm quality regression owner."},
+		NextStep:          "Review citations and approve write-back.",
+		RiskFlags:         []string{"unresolved_meeting_risk"},
+		Citations:         []Citation{citation},
 		RoleResults: []WorkflowRuntimeRole{
 			{Role: models.WorkflowTaskSearcher, Summary: "Searcher found transcript evidence.", Citations: []Citation{citation}, ReactTrace: roleTrace},
 			{Role: models.WorkflowTaskSummarizer, Summary: "Python LangGraph meeting brief summary", ActionItems: []string{"Confirm quality regression owner."}, Citations: []Citation{citation}},
 			{Role: models.WorkflowTaskRiskAnalyst, Summary: "Risk analyst found unresolved risk.", RiskFlags: []string{"unresolved_meeting_risk"}, Citations: []Citation{citation}, ReactTrace: roleTrace},
 		},
-		TraceEvents: roleTrace,
-		ProposedToolCalls: []WorkflowRuntimeToolCall{
-			{ToolName: ToolWriteConversationMessage, Arguments: messageInput, Reason: "write grounded recap", IdempotencyKey: "fake:write", ApprovalRequired: true},
-			{ToolName: ToolUpsertConversationMemory, Arguments: cloneMapWith(baseInput, map[string]any{"key": models.AgentMemoryKeyLatestMeetingBrief}), Reason: "store latest meeting brief", IdempotencyKey: "fake:memory", ApprovalRequired: true},
-		},
+		TraceEvents:       roleTrace,
+		ProposedToolCalls: proposals,
+		PendingApproval:   fakeRuntimePendingApproval("approval-test-round", proposals),
 	}, nil
+}
+
+func (r *fakeMeetingBriefRuntime) ResumeWorkflow(_ context.Context, _ string, input WorkflowRuntimeResumeRequest) (WorkflowRuntimeResponse, error) {
+	r.resumeCalls++
+	r.lastResume = input
+	r.resumeExecutions = append(r.resumeExecutions, input.ExecutionID)
+	if r.resumeErr != nil {
+		return WorkflowRuntimeResponse{}, r.resumeErr
+	}
+	return WorkflowRuntimeResponse{
+		Status:            models.WorkflowRunStatusReady,
+		Runtime:           WorkflowRuntimePythonLangGraph,
+		Provider:          "rules",
+		ExecutionID:       input.ExecutionID,
+		CheckpointID:      "checkpoint-resumed",
+		CheckpointVersion: input.ExpectedCheckpointVersion + 1,
+		ApprovalDecisions: append([]WorkflowRuntimeDecision(nil), input.Resume.Decisions...),
+	}, nil
+}
+
+func fakeRuntimePendingApproval(requestID string, proposals []WorkflowRuntimeToolCall) *WorkflowRuntimePendingApproval {
+	tools := make([]WorkflowRuntimePendingApprovalTool, 0, len(proposals))
+	for _, proposal := range proposals {
+		arguments, err := canonicalPythonJSON(proposal.Arguments)
+		if err != nil {
+			panic(err)
+		}
+		digest := sha256.Sum256(arguments)
+		tools = append(tools, WorkflowRuntimePendingApprovalTool{
+			ToolCallID:        proposal.ToolCallID,
+			ToolName:          proposal.ToolName,
+			Arguments:         proposal.Arguments,
+			ArgumentsSHA256:   fmt.Sprintf("%x", digest[:]),
+			Reason:            proposal.Reason,
+			MCPInstallationID: proposal.MCPInstallationID,
+			MCPRevisionID:     proposal.MCPRevisionID,
+			MCPToolID:         proposal.MCPToolID,
+		})
+	}
+	return &WorkflowRuntimePendingApproval{
+		Type:              "tool_approval",
+		ApprovalRequestID: requestID,
+		Tools:             tools,
+	}
 }
 
 func TestWorkflowAgentCanUsePythonLangGraphRuntimeForMeetingBrief(t *testing.T) {
@@ -217,6 +282,9 @@ func TestWorkflowAgentCanUsePythonLangGraphRuntimeForMeetingBrief(t *testing.T) 
 	if paused.Run.Status != models.WorkflowRunStatusRequiresAction {
 		t.Fatalf("expected requires_action, got %s", paused.Run.Status)
 	}
+	if paused.Run.ApprovalRequestID != "approval-test-round" || paused.Run.CheckpointVersion != 1 {
+		t.Fatalf("expected persisted approval checkpoint metadata, got %+v", paused.Run)
+	}
 	if len(paused.Approvals) != 2 {
 		t.Fatalf("expected python runtime proposals to create two approvals, got %d", len(paused.Approvals))
 	}
@@ -226,23 +294,61 @@ func TestWorkflowAgentCanUsePythonLangGraphRuntimeForMeetingBrief(t *testing.T) 
 	if !workflowTaskReady(paused.Tasks, models.WorkflowTaskProposeTools) {
 		t.Fatalf("expected propose_tools task ready")
 	}
+	repeatedPause, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatalf("repeat paused workflow processing failed: %v", err)
+	}
+	if repeatedPause.Run.Status != models.WorkflowRunStatusRequiresAction || runtime.calls != 1 || runtime.resumeCalls != 0 {
+		t.Fatalf("paused workflow must remain inert before decisions: run=%+v calls=%d resumes=%d", repeatedPause.Run, runtime.calls, runtime.resumeCalls)
+	}
+	if len(repeatedPause.Timers) != 1 || repeatedPause.Timers[0].Status != models.WorkflowTimerStatusPending {
+		t.Fatalf("repeat processing changed approval timer: %+v", repeatedPause.Timers)
+	}
 	for _, approval := range paused.Approvals {
 		if approval.Status != models.ToolApprovalStatusPending {
 			t.Fatalf("python runtime write proposal should require approval, got %+v", approval)
+		}
+		if approval.ApprovalRequestID != paused.Run.ApprovalRequestID || approval.ApprovalCheckpointVersion != paused.Run.CheckpointVersion {
+			t.Fatalf("approval checkpoint metadata does not match workflow pause: %+v", approval)
 		}
 		if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "approve"); err != nil {
 			t.Fatalf("approve workflow tool failed: %v", err)
 		}
 	}
+	var resumeOutbox models.EventOutbox
+	if err := db.Where("event = ? AND idempotency_key LIKE ?", EventWorkflowRunRequested, "%:resume:%").Take(&resumeOutbox).Error; err != nil {
+		t.Fatalf("load checkpoint-bound resume outbox event failed: %v", err)
+	}
+	if strings.Contains(resumeOutbox.IdempotencyKey, "legacy:0") || !strings.Contains(resumeOutbox.IdempotencyKey, ":1") {
+		t.Fatalf("resume outbox key must bind approval request and checkpoint version: %q", resumeOutbox.IdempotencyKey)
+	}
 	ready, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
 	if err != nil {
 		t.Fatalf("resume workflow failed: %v", err)
 	}
-	if runtime.calls != 1 {
-		t.Fatalf("runtime should not be called again after approvals, got %d", runtime.calls)
+	if runtime.calls != 1 || runtime.resumeCalls != 1 {
+		t.Fatalf("expected one initial and one resume call, got run=%d resume=%d", runtime.calls, runtime.resumeCalls)
 	}
 	if ready.Run.Status != models.WorkflowRunStatusReady {
 		t.Fatalf("expected ready, got %s", ready.Run.Status)
+	}
+	if ready.Run.ApprovalRequestID != "" || ready.Run.CheckpointVersion != 2 {
+		t.Fatalf("expected cleared approval request and advanced checkpoint, got %+v", ready.Run)
+	}
+	if !strings.HasPrefix(runtime.lastResume.ExecutionID, fmt.Sprintf("workflow:%d:resume:1:", created.Run.ID)) || len(runtime.lastResume.ExecutionID) > 96 {
+		t.Fatalf("unexpected deterministic resume execution id %q", runtime.lastResume.ExecutionID)
+	}
+	if runtime.lastRun.AgentRunID != 0 || runtime.lastRun.WorkflowRunID != created.Run.ID || runtime.lastResume.AgentRunID != nil || runtime.lastResume.WorkflowRunID != created.Run.ID {
+		t.Fatalf("workflow run/resume payload must use only workflow_run_id: run=%+v resume=%+v", runtime.lastRun, runtime.lastResume)
+	}
+	if len(runtime.lastResume.Resume.Decisions) != 2 || runtime.lastResume.Resume.Decisions[0].ToolCallID >= runtime.lastResume.Resume.Decisions[1].ToolCallID {
+		t.Fatalf("resume decisions must be ordered by tool_call_id: %+v", runtime.lastResume.Resume.Decisions)
+	}
+	if _, err := svc.ProcessWorkflowRun(ctx, created.Run.ID); err != nil {
+		t.Fatalf("repeat completed workflow processing failed: %v", err)
+	}
+	if runtime.resumeCalls != 1 {
+		t.Fatalf("completed workflow must not resume twice, got %d calls", runtime.resumeCalls)
 	}
 }
 
@@ -261,6 +367,100 @@ func TestPythonLangGraphRuntimeSupportsAgentPresets(t *testing.T) {
 	}
 	if runtime.Supports(models.WorkflowRun{Preset: "unknown"}) {
 		t.Fatalf("unexpected support for unknown preset")
+	}
+}
+
+func TestSubmitWorkflowApprovalIsIdempotentButRejectsOppositeDecision(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	conversation := seedWorkflowConversation(t, db)
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Goal:           "Exercise approval decision idempotency.",
+	})
+	if err != nil {
+		t.Fatalf("start workflow failed: %v", err)
+	}
+	paused, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatalf("process workflow failed: %v", err)
+	}
+	approval := paused.Approvals[0]
+	if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "approve"); err != nil {
+		t.Fatalf("first approval failed: %v", err)
+	}
+	if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "approve"); err != nil {
+		t.Fatalf("same approval decision must be idempotent: %v", err)
+	}
+	if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "reject"); !errors.Is(err, ErrApprovalDecisionConflict) {
+		t.Fatalf("expected opposite decision conflict, got %v", err)
+	}
+}
+
+func TestExternalWorkflowResumeFailurePreventsToolSideEffects(t *testing.T) {
+	t.Setenv("PY_AGENT_RUNTIME_STRICT", "false")
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	runtime := &fakeMeetingBriefRuntime{resumeErr: errors.New("resume unavailable")}
+	svc.WithWorkflowRuntime(runtime)
+	conversation := seedWorkflowConversation(t, db)
+	seedReadyMeetingTranscript(t, db, conversation, 88)
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Preset:         WorkflowPresetMeetingBrief,
+	})
+	if err != nil {
+		t.Fatalf("start workflow failed: %v", err)
+	}
+	paused, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatalf("pause workflow failed: %v", err)
+	}
+	for _, approval := range paused.Approvals {
+		if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "approve"); err != nil {
+			t.Fatalf("approve workflow tool failed: %v", err)
+		}
+	}
+	if _, err := svc.ProcessWorkflowRun(ctx, created.Run.ID); err == nil || !strings.Contains(err.Error(), "resume unavailable") {
+		t.Fatalf("expected resume failure, got %v", err)
+	}
+	if runtime.resumeCalls != 1 {
+		t.Fatalf("expected one resume attempt, got %d", runtime.resumeCalls)
+	}
+	var messages int64
+	if err := db.Model(&models.Message{}).
+		Where("conversation_id = ? AND type = ?", conversation.ID, models.MessageTypeSystem).
+		Count(&messages).Error; err != nil {
+		t.Fatalf("count committed messages failed: %v", err)
+	}
+	var memories int64
+	if err := db.Model(&models.AgentMemory{}).Where("conversation_id = ?", conversation.ID).Count(&memories).Error; err != nil {
+		t.Fatalf("count committed memories failed: %v", err)
+	}
+	if messages != 0 || memories != 0 {
+		t.Fatalf("resume must happen before tool side effects, got messages=%d memories=%d", messages, memories)
+	}
+	runtime.resumeErr = nil
+	retried, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatalf("retry workflow resume failed: %v", err)
+	}
+	if retried.Run.Status != models.WorkflowRunStatusReady || runtime.resumeCalls != 2 {
+		t.Fatalf("expected retry to resume and complete once, run=%+v resume_calls=%d", retried.Run, runtime.resumeCalls)
+	}
+	if len(runtime.resumeExecutions) != 2 || runtime.resumeExecutions[0] != runtime.resumeExecutions[1] {
+		t.Fatalf("resume retry must reuse execution_id, got %+v", runtime.resumeExecutions)
+	}
+	if err := db.Model(&models.Message{}).
+		Where("conversation_id = ? AND type = ?", conversation.ID, models.MessageTypeSystem).
+		Count(&messages).Error; err != nil {
+		t.Fatalf("count retried committed messages failed: %v", err)
+	}
+	if err := db.Model(&models.AgentMemory{}).Where("conversation_id = ?", conversation.ID).Count(&memories).Error; err != nil {
+		t.Fatalf("count retried committed memories failed: %v", err)
+	}
+	if messages != 1 || memories != 1 {
+		t.Fatalf("successful retry must apply each tool once, got messages=%d memories=%d", messages, memories)
 	}
 }
 
@@ -540,6 +740,146 @@ func TestMeetingBriefRequiresReadyTranscript(t *testing.T) {
 	}
 }
 
+func TestExternalWorkflowResponseAndApprovalsRollbackAtomically(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	runtime := &fakeMeetingBriefRuntime{}
+	svc.WithWorkflowRuntime(runtime)
+	conversation := seedWorkflowConversation(t, db)
+	seedReadyMeetingTranscript(t, db, conversation, 88)
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Preset:         WorkflowPresetMeetingBrief,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TRIGGER fail_runtime_approval_insert BEFORE INSERT ON tool_approvals BEGIN SELECT RAISE(ABORT, 'approval insert fault'); END`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ProcessWorkflowRun(ctx, created.Run.ID); err == nil {
+		t.Fatal("expected injected approval persistence failure")
+	}
+	var failed models.WorkflowRun
+	if err := db.Take(&failed, created.Run.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if failed.CheckpointVersion != 0 || failed.ApprovalRequestID != "" || failed.RuntimeRequestJSON == "" {
+		t.Fatalf("checkpoint and approval set must roll back while frozen request survives: %+v", failed)
+	}
+	var approvalCount int64
+	if err := db.Model(&models.ToolApproval{}).Where("workflow_run_id = ?", created.Run.ID).Count(&approvalCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if approvalCount != 0 {
+		t.Fatalf("partial approval set escaped transaction: %d", approvalCount)
+	}
+	if err := db.Create(&models.Message{
+		OrganizationID: conversation.OrganizationID,
+		ConversationID: conversation.ID,
+		SenderID:       7,
+		Type:           models.MessageTypeText,
+		Body:           "message added after the ambiguous runtime response",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`DROP TRIGGER fail_runtime_approval_insert`).Error; err != nil {
+		t.Fatal(err)
+	}
+	paused, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatalf("retry frozen workflow request failed: %v", err)
+	}
+	if paused.Run.Status != models.WorkflowRunStatusRequiresAction || runtime.calls != 2 || len(runtime.runRequests) != 2 {
+		t.Fatalf("unexpected retry result: run=%+v calls=%d", paused.Run, runtime.calls)
+	}
+	firstRequest, _ := json.Marshal(runtime.runRequests[0])
+	secondRequest, _ := json.Marshal(runtime.runRequests[1])
+	if !bytes.Equal(firstRequest, secondRequest) {
+		t.Fatalf("runtime retry did not reuse frozen request\nfirst=%s\nsecond=%s", firstRequest, secondRequest)
+	}
+}
+
+func TestWorkflowLocalSideEffectRollsBackWithApprovalState(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	runtime := &fakeMeetingBriefRuntime{}
+	svc.WithWorkflowRuntime(runtime)
+	conversation := seedWorkflowConversation(t, db)
+	seedReadyMeetingTranscript(t, db, conversation, 88)
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{ConversationID: conversation.ID, Preset: WorkflowPresetMeetingBrief})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, approval := range paused.Approvals {
+		if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "approve"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Exec(`CREATE TRIGGER fail_approval_executed BEFORE UPDATE ON tool_approvals WHEN NEW.status = 'executed' BEGIN SELECT RAISE(ABORT, 'approval completion fault'); END`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ProcessWorkflowRun(ctx, created.Run.ID); err == nil {
+		t.Fatal("expected injected approval completion failure")
+	}
+	var systemMessages int64
+	if err := db.Model(&models.Message{}).Where("conversation_id = ? AND type = ?", conversation.ID, models.MessageTypeSystem).Count(&systemMessages).Error; err != nil {
+		t.Fatal(err)
+	}
+	var memories int64
+	if err := db.Model(&models.AgentMemory{}).Where("conversation_id = ?", conversation.ID).Count(&memories).Error; err != nil {
+		t.Fatal(err)
+	}
+	if systemMessages != 0 || memories != 0 {
+		t.Fatalf("business side effect escaped approval transaction: messages=%d memories=%d", systemMessages, memories)
+	}
+	var stillApproved int64
+	if err := db.Model(&models.ToolApproval{}).Where("workflow_run_id = ? AND status = ?", created.Run.ID, models.ToolApprovalStatusApproved).Count(&stillApproved).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stillApproved != int64(len(paused.Approvals)) {
+		t.Fatalf("approval state partially committed: approved=%d want=%d", stillApproved, len(paused.Approvals))
+	}
+	if err := db.Exec(`DROP TRIGGER fail_approval_executed`).Error; err != nil {
+		t.Fatal(err)
+	}
+	ready, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatalf("retry after transactional rollback failed: %v", err)
+	}
+	if ready.Run.Status != models.WorkflowRunStatusReady {
+		t.Fatalf("workflow did not recover: %+v", ready.Run)
+	}
+	if err := db.Model(&models.Message{}).Where("conversation_id = ? AND type = ?", conversation.ID, models.MessageTypeSystem).Count(&systemMessages).Error; err != nil {
+		t.Fatal(err)
+	}
+	if systemMessages != 1 {
+		t.Fatalf("approved message executed %d times", systemMessages)
+	}
+	if err := db.Model(&models.WorkflowRun{}).Where("id = ?", created.Run.ID).Updates(map[string]any{
+		"status": models.WorkflowRunStatusRunning, "execution_lease_token": "lease:stale-finalize", "lease_until": time.Now().UTC().Add(-time.Minute), "completed_at": nil,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatalf("task-ready/run-running ProcessWorkflowRun recovery failed: %v", err)
+	}
+	if recovered.Run.Status != models.WorkflowRunStatusReady || recovered.Run.ExecutionLeaseToken != "" {
+		t.Fatalf("finalization recovery did not complete run: %+v", recovered.Run)
+	}
+	if err := db.Model(&models.Message{}).Where("conversation_id = ? AND type = ?", conversation.ID, models.MessageTypeSystem).Count(&systemMessages).Error; err != nil {
+		t.Fatal(err)
+	}
+	if systemMessages != 1 {
+		t.Fatalf("finalization recovery replayed business side effect %d times", systemMessages)
+	}
+}
+
 func TestWorkflowApprovalTimeoutMarksRunFailed(t *testing.T) {
 	ctx := context.Background()
 	svc, db := newWorkflowTestService(t)
@@ -596,6 +936,19 @@ func TestWorkflowApprovalTimeoutMarksRunFailed(t *testing.T) {
 	}
 	if len(failed.Timers) == 0 || failed.Timers[0].Status != models.WorkflowTimerStatusFired {
 		t.Fatalf("expected fired timer record, got %+v", failed.Timers)
+	}
+	if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, paused.Approvals[0].ID, "approve"); !errors.Is(err, ErrApprovalDecisionConflict) {
+		t.Fatalf("late approval must not revive timed out workflow, got %v", err)
+	}
+	reprocessed, err := svc.ProcessWorkflowRun(ctx, paused.Run.ID)
+	if err != nil {
+		t.Fatalf("terminal timeout processing should return stored result: %v", err)
+	}
+	if reprocessed.Run.Status != models.WorkflowRunStatusFailed || reprocessed.Run.Attempts != workflowRunMaxAttempts {
+		t.Fatalf("timed out workflow was revived: %+v", reprocessed.Run)
+	}
+	if len(reprocessed.Timers) != len(failed.Timers) {
+		t.Fatalf("timed out workflow scheduled another timer: before=%d after=%d", len(failed.Timers), len(reprocessed.Timers))
 	}
 }
 

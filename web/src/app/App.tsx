@@ -29,6 +29,7 @@ export function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<AppShell />}>
               <Route path="/agent-lab" element={<LazyLoad loader={() => import("@/pages/agent/AgentLabPage").then(m => ({ default: m.AgentLabPage }))} fallback={<PageLoading />} />} />
+              <Route path="/agent-tools" element={<LazyLoad loader={() => import("@/pages/mcp/MCPPlatformPage").then(m => ({ default: m.MCPPlatformPage }))} fallback={<PageLoading />} />} />
               <Route path="/knowledge" element={<LazyLoad loader={() => import("@/pages/knowledge/KnowledgePage").then(m => ({ default: m.KnowledgePage }))} fallback={<PageLoading />} />} />
               <Route path="/inbox" element={<InboxPage />} />
               <Route path="/conversations/:conversationId" element={<InboxPage />} />

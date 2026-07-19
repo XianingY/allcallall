@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
+from langgraph.types import interrupt
+
 from ..models import (
+    ApprovalDecision,
+    ApprovalInterrupt,
+    ApprovalResumePayload,
+    ApprovalToolRequest,
     ContextSufficiency,
     ToolProposal,
     TraceEvent,
@@ -37,8 +45,16 @@ def propose_tools(state: GraphState) -> GraphState:
         "citations": [citation.model_dump(exclude_none=True) for citation in state.get("citations", [])],
     }
     sufficiency = state.get("context_sufficiency", ContextSufficiency())
-    proposals = [] if not sufficiency.sufficient else workflow_tool_proposals(request, base, message_arguments)
-    trace = state.get("trace_events", [])
+    mcp_proposals = state.get("mcp_tool_proposals", [])
+    explicit_mcp_interaction = bool(state.get("external_tool_context_chunks") or mcp_proposals)
+    workflow_proposals = (
+        [] if explicit_mcp_interaction else workflow_tool_proposals(request, base, message_arguments)
+    )
+    proposals = [] if not sufficiency.sufficient else [
+        *workflow_proposals,
+        *mcp_proposals,
+    ]
+    trace = []
     trace.append(TraceEvent(event="graph.node.started", node="propose_tools", status="running"))
     if not sufficiency.sufficient:
         trace.append(
@@ -59,6 +75,19 @@ def propose_tools(state: GraphState) -> GraphState:
                 metadata={"reason": proposal.reason, "approval_required": proposal.approval_required},
             )
         )
+    pending_approval = build_approval_interrupt(proposals) if proposals else None
+    if pending_approval is not None:
+        trace.append(
+            TraceEvent(
+                event="approval.wait",
+                node="approval_gate",
+                status="requires_action",
+                metadata={
+                    "approval_request_id": pending_approval.approval_request_id,
+                    "pending_tools": [tool.tool_name for tool in pending_approval.tools],
+                },
+            )
+        )
     trace.append(
         TraceEvent(
             event="graph.node.completed",
@@ -67,27 +96,108 @@ def propose_tools(state: GraphState) -> GraphState:
             metadata={"proposed_tool_calls": len(proposals)},
         )
     )
-    return {"trace_events": trace, "proposed_tool_calls": proposals}
+    return {
+        "trace_events": trace,
+        "proposed_tool_calls": proposals,
+        "pending_approval": pending_approval,
+    }
 
 
 def approval_gate(state: GraphState) -> GraphState:
     """Wait for human approval of proposed tool calls."""
-    trace = state.get("trace_events", [])
-    trace.append(TraceEvent(event="graph.node.started", node="approval_gate", status="running"))
-    trace.append(
-        TraceEvent(
-            event="approval.wait",
-            node="approval_gate",
-            status="requires_action",
-            metadata={"pending_tools": [item.tool_name for item in state.get("proposed_tool_calls", [])]},
+    proposals = state.get("proposed_tool_calls", [])
+    if not proposals:
+        return {
+            "approval_decisions": [],
+            "trace_events": [
+                TraceEvent(event="graph.node.started", node="approval_gate", status="running"),
+                TraceEvent(event="graph.node.completed", node="approval_gate", status="completed"),
+            ],
+        }
+
+    approval_request = ApprovalInterrupt.model_validate(state.get("pending_approval"))
+    if approval_request != build_approval_interrupt(proposals):
+        raise ValueError("checkpoint approval request does not match proposed tool calls")
+    raw_resume = interrupt(approval_request.model_dump(mode="json"))
+    resume = ApprovalResumePayload.model_validate(raw_resume)
+    decisions = validate_approval_resume(approval_request, resume)
+    return {
+        "approval_decisions": decisions,
+        "trace_events": [
+            TraceEvent(event="graph.node.started", node="approval_gate", status="running"),
+            TraceEvent(
+                event="approval.completed",
+                node="approval_gate",
+                status="completed",
+                metadata={
+                    "approval_request_id": approval_request.approval_request_id,
+                    "decisions": [item.model_dump(mode="json") for item in decisions],
+                },
+            ),
+            TraceEvent(event="graph.node.completed", node="approval_gate", status="completed"),
+        ],
+    }
+
+
+def build_approval_interrupt(proposals: list[ToolProposal]) -> ApprovalInterrupt:
+    """Build the deterministic, client-visible approval request for a proposal set."""
+    tools = [
+        ApprovalToolRequest(
+            tool_call_id=proposal.tool_call_id,
+            tool_name=proposal.tool_name,
+            arguments=proposal.arguments,
+            arguments_sha256=arguments_sha256(proposal.arguments),
+            reason=proposal.reason,
+            mcp_installation_id=proposal.mcp_installation_id,
+            mcp_revision_id=proposal.mcp_revision_id,
+            mcp_tool_id=proposal.mcp_tool_id,
         )
+        for proposal in proposals
+    ]
+    call_ids = [tool.tool_call_id for tool in tools]
+    if len(call_ids) != len(set(call_ids)):
+        raise ValueError("approval request contains duplicate tool_call_id values")
+    canonical = json.dumps(
+        [tool.model_dump(mode="json") for tool in tools],
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
     )
-    return {"trace_events": trace}
+    request_id = f"approval_{hashlib.sha256(canonical.encode()).hexdigest()}"
+    return ApprovalInterrupt(approval_request_id=request_id, tools=tools)
+
+
+def arguments_sha256(arguments: dict[str, Any]) -> str:
+    """Return a stable digest of the exact arguments shown for approval."""
+    canonical = json.dumps(
+        arguments,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def validate_approval_resume(
+    pending: ApprovalInterrupt,
+    resume: ApprovalResumePayload,
+) -> list[ApprovalDecision]:
+    """Validate a resume against the checkpoint-owned approval request."""
+    if resume.approval_request_id != pending.approval_request_id:
+        raise ValueError("approval_request_id does not match the pending approval")
+    expected_ids = [tool.tool_call_id for tool in pending.tools]
+    received_ids = [decision.tool_call_id for decision in resume.decisions]
+    if len(received_ids) != len(set(received_ids)):
+        raise ValueError("approval decisions contain duplicate tool_call_id values")
+    if set(received_ids) != set(expected_ids):
+        raise ValueError("approval decisions must cover all and only pending tool_call_id values")
+    by_call_id = {decision.tool_call_id: decision for decision in resume.decisions}
+    return [by_call_id[call_id] for call_id in expected_ids]
 
 
 def finalize(state: GraphState) -> GraphState:
     """Finalize the workflow execution."""
-    trace = state.get("trace_events", [])
+    trace = []
     trace.append(TraceEvent(event="graph.node.started", node="finalize", status="running"))
     trace.append(TraceEvent(event="graph.node.completed", node="finalize", status="completed"))
     return {"trace_events": trace}

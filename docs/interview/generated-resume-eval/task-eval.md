@@ -1,6 +1,7 @@
 # AllCallAll Agent Task Eval Report
 
 - Scope: `current deterministic task fixture set`
+- Runtime: `legacy_go`
 - Positioning: `black-box task completion and safety checks, not open-ended user satisfaction`
 
 ## Summary

@@ -155,6 +155,96 @@ func TestHybridSearchReturnsRRFMetadata(t *testing.T) {
 	}
 }
 
+func TestChunkIndexSupportsBM25WithoutEmbeddingProvider(t *testing.T) {
+	ctx := context.Background()
+	db := newKnowledgeTestDB(t)
+	orgID, userID, conversationID := seedKnowledgeAccess(t, db)
+	indexer := &fakeChunkIndexer{}
+	svc := NewService(db).WithOutbox(events.NewStore(db)).WithChunkIndexer(indexer)
+
+	source, err := svc.CreateSource(ctx, orgID, userID, CreateSourceInput{
+		Kind:           models.RAGSourceKindManualText,
+		Title:          "Agent tool approval policy",
+		ConversationID: &conversationID,
+		Text:           "Write and unknown-risk tools require administrator approval.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ProcessSourceIngest(ctx, source.ID); err != nil {
+		t.Fatal(err)
+	}
+	var chunk models.RAGChunk
+	if err := db.Where("source_id = ?", source.ID).Take(&chunk).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ProcessChunkIndex(ctx, chunk.ID); err != nil {
+		t.Fatal(err)
+	}
+	doc := indexer.docs[KnowledgeDocumentID(chunk.ID)]
+	if doc.SourceType != "knowledge" || doc.Content == "" || len(doc.ContentVector) != 0 {
+		t.Fatalf("BM25-only document was not indexed correctly: %+v", doc)
+	}
+	if err := db.Take(&chunk, chunk.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if chunk.IndexStatus != models.RAGChunkIndexStatusIndexed {
+		t.Fatalf("expected indexed chunk, got %s", chunk.IndexStatus)
+	}
+}
+
+func TestUnchangedReingestRequeuesSkippedChunks(t *testing.T) {
+	ctx := context.Background()
+	db := newKnowledgeTestDB(t)
+	orgID, userID, conversationID := seedKnowledgeAccess(t, db)
+	svc := NewService(db).WithOutbox(events.NewStore(db))
+	source, err := svc.CreateSource(ctx, orgID, userID, CreateSourceInput{
+		Kind:           models.RAGSourceKindManualText,
+		Title:          "Recoverable index source",
+		ConversationID: &conversationID,
+		Text:           "Retry unchanged knowledge after an indexer becomes available.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ProcessSourceIngest(ctx, source.ID); err != nil {
+		t.Fatal(err)
+	}
+	var chunk models.RAGChunk
+	if err := db.Where("source_id = ?", source.ID).Take(&chunk).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ProcessChunkIndex(ctx, chunk.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Take(&chunk, chunk.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if chunk.IndexStatus != models.RAGChunkIndexStatusSkipped {
+		t.Fatalf("expected skipped chunk before reingest, got %s", chunk.IndexStatus)
+	}
+	var before int64
+	if err := db.Model(&models.EventOutbox{}).Where("event = ?", EventChunkIndexRequested).Count(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ProcessSourceIngest(ctx, source.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Take(&chunk, chunk.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if chunk.IndexStatus != models.RAGChunkIndexStatusPending {
+		t.Fatalf("unchanged reingest did not reset chunk status: %s", chunk.IndexStatus)
+	}
+	var after int64
+	if err := db.Model(&models.EventOutbox{}).Where("event = ?", EventChunkIndexRequested).Count(&after).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after != before+1 {
+		t.Fatalf("unchanged reingest should enqueue one chunk retry: before=%d after=%d", before, after)
+	}
+}
+
 func TestDuplicateConfirmationFiltersCanonicalRetrieval(t *testing.T) {
 	ctx := context.Background()
 	db := newKnowledgeTestDB(t)

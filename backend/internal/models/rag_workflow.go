@@ -90,11 +90,12 @@ const (
 	ToolPolicyEffectApprovalRequired = "approval_required"
 	ToolPolicyEffectDeny             = "deny"
 
-	ToolApprovalStatusPending  = "pending"
-	ToolApprovalStatusApproved = "approved"
-	ToolApprovalStatusRejected = "rejected"
-	ToolApprovalStatusExecuted = "executed"
-	ToolApprovalStatusFailed   = "failed"
+	ToolApprovalStatusPending   = "pending"
+	ToolApprovalStatusApproved  = "approved"
+	ToolApprovalStatusRejected  = "rejected"
+	ToolApprovalStatusExecuting = "executing"
+	ToolApprovalStatusExecuted  = "executed"
+	ToolApprovalStatusFailed    = "failed"
 )
 
 // AgentPromptVersion stores versioned prompt metadata used by workflow/planner runs.
@@ -201,7 +202,7 @@ type RAGSourceVersion struct {
 	Version        int        `gorm:"not null;uniqueIndex:idx_rag_source_version"`
 	ContentHash    string     `gorm:"size:64;not null;index"`
 	NormalizedHash string     `gorm:"size:64;index"`
-	SimHash64      uint64     `gorm:"index"`
+	SimHash64      int64      `gorm:"index"`
 	RawText        string     `gorm:"type:longtext"`
 	Status         string     `gorm:"size:32;not null;default:'pending';index"`
 	ChunkCount     int        `gorm:"not null;default:0"`
@@ -241,34 +242,41 @@ func (RAGChunk) TableName() string {
 
 // WorkflowRun stores a controlled Workflow+Agent execution for the Web Agent Lab.
 type WorkflowRun struct {
-	ID                uint64     `gorm:"primaryKey;autoIncrement"`
-	OrganizationID    uint64     `gorm:"not null;index"`
-	UserID            uint64     `gorm:"not null;index"`
-	ConversationID    uint64     `gorm:"not null;index"`
-	AgentRunID        *uint64    `gorm:"index"`
-	IdempotencyKey    string     `gorm:"size:128;index"`
-	RequestID         string     `gorm:"size:96;index"`
-	Status            string     `gorm:"size:32;not null;index"`
-	WorkflowType      string     `gorm:"size:80;not null;default:'agent_lab';index"`
-	WorkflowVersion   string     `gorm:"size:64;not null;default:'agent_lab_v1';index"`
-	Preset            string     `gorm:"size:64;index"`
-	PromptVersion     string     `gorm:"size:64;index"`
-	ToolSchemaVersion string     `gorm:"size:64;index"`
-	StateJSON         string     `gorm:"type:longtext"`
-	LastEventID       *uint64    `gorm:"index"`
-	Goal              string     `gorm:"type:text"`
-	Summary           string     `gorm:"type:text"`
-	ActionItemsJSON   string     `gorm:"type:longtext"`
-	NextStep          string     `gorm:"type:text"`
-	RiskFlagsJSON     string     `gorm:"type:longtext"`
-	CitationsJSON     string     `gorm:"type:longtext"`
-	ErrorMessage      string     `gorm:"type:text"`
-	Attempts          int        `gorm:"not null;default:0"`
-	LeaseUntil        *time.Time `gorm:"index"`
-	StartedAt         *time.Time `gorm:"index"`
-	CompletedAt       *time.Time `gorm:"index"`
-	CreatedAt         time.Time  `gorm:"autoCreateTime;index"`
-	UpdatedAt         time.Time  `gorm:"autoUpdateTime"`
+	ID                  uint64     `gorm:"primaryKey;autoIncrement"`
+	OrganizationID      uint64     `gorm:"not null;index;uniqueIndex:idx_workflow_run_dedupe"`
+	UserID              uint64     `gorm:"not null;index;uniqueIndex:idx_workflow_run_dedupe"`
+	ConversationID      uint64     `gorm:"not null;index;uniqueIndex:idx_workflow_run_dedupe"`
+	AgentRunID          *uint64    `gorm:"index"`
+	IdempotencyKey      string     `gorm:"size:128;index"`
+	DedupeKey           *string    `gorm:"size:128;uniqueIndex:idx_workflow_run_dedupe"`
+	RequestID           string     `gorm:"size:96;index"`
+	Status              string     `gorm:"size:32;not null;index"`
+	WorkflowType        string     `gorm:"size:80;not null;default:'agent_lab';index"`
+	WorkflowVersion     string     `gorm:"size:64;not null;default:'agent_lab_v1';index"`
+	RuntimeOwner        string     `gorm:"size:32;not null;default:'legacy_go';index"`
+	Preset              string     `gorm:"size:64;index"`
+	PromptVersion       string     `gorm:"size:64;index"`
+	ToolSchemaVersion   string     `gorm:"size:64;index"`
+	StateJSON           string     `gorm:"type:longtext"`
+	LastEventID         *uint64    `gorm:"index"`
+	Goal                string     `gorm:"type:text"`
+	Summary             string     `gorm:"type:text"`
+	ActionItemsJSON     string     `gorm:"type:longtext"`
+	NextStep            string     `gorm:"type:text"`
+	RiskFlagsJSON       string     `gorm:"type:longtext"`
+	CitationsJSON       string     `gorm:"type:longtext"`
+	ErrorMessage        string     `gorm:"type:text"`
+	Attempts            int        `gorm:"not null;default:0"`
+	LeaseUntil          *time.Time `gorm:"index"`
+	CheckpointID        string     `gorm:"size:160;index"`
+	CheckpointVersion   uint64     `gorm:"not null;default:0"`
+	ApprovalRequestID   string     `gorm:"size:96;not null;default:'';index"`
+	RuntimeRequestJSON  string     `gorm:"type:longtext"`
+	ExecutionLeaseToken string     `gorm:"size:96;not null;default:'';index"`
+	StartedAt           *time.Time `gorm:"index"`
+	CompletedAt         *time.Time `gorm:"index"`
+	CreatedAt           time.Time  `gorm:"autoCreateTime;index"`
+	UpdatedAt           time.Time  `gorm:"autoUpdateTime"`
 }
 
 func (WorkflowRun) TableName() string {
@@ -387,24 +395,29 @@ func (ToolPolicy) TableName() string {
 
 // ToolApproval stores human-in-the-loop approval decisions for workflow tool calls.
 type ToolApproval struct {
-	ID                uint64     `gorm:"primaryKey;autoIncrement"`
-	WorkflowRunID     uint64     `gorm:"not null;index"`
-	TaskID            uint64     `gorm:"not null;index"`
-	OrganizationID    uint64     `gorm:"not null;index"`
-	ToolCallID        string     `gorm:"size:96;not null;index;uniqueIndex:idx_tool_approval_call"`
-	ToolName          string     `gorm:"size:120;not null;index"`
-	Status            string     `gorm:"size:32;not null;index"`
-	ToolSchemaVersion string     `gorm:"size:64;index"`
-	InputJSON         string     `gorm:"type:longtext"`
-	OutputJSON        string     `gorm:"type:longtext"`
-	ErrorMessage      string     `gorm:"type:text"`
-	RequestedBy       uint64     `gorm:"not null;index"`
-	DecidedBy         *uint64    `gorm:"index"`
-	Decision          string     `gorm:"size:32"`
-	RequestedAt       time.Time  `gorm:"not null;index"`
-	DecidedAt         *time.Time `gorm:"index"`
-	CreatedAt         time.Time  `gorm:"autoCreateTime;index"`
-	UpdatedAt         time.Time  `gorm:"autoUpdateTime"`
+	ID                        uint64     `gorm:"primaryKey;autoIncrement"`
+	WorkflowRunID             uint64     `gorm:"not null;index"`
+	TaskID                    uint64     `gorm:"not null;index"`
+	OrganizationID            uint64     `gorm:"not null;index"`
+	ToolCallID                string     `gorm:"size:96;not null;index;uniqueIndex:idx_tool_approval_call"`
+	ToolName                  string     `gorm:"size:120;not null;index"`
+	Status                    string     `gorm:"size:32;not null;index"`
+	ToolSchemaVersion         string     `gorm:"size:64;index"`
+	ApprovalRequestID         string     `gorm:"size:96;not null;default:'';index"`
+	ApprovalCheckpointVersion uint64     `gorm:"not null;default:0;index"`
+	MCPInstallationID         uint64     `gorm:"not null;default:0;index"`
+	MCPRevisionID             uint64     `gorm:"not null;default:0;index"`
+	MCPToolID                 uint64     `gorm:"not null;default:0;index"`
+	InputJSON                 string     `gorm:"type:longtext"`
+	OutputJSON                string     `gorm:"type:longtext"`
+	ErrorMessage              string     `gorm:"type:text"`
+	RequestedBy               uint64     `gorm:"not null;index"`
+	DecidedBy                 *uint64    `gorm:"index"`
+	Decision                  string     `gorm:"size:32"`
+	RequestedAt               time.Time  `gorm:"not null;index"`
+	DecidedAt                 *time.Time `gorm:"index"`
+	CreatedAt                 time.Time  `gorm:"autoCreateTime;index"`
+	UpdatedAt                 time.Time  `gorm:"autoUpdateTime"`
 }
 
 func (ToolApproval) TableName() string {

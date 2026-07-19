@@ -30,15 +30,22 @@ def prompt_version_for(request: WorkflowRequest) -> str:
     return PROMPT_VERSIONS.get(request.preset, f"{request.preset}_v1")
 
 
-def structured_prompt_for(request: WorkflowRequest, snippets: list[str]) -> tuple[str, list[dict[str, str]]]:
+def structured_prompt_for(request: WorkflowRequest, snippets: list[str], active_skills_prompt: str = "") -> tuple[str, list[dict[str, str]]]:
     version = prompt_version_for(request)
+
+    system_text = (
+        "You are the AllCallAll Agent runtime. Return compact JSON only with keys "
+        "summary, action_items, next_step, risk_flags. Use only the supplied context. "
+        "If context is insufficient, say so explicitly."
+    )
+    if active_skills_prompt:
+        system_text += f"\n\nActive Skills & Tools available:\n{active_skills_prompt}"
+
     template = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
-                "You are the AllCallAll Agent runtime. Return compact JSON only with keys "
-                "summary, action_items, next_step, risk_flags. Use only the supplied context. "
-                "If context is insufficient, say so explicitly.",
+                system_text,
             ),
             (
                 "user",

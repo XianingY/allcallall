@@ -30,80 +30,18 @@ func AutoMigrateAll(t testing.TB, db *gorm.DB) {
 }
 
 func CoreModels() []any {
-	return []any{
-		&models.User{},
-		&models.RefreshSession{},
-		&models.Contact{},
-		&models.EmailVerificationCode{},
-		&models.EmailSendLog{},
-		&models.CallSession{},
-		&models.UserBlock{},
-		&models.AbuseReport{},
-		&models.LegalAcceptance{},
-		&models.UserEntitlement{},
-		&models.UsageLedger{},
-		&models.TranslationUsageSlice{},
-		&models.BillingWebhookEvent{},
-		&models.DeletionAudit{},
-		&models.Invitation{},
-		&models.ContactProfile{},
-		&models.CallTranscriptSegment{},
-		&models.CallFollowup{},
-		&models.FollowUpTask{},
-		&models.Organization{},
-		&models.OrganizationMember{},
-		&models.Team{},
-		&models.TeamMember{},
-		&models.OrganizationInvite{},
-		&models.OrganizationPolicy{},
-		&models.Conversation{},
-		&models.ConversationNote{},
-		&models.ConversationMember{},
-		&models.Message{},
-		&models.MessageRead{},
-		&models.ChatEvent{},
-		&models.Attachment{},
-		&models.MessageReaction{},
-		&models.ConversationPin{},
-		&models.OrganizationAuditEvent{},
-		&models.PushDevice{},
-		&models.CallRoom{},
-		&models.CallRoomMember{},
-		&models.CallRoomEvent{},
-		&models.RecordingSession{},
-		&models.RecordingFile{},
-		&models.RecordingTranscription{},
-		&models.MeetingTranscriptSegment{},
-		&models.RecordingConsent{},
-		&models.RecordingExport{},
-		&models.RoomSettlement{},
-		&models.Pipeline{},
-		&models.PipelineStage{},
-		&models.Deal{},
-		&models.DealContact{},
-		&models.DealActivity{},
-		&models.AgentRun{},
-		&models.AgentStep{},
-		&models.AgentToolCall{},
-		&models.AgentMemory{},
-		&models.AgentContextChunk{},
-		&models.AgentPromptVersion{},
-		&models.ToolSchemaVersion{},
-		&models.RAGSourceGroup{},
-		&models.RAGSourceDuplicate{},
-		&models.RAGSource{},
-		&models.RAGSourceVersion{},
-		&models.RAGChunk{},
-		&models.WorkflowRun{},
-		&models.WorkflowTask{},
-		&models.WorkflowHistoryEvent{},
-		&models.WorkflowSignal{},
-		&models.WorkflowTimer{},
-		&models.AgentMessage{},
-		&models.ToolPolicy{},
-		&models.ToolApproval{},
-		&models.EventOutbox{},
+	all := models.AllModels()
+	core := make([]any, 0, len(all)-3)
+	for _, model := range all {
+		switch model.(type) {
+		case *models.LangGraphCheckpointThread, *models.LangGraphCheckpoint, *models.LangGraphCheckpointWrite:
+			// Python owns these MySQL-specific tables; dedicated integration tests cover them.
+			continue
+		default:
+			core = append(core, model)
+		}
 	}
+	return core
 }
 
 func SeedUser(t testing.TB, db *gorm.DB, user models.User) models.User {

@@ -35,9 +35,12 @@ const (
 	AgentRunStatusFailed         = "failed"
 	AgentRunStatusRequiresAction = "requires_action"
 
-	ToolCallStatusPending = "pending"
-	ToolCallStatusSuccess = "success"
-	ToolCallStatusFailed  = "failed"
+	ToolCallStatusPending   = "pending"
+	ToolCallStatusApproved  = "approved"
+	ToolCallStatusRejected  = "rejected"
+	ToolCallStatusExecuting = "executing"
+	ToolCallStatusSuccess   = "success"
+	ToolCallStatusFailed    = "failed"
 
 	AgentRunSourceRules            = "rules"
 	AgentRunSourceMockLLM          = "mock_llm"
@@ -283,29 +286,36 @@ func (DeletionAudit) TableName() string {
 
 // AgentRun stores a deterministic or model-backed assistant execution.
 type AgentRun struct {
-	ID                uint64     `gorm:"primaryKey;autoIncrement"`
-	OrganizationID    uint64     `gorm:"not null;index"`
-	UserID            uint64     `gorm:"not null;index"`
-	ConversationID    uint64     `gorm:"not null;index"`
-	IdempotencyKey    string     `gorm:"size:128;index"`
-	RequestID         string     `gorm:"size:96;index"`
-	Source            string     `gorm:"size:32;not null;index"`
-	Role              string     `gorm:"size:32;not null;default:'primary';index"`
-	Status            string     `gorm:"size:32;not null;index"`
-	PromptVersion     string     `gorm:"size:64;index"`
-	ToolSchemaVersion string     `gorm:"size:64;index"`
-	Goal              string     `gorm:"type:text"`
-	Summary           string     `gorm:"type:text"`
-	ActionItemsJSON   string     `gorm:"type:longtext"`
-	NextStep          string     `gorm:"type:text"`
-	RiskFlagsJSON     string     `gorm:"type:longtext"`
-	ErrorMessage      string     `gorm:"type:text"`
-	Attempts          int        `gorm:"not null;default:0"`
-	LeaseUntil        *time.Time `gorm:"index"`
-	StartedAt         *time.Time `gorm:"index"`
-	CompletedAt       *time.Time `gorm:"index"`
-	CreatedAt         time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt         time.Time  `gorm:"autoUpdateTime"`
+	ID                  uint64     `gorm:"primaryKey;autoIncrement"`
+	OrganizationID      uint64     `gorm:"not null;index;uniqueIndex:idx_agent_run_dedupe"`
+	UserID              uint64     `gorm:"not null;index;uniqueIndex:idx_agent_run_dedupe"`
+	ConversationID      uint64     `gorm:"not null;index;uniqueIndex:idx_agent_run_dedupe"`
+	IdempotencyKey      string     `gorm:"size:128;index"`
+	DedupeKey           *string    `gorm:"size:128;uniqueIndex:idx_agent_run_dedupe"`
+	RequestID           string     `gorm:"size:96;index"`
+	Source              string     `gorm:"size:32;not null;index"`
+	RuntimeOwner        string     `gorm:"size:32;not null;default:'legacy_go';index"`
+	Role                string     `gorm:"size:32;not null;default:'primary';index"`
+	Status              string     `gorm:"size:32;not null;index"`
+	PromptVersion       string     `gorm:"size:64;index"`
+	ToolSchemaVersion   string     `gorm:"size:64;index"`
+	Goal                string     `gorm:"type:text"`
+	Summary             string     `gorm:"type:text"`
+	ActionItemsJSON     string     `gorm:"type:longtext"`
+	NextStep            string     `gorm:"type:text"`
+	RiskFlagsJSON       string     `gorm:"type:longtext"`
+	ErrorMessage        string     `gorm:"type:text"`
+	Attempts            int        `gorm:"not null;default:0"`
+	LeaseUntil          *time.Time `gorm:"index"`
+	CheckpointID        string     `gorm:"size:160;index"`
+	CheckpointVersion   uint64     `gorm:"not null;default:0"`
+	ApprovalRequestID   string     `gorm:"size:96;not null;default:'';index"`
+	RuntimeRequestJSON  string     `gorm:"type:longtext"`
+	ExecutionLeaseToken string     `gorm:"size:96;not null;default:'';index"`
+	StartedAt           *time.Time `gorm:"index"`
+	CompletedAt         *time.Time `gorm:"index"`
+	CreatedAt           time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt           time.Time  `gorm:"autoUpdateTime"`
 }
 
 func (AgentRun) TableName() string {
@@ -331,18 +341,26 @@ func (AgentStep) TableName() string {
 
 // AgentToolCall stores tool invocations made by an agent run.
 type AgentToolCall struct {
-	ID                uint64    `gorm:"primaryKey;autoIncrement"`
-	RunID             uint64    `gorm:"not null;index"`
-	StepID            *uint64   `gorm:"index"`
-	CallID            string    `gorm:"size:64;index" json:"call_id"`
-	ToolName          string    `gorm:"size:120;not null;index"`
-	Status            string    `gorm:"size:32;not null;index"`
-	ToolSchemaVersion string    `gorm:"size:64;index"`
-	InputJSON         string    `gorm:"type:longtext"`
-	OutputJSON        string    `gorm:"type:longtext"`
-	ErrorMessage      string    `gorm:"type:text"`
-	CreatedAt         time.Time `gorm:"autoCreateTime"`
-	UpdatedAt         time.Time `gorm:"autoUpdateTime"`
+	ID                        uint64     `gorm:"primaryKey;autoIncrement"`
+	RunID                     uint64     `gorm:"not null;index;uniqueIndex:idx_agent_tool_call_run"`
+	StepID                    *uint64    `gorm:"index"`
+	CallID                    string     `gorm:"size:96;index;uniqueIndex:idx_agent_tool_call_run" json:"call_id"`
+	ToolName                  string     `gorm:"size:120;not null;index"`
+	Status                    string     `gorm:"size:32;not null;index"`
+	ToolSchemaVersion         string     `gorm:"size:64;index"`
+	ApprovalRequestID         string     `gorm:"size:96;not null;default:'';index"`
+	ApprovalCheckpointVersion uint64     `gorm:"not null;default:0;index"`
+	MCPInstallationID         uint64     `gorm:"not null;default:0;index"`
+	MCPRevisionID             uint64     `gorm:"not null;default:0;index"`
+	MCPToolID                 uint64     `gorm:"not null;default:0;index"`
+	Decision                  string     `gorm:"size:32;not null;default:''"`
+	DecidedBy                 *uint64    `gorm:"index"`
+	DecidedAt                 *time.Time `gorm:"precision:6;index"`
+	InputJSON                 string     `gorm:"type:longtext"`
+	OutputJSON                string     `gorm:"type:longtext"`
+	ErrorMessage              string     `gorm:"type:text"`
+	CreatedAt                 time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt                 time.Time  `gorm:"autoUpdateTime"`
 }
 
 func (AgentToolCall) TableName() string {

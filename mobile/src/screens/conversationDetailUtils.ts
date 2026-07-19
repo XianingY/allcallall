@@ -1,15 +1,18 @@
 import type {
+  CreateWorkflowRequest,
   ToolApprovalRecord,
   WorkflowResult,
 } from "../api/agent";
 
+type WorkflowPreset = NonNullable<CreateWorkflowRequest["preset"]>;
+
 export const STATUS_OPTIONS = ["open", "pending", "resolved"] as const;
 export const PRIORITY_OPTIONS = ["low", "normal", "high", "urgent"] as const;
-export const MEETING_PRESETS = [
+export const MEETING_PRESETS: Array<{ key: WorkflowPreset; label: string }> = [
   { key: "meeting_brief", label: "Meeting Brief" },
-  { key: "follow_up", label: "Follow-up" },
+  { key: "follow_up_planner", label: "Follow-up" },
   { key: "risk_review", label: "Risk Review" },
-] as const;
+];
 export const WORKFLOW_TASK_ORDER = [
   "collect_context",
   "decompose",

@@ -3,8 +3,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from shared.scoring import tokenize
+
 from .config import config
 from .models import Citation, TraceEvent
+
+
+MIN_TOKEN_COVERAGE = 0.5
 
 
 @dataclass(frozen=True)
@@ -38,9 +43,10 @@ def check_grounding(summary: str, citations: list[Citation]) -> GroundingResult:
         if not tokens:
             continue
         matched = sum(1 for token in tokens if token in citation_text)
-        if matched == 0 and len(tokens) >= 2:
+        coverage = matched / len(tokens)
+        if coverage < MIN_TOKEN_COVERAGE and len(tokens) >= 2:
             unsupported.append(claim)
-    grounded = len(unsupported) == 0 or bool(citations)
+    grounded = bool(citations) and len(unsupported) == 0
     return GroundingResult(
         grounded=grounded,
         unsupported_claims=unsupported[:5],
@@ -52,6 +58,7 @@ def check_grounding(summary: str, citations: list[Citation]) -> GroundingResult:
                 "enabled": True,
                 "grounded": grounded,
                 "citation_count": len(citations),
+                "min_token_coverage": MIN_TOKEN_COVERAGE,
                 "unsupported_claims": unsupported[:5],
             },
         ),
@@ -64,10 +71,4 @@ def split_claims(text: str) -> list[str]:
 
 def meaningful_tokens(text: str) -> list[str]:
     stop = {"meeting", "brief", "risk", "review", "context", "based", "using", "当前", "会议", "复盘"}
-    out: list[str] = []
-    for token in re.split(r"[^0-9A-Za-z\u4e00-\u9fff]+", text.lower()):
-        token = token.strip()
-        if len(token) < 2 or token in stop:
-            continue
-        out.append(token)
-    return out
+    return [token for token in tokenize(text, remove_stopwords=True) if token not in stop]

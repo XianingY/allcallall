@@ -1,4 +1,4 @@
-import type { components } from "@/api/schema";
+import type { components } from "@allcallall/api-types";
 import { apiRequest } from "@/api/http";
 
 export type PushDevice = components["schemas"]["PushDevice"];

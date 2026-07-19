@@ -3,15 +3,18 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/trace"
 )
 
 func (s *Service) executeCollectContextTask(ctx context.Context, run models.WorkflowRun, conversationCtx *conversationContext) error {
-	return s.executeWorkflowTask(ctx, run.ID, models.WorkflowTaskCollectContext, map[string]any{
+	return s.executeWorkflowTask(ctx, run, models.WorkflowTaskCollectContext, map[string]any{
 		"goal":            run.Goal,
 		"preset":          workflowPresetFromRun(run),
 		"conversation_id": run.ConversationID,
@@ -49,7 +52,7 @@ func (s *Service) executeDecomposeTask(ctx context.Context, run models.WorkflowR
 	case WorkflowPresetContextQA:
 		summarizerGoal = "Answer the user's question using only retrieved context; refuse when evidence is insufficient."
 	}
-	return s.executeWorkflowTask(ctx, run.ID, models.WorkflowTaskDecompose, map[string]any{
+	return s.executeWorkflowTask(ctx, run, models.WorkflowTaskDecompose, map[string]any{
 		"goal":   run.Goal,
 		"preset": preset,
 	}, func(task models.WorkflowTask) (map[string]any, error) {
@@ -66,6 +69,14 @@ func (s *Service) executeDecomposeTask(ctx context.Context, run models.WorkflowR
 
 func (s *Service) executeParallelAgentTasks(ctx context.Context, run models.WorkflowRun, conversationCtx *conversationContext) error {
 	roles := []string{models.WorkflowTaskSearcher, models.WorkflowTaskSummarizer, models.WorkflowTaskRiskAnalyst}
+	if s.db.Dialector.Name() == "sqlite" {
+		for _, role := range roles {
+			if err := s.executeWorkflowRoleTask(ctx, run, role, conversationCtx); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(roles))
 	for _, role := range roles {
@@ -89,7 +100,7 @@ func (s *Service) executeParallelAgentTasks(ctx context.Context, run models.Work
 }
 
 func (s *Service) executeWorkflowRoleTask(ctx context.Context, run models.WorkflowRun, role string, conversationCtx *conversationContext) error {
-	return s.executeWorkflowTask(ctx, run.ID, role, map[string]any{
+	return s.executeWorkflowTask(ctx, run, role, map[string]any{
 		"goal": run.Goal,
 		"role": role,
 	}, func(task models.WorkflowTask) (map[string]any, error) {
@@ -190,7 +201,7 @@ func (s *Service) createRoleBackedAgentRun(ctx context.Context, workflow models.
 
 func (s *Service) executeMergeTask(ctx context.Context, run models.WorkflowRun) (workflowRoleResult, error) {
 	var merged workflowRoleResult
-	err := s.executeWorkflowTask(ctx, run.ID, models.WorkflowTaskMerge, map[string]any{
+	err := s.executeWorkflowTask(ctx, run, models.WorkflowTaskMerge, map[string]any{
 		"parallel_roles": []string{models.WorkflowTaskSearcher, models.WorkflowTaskSummarizer, models.WorkflowTaskRiskAnalyst},
 	}, func(task models.WorkflowTask) (map[string]any, error) {
 		results, err := s.loadWorkflowRoleResults(ctx, run.ID)
@@ -221,18 +232,27 @@ func (s *Service) executeMergeTask(ctx context.Context, run models.WorkflowRun) 
 }
 
 func (s *Service) persistWorkflowMergedPreview(ctx context.Context, run models.WorkflowRun, merged workflowRoleResult) error {
-	return s.db.WithContext(ctx).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
-		"summary":           merged.Summary,
-		"action_items_json": mustJSONString(merged.ActionItems),
-		"next_step":         merged.NextStep,
-		"risk_flags_json":   mustJSONString(merged.RiskFlags),
-		"citations_json":    mustJSONString(merged.Citations),
-		"updated_at":        time.Now().UTC(),
-	}).Error
+	updated := s.db.WithContext(ctx).Model(&models.WorkflowRun{}).
+		Where("id = ? AND status = ? AND execution_lease_token = ? AND execution_lease_token <> ''", run.ID, models.WorkflowRunStatusRunning, run.ExecutionLeaseToken).
+		Updates(map[string]any{
+			"summary":           merged.Summary,
+			"action_items_json": mustJSONString(merged.ActionItems),
+			"next_step":         merged.NextStep,
+			"risk_flags_json":   mustJSONString(merged.RiskFlags),
+			"citations_json":    mustJSONString(merged.Citations),
+			"updated_at":        time.Now().UTC(),
+		})
+	if updated.Error != nil {
+		return updated.Error
+	}
+	if updated.RowsAffected != 1 {
+		return fmt.Errorf("%w: workflow execution lease was lost while persisting merged preview", ErrWorkflowRuntimeConflict)
+	}
+	return nil
 }
 
 func (s *Service) executeProposeToolsTask(ctx context.Context, run models.WorkflowRun, merged workflowRoleResult) error {
-	return s.executeWorkflowTask(ctx, run.ID, models.WorkflowTaskProposeTools, map[string]any{
+	return s.executeWorkflowTask(ctx, run, models.WorkflowTaskProposeTools, map[string]any{
 		"summary":      merged.Summary,
 		"action_items": merged.ActionItems,
 		"next_step":    merged.NextStep,
@@ -258,37 +278,76 @@ func (s *Service) createWorkflowToolApprovals(ctx context.Context, run models.Wo
 		if input == nil {
 			input = map[string]any{}
 		}
-		effect, err := s.resolveToolPolicyEffect(ctx, run.OrganizationID, role, toolName)
-		if err != nil {
-			return nil, err
+		schemaVersion := CurrentToolSchemaVersion
+		var mcpInstallationID, mcpRevisionID, mcpToolID uint64
+		effect := ""
+		if strings.HasPrefix(toolName, "mcp.") {
+			if s.mcpPlatform == nil {
+				return nil, fmt.Errorf("MCP platform is unavailable")
+			}
+			tool, err := s.mcpPlatform.ValidateArguments(ctx, run.OrganizationID, run.UserID, toolName, input)
+			if err != nil {
+				return nil, err
+			}
+			if tool.InstallationID != item.MCPInstallationID || tool.RevisionID != item.MCPRevisionID || tool.ID != item.MCPToolID {
+				return nil, fmt.Errorf("%w: MCP tool revision changed after runtime catalog resolution", ErrWorkflowRuntimeConflict)
+			}
+			schemaVersion = tool.SchemaVersion
+			mcpInstallationID = tool.InstallationID
+			mcpRevisionID = tool.RevisionID
+			mcpToolID = tool.ID
+			if tool.Risk == models.MCPToolRiskRead && !item.ApprovalRequired {
+				effect = models.ToolPolicyEffectAllow
+			} else {
+				effect = models.ToolPolicyEffectApprovalRequired
+			}
+		} else {
+			if item.MCPInstallationID != 0 || item.MCPRevisionID != 0 || item.MCPToolID != 0 {
+				return nil, fmt.Errorf("%w: local tool contains MCP identity", ErrWorkflowRuntimeConflict)
+			}
+			var err error
+			effect, err = s.resolveToolPolicyEffect(ctx, run.OrganizationID, role, toolName)
+			if err != nil {
+				return nil, err
+			}
 		}
 		if effect == models.ToolPolicyEffectDeny {
 			return nil, fmt.Errorf("tool %s denied by policy", toolName)
 		}
 		inputJSON := mustJSONString(input)
-		if err := ValidateToolArguments(toolName, inputJSON); err != nil {
-			return nil, err
+		if !strings.HasPrefix(toolName, "mcp.") {
+			if err := ValidateToolArguments(toolName, inputJSON); err != nil {
+				return nil, err
+			}
 		}
 		approval := models.ToolApproval{
-			WorkflowRunID:     run.ID,
-			TaskID:            task.ID,
-			OrganizationID:    run.OrganizationID,
-			ToolCallID:        workflowToolRequestCallID(run.ID, item),
-			ToolName:          toolName,
-			Status:            models.ToolApprovalStatusPending,
-			ToolSchemaVersion: CurrentToolSchemaVersion,
-			InputJSON:         inputJSON,
-			RequestedBy:       run.UserID,
-			RequestedAt:       time.Now().UTC(),
+			WorkflowRunID:             run.ID,
+			TaskID:                    task.ID,
+			OrganizationID:            run.OrganizationID,
+			ToolCallID:                workflowToolRequestCallID(run.ID, item),
+			ToolName:                  toolName,
+			Status:                    models.ToolApprovalStatusPending,
+			ToolSchemaVersion:         schemaVersion,
+			ApprovalRequestID:         item.ApprovalRequestID,
+			ApprovalCheckpointVersion: item.ApprovalCheckpointVersion,
+			MCPInstallationID:         mcpInstallationID,
+			MCPRevisionID:             mcpRevisionID,
+			MCPToolID:                 mcpToolID,
+			InputJSON:                 inputJSON,
+			RequestedBy:               run.UserID,
+			RequestedAt:               time.Now().UTC(),
 		}
-		if effect == models.ToolPolicyEffectAllow && !item.ApprovalRequired {
+		if item.ApprovalRequestID == "" && effect == models.ToolPolicyEffectAllow && !item.ApprovalRequired {
 			approval.Status = models.ToolApprovalStatusApproved
 		}
 		if err := s.db.WithContext(ctx).
-			Where("tool_call_id = ?", approval.ToolCallID).
+			Where("workflow_run_id = ? AND tool_call_id = ?", run.ID, approval.ToolCallID).
 			Attrs(approval).
 			FirstOrCreate(&approval).Error; err != nil {
 			return nil, err
+		}
+		if approval.WorkflowRunID != run.ID || approval.ToolName != toolName || approval.InputJSON != inputJSON || approval.ApprovalRequestID != item.ApprovalRequestID || approval.ApprovalCheckpointVersion != item.ApprovalCheckpointVersion || approval.MCPInstallationID != mcpInstallationID || approval.MCPRevisionID != mcpRevisionID || approval.MCPToolID != mcpToolID {
+			return nil, fmt.Errorf("%w: tool call %q does not match its persisted approval payload", ErrWorkflowRuntimeConflict, approval.ToolCallID)
 		}
 		approvals = append(approvals, approval)
 		if err := s.createAgentMessage(ctx, run, &task.ID, "tool_planner", "human", models.AgentMessageTypeToolRequest, map[string]any{
@@ -319,44 +378,47 @@ func (s *Service) executeApprovalTask(ctx context.Context, run models.WorkflowRu
 	}
 	if pending > 0 {
 		now := time.Now().UTC()
-		if err := s.db.WithContext(ctx).Model(&task).Updates(map[string]any{
-			"status":       models.WorkflowTaskStatusRequiresAction,
-			"started_at":   now,
-			"lease_until":  nil,
-			"output_json":  mustJSONString(map[string]any{"pending_approvals": pending}),
-			"completed_at": nil,
-		}).Error; err != nil {
+		if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := tx.Model(&task).Updates(map[string]any{
+				"status": models.WorkflowTaskStatusRequiresAction, "started_at": now, "lease_until": nil,
+				"output_json": mustJSONString(map[string]any{"pending_approvals": pending}), "completed_at": nil,
+			}).Error; err != nil {
+				return err
+			}
+			updated := tx.Model(&models.WorkflowRun{}).
+				Where("id = ? AND execution_lease_token = ? AND execution_lease_token <> '' AND status = ?", run.ID, run.ExecutionLeaseToken, models.WorkflowRunStatusRunning).
+				Updates(map[string]any{
+					"status": models.WorkflowRunStatusRequiresAction, "lease_until": nil, "execution_lease_token": "",
+					"state_json": workflowStateJSON(run, map[string]any{"phase": "awaiting_approval", "pending_approvals": pending}), "updated_at": now,
+				})
+			if updated.Error != nil {
+				return updated.Error
+			}
+			if updated.RowsAffected != 1 {
+				return fmt.Errorf("%w: workflow execution lease was lost while pausing", ErrWorkflowRuntimeConflict)
+			}
+			if err := s.appendWorkflowHistoryTx(ctx, tx, run, models.WorkflowHistoryEventApprovalRequested, "workflow_task", &task.ID, map[string]any{"pending_approvals": pending}); err != nil {
+				return err
+			}
+			transactional := *s
+			transactional.db = tx
+			return transactional.scheduleWorkflowTimer(ctx, run, "approval_timeout", now.Add(30*time.Minute), map[string]any{"pending_approvals": pending})
+		}); err != nil {
 			return false, err
 		}
-		if err := s.db.WithContext(ctx).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
-			"status":      models.WorkflowRunStatusRequiresAction,
-			"lease_until": nil,
-			"state_json":  workflowStateJSON(run, map[string]any{"phase": "awaiting_approval", "pending_approvals": pending}),
-			"updated_at":  now,
-		}).Error; err != nil {
-			return false, err
-		}
-		_ = s.appendWorkflowHistory(ctx, run, models.WorkflowHistoryEventApprovalRequested, "workflow_task", &task.ID, map[string]any{
-			"pending_approvals": pending,
-		})
-		_ = s.scheduleWorkflowTimer(ctx, run, "approval_timeout", now.Add(30*time.Minute), map[string]any{"pending_approvals": pending})
 		return true, nil
 	}
 	_ = s.cancelWorkflowTimer(ctx, run, "approval_timeout")
-	return false, s.markWorkflowTaskReady(ctx, task, map[string]any{"pending_approvals": 0})
+	return false, s.markWorkflowTaskReady(ctx, run, task, map[string]any{"pending_approvals": 0})
 }
 
 func (s *Service) executeCommitResultTask(ctx context.Context, run models.WorkflowRun) error {
-	return s.executeWorkflowTask(ctx, run.ID, models.WorkflowTaskCommitResult, map[string]any{
+	err := s.executeWorkflowTask(ctx, run, models.WorkflowTaskCommitResult, map[string]any{
 		"workflow_run_id": run.ID,
 	}, func(task models.WorkflowTask) (map[string]any, error) {
-		merged, err := s.loadMergedWorkflowResult(ctx, run.ID)
-		if err != nil {
-			return nil, err
-		}
 		var approvals []models.ToolApproval
 		if err := s.db.WithContext(ctx).
-			Where("workflow_run_id = ? AND status IN ?", run.ID, []string{models.ToolApprovalStatusApproved, models.ToolApprovalStatusRejected}).
+			Where("workflow_run_id = ? AND status IN ?", run.ID, []string{models.ToolApprovalStatusApproved, models.ToolApprovalStatusRejected, models.ToolApprovalStatusExecuting, models.ToolApprovalStatusExecuted, models.ToolApprovalStatusFailed}).
 			Order("id ASC").
 			Find(&approvals).Error; err != nil {
 			return nil, err
@@ -365,6 +427,15 @@ func (s *Service) executeCommitResultTask(ctx context.Context, run models.Workfl
 		rejected := 0
 		for _, approval := range approvals {
 			switch approval.Status {
+			case models.ToolApprovalStatusFailed:
+				return nil, fmt.Errorf("workflow tool %q failed: %s", approval.ToolCallID, approval.ErrorMessage)
+			case models.ToolApprovalStatusExecuted:
+				executed++
+				if err := s.createAgentMessage(ctx, run, &task.ID, "committer", "workflow", models.AgentMessageTypeToolResult, map[string]any{
+					"tool_call_id": approval.ToolCallID, "tool_name": approval.ToolName, "status": approval.Status, "output_json": approval.OutputJSON,
+				}, approval.ToolCallID); err != nil {
+					return nil, err
+				}
 			case models.ToolApprovalStatusRejected:
 				rejected++
 				if err := s.createAgentMessage(ctx, run, &task.ID, "human", "committer", models.AgentMessageTypeToolResult, map[string]any{
@@ -374,7 +445,7 @@ func (s *Service) executeCommitResultTask(ctx context.Context, run models.Workfl
 				}, approval.ToolCallID); err != nil {
 					return nil, err
 				}
-			case models.ToolApprovalStatusApproved:
+			case models.ToolApprovalStatusApproved, models.ToolApprovalStatusExecuting:
 				if err := s.executeWorkflowApprovalTool(ctx, run, &approval); err != nil {
 					return nil, err
 				}
@@ -389,41 +460,58 @@ func (s *Service) executeCommitResultTask(ctx context.Context, run models.Workfl
 				}
 			}
 		}
-		completedAt := time.Now().UTC()
-		updates := map[string]any{
-			"status":            models.WorkflowRunStatusReady,
-			"summary":           merged.Summary,
-			"action_items_json": mustJSONString(merged.ActionItems),
-			"next_step":         merged.NextStep,
-			"risk_flags_json":   mustJSONString(merged.RiskFlags),
-			"citations_json":    mustJSONString(merged.Citations),
-			"state_json":        workflowStateJSON(run, map[string]any{"phase": "completed"}),
-			"completed_at":      completedAt,
-			"lease_until":       nil,
+		return map[string]any{"executed_tools": executed, "rejected_tools": rejected}, nil
+	})
+	if err != nil {
+		return err
+	}
+	merged, err := s.loadMergedWorkflowResult(ctx, run.ID)
+	if err != nil {
+		return err
+	}
+	var executed, rejected int64
+	if err := s.db.WithContext(ctx).Model(&models.ToolApproval{}).Where("workflow_run_id = ? AND status = ?", run.ID, models.ToolApprovalStatusExecuted).Count(&executed).Error; err != nil {
+		return err
+	}
+	if err := s.db.WithContext(ctx).Model(&models.ToolApproval{}).Where("workflow_run_id = ? AND status = ?", run.ID, models.ToolApprovalStatusRejected).Count(&rejected).Error; err != nil {
+		return err
+	}
+	completedAt := time.Now().UTC()
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		updated := tx.Model(&models.WorkflowRun{}).
+			Where("id = ? AND status = ? AND execution_lease_token = ? AND execution_lease_token <> ''", run.ID, models.WorkflowRunStatusRunning, run.ExecutionLeaseToken).
+			Updates(map[string]any{
+				"status": models.WorkflowRunStatusReady, "summary": merged.Summary,
+				"action_items_json": mustJSONString(merged.ActionItems), "next_step": merged.NextStep,
+				"risk_flags_json": mustJSONString(merged.RiskFlags), "citations_json": mustJSONString(merged.Citations),
+				"state_json": workflowStateJSON(run, map[string]any{"phase": "completed"}), "completed_at": completedAt,
+				"lease_until": nil, "execution_lease_token": "",
+			})
+		if updated.Error != nil {
+			return updated.Error
 		}
-		if err := s.db.WithContext(ctx).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
-			return nil, err
+		if updated.RowsAffected != 1 {
+			var stored models.WorkflowRun
+			if err := tx.Where("id = ?", run.ID).Take(&stored).Error; err != nil {
+				return err
+			}
+			if stored.Status == models.WorkflowRunStatusReady {
+				return nil
+			}
+			return fmt.Errorf("%w: workflow execution lease was lost before completion", ErrWorkflowRuntimeConflict)
 		}
 		if run.AgentRunID != nil {
-			if err := s.db.WithContext(ctx).Model(&models.AgentRun{}).Where("id = ?", *run.AgentRunID).Updates(map[string]any{
-				"status":            models.AgentRunStatusReady,
-				"summary":           merged.Summary,
-				"action_items_json": mustJSONString(merged.ActionItems),
-				"next_step":         merged.NextStep,
-				"risk_flags_json":   mustJSONString(merged.RiskFlags),
-				"completed_at":      completedAt,
-				"lease_until":       nil,
+			if err := tx.Model(&models.AgentRun{}).Where("id = ?", *run.AgentRunID).Updates(map[string]any{
+				"status": models.AgentRunStatusReady, "summary": merged.Summary, "action_items_json": mustJSONString(merged.ActionItems),
+				"next_step": merged.NextStep, "risk_flags_json": mustJSONString(merged.RiskFlags),
+				"completed_at": completedAt, "lease_until": nil, "execution_lease_token": "",
 			}).Error; err != nil {
-				return nil, err
+				return err
 			}
 		}
-		if err := s.appendWorkflowHistory(ctx, run, models.WorkflowHistoryEventWorkflowCompleted, "workflow_run", &run.ID, map[string]any{
-			"executed_tools": executed,
-			"rejected_tools": rejected,
-		}); err != nil {
-			return nil, err
-		}
-		return map[string]any{"executed_tools": executed, "rejected_tools": rejected}, nil
+		return s.appendWorkflowHistoryTx(ctx, tx, run, models.WorkflowHistoryEventWorkflowCompleted, "workflow_run", &run.ID, map[string]any{
+			"executed_tools": executed, "rejected_tools": rejected,
+		})
 	})
 }
 

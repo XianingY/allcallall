@@ -337,7 +337,7 @@ func (r *Repository) ActivateVersion(ctx context.Context, versionID uint64, cont
 	return r.db.WithContext(ctx).Model(&models.RAGSourceVersion{}).Where("id = ?", versionID).Updates(map[string]any{
 		"content_hash":    contentHash,
 		"normalized_hash": contentHash,
-		"sim_hash64":      simHash,
+		"sim_hash64":      int64(simHash),
 		"raw_text":        rawText,
 		"status":          models.RAGSourceVersionStatusActive,
 		"chunk_count":     chunkCount,
@@ -551,5 +551,5 @@ type duplicateCandidateRow struct {
 	SourceGroupID  *uint64
 	ContentHash    string
 	NormalizedHash string
-	SimHash64      uint64
+	SimHash64      int64
 }

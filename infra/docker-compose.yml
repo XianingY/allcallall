@@ -54,7 +54,11 @@ services:
 
   elasticsearch:
     profiles: ["interview-infra", "search"]
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    build:
+      context: ./elasticsearch
+      args:
+        ELASTICSEARCH_VERSION: "8.19.10"
+    image: ${ELASTICSEARCH_IMAGE:-allcallall-elasticsearch-ik:8.19.10}
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -93,6 +97,13 @@ services:
       PY_AGENT_RUNTIME_TIMEOUT_SEC: ${PY_AGENT_RUNTIME_TIMEOUT_SEC:-60}
       PY_AGENT_RUNTIME_STRICT: ${PY_AGENT_RUNTIME_STRICT:-true}
       AGENT_RUNTIME_TOOL_TOKEN: ${AGENT_RUNTIME_TOOL_TOKEN:-local-agent-runtime-tool-token}
+      MCP_PLATFORM_ENABLED: ${MCP_PLATFORM_ENABLED:-true}
+      SANDBOX_EXECUTION_ENABLED: ${SANDBOX_EXECUTION_ENABLED:-true}
+      SANDBOX_CONTROL_PLANE_URL: ${SANDBOX_CONTROL_PLANE_URL:-http://sandbox-control-plane:8092}
+      OPENBAO_ADDR: ${OPENBAO_ADDR:-http://openbao:8200}
+      OPENBAO_TOKEN: ${OPENBAO_TOKEN:-}
+      MCP_CAPABILITY_ED25519_PRIVATE_KEY: ${MCP_CAPABILITY_ED25519_PRIVATE_KEY:-}
+      SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY: ${SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY:-}
     ports:
       - "8080:8080"
     volumes:
@@ -101,13 +112,16 @@ services:
     networks:
       - allcallall_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
   agent-runtime:
-    image: ${PY_AGENT_RUNTIME_IMAGE:-ghcr.io/xianingy/allcallall-agent-runtime/agent-runtime:v0.2.0}
+    build:
+      context: ..
+      dockerfile: agent-runtime/Dockerfile
+    image: ${PY_AGENT_RUNTIME_IMAGE:-allcallall-agent-runtime:local}
     environment:
       PY_AGENT_PROVIDER: ${PY_AGENT_PROVIDER:-rules}
       PY_AGENT_OPENAI_BASE_URL: ${PY_AGENT_OPENAI_BASE_URL:-}
@@ -120,6 +134,8 @@ services:
       PY_AGENT_LOOP_MAX_STEPS: ${PY_AGENT_LOOP_MAX_STEPS:-5}
       PY_AGENT_ENABLE_CRITIC: ${PY_AGENT_ENABLE_CRITIC:-true}
       PY_AGENT_RUNTIME_PORT: "8090"
+      PY_AGENT_CHECKPOINT_MYSQL_ENABLED: ${LANGGRAPH_MYSQL_CHECKPOINT_ENABLED:-true}
+      PY_AGENT_CHECKPOINT_MYSQL_DSN: mysql://allcallall:${MYSQL_PASSWORD}@mysql:3306/allcallall_db
     ports:
       - "8090:8090"
     restart: unless-stopped
@@ -131,8 +147,75 @@ services:
       timeout: 10s
       retries: 3
 
+  openbao:
+    image: openbao/openbao:2.2.0
+    cap_add:
+      - IPC_LOCK
+    environment:
+      BAO_DEV_ROOT_TOKEN_ID: ${OPENBAO_TOKEN:-}
+      BAO_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    command: server -dev
+    networks:
+      - allcallall_network
+    healthcheck:
+      test: ["CMD", "bao", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  sandbox-runner:
+    build:
+      context: ../sandbox-runner
+      dockerfile: Dockerfile
+    environment:
+      OPENBAO_ADDR: http://openbao:8200
+      SANDBOX_ALLOW_STDIO: "0"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /run/secrets:size=1m,mode=0700
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 0.5
+    networks:
+      - allcallall_network
+
+  sandbox-control-plane:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.sandbox
+    depends_on:
+      - mysql
+      - sandbox-runner
+      - openbao
+    environment:
+      SANDBOX_ADDR: :8092
+      SANDBOX_RUNNER_URL: http://sandbox-runner:8093
+      SANDBOX_DB_DSN: allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=UTC
+      SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY: ${SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY:-}
+      TRIVY_CACHE_DIR: /tmp/trivy-cache
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 1.0
+    networks:
+      - allcallall_network
+
   rag-runtime:
-    image: ${PY_RAG_RUNTIME_IMAGE:-ghcr.io/xianingy/allcallall-agent-runtime/rag-runtime:v0.2.0}
+    build:
+      context: ..
+      dockerfile: rag-runtime/Dockerfile
+    image: ${PY_RAG_RUNTIME_IMAGE:-allcallall-rag-runtime:local}
     environment:
       PY_RAG_RERANK_PROVIDER: ${PY_RAG_RERANK_PROVIDER:-rules}
       PY_RAG_TOOL_BRIDGE_BASE_URL: ${PY_RAG_TOOL_BRIDGE_BASE_URL:-http://backend:8080}
@@ -287,6 +370,13 @@ services:
       PY_AGENT_RUNTIME_TIMEOUT_SEC: ${PY_AGENT_RUNTIME_TIMEOUT_SEC:-60}
       PY_AGENT_RUNTIME_STRICT: ${PY_AGENT_RUNTIME_STRICT:-true}
       AGENT_RUNTIME_TOOL_TOKEN: ${AGENT_RUNTIME_TOOL_TOKEN:-local-agent-runtime-tool-token}
+      MCP_PLATFORM_ENABLED: ${MCP_PLATFORM_ENABLED:-true}
+      SANDBOX_EXECUTION_ENABLED: ${SANDBOX_EXECUTION_ENABLED:-true}
+      SANDBOX_CONTROL_PLANE_URL: ${SANDBOX_CONTROL_PLANE_URL:-http://sandbox-control-plane:8092}
+      OPENBAO_ADDR: ${OPENBAO_ADDR:-http://openbao:8200}
+      OPENBAO_TOKEN: ${OPENBAO_TOKEN:-}
+      MCP_CAPABILITY_ED25519_PRIVATE_KEY: ${MCP_CAPABILITY_ED25519_PRIVATE_KEY:-}
+      SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY: ${SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY:-}
       WORKER_ID: agent-worker
       OUTBOX_WORKER_INTERVAL_SEC: ${OUTBOX_WORKER_INTERVAL_SEC:-1}
       OUTBOX_WORKER_BATCH_SIZE: ${OUTBOX_WORKER_BATCH_SIZE:-50}

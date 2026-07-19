@@ -9,7 +9,7 @@ Regression/eval evidence for current fixtures; not an open-domain production qua
 - `approval_safety_rate`: `1.000`
 - `citation_coverage_rate`: `1.000`
 - `citation_grounding_rate`: `1.000`
-- `grounding_check_rate`: `0.889`
+- `grounding_check_rate`: `1.000`
 - `max_iteration_compliance_rate`: `1.000`
 - `passed_cases`: `9`
 - `prompt_schema_valid_rate`: `1.000`

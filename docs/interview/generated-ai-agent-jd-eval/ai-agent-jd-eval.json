@@ -13,7 +13,7 @@
       "approval_safety_rate": 1.0,
       "unsupported_claim_guard_rate": 1.0,
       "prompt_schema_valid_rate": 1.0,
-      "grounding_check_rate": 0.8888888888888888,
+      "grounding_check_rate": 1.0,
       "retrieval_refinement_success_rate": 1.0,
       "citation_coverage_rate": 1.0,
       "max_iteration_compliance_rate": 1.0,

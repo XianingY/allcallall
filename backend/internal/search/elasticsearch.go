@@ -16,6 +16,12 @@ import (
 	"time"
 )
 
+const (
+	contextChunkIndexName = "allcallall_context_chunks"
+	ikIndexAnalyzer       = "ik_max_word"
+	ikSearchAnalyzer      = "ik_smart"
+)
+
 type ElasticsearchConfig struct {
 	URL      string
 	Index    string
@@ -52,6 +58,160 @@ func NewElasticsearchIndexer(cfg ElasticsearchConfig) (*ElasticsearchIndexer, er
 			Timeout: 5 * time.Second,
 		},
 	}, nil
+}
+
+func (e *ElasticsearchIndexer) InitMessageIndex(ctx context.Context) error {
+	mapping := map[string]any{
+		"mappings": map[string]any{
+			"properties": map[string]any{
+				"id":                  map[string]any{"type": "keyword"},
+				"organization_id":     map[string]any{"type": "long"},
+				"conversation_id":     map[string]any{"type": "long"},
+				"message_id":          map[string]any{"type": "long"},
+				"sender_id":           map[string]any{"type": "long"},
+				"sender_email":        map[string]any{"type": "keyword"},
+				"sender_display_name": ikTextField(true),
+				"type":                map[string]any{"type": "keyword"},
+				"body":                ikTextField(false),
+				"created_at":          map[string]any{"type": "date"},
+			},
+		},
+	}
+	return e.createIndex(ctx, e.index, mapping, []string{"body", "sender_display_name"})
+}
+
+func ikTextField(withKeyword bool) map[string]any {
+	field := map[string]any{
+		"type":            "text",
+		"analyzer":        ikIndexAnalyzer,
+		"search_analyzer": ikSearchAnalyzer,
+	}
+	if withKeyword {
+		field["fields"] = map[string]any{"keyword": map[string]any{"type": "keyword"}}
+	}
+	return field
+}
+
+func (e *ElasticsearchIndexer) createIndex(
+	ctx context.Context,
+	indexName string,
+	mapping map[string]any,
+	ikFields []string,
+) error {
+	payload, err := json.Marshal(mapping)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPut,
+		e.baseURL+"/"+url.PathEscape(indexName),
+		bytes.NewReader(payload),
+	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	e.withAuth(req)
+	resp, err := e.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	if resp.StatusCode == http.StatusBadRequest && resourceAlreadyExists(body) {
+		return e.verifyIKMapping(ctx, indexName, ikFields)
+	}
+	return fmt.Errorf(
+		"elasticsearch create index failed: index=%s status=%d body=%s",
+		indexName,
+		resp.StatusCode,
+		string(body),
+	)
+}
+
+func resourceAlreadyExists(body []byte) bool {
+	var response struct {
+		Error struct {
+			Type      string `json:"type"`
+			RootCause []struct {
+				Type string `json:"type"`
+			} `json:"root_cause"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &response) != nil {
+		return false
+	}
+	if response.Error.Type == "resource_already_exists_exception" {
+		return true
+	}
+	for _, cause := range response.Error.RootCause {
+		if cause.Type == "resource_already_exists_exception" {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *ElasticsearchIndexer) verifyIKMapping(
+	ctx context.Context,
+	indexName string,
+	fields []string,
+) error {
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		e.baseURL+"/"+url.PathEscape(indexName)+"/_mapping",
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+	e.withAuth(req)
+	resp, err := e.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf(
+			"elasticsearch read index mapping failed: index=%s status=%d",
+			indexName,
+			resp.StatusCode,
+		)
+	}
+	var mappings map[string]struct {
+		Mappings struct {
+			Properties map[string]struct {
+				Analyzer       string `json:"analyzer"`
+				SearchAnalyzer string `json:"search_analyzer"`
+			} `json:"properties"`
+		} `json:"mappings"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&mappings); err != nil {
+		return fmt.Errorf("decode elasticsearch index mapping: %w", err)
+	}
+	for _, fieldName := range fields {
+		compatible := false
+		for _, mapping := range mappings {
+			field, exists := mapping.Mappings.Properties[fieldName]
+			if exists && field.Analyzer == ikIndexAnalyzer && field.SearchAnalyzer == ikSearchAnalyzer {
+				compatible = true
+				break
+			}
+		}
+		if !compatible {
+			return fmt.Errorf(
+				"elasticsearch index %q has an incompatible %q analyzer; reindex is required",
+				indexName,
+				fieldName,
+			)
+		}
+	}
+	return nil
 }
 
 func (e *ElasticsearchIndexer) IndexMessage(ctx context.Context, doc MessageDocument) error {
@@ -184,8 +344,6 @@ type ContextChunkSearchResult struct {
 }
 
 func (e *ElasticsearchIndexer) InitChunkIndex(ctx context.Context) error {
-	indexName := "allcallall_context_chunks"
-
 	dims := 1536 // default for openai
 	if raw := strings.TrimSpace(os.Getenv("AGENT_OPENAI_EMBEDDING_DIMS")); raw != "" {
 		if val, err := strconv.Atoi(raw); err == nil && val > 0 {
@@ -201,9 +359,9 @@ func (e *ElasticsearchIndexer) InitChunkIndex(ctx context.Context) error {
 				"conversation_id":     map[string]any{"type": "long"},
 				"source_type":         map[string]any{"type": "keyword"},
 				"source_id":           map[string]any{"type": "long"},
-				"content":             map[string]any{"type": "text"},
-				"keywords":            map[string]any{"type": "text"},
-				"source_title":        map[string]any{"type": "text", "fields": map[string]any{"keyword": map[string]any{"type": "keyword"}}},
+				"content":             ikTextField(false),
+				"keywords":            ikTextField(false),
+				"source_title":        ikTextField(true),
 				"origin_type":         map[string]any{"type": "keyword"},
 				"origin_url":          map[string]any{"type": "keyword"},
 				"content_hash":        map[string]any{"type": "keyword"},
@@ -222,30 +380,12 @@ func (e *ElasticsearchIndexer) InitChunkIndex(ctx context.Context) error {
 			},
 		},
 	}
-	payload, err := json.Marshal(mapping)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, e.baseURL+"/"+indexName, bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	e.withAuth(req)
-	resp, err := e.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusBadRequest {
-		// Index might already exist, ignore 400 if it's a resource_already_exists_exception
-		return nil
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("elasticsearch create index failed: status=%d body=%s", resp.StatusCode, string(body))
-	}
-	return nil
+	return e.createIndex(
+		ctx,
+		contextChunkIndexName,
+		mapping,
+		[]string{"content", "keywords", "source_title"},
+	)
 }
 
 func (e *ElasticsearchIndexer) IndexChunk(ctx context.Context, doc ContextChunkDocument) error {
@@ -253,8 +393,7 @@ func (e *ElasticsearchIndexer) IndexChunk(ctx context.Context, doc ContextChunkD
 	if err != nil {
 		return err
 	}
-	indexName := "allcallall_context_chunks"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, e.baseURL+"/"+indexName+"/_doc/"+url.PathEscape(doc.ID), bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, e.baseURL+"/"+contextChunkIndexName+"/_doc/"+url.PathEscape(doc.ID), bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -340,8 +479,7 @@ func (e *ElasticsearchIndexer) SearchChunksVector(ctx context.Context, query Con
 	if err != nil {
 		return nil, err
 	}
-	indexName := "allcallall_context_chunks"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.baseURL+"/"+indexName+"/_search", bytes.NewReader(raw))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.baseURL+"/"+contextChunkIndexName+"/_search", bytes.NewReader(raw))
 	if err != nil {
 		return nil, err
 	}
@@ -433,8 +571,7 @@ func (e *ElasticsearchIndexer) searchChunkPayload(ctx context.Context, payload m
 	if err != nil {
 		return nil, err
 	}
-	indexName := "allcallall_context_chunks"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.baseURL+"/"+indexName+"/_search", bytes.NewReader(raw))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.baseURL+"/"+contextChunkIndexName+"/_search", bytes.NewReader(raw))
 	if err != nil {
 		return nil, err
 	}

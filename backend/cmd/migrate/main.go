@@ -22,7 +22,7 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to initialize mysql")
 	}
 	defer closeDB()
-	if err := appruntime.RunMigrations(db); err != nil {
+	if err := appruntime.RunMigrations(db, cfg.Database.DSN); err != nil {
 		log.Fatal().Err(err).Msg("database migration failed")
 	}
 	log.Info().Msg("database migrations are up to date")

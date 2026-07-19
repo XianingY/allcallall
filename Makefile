@@ -2,10 +2,10 @@
 # Common commands for development
 
 PYTHON ?= python3
-AGENT_RUNTIME_PYTHON ?= $(PYTHON)
-RAG_RUNTIME_PYTHON ?= $(PYTHON)
+AGENT_RUNTIME_PYTHON ?= $(if $(wildcard agent-runtime/.venv/bin/python),.venv/bin/python,$(PYTHON))
+RAG_RUNTIME_PYTHON ?= $(if $(wildcard rag-runtime/.venv/bin/python),.venv/bin/python,$(PYTHON))
 
-.PHONY: help setup build-android build-ios clean test run-api run-agent-runtime run-rag-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval python-rag-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval ai-agent-jd-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check
+.PHONY: help setup build-android build-ios clean test run-api run-agent-runtime run-rag-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-up interview-smoke interview-chaos interview-status interview-down interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval python-rag-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval ai-agent-jd-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check helm-check
 
 # Default target
 help:
@@ -31,7 +31,11 @@ help:
 	@echo "  make run-search-worker - Start standalone Elasticsearch indexing worker"
 	@echo "  make run-cleanup-worker - Start standalone Cleanup worker"
 	@echo "  make beta-seed        - Seed a small-team Beta demo workspace"
-	@echo "  make interview-demo   - Run local interview demo evidence suite"
+	@echo "  make interview-up     - Start the full local interview stack"
+	@echo "  make interview-smoke  - Verify the running interview stack"
+	@echo "  make interview-chaos  - Restart Agent Runtime and verify recovery"
+	@echo "  make interview-down   - Remove the interview stack and temporary secrets"
+	@echo "  make interview-demo   - Start, verify, and print interview access details"
 	@echo "  make interview-demo-live - Start MySQL/Redis and seed live interview demo data"
 	@echo "  make interview-live-suite - Run MySQL/Redis live interview smoke suite"
 	@echo "  make interview-load-suite - Generate local interview load suite artifacts"
@@ -55,6 +59,7 @@ help:
 	@echo "  make chat-ws-replay-bench - Run authenticated chat WebSocket replay benchmark"
 	@echo "  make web-contract-check - Verify OpenAPI and generated Web types are synchronized"
 	@echo "  make web-performance-check - Build Web and enforce bundle budgets"
+	@echo "  make helm-check        - Lint and render the Kubernetes Helm chart"
 	@echo ""
 	@echo "Clean:"
 	@echo "  make clean            - Clean all build artifacts"
@@ -165,9 +170,34 @@ test-backend:
 	@echo "Running backend tests..."
 	cd backend && go test ./...
 
+helm-check:
+	helm lint infra/helm/allcallall
+	helm template allcallall infra/helm/allcallall --namespace allcallall > /tmp/allcallall-helm.yaml
+	kubeconform -strict -summary -ignore-missing-schemas /tmp/allcallall-helm.yaml
+
 interview-demo:
-	@echo "Running local interview demo..."
-	bash scripts/interview-demo.sh
+	@echo "Starting and verifying the full interview stack..."
+	bash scripts/interview-stack.sh demo
+
+interview-up:
+	@echo "Starting the full interview stack..."
+	bash scripts/interview-stack.sh up
+
+interview-smoke:
+	@echo "Verifying the interview stack..."
+	bash scripts/interview-stack.sh smoke
+
+interview-chaos:
+	@echo "Restarting Agent Runtime and verifying recovery..."
+	bash scripts/interview-stack.sh chaos
+
+interview-status:
+	@echo "Inspecting the interview stack..."
+	bash scripts/interview-stack.sh status
+
+interview-down:
+	@echo "Stopping the interview stack..."
+	bash scripts/interview-stack.sh down
 
 interview-demo-live:
 	@echo "Running live interview demo seed..."

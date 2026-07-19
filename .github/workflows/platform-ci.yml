@@ -1,0 +1,350 @@
+name: Agent Platform CI
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-runtimes:
+    name: Python (${{ matrix.runtime }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [agent-runtime, rag-runtime, sandbox-runner]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            shared/pyproject.toml
+            ${{ matrix.runtime }}/pyproject.toml
+      - name: Install runtime and development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "./shared[dev]"
+          python -m pip install -e "./${{ matrix.runtime }}[dev]"
+      - name: Unit tests
+        working-directory: ${{ matrix.runtime }}
+        run: python -m pytest -q
+      - name: Ruff
+        working-directory: ${{ matrix.runtime }}
+        run: python -m ruff check .
+      - name: Mypy
+        working-directory: ${{ matrix.runtime }}
+        run: python -m mypy .
+
+  mysql-checkpoint-contract:
+    name: MySQL Checkpoint and Idempotency Contract
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root-test-password
+          MYSQL_DATABASE: allcallall_contract
+          MYSQL_USER: allcallall
+          MYSQL_PASSWORD: contract-test-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uallcallall -pcontract-test-password --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.24.x"
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            shared/pyproject.toml
+            agent-runtime/pyproject.toml
+      - name: Bootstrap the ordered MySQL schema
+        working-directory: backend
+        env:
+          CONFIG_PATH: ./configs/config.yaml
+          DB_DSN: "allcallall:contract-test-password@tcp(127.0.0.1:3306)/allcallall_contract?parseTime=true&charset=utf8mb4&loc=UTC"
+          MYSQL_PASSWORD: contract-test-password
+          JWT_SECRET: contract-test-jwt-secret
+        run: go run ./cmd/migrate
+      - name: Verify platform migrations up/down/up
+        working-directory: backend
+        env:
+          ALLCALLALL_TEST_MYSQL_DSN: "root:root-test-password@tcp(127.0.0.1:3306)/allcallall_contract?parseTime=true&charset=utf8mb4&loc=UTC"
+        run: go test -count=1 -run '^(TestMySQLWorkflowRuntimeMigrationUpDownUp|TestMySQLSandboxReceiptMigrationUpDownUp)$' ./internal/runtime
+      - name: Install Agent Runtime test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "./shared[dev]"
+          python -m pip install -e "./agent-runtime[dev]"
+      - name: Verify checkpoint atomicity and recovery
+        working-directory: agent-runtime
+        env:
+          PY_AGENT_TEST_MYSQL_DSN: mysql://allcallall:contract-test-password@127.0.0.1:3306/allcallall_contract
+        run: |
+          python -m pytest -q tests/test_mysql_checkpoint.py
+          python -m pytest -q tests/test_approval_resume.py -k mysql
+      - name: Verify 50-way Agent run idempotency
+        working-directory: backend
+        env:
+          ALLCALLALL_TEST_MYSQL_DSN: "allcallall:contract-test-password@tcp(127.0.0.1:3306)/allcallall_contract?parseTime=true&charset=utf8mb4&loc=UTC"
+        run: go test -count=1 -run '^TestMySQLConcurrentIdempotencyCreatesOneRun$' ./internal/agent
+
+  sandbox-go:
+    name: Sandbox Control Plane (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.24.x"
+          cache-dependency-path: backend/go.sum
+      - name: Test sandbox packages
+        working-directory: backend
+        run: >-
+          go test -race
+          ./internal/mcpplatform
+          ./internal/sandbox/...
+          ./internal/sandboxsupervisor
+          ./cmd/sandbox-service
+          ./cmd/sandbox-supervisor
+      - name: Static analysis
+        working-directory: backend
+        run: >-
+          go vet
+          ./internal/mcpplatform
+          ./internal/sandbox/...
+          ./internal/sandboxsupervisor
+          ./cmd/sandbox-service
+          ./cmd/sandbox-supervisor
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: sandbox-runner/pyproject.toml
+      - name: Verify Go/Python supervisor contract
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "./sandbox-runner[dev]"
+          (cd backend && CGO_ENABLED=0 go build -trimpath -o /tmp/sandbox-supervisor ./cmd/sandbox-supervisor)
+          (cd sandbox-runner && SANDBOX_SUPERVISOR_BINARY=/tmp/sandbox-supervisor python -m pytest -q tests/test_supervisor_transport.py -k go_supervisor_contract)
+
+  openapi-drift:
+    name: OpenAPI Contract Drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install workspace dependencies
+        run: npm ci
+      - name: Regenerate API types
+        working-directory: web
+        run: npm run generate:api
+      - name: Verify generated contract is committed
+        run: git diff --exit-code -- packages/api-types/schema.d.ts
+      - name: Verify handwritten clients use the shared contract
+        working-directory: web
+        run: npm run contract:check
+
+  helm:
+    name: Helm and Kubernetes Schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: v3.17.3
+      - name: Lint chart
+        run: |
+          helm lint infra/helm/allcallall
+          helm lint infra/helm/allcallall \
+            -f infra/helm/allcallall/values-production.example.yaml
+      - name: Render default and production charts
+        run: |
+          helm template allcallall infra/helm/allcallall --namespace allcallall > /tmp/allcallall.yaml
+          helm template allcallall infra/helm/allcallall \
+            --namespace allcallall \
+            -f infra/helm/allcallall/values-production.example.yaml \
+            > /tmp/allcallall-production.yaml
+      - name: Validate Kubernetes resources
+        run: |
+          docker run --rm -i ghcr.io/yannh/kubeconform:v0.8.0 \
+            -strict -summary -ignore-missing-schemas \
+            < /tmp/allcallall.yaml
+          docker run --rm -i ghcr.io/yannh/kubeconform:v0.8.0 \
+            -strict -summary -ignore-missing-schemas \
+            < /tmp/allcallall-production.yaml
+      - name: Assert sandbox isolation controls
+        run: |
+          python -m pip install --quiet PyYAML==6.0.3
+          python - <<'PY'
+          import yaml
+
+          with open("/tmp/allcallall.yaml", encoding="utf-8") as stream:
+              resources = [item for item in yaml.safe_load_all(stream) if item]
+
+          deployments = {
+              item["metadata"]["labels"].get("app.kubernetes.io/component"): item
+              for item in resources
+              if item["kind"] == "Deployment"
+          }
+          for component in ("sandbox-control-plane", "sandbox-runner"):
+              deployment = deployments[component]
+              pod = deployment["spec"]["template"]["spec"]
+              assert pod["runtimeClassName"] == "gvisor"
+              assert pod["securityContext"]["runAsNonRoot"] is True
+              assert not any("hostPath" in volume for volume in pod.get("volumes", []))
+              for container in pod["containers"]:
+                  security = container["securityContext"]
+                  assert security["readOnlyRootFilesystem"] is True
+                  assert security["allowPrivilegeEscalation"] is False
+                  assert security["capabilities"]["drop"] == ["ALL"]
+                  assert security["seccompProfile"]["type"] == "RuntimeDefault"
+
+          assert deployments["sandbox-control-plane"]["spec"]["template"]["spec"]["automountServiceAccountToken"] is True
+          assert deployments["sandbox-runner"]["spec"]["template"]["spec"]["automountServiceAccountToken"] is False
+
+          control_plane_env = {
+              item["name"]: item
+              for item in deployments["sandbox-control-plane"]["spec"]["template"]["spec"]["containers"][0]["env"]
+          }
+          runner_env = {
+              item["name"]: item
+              for item in deployments["sandbox-runner"]["spec"]["template"]["spec"]["containers"][0]["env"]
+          }
+          assert "secretKeyRef" in control_plane_env["SANDBOX_DB_DSN"]["valueFrom"]
+          assert "SANDBOX_DB_DSN" not in runner_env
+          control_plane_capability = control_plane_env["SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY"]["valueFrom"]["secretKeyRef"]
+          assert control_plane_capability["name"] == "allcallall-external"
+          assert control_plane_capability["key"] == "sandbox-capability-ed25519-public-key"
+          assert control_plane_capability.get("optional") is not True
+          assert "MCP_CAPABILITY_ED25519_PRIVATE_KEY" not in control_plane_env
+          assert "MCP_CAPABILITY_ED25519_PRIVATE_KEY" not in runner_env
+          assert "SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY" not in runner_env
+          assert control_plane_env["SANDBOX_KUBERNETES_EXECUTION_ENABLED"]["value"] == "1"
+          assert control_plane_env["SANDBOX_JOB_RUNTIME_CLASS"]["value"] == "gvisor"
+          assert control_plane_env["SANDBOX_JOB_SERVICE_ACCOUNT"]["value"].endswith("-sandbox-job")
+
+          service_accounts = {
+              item["metadata"]["labels"]["app.kubernetes.io/component"]: item
+              for item in resources
+              if item["kind"] == "ServiceAccount"
+          }
+          assert service_accounts["sandbox-control-plane"]["automountServiceAccountToken"] is True
+          assert service_accounts["sandbox-job"]["automountServiceAccountToken"] is False
+
+          sandbox_role = next(
+              item for item in resources
+              if item["kind"] == "Role" and item["metadata"]["name"].endswith("-sandbox-jobs")
+          )
+          assert sandbox_role["rules"] == [
+              {"apiGroups": ["batch"], "resources": ["jobs"], "verbs": ["create", "get", "delete"]},
+              {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list", "watch"]},
+              {"apiGroups": ["networking.k8s.io"], "resources": ["networkpolicies"], "verbs": ["create", "delete"]},
+          ]
+
+          config = next(item for item in resources if item["kind"] == "ConfigMap")
+          assert config["data"]["APP_ENV"] == "production"
+          for component in ("api", "agent-worker"):
+              environment = {
+                  item["name"]: item
+                  for item in deployments[component]["spec"]["template"]["spec"]["containers"][0]["env"]
+              }
+              expected_capabilities = {
+                  "MCP_CAPABILITY_ED25519_PRIVATE_KEY": "mcp-capability-ed25519-private-key",
+                  "SANDBOX_CAPABILITY_ED25519_PUBLIC_KEY": "sandbox-capability-ed25519-public-key",
+              }
+              for variable, key in expected_capabilities.items():
+                  capability = environment[variable]["valueFrom"]["secretKeyRef"]
+                  assert capability["name"] == "allcallall-external"
+                  assert capability["key"] == key
+                  assert capability.get("optional") is not True
+
+          policies = [item for item in resources if item["kind"] == "NetworkPolicy"]
+          assert any(
+              policy["metadata"]["name"].endswith("default-deny")
+              and set(policy["spec"]["policyTypes"]) == {"Ingress", "Egress"}
+              for policy in policies
+          )
+          sandbox_job_policy = next(
+              policy for policy in policies
+              if policy["metadata"]["name"].endswith("-sandbox-job")
+          )
+          assert sandbox_job_policy["spec"]["policyTypes"] == ["Ingress", "Egress"]
+          assert not sandbox_job_policy["spec"].get("egress")
+          PY
+
+  images:
+    name: Build and scan (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            context: backend
+            dockerfile: backend/Dockerfile
+          - name: sandbox-control-plane
+            context: backend
+            dockerfile: backend/Dockerfile.sandbox
+          - name: sandbox-supervisor
+            context: backend
+            dockerfile: backend/Dockerfile.supervisor
+          - name: elasticsearch-ik
+            context: infra/elasticsearch
+            dockerfile: infra/elasticsearch/Dockerfile
+          - name: agent-runtime
+            context: .
+            dockerfile: agent-runtime/Dockerfile
+          - name: rag-runtime
+            context: .
+            dockerfile: rag-runtime/Dockerfile
+          - name: sandbox-runner
+            context: sandbox-runner
+            dockerfile: sandbox-runner/Dockerfile
+          - name: web
+            context: .
+            dockerfile: infra/Dockerfile.web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build current commit
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          load: true
+          push: false
+          tags: allcallall-ci/${{ matrix.name }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+      - name: Scan image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: allcallall-ci/${{ matrix.name }}:${{ github.sha }}
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

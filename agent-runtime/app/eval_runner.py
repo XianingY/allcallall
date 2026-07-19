@@ -90,9 +90,12 @@ def evaluate_case(case: WorkflowEvalCase) -> WorkflowEvalCaseResult:
     if not prompt_schema_valid:
         errors.append("prompt version or trace schema missing")
 
-    grounding_check_passed = bool(response.grounding_check_result) and response.grounding_check_result.get(
-        "grounded", False
-    )
+    grounding_checked = bool(response.grounding_check_result)
+    grounding_says_grounded = bool(response.grounding_check_result.get("grounded", False))
+    if case.requires_unsupported_claim_guard:
+        grounding_check_passed = grounding_checked and not grounding_says_grounded
+    else:
+        grounding_check_passed = grounding_checked and grounding_says_grounded
     if not grounding_check_passed and case.required_citation_source_types:
         errors.append("grounding check did not pass")
 

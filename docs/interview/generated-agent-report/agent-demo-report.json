@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-29T14:52:57Z",
+  "generated_at": "2026-07-19T07:46:44Z",
   "provider": "rules",
   "planner": {
     "provider": "rules",
@@ -63,8 +63,8 @@
       "negative_pass_rate": 1,
       "citation_hit_rate": 1,
       "citation_error_rate": 0.5718750000000001,
-      "latency_p50_ms": 28,
-      "latency_p95_ms": 34,
+      "latency_p50_ms": 29,
+      "latency_p95_ms": 36,
       "vector_case_rate": 0.625,
       "sql_fallback_case_rate": 0.375
     },
@@ -82,19 +82,11 @@
             "snippet": "Security approval is the main risk. The customer needs a data retention answer before the budget window closes."
           },
           {
-            "chunk_id": 3,
-            "source_title": "Invoice operations memo",
-            "retrieval_mode": "vector",
-            "score": 0,
-            "final_rank": 2,
-            "snippet": "The invoice review focuses on refund timing and billing owner handoff."
-          },
-          {
             "chunk_id": 4,
             "source_title": "Mobile rollout checklist",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 3,
+            "final_rank": 2,
             "snippet": "Mobile onboarding needs network testing and app store release coordination."
           },
           {
@@ -102,13 +94,21 @@
             "source_title": "Training enablement plan",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 4,
+            "final_rank": 3,
             "snippet": "Training should cover agent handoff, translation quality review, and support escalation."
+          },
+          {
+            "chunk_id": 3,
+            "source_title": "Invoice operations memo",
+            "retrieval_mode": "vector",
+            "score": 0,
+            "final_rank": 4,
+            "snippet": "The invoice review focuses on refund timing and billing owner handoff."
           }
         ],
         "mode": "vector",
-        "elapsed": "50.9185ms",
-        "elapsed_ms": 50,
+        "elapsed": "37.283084ms",
+        "elapsed_ms": 37,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -154,8 +154,8 @@
           }
         ],
         "mode": "vector",
-        "elapsed": "27.92625ms",
-        "elapsed_ms": 27,
+        "elapsed": "35.831417ms",
+        "elapsed_ms": 35,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -176,19 +176,11 @@
             "snippet": "Mobile clients need websocket replay after weak network reconnects to avoid missed support messages."
           },
           {
-            "chunk_id": 4,
-            "source_title": "Workflow memory memo",
-            "retrieval_mode": "vector",
-            "score": 0,
-            "final_rank": 2,
-            "snippet": "Agent workflow memory should capture followup commitments."
-          },
-          {
             "chunk_id": 2,
             "source_title": "Budget planning note",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 3,
+            "final_rank": 2,
             "snippet": "The budget owner asked for pricing and renewal timing."
           },
           {
@@ -196,13 +188,21 @@
             "source_title": "Recording export note",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 4,
+            "final_rank": 3,
             "snippet": "Recording export depends on storage retention and privacy approval."
+          },
+          {
+            "chunk_id": 4,
+            "source_title": "Workflow memory memo",
+            "retrieval_mode": "vector",
+            "score": 0,
+            "final_rank": 4,
+            "snippet": "Agent workflow memory should capture followup commitments."
           }
         ],
         "mode": "vector",
-        "elapsed": "27.455542ms",
-        "elapsed_ms": 27,
+        "elapsed": "28.629125ms",
+        "elapsed_ms": 28,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -248,8 +248,8 @@
           }
         ],
         "mode": "vector",
-        "elapsed": "31.299708ms",
-        "elapsed_ms": 31,
+        "elapsed": "35.345084ms",
+        "elapsed_ms": 35,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -295,8 +295,8 @@
           }
         ],
         "mode": "vector",
-        "elapsed": "26.129667ms",
-        "elapsed_ms": 26,
+        "elapsed": "32.475375ms",
+        "elapsed_ms": 32,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -342,8 +342,8 @@
           }
         ],
         "mode": "vector",
-        "elapsed": "28.520958ms",
-        "elapsed_ms": 28,
+        "elapsed": "29.777958ms",
+        "elapsed_ms": 29,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -364,11 +364,19 @@
             "snippet": "Deployment migration for the workspace must finish before onboarding customer admins."
           },
           {
+            "chunk_id": 2,
+            "source_title": "Pricing renewal note",
+            "retrieval_mode": "vector",
+            "score": 0,
+            "final_rank": 2,
+            "snippet": "Renewal pricing depends on pilot seat count."
+          },
+          {
             "chunk_id": 3,
             "source_title": "Security risk memo",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 2,
+            "final_rank": 3,
             "snippet": "Security risk review is waiting for compliance evidence."
           },
           {
@@ -376,21 +384,13 @@
             "source_title": "Transcript export note",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 3,
-            "snippet": "Transcript export needs retention approval."
-          },
-          {
-            "chunk_id": 2,
-            "source_title": "Pricing renewal note",
-            "retrieval_mode": "vector",
-            "score": 0,
             "final_rank": 4,
-            "snippet": "Renewal pricing depends on pilot seat count."
+            "snippet": "Transcript export needs retention approval."
           }
         ],
         "mode": "vector",
-        "elapsed": "27.617709ms",
-        "elapsed_ms": 27,
+        "elapsed": "30.873166ms",
+        "elapsed_ms": 30,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -411,19 +411,11 @@
             "snippet": "The agent workflow should write memory and followup tasks only after approval."
           },
           {
-            "chunk_id": 4,
-            "source_title": "Knowledge import plan",
-            "retrieval_mode": "vector",
-            "score": 0,
-            "final_rank": 2,
-            "snippet": "Knowledge import supports URL and file ingestion."
-          },
-          {
             "chunk_id": 2,
             "source_title": "Mobile network test",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 3,
+            "final_rank": 2,
             "snippet": "Mobile network latency requires TURN fallback testing."
           },
           {
@@ -431,13 +423,21 @@
             "source_title": "Billing invoice memo",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 4,
+            "final_rank": 3,
             "snippet": "Invoice processing is waiting for refund policy review."
+          },
+          {
+            "chunk_id": 4,
+            "source_title": "Knowledge import plan",
+            "retrieval_mode": "vector",
+            "score": 0,
+            "final_rank": 4,
+            "snippet": "Knowledge import supports URL and file ingestion."
           }
         ],
         "mode": "vector",
-        "elapsed": "32.034541ms",
-        "elapsed_ms": 32,
+        "elapsed": "29.925375ms",
+        "elapsed_ms": 29,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -458,19 +458,11 @@
             "snippet": "Knowledge search indexing latency should be measured before enabling the customer workspace."
           },
           {
-            "chunk_id": 4,
-            "source_title": "Agent workflow memo",
-            "retrieval_mode": "vector",
-            "score": 0,
-            "final_rank": 2,
-            "snippet": "Agent workflow approval controls memory writes."
-          },
-          {
             "chunk_id": 2,
             "source_title": "Support handoff",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 3,
+            "final_rank": 2,
             "snippet": "Support handoff requires escalation ownership."
           },
           {
@@ -478,13 +470,21 @@
             "source_title": "Legal privacy note",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 4,
+            "final_rank": 3,
             "snippet": "Legal privacy review is needed for recording export."
+          },
+          {
+            "chunk_id": 4,
+            "source_title": "Agent workflow memo",
+            "retrieval_mode": "vector",
+            "score": 0,
+            "final_rank": 4,
+            "snippet": "Agent workflow approval controls memory writes."
           }
         ],
         "mode": "vector",
-        "elapsed": "27.769875ms",
-        "elapsed_ms": 27,
+        "elapsed": "32.728375ms",
+        "elapsed_ms": 32,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -530,8 +530,8 @@
           }
         ],
         "mode": "vector",
-        "elapsed": "28.067459ms",
-        "elapsed_ms": 28,
+        "elapsed": "31.974334ms",
+        "elapsed_ms": 31,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -577,8 +577,8 @@
           }
         ],
         "mode": "vector",
-        "elapsed": "29.986208ms",
-        "elapsed_ms": 29,
+        "elapsed": "32.917042ms",
+        "elapsed_ms": 32,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -599,11 +599,19 @@
             "snippet": "Analytics quota must be tied to billing budget limits before renewal."
           },
           {
+            "chunk_id": 2,
+            "source_title": "Security approval memo",
+            "retrieval_mode": "vector",
+            "score": 0,
+            "final_rank": 2,
+            "snippet": "Security approval requires risk evidence."
+          },
+          {
             "chunk_id": 3,
             "source_title": "Mobile latency finding",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 2,
+            "final_rank": 3,
             "snippet": "Mobile latency depends on network conditions."
           },
           {
@@ -611,21 +619,13 @@
             "source_title": "Knowledge indexing plan",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 3,
-            "snippet": "Knowledge indexing uses search workers."
-          },
-          {
-            "chunk_id": 2,
-            "source_title": "Security approval memo",
-            "retrieval_mode": "vector",
-            "score": 0,
             "final_rank": 4,
-            "snippet": "Security approval requires risk evidence."
+            "snippet": "Knowledge indexing uses search workers."
           }
         ],
         "mode": "vector",
-        "elapsed": "26.560334ms",
-        "elapsed_ms": 26,
+        "elapsed": "27.971625ms",
+        "elapsed_ms": 27,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -646,11 +646,19 @@
             "snippet": "TURN fallback is required for mobile network latency in restricted customer sites."
           },
           {
+            "chunk_id": 2,
+            "source_title": "Invoice refund plan",
+            "retrieval_mode": "vector",
+            "score": 0,
+            "final_rank": 2,
+            "snippet": "Invoice refund policy needs billing approval."
+          },
+          {
             "chunk_id": 3,
             "source_title": "SSO compliance note",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 2,
+            "final_rank": 3,
             "snippet": "SSO compliance needs audit logs."
           },
           {
@@ -658,21 +666,13 @@
             "source_title": "Recording transcript memo",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 3,
-            "snippet": "Recording transcript storage has privacy constraints."
-          },
-          {
-            "chunk_id": 2,
-            "source_title": "Invoice refund plan",
-            "retrieval_mode": "vector",
-            "score": 0,
             "final_rank": 4,
-            "snippet": "Invoice refund policy needs billing approval."
+            "snippet": "Recording transcript storage has privacy constraints."
           }
         ],
         "mode": "vector",
-        "elapsed": "28.008417ms",
-        "elapsed_ms": 28,
+        "elapsed": "90.609625ms",
+        "elapsed_ms": 90,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -693,11 +693,19 @@
             "snippet": "The customer pilot renewal depends on pricing approval for the expanded seat count."
           },
           {
+            "chunk_id": 2,
+            "source_title": "Workflow memory note",
+            "retrieval_mode": "vector",
+            "score": 0,
+            "final_rank": 2,
+            "snippet": "Workflow memory is updated after approval."
+          },
+          {
             "chunk_id": 3,
             "source_title": "Storage retention memo",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 2,
+            "final_rank": 3,
             "snippet": "Storage retention is controlled by legal policy."
           },
           {
@@ -705,21 +713,13 @@
             "source_title": "Support incident note",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 3,
-            "snippet": "Support incident escalation needs handoff."
-          },
-          {
-            "chunk_id": 2,
-            "source_title": "Workflow memory note",
-            "retrieval_mode": "vector",
-            "score": 0,
             "final_rank": 4,
-            "snippet": "Workflow memory is updated after approval."
+            "snippet": "Support incident escalation needs handoff."
           }
         ],
         "mode": "vector",
-        "elapsed": "32.956375ms",
-        "elapsed_ms": 32,
+        "elapsed": "29.041666ms",
+        "elapsed_ms": 29,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -740,19 +740,11 @@
             "snippet": "Incident support risk is high until escalation ownership is assigned."
           },
           {
-            "chunk_id": 2,
-            "source_title": "Knowledge search memo",
-            "retrieval_mode": "vector",
-            "score": 0,
-            "final_rank": 2,
-            "snippet": "Knowledge search indexing has latency metrics."
-          },
-          {
             "chunk_id": 3,
             "source_title": "Billing analytics note",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 3,
+            "final_rank": 2,
             "snippet": "Billing analytics quota is reviewed monthly."
           },
           {
@@ -760,13 +752,21 @@
             "source_title": "Onboarding workspace plan",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 4,
+            "final_rank": 3,
             "snippet": "Workspace onboarding follows deployment migration."
+          },
+          {
+            "chunk_id": 2,
+            "source_title": "Knowledge search memo",
+            "retrieval_mode": "vector",
+            "score": 0,
+            "final_rank": 4,
+            "snippet": "Knowledge search indexing has latency metrics."
           }
         ],
         "mode": "vector",
-        "elapsed": "29.416375ms",
-        "elapsed_ms": 29,
+        "elapsed": "27.578792ms",
+        "elapsed_ms": 27,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -812,8 +812,8 @@
           }
         ],
         "mode": "vector",
-        "elapsed": "31.779875ms",
-        "elapsed_ms": 31,
+        "elapsed": "28.2965ms",
+        "elapsed_ms": 28,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -859,8 +859,8 @@
           }
         ],
         "mode": "vector",
-        "elapsed": "29.016791ms",
-        "elapsed_ms": 29,
+        "elapsed": "27.834667ms",
+        "elapsed_ms": 27,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -881,19 +881,11 @@
             "snippet": "Customer onboarding training needs a handoff from support to workspace admins."
           },
           {
-            "chunk_id": 2,
-            "source_title": "Search indexing note",
-            "retrieval_mode": "vector",
-            "score": 0,
-            "final_rank": 2,
-            "snippet": "Search indexing latency should be tracked."
-          },
-          {
             "chunk_id": 3,
             "source_title": "Security budget plan",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 3,
+            "final_rank": 2,
             "snippet": "Security budget approval is pending."
           },
           {
@@ -901,13 +893,21 @@
             "source_title": "Recording transcript policy",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 4,
+            "final_rank": 3,
             "snippet": "Recording transcript retention is under review."
+          },
+          {
+            "chunk_id": 2,
+            "source_title": "Search indexing note",
+            "retrieval_mode": "vector",
+            "score": 0,
+            "final_rank": 4,
+            "snippet": "Search indexing latency should be tracked."
           }
         ],
         "mode": "vector",
-        "elapsed": "31.5275ms",
-        "elapsed_ms": 31,
+        "elapsed": "27.861584ms",
+        "elapsed_ms": 27,
         "top_k_hit": true,
         "citation_error_rate": 0.75,
         "recall_at_k": 1,
@@ -930,8 +930,8 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "33.819209ms",
-        "elapsed_ms": 33,
+        "elapsed": "27.317042ms",
+        "elapsed_ms": 27,
         "top_k_hit": true,
         "citation_error_rate": 0,
         "recall_at_k": 1,
@@ -954,8 +954,8 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "29.168667ms",
-        "elapsed_ms": 29,
+        "elapsed": "27.222042ms",
+        "elapsed_ms": 27,
         "top_k_hit": true,
         "citation_error_rate": 0,
         "recall_at_k": 1,
@@ -978,7 +978,7 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "29.795666ms",
+        "elapsed": "29.147209ms",
         "elapsed_ms": 29,
         "top_k_hit": true,
         "citation_error_rate": 0,
@@ -1002,8 +1002,8 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "26.884125ms",
-        "elapsed_ms": 26,
+        "elapsed": "30.373792ms",
+        "elapsed_ms": 30,
         "top_k_hit": true,
         "citation_error_rate": 0,
         "recall_at_k": 1,
@@ -1026,7 +1026,7 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "27.129666ms",
+        "elapsed": "27.624875ms",
         "elapsed_ms": 27,
         "top_k_hit": true,
         "citation_error_rate": 0,
@@ -1050,7 +1050,7 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "26.121583ms",
+        "elapsed": "26.72125ms",
         "elapsed_ms": 26,
         "top_k_hit": true,
         "citation_error_rate": 0,
@@ -1074,8 +1074,8 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "27.022833ms",
-        "elapsed_ms": 27,
+        "elapsed": "26.163167ms",
+        "elapsed_ms": 26,
         "top_k_hit": true,
         "citation_error_rate": 0,
         "recall_at_k": 1,
@@ -1098,8 +1098,8 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "26.7785ms",
-        "elapsed_ms": 26,
+        "elapsed": "28.440834ms",
+        "elapsed_ms": 28,
         "top_k_hit": true,
         "citation_error_rate": 0,
         "recall_at_k": 1,
@@ -1137,8 +1137,8 @@
           }
         ],
         "mode": "vector",
-        "elapsed": "26.263084ms",
-        "elapsed_ms": 26,
+        "elapsed": "29.197083ms",
+        "elapsed_ms": 29,
         "expected_no_answer": true,
         "negative_pass": true,
         "top_k_hit": false,
@@ -1179,8 +1179,8 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "26.159458ms",
-        "elapsed_ms": 26,
+        "elapsed": "28.137709ms",
+        "elapsed_ms": 28,
         "expected_no_answer": true,
         "negative_pass": true,
         "top_k_hit": false,
@@ -1195,11 +1195,19 @@
         "passed": true,
         "hits": [
           {
+            "chunk_id": 3,
+            "source_title": "Legal export guide",
+            "retrieval_mode": "vector",
+            "score": 0,
+            "final_rank": 1,
+            "snippet": "Legal review is needed before transcript export."
+          },
+          {
             "chunk_id": 1,
             "source_title": "Mobile reconnect guide",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 1,
+            "final_rank": 2,
             "snippet": "Mobile clients reconnect through websocket replay after network drops."
           },
           {
@@ -1207,20 +1215,12 @@
             "source_title": "Agent memory guide",
             "retrieval_mode": "vector",
             "score": 0,
-            "final_rank": 2,
-            "snippet": "Agent memory stores approved followup summaries."
-          },
-          {
-            "chunk_id": 3,
-            "source_title": "Legal export guide",
-            "retrieval_mode": "vector",
-            "score": 0,
             "final_rank": 3,
-            "snippet": "Legal review is needed before transcript export."
+            "snippet": "Agent memory stores approved followup summaries."
           }
         ],
         "mode": "vector",
-        "elapsed": "27.556417ms",
+        "elapsed": "27.144666ms",
         "elapsed_ms": 27,
         "expected_no_answer": true,
         "negative_pass": true,
@@ -1262,7 +1262,7 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "27.541708ms",
+        "elapsed": "27.344625ms",
         "elapsed_ms": 27,
         "expected_no_answer": true,
         "negative_pass": true,
@@ -1303,8 +1303,8 @@
           }
         ],
         "mode": "vector",
-        "elapsed": "25.838375ms",
-        "elapsed_ms": 25,
+        "elapsed": "26.157167ms",
+        "elapsed_ms": 26,
         "expected_no_answer": true,
         "negative_pass": true,
         "top_k_hit": false,
@@ -1345,8 +1345,8 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "25.990083ms",
-        "elapsed_ms": 25,
+        "elapsed": "29.181875ms",
+        "elapsed_ms": 29,
         "expected_no_answer": true,
         "negative_pass": true,
         "top_k_hit": false,
@@ -1386,8 +1386,8 @@
           }
         ],
         "mode": "vector",
-        "elapsed": "26.101917ms",
-        "elapsed_ms": 26,
+        "elapsed": "27.807042ms",
+        "elapsed_ms": 27,
         "expected_no_answer": true,
         "negative_pass": true,
         "top_k_hit": false,
@@ -1428,8 +1428,8 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "26.908333ms",
-        "elapsed_ms": 26,
+        "elapsed": "32.299834ms",
+        "elapsed_ms": 32,
         "expected_no_answer": true,
         "negative_pass": true,
         "top_k_hit": false,
@@ -1468,25 +1468,25 @@
             "snippet": "Audit logging captures login and export events."
           },
           {
-            "chunk_id": 2,
-            "source_title": "Security training distractor",
-            "retrieval_mode": "vector",
-            "score": 28,
-            "final_rank": 4,
-            "snippet": "Security training teaches admins how to use the workspace."
-          },
-          {
             "chunk_id": 3,
             "source_title": "Approval workflow distractor",
             "retrieval_mode": "vector",
             "score": 28,
-            "final_rank": 5,
+            "final_rank": 4,
             "snippet": "Approval workflow settings control followup task creation."
+          },
+          {
+            "chunk_id": 2,
+            "source_title": "Security training distractor",
+            "retrieval_mode": "vector",
+            "score": 28,
+            "final_rank": 5,
+            "snippet": "Security training teaches admins how to use the workspace."
           }
         ],
         "mode": "vector",
-        "elapsed": "28.343709ms",
-        "elapsed_ms": 28,
+        "elapsed": "32.446708ms",
+        "elapsed_ms": 32,
         "top_k_hit": true,
         "citation_error_rate": 0.8,
         "recall_at_k": 1,
@@ -1541,8 +1541,8 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "28.963375ms",
-        "elapsed_ms": 28,
+        "elapsed": "36.015417ms",
+        "elapsed_ms": 36,
         "top_k_hit": true,
         "citation_error_rate": 0.8,
         "recall_at_k": 1,
@@ -1596,8 +1596,8 @@
           }
         ],
         "mode": "vector",
-        "elapsed": "49.541417ms",
-        "elapsed_ms": 49,
+        "elapsed": "34.405ms",
+        "elapsed_ms": 34,
         "top_k_hit": true,
         "citation_error_rate": 0.8,
         "recall_at_k": 1,
@@ -1652,7 +1652,7 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "34.104125ms",
+        "elapsed": "34.843791ms",
         "elapsed_ms": 34,
         "top_k_hit": true,
         "citation_error_rate": 0.8,
@@ -1674,19 +1674,11 @@
             "snippet": "Mobile network TURN latency must be measured before restricted-network rollout."
           },
           {
-            "chunk_id": 5,
-            "source_title": "Latency dashboard distractor",
-            "retrieval_mode": "vector",
-            "score": 50,
-            "final_rank": 2,
-            "snippet": "Latency dashboard charts p95 by region."
-          },
-          {
             "chunk_id": 3,
             "source_title": "Network policy distractor",
             "retrieval_mode": "vector",
             "score": 50,
-            "final_rank": 3,
+            "final_rank": 2,
             "snippet": "Network policy lists proxy requirements."
           },
           {
@@ -1694,8 +1686,16 @@
             "source_title": "TURN server distractor",
             "retrieval_mode": "vector",
             "score": 50,
-            "final_rank": 4,
+            "final_rank": 3,
             "snippet": "TURN server credentials rotate monthly."
+          },
+          {
+            "chunk_id": 5,
+            "source_title": "Latency dashboard distractor",
+            "retrieval_mode": "vector",
+            "score": 50,
+            "final_rank": 4,
+            "snippet": "Latency dashboard charts p95 by region."
           },
           {
             "chunk_id": 2,
@@ -1707,8 +1707,8 @@
           }
         ],
         "mode": "vector",
-        "elapsed": "34.831958ms",
-        "elapsed_ms": 34,
+        "elapsed": "35.609167ms",
+        "elapsed_ms": 35,
         "top_k_hit": true,
         "citation_error_rate": 0.8,
         "recall_at_k": 1,
@@ -1763,8 +1763,8 @@
         ],
         "mode": "sql_fallback",
         "fallback_reason": "indexer_unavailable",
-        "elapsed": "33.563166ms",
-        "elapsed_ms": 33,
+        "elapsed": "31.536916ms",
+        "elapsed_ms": 31,
         "top_k_hit": true,
         "citation_error_rate": 0.8,
         "recall_at_k": 1,

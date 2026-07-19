@@ -1,4 +1,4 @@
-import type { components } from "@/api/schema";
+import type { components } from "@allcallall/api-types";
 import { apiDownload, apiRequest } from "@/api/http";
 
 export type Room = components["schemas"]["Room"];

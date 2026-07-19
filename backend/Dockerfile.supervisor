@@ -1,0 +1,23 @@
+FROM --platform=$BUILDPLATFORM golang:1.24.13-alpine AS build
+
+ARG GOPROXY=https://proxy.golang.org,direct
+ARG TARGETOS=linux
+ARG TARGETARCH
+ENV GOPROXY=${GOPROXY}
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download || \
+    (sleep 10 && go mod download) || \
+    (sleep 15 && go mod download) || \
+    go mod download
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH:-amd64} \
+    go build -trimpath -ldflags='-w -s' -o /out/sandbox-supervisor ./cmd/sandbox-supervisor
+
+FROM scratch
+COPY --from=build --chmod=0555 /out/sandbox-supervisor /sandbox-supervisor
+USER 65532:65532
+ENTRYPOINT ["/sandbox-supervisor"]

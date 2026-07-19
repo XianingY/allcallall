@@ -1,5 +1,9 @@
 # Resume Eval
 
+This is a deterministic regression artifact, not a production KPI report. The current live
+acceptance path is documented in [Interview Chain](interview-chain.md) and must pass
+`make interview-smoke && make interview-chaos` before quoting the chain as runnable.
+
 This page is the stable entry point for resume-friendly quantitative evidence for the AllCallAll Agent system. The generated snapshot lives in [`generated-resume-eval/resume-eval.md`](generated-resume-eval/resume-eval.md).
 
 For user-experience-oriented scoring that is intentionally kept separate from reproducible KPI artifacts, see [`agent-ux-eval.md`](agent-ux-eval.md).
@@ -42,6 +46,10 @@ Current resume-eval numbers are intentionally scoped:
 - Benchmark runtime: temporary SQLite with local worker execution
 - Goal: prove regression stability, safety gates, and pipeline stability
 
+The `Task eval runtime: legacy_go` field in the generated report is intentional: this combined
+CLI still uses the legacy Go task fixture harness. Python LangGraph quality is reported separately
+by `make python-agent-eval` (`9/9` current fixtures) and Python RAG by `make python-rag-eval`.
+
 This path is suitable for statements such as:
 
 - planner, RAG, workflow, and task-eval cases pass under a deterministic regression harness
@@ -61,7 +69,7 @@ As of the latest local snapshot after the expanded RAG fixture update:
 - Workflow eval: current fixture set `3/3` passed, approval interception rate `66.7%`, meeting transcript coverage `100%`
 - Black-box task eval: current fixture set `8/8` passed, used for task completion / tool intent / approval safety / grounding checks
 - Local Agent/outbox benchmark: `25/25` ready runs, `0` failed runs, latest embedded benchmark records execute-run p95, `7.0` tool calls per run, and `3.0` context chunks per run
-- Live local API QPS snapshot: under isolated Docker MySQL/Redis, live Gin backend, `mock_llm`, 20 concurrency and 60 seconds per scenario, `GET messages` reached `587.99` QPS / p95 `63 ms`, `POST message` reached `47.71` QPS / p95 `574 ms`, and `POST agent/runs` create/enqueue reached `70.81` QPS / p95 `492 ms`, all with `0%` error rate
+- Historical live local API QPS snapshot: retained for context only; it was measured before the current Compose chain and is not a current acceptance or capacity claim.
 
 When writing resume bullets, prefer the generated markdown snapshot plus one supporting raw artifact path instead of copying numbers by hand from multiple documents.
 

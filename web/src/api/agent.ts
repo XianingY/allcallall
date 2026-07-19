@@ -1,4 +1,4 @@
-import type { components } from "@/api/schema";
+import type { components } from "@allcallall/api-types";
 import { apiRequest, getAccessToken, getOrganizationId } from "@/api/http";
 import { runtimeConfig } from "@/lib/runtime-config";
 
@@ -16,6 +16,7 @@ const query = (values: Record<string, string | number | undefined>) => { const p
 
 export const createAgentRun = (conversationId: number, goal: string) => apiRequest<AgentRunResult>("/agent/runs", { method: "POST", body: JSON.stringify({ conversation_id: conversationId, goal }) });
 export const getAgentRun = (id: number) => apiRequest<AgentRunResult>(`/agent/runs/${id}`);
+export const submitAgentToolOutputs = (id: number, toolCallId: string, action: "approve" | "reject") => apiRequest<AgentRunResult>(`/agent/runs/${id}/submit-tool-outputs`, { method: "POST", body: JSON.stringify({ outputs: [{ tool_call_id: toolCallId, action }] }) });
 export const getAgentRunEvents = (id: number) => apiRequest<{ events: Array<Record<string, unknown>> }>(`/agent/runs/${id}/events`).then((value) => value.events ?? []);
 export const createWorkflow = (conversationId: number, goal: string, preset: string) => apiRequest<WorkflowResult>("/agent/workflows", { method: "POST", body: JSON.stringify({ conversation_id: conversationId, goal, preset }) });
 export const listWorkflows = (conversationId?: number) => apiRequest<{ workflows: WorkflowResult[] }>(`/agent/workflows${query({ conversation_id: conversationId, limit: 25 })}`).then((value) => value.workflows ?? []);
@@ -33,4 +34,3 @@ export async function streamAgentRun(id: number, signal: AbortSignal, onEvent: (
   const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
   while (true) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const blocks = buffer.split("\n\n"); buffer = blocks.pop() ?? ""; for (const block of blocks) { const data = block.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n"); if (data) { try { onEvent(JSON.parse(data) as Record<string, unknown>); } catch { /* ignore malformed stream events */ } } } }
 }
-

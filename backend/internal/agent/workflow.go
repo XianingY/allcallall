@@ -21,6 +21,7 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 		goal = workflowPresetDefaultGoal(preset)
 	}
 	idempotencyKey := strings.TrimSpace(in.IdempotencyKey)
+	dedupeKey := nonEmptyStringPointer(idempotencyKey)
 	if in.ConversationID == 0 {
 		return nil, ErrConversationAccessDenied
 	}
@@ -54,8 +55,10 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 			workflowVersion = "meeting_agent_v1"
 		}
 		runtimeName := WorkflowRuntimeGo
+		runtimeOwner := WorkflowRuntimeLegacyGo
 		if s.workflowRuntime != nil && s.workflowRuntime.Supports(models.WorkflowRun{Preset: preset}) {
 			runtimeName = s.workflowRuntime.Name()
+			runtimeOwner = WorkflowRuntimePythonLangGraph
 			workflowVersion = "meeting_agent_langgraph_v1"
 		}
 		agentRun := models.AgentRun{
@@ -65,6 +68,7 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 			IdempotencyKey:    idempotencyKey,
 			RequestID:         trace.RequestID(ctx),
 			Source:            models.AgentRunSourceWorkflow,
+			RuntimeOwner:      runtimeOwner,
 			Role:              "workflow",
 			Status:            models.AgentRunStatusPending,
 			PromptVersion:     CurrentWorkflowPromptVersion,
@@ -80,10 +84,12 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 			ConversationID:    in.ConversationID,
 			AgentRunID:        &agentRun.ID,
 			IdempotencyKey:    idempotencyKey,
+			DedupeKey:         dedupeKey,
 			RequestID:         trace.RequestID(ctx),
 			Status:            models.WorkflowRunStatusPending,
 			WorkflowType:      workflowType,
 			WorkflowVersion:   workflowVersion,
+			RuntimeOwner:      runtimeOwner,
 			Preset:            preset,
 			PromptVersion:     CurrentWorkflowPromptVersion,
 			ToolSchemaVersion: CurrentToolSchemaVersion,
@@ -145,6 +151,11 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 		}
 		return nil
 	}); err != nil {
+		if dedupeKey != nil {
+			if existing, findErr := s.findWorkflowByIdempotencyKey(ctx, organizationID, userID, in.ConversationID, idempotencyKey); findErr == nil && existing != nil {
+				return s.buildWorkflowResult(ctx, *existing)
+			}
+		}
 		return nil, err
 	}
 	return s.buildWorkflowResult(ctx, workflow)
@@ -229,26 +240,30 @@ func (s *Service) ProcessWorkflowRun(ctx context.Context, workflowRunID uint64) 
 
 	now := time.Now().UTC()
 	leaseUntil := now.Add(workflowRunLeaseDuration)
+	leaseToken, err := newExecutionLeaseToken()
+	if err != nil {
+		return nil, err
+	}
 	update := s.db.WithContext(ctx).Model(&models.WorkflowRun{}).
 		Where(
-			"id = ? AND (status = ? OR status = ? OR (status = ? AND attempts < ?) OR (status = ? AND (lease_until IS NULL OR lease_until <= ?)))",
+			"id = ? AND (status = ? OR (status = ? AND attempts < ?) OR (status = ? AND (lease_until IS NULL OR lease_until <= ?)))",
 			run.ID,
 			models.WorkflowRunStatusPending,
-			models.WorkflowRunStatusRequiresAction,
 			models.WorkflowRunStatusFailed,
 			workflowRunMaxAttempts,
 			models.WorkflowRunStatusRunning,
 			now,
 		).
 		Updates(map[string]any{
-			"status":        models.WorkflowRunStatusRunning,
-			"attempts":      gorm.Expr("attempts + 1"),
-			"started_at":    now,
-			"lease_until":   leaseUntil,
-			"state_json":    workflowStateJSON(run, map[string]any{"phase": "running"}),
-			"error_message": "",
-			"completed_at":  nil,
-			"updated_at":    now,
+			"status":                models.WorkflowRunStatusRunning,
+			"attempts":              gorm.Expr("attempts + 1"),
+			"started_at":            now,
+			"lease_until":           leaseUntil,
+			"execution_lease_token": leaseToken,
+			"state_json":            workflowStateJSON(run, map[string]any{"phase": "running"}),
+			"error_message":         "",
+			"completed_at":          nil,
+			"updated_at":            now,
 		})
 	if update.Error != nil {
 		return nil, update.Error
@@ -264,25 +279,32 @@ func (s *Service) ProcessWorkflowRun(ctx context.Context, workflowRunID uint64) 
 	}
 	s.syncBackingAgentRun(ctx, run, models.AgentRunStatusRunning, "")
 
-	if s.shouldUseExternalWorkflowRuntime(run) {
+	if run.RuntimeOwner == WorkflowRuntimePythonLangGraph && s.shouldUseExternalWorkflowRuntime(run) {
 		result, err := s.processWorkflowRunWithExternalRuntime(ctx, run)
 		if err != nil {
-			if workflowRuntimeStrictFromEnv() {
-				s.failWorkflowRun(ctx, run, err)
+			if isDeferredRunExecution(err) {
+				if releaseErr := s.deferWorkflowRun(ctx, run, err); releaseErr != nil {
+					return nil, releaseErr
+				}
 				return nil, err
 			}
-			_ = s.appendWorkflowHistory(ctx, run, "runtime_fallback", "workflow_run", &run.ID, map[string]any{
-				"from_runtime": s.workflowRuntime.Name(),
-				"to_runtime":   WorkflowRuntimeGo,
-				"error":        err.Error(),
-			})
-			_ = s.db.WithContext(ctx).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
-				"state_json": workflowStateJSON(run, map[string]any{"phase": "runtime_fallback", "runtime": WorkflowRuntimeGo, "fallback_from": s.workflowRuntime.Name()}),
-				"updated_at": time.Now().UTC(),
-			}).Error
-		} else {
-			return result, nil
+			if errors.Is(err, ErrCheckpointTransactionTooLarge) {
+				run.Attempts = workflowRunMaxAttempts
+			}
+			s.failWorkflowRun(ctx, run, err)
+			return nil, err
 		}
+		return result, nil
+	}
+	if run.RuntimeOwner == WorkflowRuntimePythonLangGraph {
+		err := fmt.Errorf("%w: checkpoint-owned workflow runtime is unavailable", ErrWorkflowRuntimeUnavailable)
+		s.failWorkflowRun(ctx, run, err)
+		return nil, err
+	}
+	if run.RuntimeOwner != "" && run.RuntimeOwner != WorkflowRuntimeLegacyGo {
+		err := fmt.Errorf("unsupported workflow runtime owner %q", run.RuntimeOwner)
+		s.failWorkflowRun(ctx, run, err)
+		return nil, err
 	}
 
 	conversationCtx, err := s.loadConversationContext(ctx, run.OrganizationID, run.UserID, run.ConversationID, run.Goal)
@@ -325,6 +347,12 @@ func (s *Service) ProcessWorkflowRun(ctx context.Context, workflowRunID uint64) 
 		return s.buildWorkflowResult(ctx, updated)
 	}
 	if err := s.executeCommitResultTask(ctx, run); err != nil {
+		if isDeferredRunExecution(err) {
+			if releaseErr := s.deferWorkflowRun(ctx, run, err); releaseErr != nil {
+				return nil, releaseErr
+			}
+			return nil, err
+		}
 		s.failWorkflowRun(ctx, run, err)
 		return nil, err
 	}
@@ -333,6 +361,32 @@ func (s *Service) ProcessWorkflowRun(ctx context.Context, workflowRunID uint64) 
 		return nil, err
 	}
 	return s.buildWorkflowResult(ctx, updated)
+}
+
+func (s *Service) deferWorkflowRun(ctx context.Context, run models.WorkflowRun, cause error) error {
+	message := ""
+	if cause != nil {
+		message = cause.Error()
+	}
+	updated := s.db.WithContext(context.WithoutCancel(ctx)).Model(&models.WorkflowRun{}).
+		Where("id = ? AND execution_lease_token = ? AND status = ?", run.ID, run.ExecutionLeaseToken, models.WorkflowRunStatusRunning).
+		Updates(map[string]any{
+			"status":                models.WorkflowRunStatusPending,
+			"attempts":              gorm.Expr("CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END"),
+			"lease_until":           nil,
+			"execution_lease_token": "",
+			"completed_at":          nil,
+			"error_message":         message,
+			"updated_at":            time.Now().UTC(),
+		})
+	if updated.Error != nil {
+		return updated.Error
+	}
+	if updated.RowsAffected != 1 {
+		return fmt.Errorf("%w: workflow execution lease was lost while deferring retry", ErrWorkflowRuntimeConflict)
+	}
+	s.syncBackingAgentRun(ctx, run, models.AgentRunStatusPending, message)
+	return nil
 }
 
 func (s *Service) ProcessDueWorkflowTimers(ctx context.Context, limit int) ([]uint64, error) {

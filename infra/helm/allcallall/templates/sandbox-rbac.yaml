@@ -1,0 +1,34 @@
+{{- if .Values.components.sandboxJobs.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "allcallall.fullname" . }}-sandbox-jobs
+  labels:
+    {{- include "allcallall.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["create", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "allcallall.fullname" . }}-sandbox-jobs
+  labels:
+    {{- include "allcallall.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "allcallall.serviceAccountName" (dict "root" . "component" "sandbox-control-plane") }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "allcallall.fullname" . }}-sandbox-jobs
+{{- end }}

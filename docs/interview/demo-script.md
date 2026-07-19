@@ -1,120 +1,140 @@
-# Interview Demo Script
+# AllCallAll 五分钟面试演示脚本
 
-This script is optimized for a backend/AI Agent interview. It keeps the story focused on engineering evidence: deterministic Agent evaluation, async outbox execution, durable realtime replay, authenticated WebSocket replay, and an optional microservice-friendly infrastructure path.
+目标不是把所有功能点一遍，而是用一条真实链路回答五个问题：解决什么业务问题、
+为什么拆 Go/Python、工具为什么不能直连、故障后如何恢复、哪些能力仍只是生产设计。
 
-## 5-Minute Demo Path
-
-1. Start with the positioning: AllCallAll is an AI-powered realtime collaboration backend, not primarily a mobile app demo.
-2. Run the local demo command:
+## 演示前准备
 
 ```bash
 make interview-demo
 ```
 
-3. Point to the generated report directory printed at the end.
-4. Explain the four artifacts:
+命令完成后使用终端打印的账号登录 `http://localhost:3000/agent-tools`。默认 rules
+Provider 不依赖外部模型或网络；不要提前手工改数据库或准备 ID。
 
-- `agent-eval.json`: deterministic Agent eval cases for summary, action items, next step, and risk flags.
-- `interview-bench.json`: Agent run queue, outbox drain, tool calls, memory writes, messages, and follow-up tasks.
-- `realtime-replay-bench.json`: durable `chat_events` write/replay behavior with recipient scoping.
-- `chat-ws-replay-bench.json`: authenticated `/api/v1/chat/ws` replay through an in-process Gin/WebSocket server.
-
-## Suggested Talking Points
-
-- Agent reliability: `POST /agent/runs` creates a pending run and enqueues `agent.run.requested`; the worker executes the run and records steps, tool calls, memory, transcript references, and outbox events.
-- Tool boundary: read-only tools gather context, while side-effect tools write conversation messages, tasks, and memory. The registry documents schemas, permissions, and idempotency key templates.
-- Realtime reliability: replay is based on durable event IDs and sequence numbers, not only live WebSocket delivery.
-- Determinism: the default demo does not require external LLM keys, MySQL, Redis, JWTs, or a running backend.
-- Evolution path: the same code can run as a modular monolith, split workers, or an optional gRPC/Kafka/Elasticsearch demo without changing client-facing APIs.
-- Meeting transcription: recording stop can enqueue `recording.transcription.requested`; transcript segments are stored separately from older call subtitles and become Agent context.
-
-## Live Backend Variant
-
-Use this only when Docker and local database services are available. For the strongest live evidence, run the full live suite:
+备用检查：
 
 ```bash
-make interview-live-suite
+make interview-status
+make interview-smoke
 ```
 
-It starts MySQL/Redis, seeds interview data, starts the backend if needed, logs in the seeded owner, runs Agent HTTP smoke, runs chat WebSocket smoke, captures `/api/v1/metrics`, and writes a Markdown report under `/tmp/allcallall-interview-live-suite-*`.
+## 0:00-0:45 业务问题
 
-To demonstrate the modular-monolith-to-worker evolution path, run:
+打开“Agent 工具”页，展示 `Interview Support MCP`、organization scope、active
+revision 和三个工具。
+
+建议表述：
+
+> 这个项目解决的是企业 Agent 接第三方工具后的权限、审批、恢复和审计问题。
+> 普通聊天 Demo 只证明模型会调用函数；这里要证明写操作不能绕过业务权限，进程重启后
+> 能从 checkpoint 恢复，而且重复请求不会创建第二个外部工单。
+
+指出 `lookup_policy/get_ticket` 是 read，`create_support_ticket` 是 write。所有工具名
+都是 `mcp.{installation_id}.{tool_name}`，revision 和风险由 Go 平台固化。
+
+## 0:45-1:40 架构边界
+
+打开 [主演示链路](interview-chain.md) 的架构图。
+
+建议表述：
+
+> Go/MySQL 是用户、组织、审批、审计和工具执行的权威；Python/LangGraph 是 graph
+> 节点和 checkpoint 的权威。Python 只能拿到 Go 授权后的 catalog，执行也必须回到
+> Go Tool Gateway，再经过 Sandbox Runner。这样模型层没有 Vault、Sandbox 或 MCP
+> 的直连权限。
+
+解释 outbox：创建 run 和写 `agent.run.requested` 在同一业务事务；worker 失败可以重试，
+handler 不等待长耗时 Agent。
+
+## 1:40-2:30 只读工具链路
+
+在 `lookup_policy` 行点击“Agent Lab”。页面自动带入 conversation、ReAct 模式和目标，
+点击“启动 ReAct”。
+
+展示：
+
+- run/step/tool trace；
+- MCP installation、revision 和 execution result；
+- 工具结果来源标记为不可信 MCP 数据；
+- read 工具不需要审批。
+
+建议表述：
+
+> 默认规则 Provider 不是为了假装智能，而是为了让现场演示可重复。切换真实
+> OpenAI-compatible Provider 后仍走同一结构化工具契约。MCP 返回只作为不可信数据，
+> 不能改写 system policy 或风险等级。
+
+## 2:30-3:40 写工具、审批和恢复
+
+回到工具页，在 `create_support_ticket` 行进入 Agent Lab，启动 ReAct。展示
+`requires_action`、checkpoint id/version、revision、风险和审批原因。
+
+此时在终端运行：
 
 ```bash
-make interview-microservice-demo
+make interview-chaos
 ```
 
-This starts the API with `EMBEDDED_WORKERS=0`, then starts `agent-worker`, `outbox-worker`, and `cleanup-worker` as separate processes. It creates Agent runs through the API and waits for the standalone Agent worker to complete them.
+脚本会重启 Agent Runtime、批准暂停中的请求并验证恢复。关键成功行：
 
-To demonstrate the microservice and data-infrastructure path, run the optional infrastructure profile first:
+```text
+write chain passed: ... resumed from checkpoint, execution=1, external_tickets=1
+```
+
+建议表述：
+
+> LangGraph interrupt 先把 approval identity、参数摘要和 tool identity 写入 MySQL
+> checkpoint；Go 再保存审批。批准后 Go 带 expected checkpoint version 调 resume。
+> Python 原子推进版本后，Go 才执行外部工具。MCP SQLite 对 idempotency key 唯一，
+> Go execution 对 run/call 唯一，所以重试不产生第二次业务副作用。
+
+## 3:40-4:25 中文检索与可观测性
+
+终端运行：
 
 ```bash
-docker compose -f infra/docker-compose.yml --profile microservices --profile interview-infra up
+make interview-smoke
 ```
 
-Then demonstrate the three extracted capabilities:
+说明 smoke 不是只做 health check，它还验证：
 
-- gRPC: start `cmd/user-service`, then start the API with `USER_SERVICE_GRPC_ADDR`.
-- Kafka: configure `KAFKA_BROKERS`, run `cmd/outbox-worker` and `cmd/data-worker`, then end a room and inspect `room_settlements`.
-- Elasticsearch: configure `ELASTICSEARCH_URL`, run `cmd/search-worker`, create messages, then query `/api/v1/search/messages?q=<keyword>`.
+- Elasticsearch 的 `ik_smart` 能拆分“腾讯全栈 Agent 工具审批流程”；
+- 中文知识源通过公共 API 创建并被 search-worker 索引；
+- RAG `source_types=[knowledge]` 不泄漏 message/memory；
+- jieba grounding 正例通过、无关“预算已批准”负例拒绝；
+- Go、Agent、RAG、Runner 的 metrics endpoint 均包含预期 counter；
+- service log 和 MySQL dump 中不存在 MCP bearer token。
 
-Only claim measured latency or throughput numbers after capturing them in [performance-report.md](performance-report.md). Otherwise present these as executable architecture evidence.
+## 4:25-5:00 取舍与诚实边界
 
-For a lighter seed-only live path:
+建议表述：
+
+> Compose 为了现场稳定，使用 OpenBao dev mode、显式 interview 私网 DNS trust 和
+> embedded worker；生产设计使用外部 OpenBao、独立 worker、NetworkPolicy 和 gVisor。
+> 我没有把 Kubernetes 模板说成已经跑过的商业集群，也没有把 rules fixture 的 100%
+> 说成真实模型准确率。当前能证明的是链路、事务、幂等、安全失败和恢复语义。
+
+最后给出最重要的工程取舍：
+
+1. MySQL 同时承载业务事务和 checkpoint，牺牲部分解耦，换来面试规模下可证明的一致性。
+2. Go 掌握 side effect，Python 只掌握 graph，减少动态运行时越权面。
+3. 默认 rules Provider 保证离线确定性，真实 Provider 必须显式启用并失败关闭。
+4. Compose 证明链路；Kubernetes/gVisor 证明生产隔离设计，两者不混为一谈。
+
+## 演示失败时的恢复顺序
 
 ```bash
-make interview-demo-live
+make interview-status
+make interview-smoke
+docker compose --env-file /tmp/allcallall-interview-${USER}/interview.env \
+  -f infra/docker-compose.yml -f infra/docker-compose.interview.yml logs --tail=100
 ```
 
-This starts MySQL/Redis through `scripts/development/start-services.sh` and runs `backend/cmd/interview-seed` with `CONFIG_PATH=./configs/config.yaml`.
+优先讲清失败点，不要现场绕过审批或改库。所有阶段提交都已推送，可以按 commit 回退。
 
-After starting the backend in another terminal:
+## 演示后清理
 
 ```bash
-cd backend
-CONFIG_PATH=./configs/config.yaml go run ./cmd/server/main.go
+make interview-down
 ```
-
-Inspect health and metrics:
-
-```bash
-curl -s http://localhost:8080/api/v1/health
-curl -s http://localhost:8080/api/v1/metrics
-```
-
-After logging in and obtaining a JWT, run live smoke scripts:
-
-```bash
-BASE_URL=http://localhost:8080 \
-TOKEN=<jwt> \
-ORGANIZATION_ID=<id> \
-CONVERSATION_ID=<id> \
-./scripts/load/agent-run-smoke.sh
-```
-
-```bash
-WS_URL=ws://localhost:8080/api/v1/chat/ws \
-TOKEN=<jwt> \
-ORGANIZATION_ID=<id> \
-node scripts/load/ws-connections.mjs
-```
-
-## Common Interview Questions
-
-- Why not call an LLM directly from the handler?
-  The handler only creates an auditable run. Planner execution, tool calls, idempotency, and retries are backend-owned and observable.
-
-- Why keep a rules provider?
-  It gives deterministic CI/eval behavior and a stable fallback when a real provider is unavailable.
-
-- Where is the distributed-systems part?
-  Outbox events, WebSocket replay, idempotency keys, request IDs, metrics, and durable event storage are the core reliability mechanisms.
-
-- Why add gRPC if the monolith still works?
-  It proves a narrow synchronous service boundary for auth/user lookup while keeping external APIs unchanged. It is a safer extraction than splitting every CRUD module.
-
-- Why add Kafka if there is already an outbox?
-  The outbox protects the database transaction; Kafka decouples downstream consumers and absorbs bursts. The room-settlement path shows outbox-to-Kafka as a safe bridge.
-
-- Why add Elasticsearch instead of SQL LIKE?
-  MySQL remains the source of truth, while ES serves the search read model. The API still checks membership after ES returns hits, so search does not bypass authorization.

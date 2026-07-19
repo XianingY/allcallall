@@ -50,23 +50,35 @@ jobs:
         options: >-
           --health-cmd="redis-cli ping"
           --health-interval=10s --health-timeout=5s --health-retries=10
-      elasticsearch:
-        image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
-        env:
-          discovery.type: single-node
-          xpack.security.enabled: "false"
-          ES_JAVA_OPTS: -Xms512m -Xmx512m
-        ports:
-          - 9200:9200
-        options: >-
-          --health-cmd="curl -f http://localhost:9200/_cluster/health"
-          --health-interval=10s --health-timeout=5s --health-retries=20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version: "1.24.x"
           cache-dependency-path: backend/go.sum
+      - name: Start Elasticsearch with IK analysis
+        run: |
+          docker build -t allcallall-elasticsearch-ik:test infra/elasticsearch
+          docker run -d --name allcallall-elasticsearch -p 9200:9200 \
+            -e discovery.type=single-node \
+            -e xpack.security.enabled=false \
+            -e ES_JAVA_OPTS="-Xms512m -Xmx512m" \
+            allcallall-elasticsearch-ik:test
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker logs allcallall-elasticsearch
+              exit 1
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:9200/_cat/plugins | grep -F analysis-ik
+          curl -fsS -X POST http://127.0.0.1:9200/_analyze \
+            -H 'Content-Type: application/json' \
+            -d '{"analyzer":"ik_max_word","text":"供应商审批流程"}' \
+            | grep -F '供应商'
       - name: Start MinIO
         run: |
           docker run -d --name allcallall-minio -p 9000:9000 \
@@ -89,21 +101,10 @@ jobs:
           INTEGRATION_MINIO_ACCESS_KEY: integration-access
           INTEGRATION_MINIO_SECRET_KEY: integration-secret
           INTEGRATION_ELASTICSEARCH_URL: http://127.0.0.1:9200
-        run: go test -tags=integration ./internal/integration
-
-  agent-runtime-image:
-    name: Python Agent Runtime Image
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check published image
-        run: docker manifest inspect ghcr.io/xianingy/allcallall-agent-runtime/agent-runtime:v0.1.0 >/tmp/agent-runtime-manifest.json
-
-  rag-runtime-image:
-    name: Python RAG Runtime Image
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check published image
-        run: docker manifest inspect ghcr.io/xianingy/allcallall-agent-runtime/rag-runtime:v0.1.0 >/tmp/rag-runtime-manifest.json
+        run: |
+          go test -tags=integration ./internal/integration
+          ALLCALLALL_TEST_ELASTICSEARCH_URL=http://127.0.0.1:9200 \
+            go test -count=1 -run '^TestElasticsearchIKChineseSearchContract$' ./internal/search
 
   mobile:
     name: Mobile

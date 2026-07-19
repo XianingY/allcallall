@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "allcallall.fullname" . }}-config
+  labels:
+    {{- include "allcallall.labels" . | nindent 4 }}
+data:
+  APP_ENV: {{ .Values.global.environment | quote }}
+  REDIS_ADDR: {{ .Values.external.redis.address | quote }}
+  OPENBAO_ADDR: {{ .Values.external.openbao.address | quote }}
+  MCP_PLATFORM_ENABLED: {{ .Values.features.mcpPlatformEnabled | quote }}
+  SANDBOX_EXECUTION_ENABLED: {{ .Values.features.sandboxExecutionEnabled | quote }}
+  LANGGRAPH_MYSQL_CHECKPOINT_ENABLED: {{ .Values.features.langgraphMysqlCheckpointEnabled | quote }}
+  LEGACY_GO_RUNTIME_ENABLED: {{ .Values.features.legacyGoRuntimeEnabled | quote }}
+  MCP_PERSONAL_INSTALLATION_LIMIT: {{ .Values.platform.limits.personalInstallationsPerUser | quote }}
+  MCP_ORGANIZATION_INSTALLATION_LIMIT: {{ .Values.platform.limits.publishedInstallationsPerOrganization | quote }}
+  MCP_USER_CONCURRENCY_LIMIT: {{ .Values.platform.limits.concurrentExecutionsPerUser | quote }}
+  MCP_ORGANIZATION_CONCURRENCY_LIMIT: {{ .Values.platform.limits.concurrentExecutionsPerOrganization | quote }}
+  MCP_EXECUTION_TIMEOUT_SECONDS: {{ .Values.platform.limits.executionTimeoutSeconds | quote }}
+  MCP_EXECUTION_CPU_LIMIT: {{ .Values.platform.limits.executionCPU | quote }}
+  MCP_EXECUTION_MEMORY_LIMIT: {{ .Values.platform.limits.executionMemory | quote }}
+  MCP_MAXIMUM_OUTPUT_BYTES: {{ .Values.platform.limits.maximumOutputBytes | quote }}
+  CHECKPOINT_PAYLOAD_RETENTION_DAYS: {{ .Values.platform.retention.checkpointPayloadDays | quote }}
+  TOOL_PAYLOAD_RETENTION_DAYS: {{ .Values.platform.retention.toolPayloadDays | quote }}
+  ORGANIZATION_AUDIT_RETENTION_DAYS: {{ .Values.platform.retention.organizationAuditDays | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.observability.otlpEndpoint | quote }}

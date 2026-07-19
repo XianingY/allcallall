@@ -285,6 +285,190 @@ paths:
                         urls: { type: array, items: { type: string } }
                         username: { type: string }
                         credential: { type: string }
+  /agent/runs:
+    post:
+      operationId: createAgentRun
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateAgentRunRequest' } } }
+      responses:
+        '202': { description: Agent run accepted, content: { application/json: { schema: { $ref: '#/components/schemas/AgentRunResult' } } } }
+  /agent/runs/{runId}:
+    get:
+      operationId: getAgentRun
+      parameters: [{ name: runId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '200': { description: Agent run detail, content: { application/json: { schema: { $ref: '#/components/schemas/AgentRunResult' } } } }
+  /agent/runs/{runId}/events:
+    get:
+      operationId: listAgentRunEvents
+      parameters: [{ name: runId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '200':
+          description: Ordered agent events.
+          content: { application/json: { schema: { type: object, required: [run_id, events], properties: { run_id: { type: integer, format: int64 }, events: { type: array, items: { type: object, additionalProperties: true } } } } } }
+  /agent/runs/{runId}/submit-tool-outputs:
+    post:
+      operationId: submitAgentToolOutputs
+      parameters: [{ name: runId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubmitAgentToolOutputsRequest' }
+      responses:
+        '200':
+          description: Decisions persisted and the run queued for asynchronous worker resume; tools are not executed in this request.
+          content: { application/json: { schema: { $ref: '#/components/schemas/AgentRunResult' } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /agent/workflows:
+    get:
+      operationId: listAgentWorkflows
+      parameters:
+        - { name: conversation_id, in: query, schema: { type: integer, format: int64 } }
+        - { name: limit, in: query, schema: { type: integer, maximum: 100 } }
+      responses:
+        '200': { description: Workflows, content: { application/json: { schema: { type: object, required: [workflows], properties: { workflows: { type: array, items: { $ref: '#/components/schemas/WorkflowResult' } } } } } } }
+    post:
+      operationId: createAgentWorkflow
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateWorkflowRequest' } } }
+      responses:
+        '202': { description: Workflow accepted, content: { application/json: { schema: { $ref: '#/components/schemas/WorkflowResult' } } } }
+  /agent/workflows/{workflowId}:
+    get:
+      operationId: getAgentWorkflow
+      parameters: [{ name: workflowId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '200': { description: Workflow detail, content: { application/json: { schema: { $ref: '#/components/schemas/WorkflowResult' } } } }
+  /agent/workflows/{workflowId}/process:
+    post:
+      operationId: processAgentWorkflow
+      parameters: [{ name: workflowId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses:
+        '200': { description: Workflow result, content: { application/json: { schema: { $ref: '#/components/schemas/WorkflowResult' } } } }
+        '409': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /agent/approvals:
+    get:
+      operationId: listAgentApprovals
+      parameters: [{ name: status, in: query, schema: { type: string } }]
+      responses:
+        '200': { description: Tool approvals, content: { application/json: { schema: { type: object, required: [approvals], properties: { approvals: { type: array, items: { $ref: '#/components/schemas/ToolApproval' } } } } } } }
+  /agent/approvals/{approvalId}/decision:
+    post:
+      operationId: decideAgentApproval
+      parameters: [{ name: approvalId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [decision], properties: { decision: { type: string, enum: [approve, reject] } } } } }
+      responses:
+        '200': { description: Updated workflow, content: { application/json: { schema: { $ref: '#/components/schemas/WorkflowResult' } } } }
+        '409': { $ref: '#/components/responses/Error' }
+  /agent/mcp/installations:
+    get:
+      operationId: listMCPInstallations
+      responses:
+        '200': { description: Visible MCP installations, content: { application/json: { schema: { type: object, required: [installations], properties: { installations: { type: array, items: { $ref: '#/components/schemas/MCPInstallation' } } } } } } }
+    post:
+      operationId: createMCPInstallation
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateMCPInstallationRequest' } } }
+      responses:
+        '201': { description: MCP installation created, content: { application/json: { schema: { type: object, required: [installation], properties: { installation: { $ref: '#/components/schemas/MCPInstallation' } } } } } }
+  /agent/mcp/installations/{installationId}:
+    parameters: [{ name: installationId, in: path, required: true, schema: { type: integer, format: int64 } }]
+    get:
+      operationId: getMCPInstallation
+      responses: { '200': { description: MCP installation, content: { application/json: { schema: { type: object, required: [installation], properties: { installation: { $ref: '#/components/schemas/MCPInstallation' } } } } } } }
+    patch:
+      operationId: updateMCPInstallation
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateMCPInstallationRequest' } } } }
+      responses: { '200': { description: Updated MCP installation, content: { application/json: { schema: { type: object, required: [installation], properties: { installation: { $ref: '#/components/schemas/MCPInstallation' } } } } } } }
+    delete:
+      operationId: deleteMCPInstallation
+      responses: { '204': { description: Installation deleted } }
+  /agent/mcp/installations/{installationId}/validate:
+    post:
+      operationId: validateMCPInstallation
+      parameters: [{ name: installationId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses: { '200': { description: Validation completed, content: { application/json: { schema: { type: object, required: [installation], properties: { installation: { $ref: '#/components/schemas/MCPInstallation' } } } } } } }
+  /agent/mcp/installations/{installationId}/activate:
+    post:
+      operationId: activateMCPInstallation
+      parameters: [{ name: installationId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses: { '200': { description: Installation activated, content: { application/json: { schema: { type: object, required: [installation], properties: { installation: { $ref: '#/components/schemas/MCPInstallation' } } } } } } }
+  /agent/mcp/installations/{installationId}/publish:
+    post:
+      operationId: publishMCPInstallation
+      parameters: [{ name: installationId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses: { '200': { description: Installation published to organization, content: { application/json: { schema: { type: object, required: [installation], properties: { installation: { $ref: '#/components/schemas/MCPInstallation' } } } } } } }
+  /agent/mcp/installations/{installationId}/secrets:
+    post:
+      operationId: putMCPInstallationSecrets
+      parameters: [{ name: installationId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [secrets], properties: { secrets: { type: object, additionalProperties: { type: string } } } } } } }
+      responses: { '200': { description: Secrets stored outside MySQL, content: { application/json: { schema: { type: object, required: [secrets_configured], properties: { secrets_configured: { type: boolean } } } } } } }
+  /agent/mcp/installations/{installationId}/tools:
+    get:
+      operationId: listMCPInstallationTools
+      parameters: [{ name: installationId, in: path, required: true, schema: { type: integer, format: int64 } }]
+      responses: { '200': { description: MCP tools, content: { application/json: { schema: { type: object, required: [tools], properties: { tools: { type: array, items: { $ref: '#/components/schemas/MCPTool' } } } } } } } }
+  /agent/mcp/executions/{executionId}:
+    get:
+      operationId: getMCPExecution
+      parameters: [{ name: executionId, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: MCP execution, content: { application/json: { schema: { type: object, required: [execution], properties: { execution: { $ref: '#/components/schemas/MCPExecution' } } } } } } }
+  /agent/skills:
+    get:
+      operationId: listAgentSkills
+      responses:
+        '200':
+          description: Agent skills
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [skills]
+                properties:
+                  skills: { type: array, items: { $ref: '#/components/schemas/AgentSkill' } }
+    post:
+      operationId: createAgentSkill
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateAgentSkillRequest' } } } }
+      responses:
+        '201':
+          description: Agent skill created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [skill]
+                properties:
+                  skill: { $ref: '#/components/schemas/AgentSkill' }
+  /agent/skills/{skillId}:
+    parameters: [{ name: skillId, in: path, required: true, schema: { type: integer, format: int64 } }]
+    patch:
+      operationId: updateAgentSkill
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateAgentSkillRequest' } } } }
+      responses:
+        '200':
+          description: Agent skill updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [skill]
+                properties:
+                  skill: { $ref: '#/components/schemas/AgentSkill' }
+    delete:
+      operationId: deleteAgentSkill
+      responses: { '204': { description: Agent skill deleted } }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -954,16 +1138,179 @@ components:
         transcription: { oneOf: [{ $ref: '#/components/schemas/RecordingTranscription' }, { type: 'null' }] }
         segments: { type: array, items: { $ref: '#/components/schemas/MeetingTranscriptSegment' } }
         next_after_id: { type: [integer, 'null'], format: int64 }
+    CreateAgentRunRequest:
+      type: object
+      required: [conversation_id]
+      properties:
+        conversation_id: { type: integer, format: int64 }
+        goal: { type: string }
+    CreateWorkflowRequest:
+      type: object
+      required: [conversation_id]
+      properties:
+        conversation_id: { type: integer, format: int64 }
+        goal: { type: string }
+        preset: { type: string, enum: [meeting_brief, follow_up, follow_up_planner, risk_review, context_qa] }
+    AgentToolDecision:
+      type: object
+      required: [tool_call_id, action]
+      properties:
+        tool_call_id: { type: string, minLength: 1, maxLength: 96 }
+        action: { type: string, enum: [approve, reject] }
+    SubmitAgentToolOutputsRequest:
+      type: object
+      required: [outputs]
+      properties:
+        outputs:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/AgentToolDecision' }
+    MCPInstallationDefinition:
+      type: object
+      required: [transport]
+      properties:
+        transport: { type: string, enum: [stdio, http, streamable_http, sse] }
+        image_ref: { type: string, description: OCI reference pinned with @sha256. }
+        endpoint_url: { type: string, format: uri }
+        command: { type: array, items: { type: string } }
+        args: { type: array, items: { type: string } }
+        config: { type: object, additionalProperties: true }
+        network_allowlist: { type: array, items: { type: string } }
+    CreateMCPInstallationRequest:
+      allOf:
+        - { $ref: '#/components/schemas/MCPInstallationDefinition' }
+        - type: object
+          required: [display_name, source_type]
+          properties:
+            scope: { type: string, enum: [personal, organization], default: personal }
+            display_name: { type: string, maxLength: 160 }
+            source_type: { type: string, enum: [oci, https] }
+    UpdateMCPInstallationRequest:
+      type: object
+      properties:
+        display_name: { type: string, maxLength: 160 }
+        definition: { $ref: '#/components/schemas/MCPInstallationDefinition' }
+    MCPInstallationRevision:
+      type: object
+      required: [id, revision, transport, scan_status, created_by, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        revision: { type: integer }
+        transport: { type: string }
+        image_ref: { type: string }
+        image_digest: { type: string }
+        endpoint_url: { type: string }
+        scan_status: { type: string }
+        scan_report: { type: object, additionalProperties: true }
+        created_by: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+    MCPInstallation:
+      type: object
+      required: [id, organization_id, owner_user_id, scope, display_name, source_type, status, secrets_configured, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        owner_user_id: { type: integer, format: int64 }
+        scope: { type: string, enum: [personal, organization] }
+        display_name: { type: string }
+        source_type: { type: string, enum: [oci, https] }
+        status: { type: string, enum: [draft, validating, quarantined, active, disabled, failed] }
+        active_revision_id: { type: [integer, 'null'], format: int64 }
+        secrets_configured: { type: boolean }
+        last_error: { type: string }
+        published_by: { type: [integer, 'null'], format: int64 }
+        published_at: { type: [string, 'null'], format: date-time }
+        latest_revision: { $ref: '#/components/schemas/MCPInstallationRevision' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    MCPTool:
+      type: object
+      required: [id, installation_id, revision_id, name, original_name, input_schema, risk, status, schema_version]
+      properties:
+        id: { type: integer, format: int64 }
+        installation_id: { type: integer, format: int64 }
+        revision_id: { type: integer, format: int64 }
+        name: { type: string }
+        original_name: { type: string }
+        description: { type: string }
+        input_schema: { type: object, additionalProperties: true }
+        output_schema: { type: object, additionalProperties: true }
+        risk: { type: string, enum: [read, write, unknown] }
+        status: { type: string }
+        schema_version: { type: string }
+    MCPExecution:
+      type: object
+      required: [id, execution_id, run_ref, installation_id, revision_id, tool_id, tool_call_id, status, input, output, attempts, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        execution_id: { type: string }
+        run_ref: { type: string }
+        agent_run_id: { type: [integer, 'null'], format: int64 }
+        workflow_run_id: { type: [integer, 'null'], format: int64 }
+        installation_id: { type: integer, format: int64 }
+        revision_id: { type: integer, format: int64 }
+        tool_id: { type: integer, format: int64 }
+        tool_call_id: { type: string }
+        status: { type: string, enum: [queued, starting, running, succeeded, failed, timed_out, canceled] }
+        input: { type: object, additionalProperties: true }
+        output: { type: object, additionalProperties: true }
+        attempts: { type: integer }
+        error_message: { type: string }
+        started_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AgentSkill:
+      type: object
+      required: [id, organization_id, owner_user_id, scope, name, description, instructions, status, version, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        owner_user_id: { type: integer, format: int64 }
+        scope: { type: string, enum: [personal, organization] }
+        name: { type: string }
+        description: { type: string }
+        instructions: { type: string }
+        status: { type: string, enum: [active, disabled] }
+        version: { type: integer }
+        published_by: { type: [integer, 'null'], format: int64 }
+        published_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CreateAgentSkillRequest:
+      type: object
+      required: [name, instructions, tool_ids]
+      properties:
+        scope: { type: string, enum: [personal, organization], default: personal }
+        name: { type: string }
+        description: { type: string }
+        instructions: { type: string }
+        tool_ids: { type: array, items: { type: integer, format: int64 } }
+    UpdateAgentSkillRequest:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        instructions: { type: string }
+        tool_ids: { type: array, items: { type: integer, format: int64 } }
+        status: { type: string, enum: [active, disabled] }
     AgentRun:
       type: object
-      required: [id, organization_id, user_id, conversation_id, source, status, goal, summary, action_items, next_step, risk_flags, attempts, created_at, updated_at]
+      required: [id, organization_id, user_id, conversation_id, source, runtime_owner, status, checkpoint_version, goal, summary, action_items, next_step, risk_flags, attempts, created_at, updated_at]
       properties:
         id: { type: integer, format: int64 }
         organization_id: { type: integer, format: int64 }
         user_id: { type: integer, format: int64 }
         conversation_id: { type: integer, format: int64 }
+        idempotency_key: { type: string }
+        request_id: { type: string }
         source: { type: string }
+        runtime_owner: { type: string, enum: [legacy_go, python_langgraph] }
         status: { type: string }
+        prompt_version: { type: string }
+        tool_schema_version: { type: string }
+        checkpoint_id: { type: string }
+        checkpoint_version: { type: integer, format: int64 }
         goal: { type: string }
         summary: { type: string }
         action_items: { type: array, items: { type: string } }
@@ -971,6 +1318,7 @@ components:
         risk_flags: { type: array, items: { type: string } }
         error_message: { type: string }
         attempts: { type: integer }
+        lease_until: { type: [string, 'null'], format: date-time }
         started_at: { type: [string, 'null'], format: date-time }
         completed_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
@@ -990,13 +1338,23 @@ components:
         updated_at: { type: string, format: date-time }
     AgentToolCall:
       type: object
-      required: [id, run_id, tool_name, status, created_at, updated_at]
+      required: [id, run_id, call_id, tool_name, status, approval_checkpoint_version, created_at, updated_at]
       properties:
         id: { type: integer, format: int64 }
         run_id: { type: integer, format: int64 }
         step_id: { type: [integer, 'null'], format: int64 }
+        call_id: { type: string }
         tool_name: { type: string }
         status: { type: string }
+        tool_schema_version: { type: string }
+        approval_request_id: { type: string }
+        approval_checkpoint_version: { type: integer, format: int64 }
+        mcp_installation_id: { type: integer, format: int64 }
+        mcp_revision_id: { type: integer, format: int64 }
+        mcp_tool_id: { type: integer, format: int64 }
+        decision: { type: string, enum: [approve, reject] }
+        decided_by: { type: [integer, 'null'], format: int64 }
+        decided_at: { type: [string, 'null'], format: date-time }
         input_json: { type: string }
         output_json: { type: string }
         error_message: { type: string }
@@ -1037,22 +1395,53 @@ components:
         run: { $ref: '#/components/schemas/AgentRun' }
         steps: { type: array, items: { $ref: '#/components/schemas/AgentStep' } }
         tool_calls: { type: array, items: { $ref: '#/components/schemas/AgentToolCall' } }
-        trace: { type: array, items: { type: object, additionalProperties: true } }
+        trace: { type: array, items: { $ref: '#/components/schemas/AgentTraceEvent' } }
         citations: { type: array, items: { $ref: '#/components/schemas/AgentCitation' } }
+    AgentTraceEvent:
+      type: object
+      required: [type, name, status, at]
+      properties:
+        type: { type: string }
+        name: { type: string }
+        status: { type: string }
+        ref_id: { type: integer, format: int64 }
+        at: { type: string, format: date-time }
+        metadata: { type: object, additionalProperties: true }
+    AgentRunEvent:
+      type: object
+      required: [sequence, event, status, ref_type, at]
+      properties:
+        sequence: { type: integer }
+        event: { type: string }
+        status: { type: string }
+        ref_type: { type: string }
+        ref_id: { type: integer, format: int64 }
+        name: { type: string }
+        at: { type: string, format: date-time }
+        metadata: { type: object, additionalProperties: true }
     WorkflowRun:
       type: object
-      required: [id, organization_id, user_id, conversation_id, status, goal, summary, action_items, next_step, risk_flags, attempts, created_at, updated_at]
+      required: [id, organization_id, user_id, conversation_id, agent_run_id, idempotency_key, request_id, runtime_owner, status, workflow_type, workflow_version, preset, prompt_version, tool_schema_version, checkpoint_id, checkpoint_version, approval_request_id, state_json, last_event_id, goal, summary, action_items, next_step, risk_flags, error_message, attempts, lease_until, started_at, completed_at, created_at, updated_at]
       properties:
         id: { type: integer, format: int64 }
         organization_id: { type: integer, format: int64 }
         user_id: { type: integer, format: int64 }
         conversation_id: { type: integer, format: int64 }
         agent_run_id: { type: [integer, 'null'], format: int64 }
+        idempotency_key: { type: string }
+        request_id: { type: string }
+        runtime_owner: { type: string, enum: [legacy_go, python_langgraph] }
         status: { type: string }
         workflow_type: { type: string }
         workflow_version: { type: string }
         preset: { type: string }
+        prompt_version: { type: string }
+        tool_schema_version: { type: string }
+        checkpoint_id: { type: string }
+        checkpoint_version: { type: integer, format: int64 }
+        approval_request_id: { type: string }
         state_json: { type: string }
+        last_event_id: { type: [integer, 'null'], format: int64 }
         goal: { type: string }
         summary: { type: string }
         action_items: { type: array, items: { type: string } }
@@ -1060,6 +1449,7 @@ components:
         risk_flags: { type: array, items: { type: string } }
         error_message: { type: string }
         attempts: { type: integer }
+        lease_until: { type: [string, 'null'], format: date-time }
         started_at: { type: [string, 'null'], format: date-time }
         completed_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
@@ -1083,7 +1473,7 @@ components:
         updated_at: { type: string, format: date-time }
     ToolApproval:
       type: object
-      required: [id, workflow_run_id, task_id, organization_id, tool_call_id, tool_name, status, requested_by, requested_at, created_at, updated_at]
+      required: [id, workflow_run_id, task_id, organization_id, tool_call_id, tool_name, status, tool_schema_version, approval_request_id, approval_checkpoint_version, input_json, output_json, error_message, requested_by, decided_by, decision, requested_at, decided_at, created_at, updated_at]
       properties:
         id: { type: integer, format: int64 }
         workflow_run_id: { type: integer, format: int64 }
@@ -1092,6 +1482,12 @@ components:
         tool_call_id: { type: string }
         tool_name: { type: string }
         status: { type: string }
+        tool_schema_version: { type: string }
+        approval_request_id: { type: string }
+        approval_checkpoint_version: { type: integer, format: int64 }
+        mcp_installation_id: { type: integer, format: int64 }
+        mcp_revision_id: { type: integer, format: int64 }
+        mcp_tool_id: { type: integer, format: int64 }
         input_json: { type: string }
         output_json: { type: string }
         error_message: { type: string }
@@ -1102,17 +1498,71 @@ components:
         decided_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    WorkflowAgentMessage:
+      type: object
+      required: [id, workflow_run_id, organization_id, from_role, to_role, message_type, content_json, correlation_id, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        workflow_run_id: { type: integer, format: int64 }
+        task_id: { type: [integer, 'null'], format: int64 }
+        organization_id: { type: integer, format: int64 }
+        from_role: { type: string }
+        to_role: { type: string }
+        message_type: { type: string }
+        content_json: { type: string }
+        correlation_id: { type: string }
+        created_at: { type: string, format: date-time }
+    WorkflowHistory:
+      type: object
+      required: [id, workflow_run_id, organization_id, event_type, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        workflow_run_id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        event_type: { type: string }
+        ref_type: { type: string }
+        ref_id: { type: [integer, 'null'], format: int64 }
+        attributes_json: { type: string }
+        created_at: { type: string, format: date-time }
+    WorkflowSignal:
+      type: object
+      required: [id, workflow_run_id, organization_id, signal_name, status, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        workflow_run_id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        signal_name: { type: string }
+        payload_json: { type: string }
+        status: { type: string }
+        received_by: { type: [integer, 'null'], format: int64 }
+        handled_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    WorkflowTimer:
+      type: object
+      required: [id, workflow_run_id, organization_id, timer_name, fire_at, status, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        workflow_run_id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        timer_name: { type: string }
+        fire_at: { type: string, format: date-time }
+        status: { type: string }
+        payload_json: { type: string }
+        fired_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
     WorkflowResult:
       type: object
       required: [workflow, tasks, messages, approvals, history, signals, timers, citations]
       properties:
         workflow: { $ref: '#/components/schemas/WorkflowRun' }
         tasks: { type: array, items: { $ref: '#/components/schemas/WorkflowTask' } }
-        messages: { type: array, items: { type: object, additionalProperties: true } }
+        messages: { type: array, items: { $ref: '#/components/schemas/WorkflowAgentMessage' } }
         approvals: { type: array, items: { $ref: '#/components/schemas/ToolApproval' } }
-        history: { type: array, items: { type: object, additionalProperties: true } }
-        signals: { type: array, items: { type: object, additionalProperties: true } }
-        timers: { type: array, items: { type: object, additionalProperties: true } }
+        history: { type: array, items: { $ref: '#/components/schemas/WorkflowHistory' } }
+        signals: { type: array, items: { $ref: '#/components/schemas/WorkflowSignal' } }
+        timers: { type: array, items: { $ref: '#/components/schemas/WorkflowTimer' } }
         citations: { type: array, items: { $ref: '#/components/schemas/AgentCitation' } }
     KnowledgeSource:
       type: object

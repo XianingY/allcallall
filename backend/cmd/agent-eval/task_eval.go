@@ -202,7 +202,7 @@ func executeReActTaskEval(ctx context.Context, svc *agent.Service, orgID, userID
 				decisions[toolCall.CallID] = "approve"
 			}
 		}
-		if err := svc.SubmitToolOutputs(ctx, orgID, userID, result.Run.ID, decisions); err != nil {
+		if _, err := svc.SubmitToolOutputs(ctx, orgID, userID, result.Run.ID, decisions); err != nil {
 			return AgentTaskEvalResult{}, err
 		}
 		result, err = svc.ExecuteRun(ctx, result.Run.ID)

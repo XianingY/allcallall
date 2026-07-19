@@ -183,6 +183,9 @@ REDIS_PASSWORD=$(openssl rand -base64 32)
 # JWT
 JWT_SECRET=$(openssl rand -base64 32)
 
+# Agent platform
+OPENBAO_TOKEN=$(openssl rand -hex 32)
+
 # Mail
 MAIL_PASSWORD=your_qq_email_auth_code
 

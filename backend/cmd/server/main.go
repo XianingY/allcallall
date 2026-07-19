@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"github.com/joho/godotenv"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
 	"github.com/allcallall/backend/internal/agent"
 	"github.com/allcallall/backend/internal/auth"
@@ -103,6 +103,16 @@ func main() {
 	outboxStore := events.NewStore(db)
 	collaborationSvc.WithOutbox(outboxStore)
 	agentSvc := agent.NewService(db, counterStore)
+	mcpRuntime, err := appruntime.MCPPlatformFromEnv(db, counterStore, outboxStore, appLogger)
+	if err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to initialize MCP platform")
+	}
+	mcpSvc := mcpRuntime.Service
+	capabilityManager := mcpRuntime.CapabilityManager
+	if mcpRuntime.Enabled {
+		agentSvc.WithToolCapabilityProvider(mcpSvc)
+		agentSvc.WithMCPPlatform(mcpSvc)
+	}
 	agentSvc.WithOutbox(outboxStore)
 	knowledgeSvc := knowledge.NewService(db).WithOutbox(outboxStore)
 	agentSvc.WithKnowledgeRetriever(knowledgeSvc)
@@ -156,6 +166,12 @@ func main() {
 	if err != nil {
 		appLogger.Fatal().Err(err).Msg("failed to initialize search service")
 	}
+	searchInitCtx, searchInitCancel := context.WithTimeout(rootCtx, 10*time.Second)
+	if err := searchSvc.InitMessageIndex(searchInitCtx); err != nil {
+		searchInitCancel()
+		appLogger.Fatal().Err(err).Msg("failed to initialize message search index")
+	}
+	searchInitCancel()
 	appruntime.RegisterSearchOutboxHandlers(outboxProcessor, collaborationSvc, searchSvc, appLogger)
 	appLogger.Info().Str("driver", searchDriver).Msg("message search service enabled")
 	settlementProducer, settlementKafkaEnabled, err := appruntime.KafkaProducerFromEnv()
@@ -247,7 +263,10 @@ func main() {
 	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, mailSvc, rateLimitSvc, counterStore)
 	collaborationHandler := handlers.NewCollaborationHandler(appLogger, collaborationSvc, userSvc, chatHub)
 	collaborationHandler.WithSearchService(searchSvc)
-	agentHandler := handlers.NewAgentHandler(appLogger, agentSvc).WithRedis(redisClient)
+	agentHandler := handlers.NewAgentHandler(appLogger, agentSvc).
+		WithRedis(redisClient).
+		WithMCPPlatform(mcpSvc).
+		WithCapabilityManager(capabilityManager)
 	knowledgeHandler := handlers.NewKnowledgeHandler(appLogger, knowledgeSvc)
 	invitationHandler := handlers.NewInvitationHandler(appLogger, invitationSvc, contactSvc, userSvc)
 	webrtcHandler := handlers.NewWebRTCHandler(appLogger, cfg.WebRTC)
@@ -353,6 +372,7 @@ func main() {
 		outboxEvents := []string{
 			appruntime.EventAgentRunRequested,
 			appruntime.EventWorkflowRequested,
+			appruntime.EventMCPExecutionTerminal,
 			appruntime.EventAgentRunCompleted,
 			appruntime.EventMessageCreated,
 			appruntime.EventSearchMessageIndex,
@@ -365,6 +385,10 @@ func main() {
 		}
 		appruntime.ConfigureOutboxProcessorFromEnv(outboxProcessor, "api-embedded-outbox", outboxEvents...)
 		appruntime.StartCleanupWorker(rootCtx, appLogger, collaborationSvc, refreshSessionSvc)
+		appruntime.StartAgentRecoveryWorker(rootCtx, appLogger, agentSvc)
+		if mcpRuntime.Enabled {
+			appruntime.StartMCPReconciliationWorker(rootCtx, appLogger, mcpSvc)
+		}
 		appruntime.StartOutboxWorker(rootCtx, appLogger, outboxProcessor)
 	} else {
 		appLogger.Info().Msg("embedded workers disabled; expecting standalone workers")
