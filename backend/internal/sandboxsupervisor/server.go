@@ -180,6 +180,10 @@ func (server *Server) HandleConn(ctx context.Context, connection net.Conn) error
 		consumeStderr(stderr, limits.StderrBudget, events)
 	}()
 	go func() {
+		// StdoutPipe and StderrPipe require all reads to finish before Wait.
+		// Otherwise Wait may close a pipe before an unterminated final frame is validated.
+		<-stdoutDone
+		<-stderrDone
 		waitResult <- command.Wait()
 		close(processDone)
 	}()
