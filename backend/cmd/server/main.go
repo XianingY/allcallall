@@ -94,6 +94,8 @@ func main() {
 	}()
 
 	rateLimitSvc := ratelimit.NewService(redisClient)
+	// Coarse global per-client rate limit across all non-health endpoints.
+	engine.Use(server.GlobalRateLimit(rateLimitSvc))
 	commerceSvc := commerce.NewService(db, counterStore)
 	userRepo := user.NewRepository(db)
 	userSvc := user.NewService(userRepo, user.WithPushDeviceSupport())

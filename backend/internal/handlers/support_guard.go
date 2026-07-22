@@ -10,7 +10,11 @@ import (
 )
 
 func requireSupportNetwork(c *gin.Context) bool {
-	if !envBoolean("SUPPORT_INTERNAL_ONLY") {
+	// Secure by default: when SUPPORT_INTERNAL_ONLY is unset the support API is
+	// restricted to the internal network. Operators must explicitly opt out
+	// (SUPPORT_INTERNAL_ONLY=false) to expose it, e.g. for external support
+	// tooling during local development.
+	if !supportInternalOnlyEnabled() {
 		return true
 	}
 	peer := requestIP(c.Request.RemoteAddr)
@@ -25,12 +29,16 @@ func requireSupportNetwork(c *gin.Context) bool {
 	return true
 }
 
-func envBoolean(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
+// supportInternalOnlyEnabled reports whether the support API should be
+// restricted to the internal network. It fails closed: when the env var is
+// unset the API is restricted. Only an explicit opt-out ("false"/"off"/"0"/
+// "no") opens it to every network.
+func supportInternalOnlyEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("SUPPORT_INTERNAL_ONLY"))) {
+	case "0", "false", "no", "off":
 		return false
+	default:
+		return true
 	}
 }
 
