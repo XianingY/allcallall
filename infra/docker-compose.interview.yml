@@ -163,7 +163,7 @@ services:
 
   interview-mcp:
     build:
-      context: ../interview-mcp
+      context: ../../allcallall-agent-runtime/services/interview-mcp
       dockerfile: Dockerfile
     environment:
       INTERVIEW_MCP_BEARER_TOKEN_FILE: /run/secrets/mcp-bearer-token

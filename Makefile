@@ -2,8 +2,8 @@
 # Common commands for development
 
 PYTHON ?= python3
-AGENT_RUNTIME_PYTHON ?= $(if $(wildcard agent-runtime/.venv/bin/python),.venv/bin/python,$(PYTHON))
-RAG_RUNTIME_PYTHON ?= $(if $(wildcard rag-runtime/.venv/bin/python),.venv/bin/python,$(PYTHON))
+AGENT_RUNTIME_PYTHON ?= $(if $(wildcard allcallall-agent-runtime/services/agent-runtime/.venv/bin/python),allcallall-agent-runtime/services/agent-runtime/.venv/bin/python,$(PYTHON))
+RAG_RUNTIME_PYTHON ?= $(if $(wildcard allcallall-agent-runtime/services/rag-runtime/.venv/bin/python),allcallall-agent-runtime/services/rag-runtime/.venv/bin/python,$(PYTHON))
 
 .PHONY: help setup build-android build-ios clean test run-api run-agent-runtime run-rag-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-up interview-smoke interview-chaos interview-status interview-down interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval python-rag-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval ai-agent-jd-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check helm-check
 
@@ -106,12 +106,12 @@ run-api:
 	cd backend && EMBEDDED_WORKERS=$${EMBEDDED_WORKERS:-1} go run ./cmd/server
 
 run-agent-runtime:
-	@echo "Starting Python LangGraph Agent Runtime..."
-	cd agent-runtime && uvicorn app.main:app --reload --port $${PY_AGENT_RUNTIME_PORT:-8090}
+	@echo "Starting Python LangGraph Agent Runtime (standalone repo)..."
+	cd allcallall-agent-runtime/services/agent-runtime && uvicorn allcallall_agent_runtime.main:app --reload --port $${PY_AGENT_RUNTIME_PORT:-8090}
 
 run-rag-runtime:
-	@echo "Starting Python RAG Runtime..."
-	cd rag-runtime && uvicorn app.main:app --reload --port $${PY_RAG_RUNTIME_PORT:-8091}
+	@echo "Starting Python RAG Runtime (standalone repo)..."
+	cd allcallall-agent-runtime/services/rag-runtime && uvicorn allcallall_rag_runtime.main:app --reload --port $${PY_RAG_RUNTIME_PORT:-8091}
 
 run-user-service:
 	@echo "Starting standalone gRPC User Service..."
@@ -242,17 +242,17 @@ task-eval:
 
 agent-runtime-test:
 	@echo "Running Python Agent Runtime tests..."
-	cd agent-runtime && pytest
-	cd agent-runtime && ruff check .
-	cd agent-runtime && mypy .
+	cd allcallall-agent-runtime/services/agent-runtime && pytest
+	cd allcallall-agent-runtime/services/agent-runtime && ruff check .
+	cd allcallall-agent-runtime/services/agent-runtime && mypy .
 
 python-agent-eval:
 	@echo "Running Python LangGraph Agent Runtime eval..."
-	cd agent-runtime && $(AGENT_RUNTIME_PYTHON) -m app.eval_runner --out evals/reports
+	cd allcallall-agent-runtime/services/agent-runtime && $(AGENT_RUNTIME_PYTHON) -m allcallall_agent_runtime.eval_runner --out evals/reports
 
 python-rag-eval:
 	@echo "Running Python RAG Runtime eval..."
-	cd rag-runtime && $(RAG_RUNTIME_PYTHON) -m app.eval_runner --out evals/reports
+	cd allcallall-agent-runtime/services/rag-runtime && $(RAG_RUNTIME_PYTHON) -m allcallall_rag_runtime.eval_runner --out evals/reports
 
 agent-demo-report:
 	@echo "Generating combined Agent demo report..."
@@ -267,8 +267,8 @@ resume-eval:
 ai-portfolio-eval:
 	@echo "Generating AI Agent portfolio eval bundle..."
 	@mkdir -p /tmp/allcallall-go-cache
-	cd agent-runtime && $(AGENT_RUNTIME_PYTHON) -m app.eval_runner --out evals/reports
-	cd rag-runtime && $(RAG_RUNTIME_PYTHON) -m app.eval_runner --out evals/reports
+	cd allcallall-agent-runtime/services/agent-runtime && $(AGENT_RUNTIME_PYTHON) -m allcallall_agent_runtime.eval_runner --out evals/reports
+	cd allcallall-agent-runtime/services/rag-runtime && $(RAG_RUNTIME_PYTHON) -m allcallall_rag_runtime.eval_runner --out evals/reports
 	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/allcallallctl ai-portfolio-eval -provider $${AGENT_PROVIDER:-rules} -out ../docs/interview/generated-ai-portfolio-eval
 
 ai-agent-jd-eval: python-agent-eval python-rag-eval
@@ -312,8 +312,8 @@ verify:
 	cd backend && go test ./...
 	cd web && npm run tsc -- --noEmit
 	cd mobile && npx tsc --noEmit
-	cd agent-runtime && pytest
-	cd rag-runtime && pytest
+	cd allcallall-agent-runtime/services/agent-runtime && pytest
+	cd allcallall-agent-runtime/services/rag-runtime && pytest
 
 # ===========================
 # Development Commands

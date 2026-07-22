@@ -31,12 +31,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Generate AllCallAll AI Agent JD eval bundle")
     parser.add_argument(
         "--agent-report",
-        default="agent-runtime/evals/reports/python-agent-eval.json",
+        default="allcallall-agent-runtime/services/agent-runtime/evals/reports/python-agent-eval.json",
         help="Python Agent Runtime eval JSON",
     )
     parser.add_argument(
         "--rag-report",
-        default="rag-runtime/evals/reports/python-rag-eval.json",
+        default="allcallall-agent-runtime/services/rag-runtime/evals/reports/python-rag-eval.json",
         help="Python RAG Runtime eval JSON",
     )
     parser.add_argument(

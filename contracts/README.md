@@ -27,9 +27,12 @@ referenced by the Go build or tests; treat the standalone repo as canonical.
 2. The Go backend MUST stay wire-compatible with those schemas; the Python
    runtimes validate outbound/inbound payloads against them (`make contracts-check`).
 3. The in-tree `agent-runtime/`, `rag-runtime/`, `shared/`, `sandbox-runner/`,
-   and `interview-mcp/` directories in this main repository are **stale mirrors**
-   (see `DEPRECATED.md` in each). Edits there do not affect the deployed runtime,
-   which is built from the standalone repository.
+   and `interview-mcp/` Python directories were **removed** from this main
+   repository (they were stale mirrors; each carried a `DEPRECATED.md`). The
+   deployed runtime is built exclusively from the standalone repository. The
+   Python runtimes are checked out as a sibling `allcallall-agent-runtime/`
+   during local development (`make run-agent-runtime`, `make interview-up`) and
+   in CI (`platform-ci.yml`).
 
 ## Why two repos
 

@@ -33,3 +33,6 @@ web/node_modules
 web/dist
 web/test-results
 web/playwright-report
+# Standalone Python runtime repo is checked out as a sibling during CI image builds;
+# keep it out of the main repo's Docker build contexts.
+allcallall-agent-runtime

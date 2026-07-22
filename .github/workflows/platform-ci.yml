@@ -21,29 +21,35 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runtime: [agent-runtime, rag-runtime, sandbox-runner]
+        # These runtimes now live in the standalone repo (XianingY/allcallall-agent-runtime).
+        # The in-tree copies were removed; see contracts/README.md.
+        runtime: [agent-runtime, rag-runtime, sandbox-runner, interview-mcp]
     steps:
       - uses: actions/checkout@v7
+        with:
+          repository: XianingY/allcallall-agent-runtime
+          path: allcallall-agent-runtime
+          ref: main
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            shared/pyproject.toml
-            ${{ matrix.runtime }}/pyproject.toml
+            allcallall-agent-runtime/packages/shared/pyproject.toml
+            allcallall-agent-runtime/services/${{ matrix.runtime }}/pyproject.toml
       - name: Install runtime and development dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "./shared[dev]"
-          python -m pip install -e "./${{ matrix.runtime }}[dev]"
+          python -m pip install "./allcallall-agent-runtime/packages/shared[dev]"
+          python -m pip install -e "./allcallall-agent-runtime/services/${{ matrix.runtime }}[dev]"
       - name: Unit tests
-        working-directory: ${{ matrix.runtime }}
+        working-directory: allcallall-agent-runtime/services/${{ matrix.runtime }}
         run: python -m pytest -q
       - name: Ruff
-        working-directory: ${{ matrix.runtime }}
+        working-directory: allcallall-agent-runtime/services/${{ matrix.runtime }}
         run: python -m ruff check .
       - name: Mypy
-        working-directory: ${{ matrix.runtime }}
+        working-directory: allcallall-agent-runtime/services/${{ matrix.runtime }}
         run: python -m mypy .
 
   mysql-checkpoint-contract:
@@ -66,6 +72,11 @@ jobs:
           --health-retries=20
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: XianingY/allcallall-agent-runtime
+          path: allcallall-agent-runtime
+          ref: main
       - uses: actions/setup-go@v6
         with:
           go-version: "1.24.x"
@@ -75,8 +86,8 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            shared/pyproject.toml
-            agent-runtime/pyproject.toml
+            allcallall-agent-runtime/packages/shared/pyproject.toml
+            allcallall-agent-runtime/services/agent-runtime/pyproject.toml
       - name: Bootstrap the ordered MySQL schema
         working-directory: backend
         env:
@@ -90,12 +101,6 @@ jobs:
         env:
           ALLCALLALL_TEST_MYSQL_DSN: "root:root-test-password@tcp(127.0.0.1:3306)/allcallall_contract?parseTime=true&charset=utf8mb4&loc=UTC"
         run: go test -count=1 -run '^(TestMySQLWorkflowRuntimeMigrationUpDownUp|TestMySQLSandboxReceiptMigrationUpDownUp)$' ./internal/runtime
-      - name: Checkout Agent Runtime (standalone repo)
-        uses: actions/checkout@v7
-        with:
-          repository: XianingY/allcallall-agent-runtime
-          path: allcallall-agent-runtime
-          ref: main
       - name: Install Agent Runtime test dependencies
         run: |
           python -m pip install --upgrade pip
@@ -118,6 +123,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: XianingY/allcallall-agent-runtime
+          path: allcallall-agent-runtime
+          ref: main
       - uses: actions/setup-go@v6
         with:
           go-version: "1.24.x"
@@ -144,13 +154,13 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: sandbox-runner/pyproject.toml
+          cache-dependency-path: allcallall-agent-runtime/services/sandbox-runner/pyproject.toml
       - name: Verify Go/Python supervisor contract
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e "./sandbox-runner[dev]"
+          python -m pip install -e "./allcallall-agent-runtime/services/sandbox-runner[dev]"
           (cd backend && CGO_ENABLED=0 go build -trimpath -o /tmp/sandbox-supervisor ./cmd/sandbox-supervisor)
-          (cd sandbox-runner && SANDBOX_SUPERVISOR_BINARY=/tmp/sandbox-supervisor python -m pytest -q tests/test_supervisor_transport.py -k go_supervisor_contract)
+          (cd allcallall-agent-runtime/services/sandbox-runner && SANDBOX_SUPERVISOR_BINARY=/tmp/sandbox-supervisor python -m pytest -q tests/test_supervisor_transport.py -k go_supervisor_contract)
 
   openapi-drift:
     name: OpenAPI Contract Drift
@@ -320,20 +330,26 @@ jobs:
           - name: elasticsearch-ik
             context: infra/elasticsearch
             dockerfile: infra/elasticsearch/Dockerfile
+          # Python runtimes now build from the standalone repo (XianingY/allcallall-agent-runtime).
           - name: agent-runtime
-            context: .
-            dockerfile: agent-runtime/Dockerfile
+            context: allcallall-agent-runtime
+            dockerfile: allcallall-agent-runtime/services/agent-runtime/Dockerfile
           - name: rag-runtime
-            context: .
-            dockerfile: rag-runtime/Dockerfile
+            context: allcallall-agent-runtime
+            dockerfile: allcallall-agent-runtime/services/rag-runtime/Dockerfile
           - name: sandbox-runner
-            context: sandbox-runner
-            dockerfile: sandbox-runner/Dockerfile
+            context: allcallall-agent-runtime/services/sandbox-runner
+            dockerfile: allcallall-agent-runtime/services/sandbox-runner/Dockerfile
           - name: web
             context: .
             dockerfile: infra/Dockerfile.web
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: XianingY/allcallall-agent-runtime
+          path: allcallall-agent-runtime
+          ref: main
       - uses: docker/setup-buildx-action@v4
       - name: Build current commit
         uses: docker/build-push-action@v7

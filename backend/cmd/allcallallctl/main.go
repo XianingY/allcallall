@@ -82,7 +82,7 @@ func runAIPortfolioEval(args []string) error {
 	ragFixture := fs.String("rag-fixture", evals.DefaultRAGEvalFixture, "RAG eval fixture")
 	rerankFixture := fs.String("rerank-fixture", evals.DefaultRerankEvalFixture, "RAG rerank eval fixture")
 	workflowFixture := fs.String("workflow-fixture", evals.DefaultWorkflowEvalFixture, "workflow eval fixture")
-	pythonReportPath := fs.String("python-report", "../agent-runtime/evals/reports/python-agent-eval.json", "optional Python runtime eval report")
+	pythonReportPath := fs.String("python-report", "../allcallall-agent-runtime/services/agent-runtime/evals/reports/python-agent-eval.json", "optional Python runtime eval report")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
