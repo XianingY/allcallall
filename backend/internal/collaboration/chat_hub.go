@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
@@ -16,6 +17,12 @@ type ChatHub struct {
 }
 
 const chatSendBufferSize = 256
+
+// chatWriteDeadline bounds how long a single websocket write may block before
+// the per-connection write goroutine gives up and tears down the connection.
+// Without it a slow/hung client that stops draining its TCP receive buffer
+// would block the writer indefinitely and leak the goroutine.
+const chatWriteDeadline = 10 * time.Second
 
 type chatClient struct {
 	userID uint64
@@ -125,7 +132,11 @@ func (h *ChatHub) writeLoop(ctx context.Context, client *chatClient) {
 			if !ok {
 				return
 			}
+			// Reset the deadline on every write so a hung client eventually
+			// unblocks the writer instead of stalling the goroutine forever.
+			_ = client.conn.SetWriteDeadline(time.Now().Add(chatWriteDeadline))
 			if err := client.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				h.logger.Debug().Err(err).Uint64("user_id", client.userID).Msg("chat websocket write failed")
 				return
 			}
 		}

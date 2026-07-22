@@ -128,6 +128,7 @@ func NewKubernetesRunner(client kubernetes.Interface, config KubernetesRunnerCon
 		config:   config,
 		resolver: net.DefaultResolver,
 		httpClient: &http.Client{
+			Timeout: 35 * time.Second,
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
