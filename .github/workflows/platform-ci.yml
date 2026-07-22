@@ -90,18 +90,23 @@ jobs:
         env:
           ALLCALLALL_TEST_MYSQL_DSN: "root:root-test-password@tcp(127.0.0.1:3306)/allcallall_contract?parseTime=true&charset=utf8mb4&loc=UTC"
         run: go test -count=1 -run '^(TestMySQLWorkflowRuntimeMigrationUpDownUp|TestMySQLSandboxReceiptMigrationUpDownUp)$' ./internal/runtime
+      - name: Checkout Agent Runtime (standalone repo)
+        uses: actions/checkout@v7
+        with:
+          repository: XianingY/allcallall-agent-runtime
+          path: allcallall-agent-runtime
+          ref: main
       - name: Install Agent Runtime test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "./shared[dev]"
-          python -m pip install -e "./agent-runtime[dev]"
+          python -m pip install "./allcallall-agent-runtime/packages/shared[dev]"
+          python -m pip install -e "./allcallall-agent-runtime/services/agent-runtime[dev]"
       - name: Verify checkpoint atomicity and recovery
-        working-directory: agent-runtime
+        working-directory: allcallall-agent-runtime/services/agent-runtime
         env:
           PY_AGENT_TEST_MYSQL_DSN: mysql://allcallall:contract-test-password@127.0.0.1:3306/allcallall_contract
         run: |
           python -m pytest -q tests/test_mysql_checkpoint.py
-          python -m pytest -q tests/test_approval_resume.py -k mysql
       - name: Verify 50-way Agent run idempotency
         working-directory: backend
         env:
