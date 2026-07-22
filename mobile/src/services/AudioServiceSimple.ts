@@ -1,17 +1,27 @@
 /**
- * 简化版音频服务
- * 使用 Web Audio API (react-native-webrtc 内置)
- * 不依赖额外的第三方库
+ * Simplified audio service.
+ *
+ * Plays real notification sounds via expo-av (already a project dependency).
+ * Wire up the actual sound assets by assigning modules in SOUND_ASSETS below;
+ * until then playback stays in safe demo mode (logs only, never crashes).
  */
 
-export type AudioType = "incoming_call" | "ringback";
+import { Audio } from 'expo-av';
 
-// 模拟音频播放的简单实现
-// 注意：此版本为演示用途，实际使用时需要真实的音频文件
+export type AudioType = 'incoming_call' | 'ringback';
+
+// Map each audio type to a bundled asset module. Drop the real sound files
+// (e.g. under mobile/src/assets/audio/) and uncomment the requires to enable
+// real playback:
+//   incoming_call: require('../../assets/audio/incoming_call.wav'),
+//   ringback: require('../../assets/audio/ringback.wav'),
+const SOUND_ASSETS: Partial<Record<AudioType, any>> = {};
+
 class AudioServiceSimple {
   private static instance: AudioServiceSimple;
-  private enabled: boolean = true;
+  private enabled = true;
   private playingAudio: AudioType | null = null;
+  private activeSound: Audio.Sound | null = null;
 
   private constructor() {}
 
@@ -23,7 +33,7 @@ class AudioServiceSimple {
   }
 
   /**
-   * 设置音频提醒开关
+   * Toggle audio alerts on/off.
    */
   public setEnabled(enabled: boolean) {
     this.enabled = enabled;
@@ -33,15 +43,16 @@ class AudioServiceSimple {
   }
 
   /**
-   * 获取当前音频提醒状态
+   * Current audio alert state.
    */
   public isEnabled(): boolean {
     return this.enabled;
   }
 
   /**
-   * 播放音频
-   * 注意：此版本只记录日志，实际音频播放需要真实的音频文件
+   * Play the given notification sound. Uses expo-av when an asset is wired in
+   * SOUND_ASSETS; otherwise no-ops in demo mode. Failures are swallowed so the
+   * caller never crashes on a missing/unsupported asset.
    */
   public async play(audioType: AudioType): Promise<void> {
     if (!this.enabled) {
@@ -50,40 +61,57 @@ class AudioServiceSimple {
 
     this.playingAudio = audioType;
 
-    // TODO: 实现真实的音频播放
-    // 方案1: 使用 react-native-sound
-    // 方案2: 使用 react-native-audio-recorder-player
-    // 方案3: 使用 HTML5 Audio (react-native-webrtc 已支持)
+    const asset = SOUND_ASSETS[audioType];
+    if (!asset) {
+      return;
+    }
 
-    // 这里可以添加真实的音频播放逻辑
-    // 例如：
-    // const sound = new Sound('incoming_call.wav', Sound.MAIN_BUNDLE, ...);
-    // sound.play();
+    try {
+      const { sound } = await Audio.Sound.createAsync(asset, {
+        shouldPlay: true,
+      });
+      this.activeSound = sound;
+    } catch (err) {
+      console.warn('[AudioServiceSimple] playback failed', audioType, err);
+    }
   }
 
   /**
-   * 停止音频
+   * Stop a specific sound.
    */
   public stop(audioType: AudioType): void {
     if (this.playingAudio === audioType) {
       this.playingAudio = null;
     }
+    this.unloadActive();
   }
 
   /**
-   * 停止所有音频
+   * Stop all sounds.
    */
   public stopAll(): void {
     this.playingAudio = null;
+    this.unloadActive();
   }
 
   /**
-   * 释放资源
+   * Release resources.
    */
   public dispose(): void {
-    this.stopAll();
+    this.unloadActive();
+  }
+
+  private async unloadActive(): Promise<void> {
+    if (this.activeSound) {
+      try {
+        await this.activeSound.unloadAsync();
+      } catch (err) {
+        console.warn('[AudioServiceSimple] unload failed', err);
+      }
+      this.activeSound = null;
+    }
   }
 }
 
-// 导出单例实例
+// Export singleton instance.
 export default AudioServiceSimple.getInstance();
