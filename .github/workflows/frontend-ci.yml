@@ -8,12 +8,13 @@ on:
 
 jobs:
   web-ci:
+    name: Web
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: web
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7
     - name: Use Node.js
       uses: actions/setup-node@v5
       with:
@@ -27,14 +28,25 @@ jobs:
       run: npm run typecheck --if-present || npx tsc --noEmit
     - name: Lint
       run: npm run lint --if-present
+    - name: Unit tests with coverage gate
+      # The vite.config thresholds act as a regression floor; this step fails
+      # the build if coverage drops below the configured minimums.
+      run: npm run test:coverage
+    - name: Upload coverage report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: web-coverage
+        path: web/coverage
 
   mobile-ci:
+    name: Mobile
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: mobile
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7
     - name: Use Node.js
       uses: actions/setup-node@v5
       with:
@@ -48,3 +60,5 @@ jobs:
       run: npm run typecheck --if-present || npx tsc --noEmit
     - name: Lint
       run: npm run lint --if-present
+    - name: Unit tests
+      run: npm run test:unit

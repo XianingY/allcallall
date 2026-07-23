@@ -14,7 +14,7 @@ jobs:
         working-directory: backend
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7
 
     - name: Set up Go
       uses: actions/setup-go@v6
@@ -25,5 +25,20 @@ jobs:
     - name: Build
       run: go build -v ./...
 
-    - name: Test
-      run: go test -v -cover ./...
+    - name: Vet
+      run: go vet ./...
+
+    - name: Test with coverage
+      # Runtime/integration tests that need MySQL/Redis are skipped automatically
+      # when their DSN env vars are unset, so this runs the whole tree safely.
+      run: go test -coverprofile=coverage.out -covermode=atomic ./...
+
+    - name: Coverage summary
+      run: go tool cover -func=coverage.out | tail -1
+
+    - name: Upload coverage report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: backend-coverage
+        path: backend/coverage.out

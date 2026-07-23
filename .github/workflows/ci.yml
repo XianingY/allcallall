@@ -12,7 +12,7 @@ jobs:
     name: Backend
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version: "1.24.x"
@@ -51,7 +51,7 @@ jobs:
           --health-cmd="redis-cli ping"
           --health-interval=10s --health-timeout=5s --health-retries=10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version: "1.24.x"
@@ -110,7 +110,7 @@ jobs:
     name: Mobile
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
@@ -133,7 +133,7 @@ jobs:
     name: Web
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
@@ -182,7 +182,7 @@ jobs:
       WEB_SMOKE_SECOND_PASSWORD: ${{ secrets.BETA_E2E_PASSWORD_TWO }}
       WEB_SMOKE_ROOM_ID: ${{ secrets.BETA_E2E_ROOM_ID }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         if: ${{ env.WEB_SMOKE_BASE_URL != '' }}
       - uses: actions/setup-node@v5
         if: ${{ env.WEB_SMOKE_BASE_URL != '' }}
@@ -209,7 +209,7 @@ jobs:
     name: Desktop
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
         with:
           node-version: "24"

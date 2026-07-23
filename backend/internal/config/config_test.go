@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 func resetLoadState() {
@@ -231,5 +232,34 @@ func TestPostProcessRejectsInvalidWebRTCJSON(t *testing.T) {
 	cfg := Config{}
 	if err := cfg.postProcess(); err == nil {
 		t.Fatal("expected invalid ICE JSON error")
+	}
+}
+
+func TestDatabaseConfigApplyDefaults(t *testing.T) {
+	cfg := DatabaseConfig{}
+	cfg.ApplyDefaults()
+	if cfg.MaxOpenConns != 200 {
+		t.Fatalf("MaxOpenConns = %d, want 200", cfg.MaxOpenConns)
+	}
+	if cfg.MaxIdleConns != 50 {
+		t.Fatalf("MaxIdleConns = %d, want 50", cfg.MaxIdleConns)
+	}
+	if cfg.ConnMaxLifetime != 10*time.Minute {
+		t.Fatalf("ConnMaxLifetime = %v, want 10m", cfg.ConnMaxLifetime)
+	}
+	if cfg.ConnMaxIdleTime != 5*time.Minute {
+		t.Fatalf("ConnMaxIdleTime = %v, want 5m", cfg.ConnMaxIdleTime)
+	}
+
+	// Explicit values must be preserved.
+	cfg = DatabaseConfig{
+		MaxOpenConns:    10,
+		MaxIdleConns:    3,
+		ConnMaxLifetime: time.Hour,
+		ConnMaxIdleTime: 30 * time.Second,
+	}
+	cfg.ApplyDefaults()
+	if cfg.MaxOpenConns != 10 || cfg.MaxIdleConns != 3 || cfg.ConnMaxLifetime != time.Hour || cfg.ConnMaxIdleTime != 30*time.Second {
+		t.Fatalf("ApplyDefaults overwrote explicit values: %+v", cfg)
 	}
 }

@@ -313,6 +313,10 @@ func TestCollaborationHandlerSupportRoomRequiresToken(t *testing.T) {
 	api := router.Group("/api/v1")
 	handler.RegisterInternalRoutes(api)
 
+	// Opt out of the internal-network restriction so the token guard (not the
+	// network guard) is exercised by this test.
+	t.Setenv("SUPPORT_INTERNAL_ONLY", "false")
+
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/internal/support/rooms/%d", roomState.Room.ID), nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
