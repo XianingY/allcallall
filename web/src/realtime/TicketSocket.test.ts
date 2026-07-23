@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { TicketSocket } from "./TicketSocket";
 import { issueRealtimeTicket } from "@/api/realtime";
-import { runtimeConfig } from "@/lib/runtime-config";
 
 vi.mock("@/api/realtime", () => ({
   issueRealtimeTicket: vi.fn(),
@@ -13,6 +12,10 @@ vi.mock("@/lib/runtime-config", () => ({
 
 // Minimal WebSocket mock that lets tests drive lifecycle events.
 let lastSocket: MockWebSocket | null = null;
+
+function registerLastSocket(socket: MockWebSocket): void {
+  lastSocket = socket;
+}
 
 class MockWebSocket {
   static readonly OPEN = 1;
@@ -27,7 +30,7 @@ class MockWebSocket {
 
   constructor(url: string) {
     this.url = url;
-    lastSocket = this;
+    registerLastSocket(this);
   }
 
   send(data: string): void {
