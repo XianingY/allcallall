@@ -211,7 +211,9 @@ The command creates deterministic owner/member accounts, an organization, a team
 
 Start with:
 
+- [Cross-Repo Master Index](INDEX.md) — covers this repo and `allcallall-agent-runtime`
 - [Documentation Index](docs/README.md)
+- [FAQ](docs/faq.md)
 - [Backend README](backend/README.md)
 - [Quick Start](docs/getting-started/quick-start.md)
 - [Configuration](docs/configuration/configuration.md)

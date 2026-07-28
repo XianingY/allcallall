@@ -1,5 +1,12 @@
 # Cross-Stack Refactoring Implementation Plan
 
+> **HISTORICAL / PARTIALLY OUTDATED (2026-07-22):** This plan predates the
+> Python runtime extraction. All in-repo Python paths referenced below
+> (`agent-runtime/`, `rag-runtime/`, `shared/`, etc.) were removed from this
+> repository on 2026-07-22 and now live in the sibling repository
+> `allcallall-agent-runtime`. Treat this file as an execution record, not as
+> current implementation guidance.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Refactor all identified God Objects, add missing Repository layers, centralize configuration, eliminate code duplication, and improve maintainability across Python, Go, TypeScript, and infrastructure.

@@ -1,5 +1,9 @@
 # AllCallAll High Concurrency & Production Readiness Implementation Plan
 
+> **HISTORICAL NOTE (2026-07-22):** The Python/FastAPI/LangGraph runtime listed
+> in the tech stack below is no longer part of this repository; it lives in the
+> sibling repository `allcallall-agent-runtime` and integrates over HTTP.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Transform AllCallAll from a demo/portfolio project into a production-ready system supporting high concurrency (1000+ concurrent users) and high data volume (millions of messages, recordings, and agent runs).
