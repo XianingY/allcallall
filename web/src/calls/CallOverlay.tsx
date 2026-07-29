@@ -8,7 +8,7 @@ export function CallOverlay() {
   const state = useCallStore(); const call = useCall(); const localVideo = useRef<HTMLVideoElement>(null); const remoteVideo = useRef<HTMLVideoElement>(null); const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
   useEffect(() => { if (localVideo.current) localVideo.current.srcObject = state.localStream; }, [state.localStream]);
   useEffect(() => { if (remoteVideo.current) remoteVideo.current.srcObject = state.remoteStream; }, [state.remoteStream]);
-  useEffect(() => { if (state.status !== "idle") void navigator.mediaDevices?.enumerateDevices().then((items) => setInputs(items.filter((item) => item.kind === "audioinput"))).catch(() => undefined); }, [state.status]);
+  useEffect(() => { if (state.status !== "idle") void navigator.mediaDevices?.enumerateDevices().then((items) => setInputs(items.filter((item) => item.kind === "audioinput"))).catch((err) => console.error("[CallOverlay] enumerateDevices failed", err)); }, [state.status]);
   if (state.status === "idle") return null;
   const incoming = state.status === "incoming";
   return <div className="call-overlay" role="dialog" aria-label="浏览器通话"><div className="call-window">

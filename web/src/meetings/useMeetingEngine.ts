@@ -36,7 +36,7 @@ export function useMeetingEngine(roomId: number, options: MeetingOptions) {
       }
     };
     void connect();
-    const leave = () => { peer.current?.close(); peer.current = null; localRef.current?.getTracks().forEach((track) => track.stop()); localRef.current = null; if (localStorage.getItem(lockKey) === owner) localStorage.removeItem(lockKey); void leaveRoom(roomId).catch(() => undefined); };
+    const leave = () => { peer.current?.close(); peer.current = null; localRef.current?.getTracks().forEach((track) => track.stop()); localRef.current = null; if (localStorage.getItem(lockKey) === owner) localStorage.removeItem(lockKey); void leaveRoom(roomId).catch((err) => console.error("[useMeetingEngine] leaveRoom failed", err)); };
     window.addEventListener("beforeunload", leave);
     return () => { active = false; window.removeEventListener("beforeunload", leave); leave(); };
   }, [roomId, options.audio, options.video, options.audioDeviceId, options.videoDeviceId, blockedByOtherTab]);

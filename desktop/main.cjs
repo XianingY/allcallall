@@ -1,7 +1,29 @@
-const { app, BrowserWindow, Menu, Notification, shell } = require("electron");
+const { app, BrowserWindow, Menu, Notification, session, shell } = require("electron");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+
+// 给所有渲染进程响应加上 CSP 头（默认同源，禁止 unsafe-eval/外部源）。
+// 桌面端默认加载 Vite 开发服务器时会注入 inline 脚本，故 script-src 暂保留
+// 'unsafe-inline'；生产构建加载静态资源后可移除该关键字收紧。
+const DESKTOP_CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self' https: wss:",
+  "media-src 'self' blob:",
+].join("; ");
+
+session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+  callback({
+    responseHeaders: {
+      ...details.responseHeaders,
+      "Content-Security-Policy": [DESKTOP_CSP],
+    },
+  });
+});
 
 const { createRouteHelpers } = require("./route-utils.cjs");
 
@@ -56,6 +78,11 @@ function createWindow() {
   });
 
   mainWindow.loadURL(routeURL("/meetings"));
+
+  // 默认拒绝所有权限请求（麦克风/摄像头/地理位置等），按需在此放开白名单。
+  mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (!openRouteTarget(url)) {

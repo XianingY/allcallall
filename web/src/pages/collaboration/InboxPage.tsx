@@ -147,8 +147,8 @@ export function InboxPage() {
     setComposer(value);
     if (!selectedId) return;
     window.clearTimeout(typingTimer.current);
-    void sendTyping(selectedId, true).catch(() => undefined);
-    typingTimer.current = window.setTimeout(() => { void sendTyping(selectedId, false).catch(() => undefined); }, 1200);
+    void sendTyping(selectedId, true).catch((err) => console.error("[InboxPage] sendTyping failed", err));
+    typingTimer.current = window.setTimeout(() => { void sendTyping(selectedId, false).catch((err) => console.error("[InboxPage] sendTyping failed", err)); }, 1200);
   };
 
   return <div className={`inbox-layout ${selectedId ? "inbox-selected" : ""}`}>

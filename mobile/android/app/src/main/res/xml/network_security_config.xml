@@ -1,13 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- 允许明文 HTTP 流量（当前生产仍使用 HTTP 接口） -->
-    <base-config cleartextTrafficPermitted="true" />
-    <!-- 保留常用域名/IP 说明，便于排查 -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">81.68.168.207</domain>
-        <domain includeSubdomains="true">47.97.84.202</domain>
-        <domain includeSubdomains="true">192.168.31.217</domain>
-        <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">10.0.2.2</domain>
-    </domain-config>
+    <!-- 生产环境必须 https/wss，禁止任何明文 HTTP 流量 -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <!--
+      本地开发如需对模拟器/本机明文通道联调，可临时追加（仅限 localhost/10.0.2.2）：
+      <domain-config cleartextTrafficPermitted="true">
+          <domain includeSubdomains="false">localhost</domain>
+          <domain includeSubdomains="false">10.0.2.2</domain>
+      </domain-config>
+      公网 IP（如 81.68.168.207 / 47.97.84.202）的明文放行已删除，生产严禁放开。
+    -->
 </network-security-config>
