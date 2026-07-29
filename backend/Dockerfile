@@ -49,6 +49,16 @@ COPY --from=build /out/interview-seed ./interview-seed
 COPY configs ./configs
 COPY migrations ./migrations
 
+# Drop to a non-root user (matches the USER 10001 precedent used elsewhere in
+# the repo). The binaries listen on HTTP_PORT=8080 (>1024), so no privileged
+# bind is required. The recordings volume mount point is pre-created and owned
+# by the runtime user so the process can write at runtime.
+RUN addgroup -g 10001 appuser && \
+    adduser -D -H -u 10001 -G appuser appuser && \
+    chown -R 10001:10001 /app && \
+    mkdir -p /app/recordings && chown -R 10001:10001 /app/recordings
+USER 10001:10001
+
 ENV CONFIG_PATH=/app/configs/config.yaml
 ENV HTTP_PORT=8080
 EXPOSE 8080

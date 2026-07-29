@@ -1,0 +1,30 @@
+{
+  "title": "AllCallAll Backend",
+  "uid": "allcallall-backend",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "panels": [
+    {
+      "title": "Backend up",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "up{job=\"backend\"}", "refId": "A" }
+      ]
+    },
+    {
+      "title": "Container log volume (Loki)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 0 },
+      "datasource": "Loki",
+      "targets": [
+        {
+          "expr": "sum(count_over_time({container=~\".*backend.*\"} |~ \".*\" [5m])) by (container)",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

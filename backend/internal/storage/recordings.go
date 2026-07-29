@@ -47,6 +47,9 @@ type ObjectRef struct {
 }
 
 type RecordingStorage interface {
+	// Driver 返回底层存储驱动类型，便于调用方在不破坏封装的前提下决定是否进行 S3 上传等行为。
+	// Driver returns the underlying storage driver so callers can decide behavior (e.g. S3 upload) without breaking encapsulation.
+	Driver() Driver
 	SaveFile(ctx context.Context, srcPath, objectKey, contentType string) (*ObjectRef, error)
 	SignedDownloadURL(ctx context.Context, objectRef ObjectRef, ttl time.Duration) (string, error)
 	Open(ctx context.Context, objectRef ObjectRef) (io.ReadCloser, error)
@@ -72,6 +75,8 @@ func NewRecordingStorage(cfg Config) (RecordingStorage, error) {
 type localRecordingStorage struct {
 	root string
 }
+
+func (s *localRecordingStorage) Driver() Driver { return DriverLocal }
 
 func (s *localRecordingStorage) SaveFile(_ context.Context, srcPath, objectKey, _ string) (*ObjectRef, error) {
 	srcPath = strings.TrimSpace(srcPath)
@@ -184,6 +189,8 @@ type s3RecordingStorage struct {
 	publicBase string
 	defaultTTL time.Duration
 }
+
+func (s *s3RecordingStorage) Driver() Driver { return DriverS3 }
 
 func newS3RecordingStorage(cfg Config) (RecordingStorage, error) {
 	if strings.TrimSpace(cfg.S3Bucket) == "" {

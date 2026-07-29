@@ -54,7 +54,9 @@ func (s *Service) StartRecording(ctx context.Context, organizationID, userID, ro
 	}
 	s.metrics.Inc("recording_start_total")
 	var members []models.CallRoomMember
-	_ = s.db.WithContext(ctx).Where("room_id = ? AND left_at IS NULL", roomID).Find(&members).Error
+	if err := s.db.WithContext(ctx).Where("room_id = ? AND left_at IS NULL", roomID).Find(&members).Error; err != nil {
+		s.logger.Warn().Err(err).Uint64("room_id", roomID).Msg("failed to load active room members for recording consent")
+	}
 	for _, member := range members {
 		consent := models.RecordingConsent{
 			RecordingSessionID: session.ID,
@@ -62,7 +64,9 @@ func (s *Service) StartRecording(ctx context.Context, organizationID, userID, ro
 			ConsentStatus:      "notified",
 			RecordedAt:         now,
 		}
-		_ = s.db.WithContext(ctx).Where("recording_session_id = ? AND user_id = ?", session.ID, member.UserID).FirstOrCreate(&consent).Error
+		if err := s.db.WithContext(ctx).Where("recording_session_id = ? AND user_id = ?", session.ID, member.UserID).FirstOrCreate(&consent).Error; err != nil {
+			s.logger.Warn().Err(err).Uint64("user_id", member.UserID).Uint64("session_id", session.ID).Msg("failed to record recording consent")
+		}
 	}
 	if s.media != nil {
 		if err := s.media.StartRoomRecording(strconv.FormatUint(roomID, 10), s.recordingSessionDir(organizationID, roomID, session.ID)); err != nil {
@@ -70,11 +74,13 @@ func (s *Service) StartRecording(ctx context.Context, organizationID, userID, ro
 		}
 	}
 	if room.ConversationID != nil {
-		_ = s.createConversationSystemMessage(ctx, organizationID, userID, room.ConversationID, "meeting.recording.started", "会议录音已开始。", map[string]any{
+		if err := s.createConversationSystemMessage(ctx, organizationID, userID, room.ConversationID, "meeting.recording.started", "会议录音已开始。", map[string]any{
 			"room_id":      roomID,
 			"recording_id": session.ID,
 			"started_at":   now.Format(time.RFC3339),
-		})
+		}); err != nil {
+			s.logger.Warn().Err(err).Uint64("conversation_id", *room.ConversationID).Msg("failed to post recording started system message")
+		}
 		s.publishConversationPatchUpdate(ctx, organizationID, *room.ConversationID, map[string]any{
 			"latest_recording_id": session.ID,
 		})
@@ -120,13 +126,15 @@ func (s *Service) StopRecording(ctx context.Context, organizationID, userID, roo
 	if roomLoaded && room.ConversationID != nil {
 		view, viewErr := s.GetRecording(ctx, organizationID, userID, session.ID)
 		if viewErr == nil {
-			_ = s.createConversationSystemMessage(ctx, organizationID, userID, room.ConversationID, "meeting.recording.ready", "会议录音已生成，可下载查看。", map[string]any{
+			if err := s.createConversationSystemMessage(ctx, organizationID, userID, room.ConversationID, "meeting.recording.ready", "会议录音已生成，可下载查看。", map[string]any{
 				"room_id":              roomID,
 				"recording_id":         session.ID,
 				"participant_count":    s.countRoomParticipants(ctx, roomID),
 				"room_title":           room.Title,
 				"recording_file_count": len(view.Files),
-			})
+			}); err != nil {
+				s.logger.Warn().Err(err).Uint64("conversation_id", *room.ConversationID).Msg("failed to post recording ready system message")
+			}
 			s.publishConversationPatchUpdate(ctx, organizationID, *room.ConversationID, map[string]any{
 				"latest_recording_id": session.ID,
 			})

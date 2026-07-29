@@ -72,6 +72,56 @@ import {
 
 type Props = NativeStackScreenProps<RootStackParamList, "ConversationDetail">;
 
+interface MessageRowProps {
+  item: MessageRecord;
+  currentUserId?: number | string;
+  onOpenTranscript: (recordingId: number) => void;
+}
+
+// 提取为 memo 行组件，避免列表整体重渲染；日期字符串在 memo 内 useMemo 预计算，
+// 不在渲染体里反复 new Date().toLocaleString()。
+const MessageRow = React.memo<MessageRowProps>(
+  ({ item, currentUserId, onOpenTranscript }) => {
+    const isMine = item.sender_id === currentUserId;
+    const isSystem = item.type === "system";
+    const timeLabel = useMemo(
+      () => new Date(item.created_at).toLocaleString(),
+      [item.created_at]
+    );
+    const eventType = item.metadata?.event_type;
+    const recordingId =
+      eventType === "meeting.transcription.ready" &&
+      typeof item.metadata?.recording_id === "number"
+        ? (item.metadata.recording_id as number)
+        : undefined;
+
+    return (
+      <View
+        style={[
+          styles.messageBubble,
+          isSystem ? styles.systemBubble : isMine ? styles.mine : styles.theirs,
+        ]}
+      >
+        <Text style={styles.sender}>
+          {item.sender_display_name || item.sender_email}
+        </Text>
+        <Text style={styles.body}>{item.body || item.type}</Text>
+        {eventType ? (
+          <Text style={styles.systemMeta}>{String(eventType)}</Text>
+        ) : null}
+        {recordingId !== undefined ? (
+          <PrimaryButton
+            title="查看会议转写"
+            onPress={() => onOpenTranscript(recordingId)}
+            style={styles.systemAction}
+          />
+        ) : null}
+        <Text style={styles.time}>{timeLabel}</Text>
+      </View>
+    );
+  }
+);
+
 const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const { token, user } = useAuthContext();
   const { currentOrganization } = useOrganization();
@@ -1133,54 +1183,37 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     </>
   );
 
+  const handleOpenTranscript = useCallback(
+    (recordingId: number) => {
+      navigation.navigate("RecordingTranscript", { recordingId });
+    },
+    [navigation]
+  );
+
+  const renderMessage = useCallback(
+    ({ item }: { item: MessageRecord }) => (
+      <MessageRow
+        item={item}
+        currentUserId={user?.id}
+        onOpenTranscript={handleOpenTranscript}
+      />
+    ),
+    [user?.id, handleOpenTranscript]
+  );
+
+  const messageKeyExtractor = useCallback(
+    (item: MessageRecord) => String(item.id),
+    []
+  );
+
   const messagePane = (
     <FlatList
       data={messages}
-      keyExtractor={(item) => String(item.id)}
+      keyExtractor={messageKeyExtractor}
       refreshing={loading}
       onRefresh={() => void loadData()}
       contentContainerStyle={styles.listContent}
-      renderItem={({ item }) => {
-        const isMine = item.sender_id === user?.id;
-        const isSystem = item.type === "system";
-        return (
-          <View
-            style={[
-              styles.messageBubble,
-              isSystem
-                ? styles.systemBubble
-                : isMine
-                  ? styles.mine
-                  : styles.theirs,
-            ]}
-          >
-            <Text style={styles.sender}>
-              {item.sender_display_name || item.sender_email}
-            </Text>
-            <Text style={styles.body}>{item.body || item.type}</Text>
-            {item.metadata?.event_type ? (
-              <Text style={styles.systemMeta}>
-                {String(item.metadata.event_type)}
-              </Text>
-            ) : null}
-            {item.metadata?.event_type === "meeting.transcription.ready" &&
-            typeof item.metadata.recording_id === "number" ? (
-              <PrimaryButton
-                title="查看会议转写"
-                onPress={() =>
-                  navigation.navigate("RecordingTranscript", {
-                    recordingId: item.metadata!.recording_id as number,
-                  })
-                }
-                style={styles.systemAction}
-              />
-            ) : null}
-            <Text style={styles.time}>
-              {new Date(item.created_at).toLocaleString()}
-            </Text>
-          </View>
-        );
-      }}
+      renderItem={renderMessage}
       ListFooterComponent={
         <View>
           <View style={styles.composer}>

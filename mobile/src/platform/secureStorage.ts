@@ -1,4 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
 export interface SecureStorageValue {
@@ -32,42 +31,40 @@ const webStorage = () => {
   return window.sessionStorage;
 };
 
+// Web 适配器：仅使用 ephemeral sessionStorage（与 E2EEService 原则一致，
+// web 端绝不落 AsyncStorage/明文持久化）。sessionStorage 在刷新后失效，
+// web 会话恢复依赖后端下发的 HttpOnly refresh cookie（见 AuthContext）。
+// 无任何持久化明文回退。
 const webAdapter: SecureStorageAdapter = {
   async load(service) {
-    const key = `${webPrefix}${service}`;
     const storage = webStorage();
-    const raw = storage?.getItem(key) ?? await AsyncStorage.getItem(key);
+    if (!storage) {
+      return null;
+    }
+    const key = `${webPrefix}${service}`;
+    const raw = storage.getItem(key);
     if (!raw) {
       return null;
     }
     try {
-      const parsed = JSON.parse(raw) as SecureStorageValue;
-      if (storage && !storage.getItem(key)) {
-        storage.setItem(key, raw);
-        await AsyncStorage.removeItem(key);
-      }
-      return parsed;
+      return JSON.parse(raw) as SecureStorageValue;
     } catch {
-      storage?.removeItem(key);
-      await AsyncStorage.removeItem(key);
+      storage.removeItem(key);
       return null;
     }
   },
   async save(service, username, password) {
-    const key = `${webPrefix}${service}`;
-    const value = JSON.stringify({ username, password } satisfies SecureStorageValue);
     const storage = webStorage();
-    if (storage) {
-      storage.setItem(key, value);
-      await AsyncStorage.removeItem(key);
+    if (!storage) {
       return;
     }
-    await AsyncStorage.setItem(key, value);
+    const key = `${webPrefix}${service}`;
+    const value = JSON.stringify({ username, password } satisfies SecureStorageValue);
+    storage.setItem(key, value);
   },
   async clear(service) {
     const key = `${webPrefix}${service}`;
     webStorage()?.removeItem(key);
-    await AsyncStorage.removeItem(key);
   },
   async supportsBiometricProtection() {
     return false;

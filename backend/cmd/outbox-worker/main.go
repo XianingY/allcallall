@@ -38,6 +38,7 @@ func main() {
 	userRepo := user.NewRepository(db)
 	userSvc := user.NewService(userRepo, user.WithPushDeviceSupport())
 	collaborationSvc := collaboration.NewService(db, userSvc)
+	collaborationSvc.WithLogger(appLogger)
 	collaborationSvc.WithMetrics(counterStore)
 
 	outboxStore := events.NewStore(db)

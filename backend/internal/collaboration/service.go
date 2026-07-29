@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/events"
@@ -52,6 +53,7 @@ type Service struct {
 	outbox              *events.Store
 	transcriber         transcription.Provider
 	maxRoomParticipants int
+	logger              zerolog.Logger
 }
 
 func NewService(db *gorm.DB, users *user.Service) *Service {
@@ -61,6 +63,7 @@ func NewService(db *gorm.DB, users *user.Service) *Service {
 	}
 	svc := &Service{db: db, users: users, outbox: events.NewStore(db), maxRoomParticipants: maxRoomParticipants}
 	svc.metrics = metrics.NewCounterStore()
+	svc.logger = zerolog.Nop()
 	if localStorage, err := storage.NewRecordingStorage(storage.Config{Driver: storage.DriverLocal}); err == nil {
 		svc.storage = localStorage
 	}
@@ -76,6 +79,12 @@ func (s *Service) WithMaxRoomParticipants(limit int) *Service {
 
 func (s *Service) WithPublisher(publisher EventPublisher) {
 	s.publisher = publisher
+}
+
+// WithLogger attaches a structured logger used for best-effort warnings on
+// non-fatal errors that must not be silently swallowed.
+func (s *Service) WithLogger(logger zerolog.Logger) {
+	s.logger = logger
 }
 
 func (s *Service) WithMediaEngine(engine *media.Engine) {

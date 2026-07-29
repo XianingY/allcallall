@@ -25,16 +25,19 @@ echo "🔍 检查 EXPO_PUBLIC 配置..."
 HTTP_VALUE="${EXPO_PUBLIC_API_HTTP:-}"
 WS_VALUE="${EXPO_PUBLIC_API_WS:-}"
 FORCE_TLS_VALUE="${EXPO_PUBLIC_FORCE_TLS:-}"
+ALLOW_INSECURE_VALUE="${EXPO_PUBLIC_ALLOW_INSECURE:-}"
 
 if [ -f ".env" ]; then
   [ -z "$HTTP_VALUE" ] && HTTP_VALUE=$(grep "^EXPO_PUBLIC_API_HTTP=" .env | cut -d '=' -f2-)
   [ -z "$WS_VALUE" ] && WS_VALUE=$(grep "^EXPO_PUBLIC_API_WS=" .env | cut -d '=' -f2-)
   [ -z "$FORCE_TLS_VALUE" ] && FORCE_TLS_VALUE=$(grep "^EXPO_PUBLIC_FORCE_TLS=" .env | cut -d '=' -f2-)
+  [ -z "$ALLOW_INSECURE_VALUE" ] && ALLOW_INSECURE_VALUE=$(grep "^EXPO_PUBLIC_ALLOW_INSECURE=" .env | cut -d '=' -f2-)
 fi
 
-echo "EXPO_PUBLIC_API_HTTP: ${HTTP_VALUE:-<默认 http://127.0.0.1:8080>}"
-echo "EXPO_PUBLIC_API_WS: ${WS_VALUE:-<默认 ws://127.0.0.1:8080>}"
-echo "EXPO_PUBLIC_FORCE_TLS: ${FORCE_TLS_VALUE:-0}"
+echo "EXPO_PUBLIC_API_HTTP: ${HTTP_VALUE:-<默认 https://127.0.0.1:8080>}"
+echo "EXPO_PUBLIC_API_WS: ${WS_VALUE:-<默认 wss://127.0.0.1:8080>}"
+echo "EXPO_PUBLIC_FORCE_TLS: ${FORCE_TLS_VALUE:-0} (已弃用；默认即 https/wss，改用 EXPO_PUBLIC_ALLOW_INSECURE=1 允许明文)"
+echo "EXPO_PUBLIC_ALLOW_INSECURE: ${ALLOW_INSECURE_VALUE:-0}"
 
 echo ""
 echo "=================================================="

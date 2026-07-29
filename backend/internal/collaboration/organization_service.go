@@ -200,7 +200,9 @@ func (s *Service) AcceptOrganizationInvite(ctx context.Context, code string, use
 	}
 	if invite.ExpiresAt.Before(time.Now()) {
 		invite.Status = models.InvitationStatusExpired
-		_ = s.db.WithContext(ctx).Save(&invite).Error
+		if err := s.db.WithContext(ctx).Save(&invite).Error; err != nil {
+			s.logger.Warn().Err(err).Uint64("invite_id", invite.ID).Msg("failed to persist expired invite status")
+		}
 		return nil, errors.New("organization invite expired")
 	}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

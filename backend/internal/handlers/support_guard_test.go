@@ -22,6 +22,8 @@ func TestRequireSupportNetwork(t *testing.T) {
 		{name: "public direct", remoteAddr: "203.0.113.9:1234", allowed: false},
 		{name: "private proxy public client", remoteAddr: "172.18.0.2:1234", forwarded: "203.0.113.9", allowed: false},
 		{name: "private proxy private client", remoteAddr: "172.18.0.2:1234", forwarded: "10.1.2.3", allowed: true},
+		{name: "private proxy spoofed first hop", remoteAddr: "172.18.0.2:1234", forwarded: "127.0.0.1, 203.0.113.9", allowed: false},
+		{name: "private proxy all internal chain", remoteAddr: "172.18.0.2:1234", forwarded: "10.1.2.3, 172.16.0.1", allowed: true},
 	}
 
 	for _, test := range tests {

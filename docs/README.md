@@ -56,6 +56,7 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 - [Support Runbook: Meetings](./maintenance/support-runbook-meetings.md): operational support checks for rooms and recordings.
 - [Worktree Artifacts](./maintenance/worktree-artifacts.md): local artifacts that must not be committed.
 - [Unit Test Coverage Analysis](./unit-test-coverage-analysis.md): architecture walkthrough and test coverage inventory (2026-07-23).
+- [Optimization Roadmap](./optimization-roadmap.md): P1#8 media RoomEngine 外置 + P2 架构/技术债改造方案（#15/#16/#17/#18/#24）。
 
 ## Runtime / Deployment
 
@@ -65,6 +66,7 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 - [Restricted Network Setup](./deployment/restricted-network-setup.md): mobile networking and TURN/restricted-network notes.
 - [Meeting Room State Protocol](./deployment/meeting-room-state-protocol.md): room state event contract.
 - [Web Auth Session](./deployment/web-auth-session.md): browser refresh-cookie session behavior.
+- [Observability](./observability.md): optional Prometheus + Grafana + Loki stack shipped with the repo.
 - [Security Guidelines](./configuration/security-guidelines.md): security and privacy rules.
 - [Beta Smoke Checklist](./testing/beta-smoke-checklist.md): small-team Beta validation checklist and seed-data flow.
 

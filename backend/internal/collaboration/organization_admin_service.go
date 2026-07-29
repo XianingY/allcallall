@@ -383,7 +383,9 @@ func (s *Service) ListTeams(ctx context.Context, organizationID, userID uint64) 
 	result := make([]TeamView, 0, len(teams))
 	for _, team := range teams {
 		view := TeamView{Team: team}
-		_ = s.db.WithContext(ctx).Model(&models.TeamMember{}).Where("team_id = ?", team.ID).Count(&view.MemberCount).Error
+		if err := s.db.WithContext(ctx).Model(&models.TeamMember{}).Where("team_id = ?", team.ID).Count(&view.MemberCount).Error; err != nil {
+			s.logger.Warn().Err(err).Uint64("team_id", team.ID).Msg("failed to count team members")
+		}
 		members, _ := s.ListTeamMembers(ctx, organizationID, userID, team.ID)
 		view.Members = members
 		result = append(result, view)
@@ -592,7 +594,9 @@ func (s *Service) getTeamView(ctx context.Context, organizationID, userID, teamI
 		return nil, err
 	}
 	view := &TeamView{Team: team}
-	_ = s.db.WithContext(ctx).Model(&models.TeamMember{}).Where("team_id = ?", teamID).Count(&view.MemberCount).Error
+	if err := s.db.WithContext(ctx).Model(&models.TeamMember{}).Where("team_id = ?", teamID).Count(&view.MemberCount).Error; err != nil {
+		s.logger.Warn().Err(err).Uint64("team_id", teamID).Msg("failed to count team members")
+	}
 	members, _ := s.ListTeamMembers(ctx, organizationID, userID, teamID)
 	view.Members = members
 	return view, nil

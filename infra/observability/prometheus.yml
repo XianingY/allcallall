@@ -1,0 +1,20 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: backend
+    metrics_path: /api/v1/metrics
+    # The backend /api/v1/metrics endpoint is restricted to internal networks by
+    # default and may optionally require a METRICS_BEARER_TOKEN. Prometheus runs
+    # inside the allcallall_network (internal), so no token is needed in the
+    # default setup. If you enable the token, uncomment and set it:
+    # authorization:
+    #   type: Bearer
+    #   credentials: "${METRICS_BEARER_TOKEN}"
+    static_configs:
+      - targets: ['backend:8080']
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']

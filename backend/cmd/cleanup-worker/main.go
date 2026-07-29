@@ -30,6 +30,7 @@ func main() {
 	defer closeDB()
 
 	collaborationSvc := collaboration.NewService(db, nil)
+	collaborationSvc.WithLogger(appLogger)
 	collaborationSvc.WithMetrics(counterStore)
 	recordingStorage, err := appruntime.RecordingStorageFromEnv()
 	if err != nil {

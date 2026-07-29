@@ -75,7 +75,7 @@ func TestCollaborationHandlerRoomOfferReturnsAnswer(t *testing.T) {
 		t.Fatalf("create media engine failed: %v", err)
 	}
 	service.WithMediaEngine(engine)
-	handler := NewCollaborationHandler(zerolog.Nop(), service, userSvc, collaboration.NewChatHub(zerolog.Nop()))
+	handler := NewCollaborationHandler(zerolog.Nop(), service, userSvc, collaboration.NewChatHub(nil, zerolog.Nop()))
 
 	owner := models.User{Email: "owner@example.com", PasswordHash: "hash", DisplayName: "Owner", Status: "active"}
 	if err := db.Create(&owner).Error; err != nil {
@@ -191,7 +191,7 @@ func TestCollaborationHandlerUpdatesConversation(t *testing.T) {
 
 	userSvc := user.NewService(user.NewRepository(db))
 	service := collaboration.NewService(db, userSvc)
-	handler := NewCollaborationHandler(zerolog.Nop(), service, userSvc, collaboration.NewChatHub(zerolog.Nop()))
+	handler := NewCollaborationHandler(zerolog.Nop(), service, userSvc, collaboration.NewChatHub(nil, zerolog.Nop()))
 
 	owner := models.User{Email: "owner@example.com", PasswordHash: "hash", DisplayName: "Owner", Status: "active"}
 	if err := db.Create(&owner).Error; err != nil {
@@ -292,7 +292,7 @@ func TestCollaborationHandlerSupportRoomRequiresToken(t *testing.T) {
 
 	userSvc := user.NewService(user.NewRepository(db))
 	service := collaboration.NewService(db, userSvc)
-	handler := NewCollaborationHandler(zerolog.Nop(), service, userSvc, collaboration.NewChatHub(zerolog.Nop()))
+	handler := NewCollaborationHandler(zerolog.Nop(), service, userSvc, collaboration.NewChatHub(nil, zerolog.Nop()))
 
 	owner := models.User{Email: "owner@example.com", PasswordHash: "hash", DisplayName: "Owner", Status: "active"}
 	if err := db.Create(&owner).Error; err != nil {
@@ -390,7 +390,7 @@ func TestCollaborationHandlerDownloadRecordingWritesExportAudit(t *testing.T) {
 		t.Fatalf("create recording storage failed: %v", err)
 	}
 	service.WithRecordingStorage(recordingStorage)
-	handler := NewCollaborationHandler(zerolog.Nop(), service, userSvc, collaboration.NewChatHub(zerolog.Nop()))
+	handler := NewCollaborationHandler(zerolog.Nop(), service, userSvc, collaboration.NewChatHub(nil, zerolog.Nop()))
 
 	owner := models.User{Email: "owner@example.com", PasswordHash: "hash", DisplayName: "Owner", Status: "active"}
 	if err := db.Create(&owner).Error; err != nil {

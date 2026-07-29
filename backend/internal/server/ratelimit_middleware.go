@@ -56,10 +56,13 @@ func GlobalRateLimit(svc *ratelimit.Service) gin.HandlerFunc {
 // that must stay exempt from global rate limiting.
 func isHealthOrMetricsPath(path string) bool {
 	switch path {
-	case "/ping", "/health", "/ready":
+	case "/ping", "/health", "/ready", "/metrics":
 		return true
 	}
-	return strings.HasPrefix(path, "/metrics")
+	// The metrics endpoint is registered under /api/v1, so also exempt any
+	// path ending in /metrics (e.g. /api/v1/metrics) without opening unrelated
+	// prefixes.
+	return strings.HasPrefix(path, "/metrics") || strings.HasSuffix(path, "/metrics")
 }
 
 func globalRateLimit() int64 {

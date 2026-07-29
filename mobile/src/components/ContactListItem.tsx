@@ -10,7 +10,7 @@ interface Props {
     online: boolean;
     last_seen?: string | null;
   };
-  onCall: (email: string) => void;
+  onCall: (contact: User) => void;
   onPressDetail: (contact: User) => void;
   onPressActions: (contact: User) => void;
 }
@@ -40,7 +40,7 @@ const ContactListItem: React.FC<Props> = ({
       <View style={styles.actions}>
         <TouchableOpacity
           style={[styles.button, styles.call]}
-          onPress={() => onCall(contact.email)}
+          onPress={() => onCall(contact)}
         >
           <Text style={styles.buttonText}>呼叫 / Call</Text>
         </TouchableOpacity>
@@ -54,6 +54,9 @@ const ContactListItem: React.FC<Props> = ({
     </View>
   );
 };
+
+// 列表行组件 memo 化，配合稳定的回调 props 避免整列表重渲染。
+export default React.memo(ContactListItem);
 
 const styles = StyleSheet.create({
   container: {
@@ -104,5 +107,3 @@ const styles = StyleSheet.create({
     fontWeight: "600"
   }
 });
-
-export default ContactListItem;

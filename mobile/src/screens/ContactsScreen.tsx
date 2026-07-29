@@ -476,6 +476,24 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
     [contacts]
   );
 
+  const renderContact = useCallback(
+    ({ item }: { item: User }) => (
+      <ContactListItem
+        contact={item}
+        presence={presence[item.email]}
+        onCall={handleStartCallWithContact}
+        onPressDetail={handleOpenDetail}
+        onPressActions={handleContactActions}
+      />
+    ),
+    [presence, handleStartCallWithContact, handleOpenDetail, handleContactActions]
+  );
+
+  const contactKeyExtractor = useCallback(
+    (item: User) => String(item.id),
+    []
+  );
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -598,16 +616,8 @@ const ContactsScreen: React.FC<Props> = ({ navigation }) => {
 
       <FlatList
         data={sortedContacts}
-        keyExtractor={(item) => String(item.id)}
-        renderItem={({ item }) => (
-          <ContactListItem
-            contact={item}
-            presence={presence[item.email]}
-            onCall={() => handleStartCallWithContact(item)}
-            onPressDetail={handleOpenDetail}
-            onPressActions={handleContactActions}
-          />
-        )}
+        keyExtractor={contactKeyExtractor}
+        renderItem={renderContact}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />

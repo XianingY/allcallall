@@ -1,8 +1,10 @@
 import { Platform } from "react-native";
 import * as Device from "expo-device";
 
-const DEFAULT_HTTP_HOST = "http://127.0.0.1:8080";
-const DEFAULT_WS_HOST = "ws://127.0.0.1:8080";
+// 默认主机（不含协议）。协议按是否允许明文通道选择：
+// - 生产（非 __DEV__ 且未显式 EXPO_PUBLIC_ALLOW_INSECURE=1）：https/wss 安全默认；
+// - 开发期 __DEV__ 或显式 EXPO_PUBLIC_ALLOW_INSECURE=1：保留 localhost http/ws 便利。
+const DEFAULT_HOST = "127.0.0.1:8080";
 
 // Expo 的 EXPO_PUBLIC_* 变量需要使用静态属性访问，不能用 process.env[key]
 // Expo EXPO_PUBLIC_* variables must be accessed via static property names.
@@ -17,6 +19,13 @@ const normalizeTls = (value: string, scheme: "http" | "ws") => {
   return value.replace(/^ws:\/\//, "wss://");
 };
 
+// 是否允许明文 http/ws 通道：
+// - 显式 EXPO_PUBLIC_ALLOW_INSECURE=1 时允许（本地开发）；
+// - __DEV__ 下保留 localhost http 便利（见上方注释）；
+// - 否则强制 https/wss（生产安全默认）。
+const allowInsecure =
+  readEnv(process.env.EXPO_PUBLIC_ALLOW_INSECURE) === "1" || __DEV__;
+
 const normalizeLang = (value: string | undefined, fallback: "zh" | "en"): "zh" | "en" => {
   if (!value) return fallback;
   const lang = value.trim().toLowerCase();
@@ -30,12 +39,14 @@ const envWs = readEnv(process.env.EXPO_PUBLIC_API_WS);
 const forceTls = readEnv(process.env.EXPO_PUBLIC_FORCE_TLS) === "1";
 const e2eeMode = readEnv(process.env.EXPO_PUBLIC_E2EE_MODE)?.toLowerCase();
 
+// 明文通道仅在 allowInsecure 时开启；显式 EXPO_PUBLIC_FORCE_TLS=1 仍强制升级到
+// https/wss（兼容历史用法）。
 const httpBase = forceTls
-  ? normalizeTls(envHttp ?? DEFAULT_HTTP_HOST, "http")
-  : envHttp ?? DEFAULT_HTTP_HOST;
+  ? normalizeTls(envHttp ?? (allowInsecure ? `http://${DEFAULT_HOST}` : `https://${DEFAULT_HOST}`), "http")
+  : envHttp ?? (allowInsecure ? `http://${DEFAULT_HOST}` : `https://${DEFAULT_HOST}`);
 const wsBase = forceTls
-  ? normalizeTls(envWs ?? DEFAULT_WS_HOST, "ws")
-  : envWs ?? DEFAULT_WS_HOST;
+  ? normalizeTls(envWs ?? (allowInsecure ? `ws://${DEFAULT_HOST}` : `wss://${DEFAULT_HOST}`), "ws")
+  : envWs ?? (allowInsecure ? `ws://${DEFAULT_HOST}` : `wss://${DEFAULT_HOST}`);
 
 // 导出的配置
 // Exported configuration

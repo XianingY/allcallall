@@ -473,30 +473,42 @@ func (h *Hub) recordCallLifecycle(ctx context.Context, msg SignalMessage) {
 	}
 	switch msg.Type {
 	case TypeCallAccept:
-		_ = h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusAnswered, "")
+		if err := h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusAnswered, ""); err != nil {
+			h.logger.Warn().Err(err).Str("call_id", msg.CallID).Msg("failed to update call status on accept")
+		}
 		if h.collab != nil {
-			_ = h.collab.AppendDirectCallEventByEmail(ctx, msg.From, msg.To, msg.CallID, "call.accepted", map[string]any{
+			if err := h.collab.AppendDirectCallEventByEmail(ctx, msg.From, msg.To, msg.CallID, "call.accepted", map[string]any{
 				"status": models.CallStatusAnswered,
-			})
+			}); err != nil {
+				h.logger.Warn().Err(err).Str("call_id", msg.CallID).Msg("failed to append call.accepted event")
+			}
 		}
 		if h.metrics != nil {
 			h.metrics.Inc("call_answer_total")
 		}
 	case TypeCallReject:
-		_ = h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusRejected, "rejected")
+		if err := h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusRejected, "rejected"); err != nil {
+			h.logger.Warn().Err(err).Str("call_id", msg.CallID).Msg("failed to update call status on reject")
+		}
 		if h.collab != nil {
-			_ = h.collab.AppendDirectCallEventByEmail(ctx, msg.From, msg.To, msg.CallID, "call.rejected", map[string]any{
+			if err := h.collab.AppendDirectCallEventByEmail(ctx, msg.From, msg.To, msg.CallID, "call.rejected", map[string]any{
 				"status": models.CallStatusRejected,
 				"reason": "rejected",
-			})
+			}); err != nil {
+				h.logger.Warn().Err(err).Str("call_id", msg.CallID).Msg("failed to append call.rejected event")
+			}
 		}
 	case TypeCallEnd:
-		_ = h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusEnded, "ended")
+		if err := h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusEnded, "ended"); err != nil {
+			h.logger.Warn().Err(err).Str("call_id", msg.CallID).Msg("failed to update call status on end")
+		}
 		if h.collab != nil {
-			_ = h.collab.AppendDirectCallEventByEmail(ctx, msg.From, msg.To, msg.CallID, "call.ended", map[string]any{
+			if err := h.collab.AppendDirectCallEventByEmail(ctx, msg.From, msg.To, msg.CallID, "call.ended", map[string]any{
 				"status": models.CallStatusEnded,
 				"reason": "ended",
-			})
+			}); err != nil {
+				h.logger.Warn().Err(err).Str("call_id", msg.CallID).Msg("failed to append call.ended event")
+			}
 		}
 		if h.metrics != nil {
 			h.metrics.Inc("call_ended_total")

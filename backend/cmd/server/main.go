@@ -100,6 +100,7 @@ func main() {
 	userRepo := user.NewRepository(db)
 	userSvc := user.NewService(userRepo, user.WithPushDeviceSupport())
 	collaborationSvc := collaboration.NewService(db, userSvc)
+	collaborationSvc.WithLogger(appLogger)
 	collaborationSvc.WithMetrics(counterStore)
 	collaborationSvc.WithAdminSummaryCache(redisClient)
 	outboxStore := events.NewStore(db)
@@ -149,7 +150,8 @@ func main() {
 	appruntime.RegisterAgentOutboxHandlers(outboxProcessor, agentSvc, appLogger)
 	appruntime.RegisterKnowledgeOutboxHandlers(outboxProcessor, knowledgeSvc, appLogger)
 	appruntime.RegisterCollaborationOutboxHandlers(outboxProcessor, collaborationSvc, appLogger)
-	chatHub := collaboration.NewChatHub(appLogger)
+	chatHub := collaboration.NewChatHub(redisClient, appLogger)
+	chatHub.Start(rootCtx)
 	collaborationSvc.WithPublisher(chatHub)
 	recordingStorage, err := appruntime.RecordingStorageFromEnv()
 	if err != nil {

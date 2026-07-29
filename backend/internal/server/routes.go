@@ -138,7 +138,7 @@ func registerHealthRoutes(api *gin.RouterGroup, deps RouteDependencies) {
 		c.JSON(http.StatusOK, gin.H{"status": "ready"})
 	})
 	if deps.Metrics != nil {
-		api.GET("/metrics", func(c *gin.Context) {
+		api.GET("/metrics", handlers.MetricsAuthMiddleware(), func(c *gin.Context) {
 			c.Data(http.StatusOK, "text/plain; version=0.0.4", []byte(deps.Metrics.RenderPrometheus()))
 		})
 	}

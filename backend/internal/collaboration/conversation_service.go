@@ -43,8 +43,17 @@ func (s *Service) ListConversations(ctx context.Context, organizationID, userID 
 		return nil, err
 	}
 	result := make([]ConversationSummary, 0, len(convs))
+	if len(convs) == 0 {
+		return result, nil
+	}
+	// Batch-load every peer/assignee user up front so the per-conversation
+	// summary loop performs no per-row JOIN to the users table (N+1 fix).
+	users, peerByConv, err := s.loadConversationSummaryUsers(ctx, convs, userID)
+	if err != nil {
+		return nil, err
+	}
 	for _, conv := range convs {
-		item, err := s.buildConversationSummary(ctx, conv, userID)
+		item, err := s.buildConversationSummaryWithUsers(ctx, conv, userID, users, peerByConv)
 		if err != nil {
 			return nil, err
 		}
@@ -170,17 +179,21 @@ func (s *Service) buildConversationAgentContext(ctx context.Context, organizatio
 			}
 		}
 	}
-	_ = s.db.WithContext(ctx).
+	if err := s.db.WithContext(ctx).
 		Model(&models.ToolApproval{}).
 		Joins("JOIN workflow_runs ON workflow_runs.id = tool_approvals.workflow_run_id").
 		Where("tool_approvals.organization_id = ? AND workflow_runs.conversation_id = ? AND tool_approvals.status = ?", organizationID, conversationID, models.ToolApprovalStatusPending).
-		Count(&result.PendingApprovalCount).Error
-	_ = s.db.WithContext(ctx).
+		Count(&result.PendingApprovalCount).Error; err != nil {
+		s.logger.Warn().Err(err).Uint64("conversation_id", conversationID).Msg("failed to count pending tool approvals")
+	}
+	if err := s.db.WithContext(ctx).
 		Model(&models.RAGSource{}).
 		Where("organization_id = ? AND (conversation_id IS NULL OR conversation_id = ?)", organizationID, conversationID).
 		Where("status = ?", models.RAGSourceStatusReady).
 		Where("(dedupe_status IS NULL OR dedupe_status <> ?)", models.RAGSourceDedupeStatusConfirmedDuplicate).
-		Count(&result.KnowledgeSourceCount).Error
+		Count(&result.KnowledgeSourceCount).Error; err != nil {
+		s.logger.Warn().Err(err).Uint64("conversation_id", conversationID).Msg("failed to count knowledge sources")
+	}
 	result.applyMeetingTranscriptionContext(s.loadLatestConversationTranscriptionContext(ctx, organizationID, conversationID))
 	return result
 }
@@ -426,12 +439,96 @@ func (s *Service) MarkConversationRead(ctx context.Context, organizationID, user
 			UserID:    userID,
 			ReadAt:    now,
 		}
-		_ = s.db.WithContext(ctx).Where("message_id = ? AND user_id = ?", last.ID, userID).FirstOrCreate(&read).Error
+		if err := s.db.WithContext(ctx).Where("message_id = ? AND user_id = ?", last.ID, userID).FirstOrCreate(&read).Error; err != nil {
+			s.logger.Warn().Err(err).Uint64("conversation_id", conversationID).Uint64("user_id", userID).Msg("failed to record message read receipt")
+		}
 	}
 	return nil
 }
 
+// collectSummaryUserIDs is a pure helper that, given a batch of conversations,
+// returns the conversation ids whose peer user must be looked up (direct
+// conversations without a title) and the deduplicated set of assignee user ids
+// to fetch. It performs no I/O so it can be unit tested in isolation.
+func collectSummaryUserIDs(convs []models.Conversation, userID uint64) (directConvIDs, assigneeIDs []uint64) {
+	seen := make(map[uint64]struct{})
+	addAssignee := func(id uint64) {
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		assigneeIDs = append(assigneeIDs, id)
+	}
+	for _, conv := range convs {
+		if conv.Type == models.ConversationTypeDirect && strings.TrimSpace(conv.Title) == "" {
+			directConvIDs = append(directConvIDs, conv.ID)
+		}
+		if conv.AssigneeUserID != nil {
+			addAssignee(*conv.AssigneeUserID)
+		}
+	}
+	return directConvIDs, assigneeIDs
+}
+
+// loadConversationSummaryUsers fetches every peer and assignee user needed to
+// build summaries for the given conversations in a constant number of queries
+// (one for peer membership, one for the users table) instead of one per
+// conversation.
+func (s *Service) loadConversationSummaryUsers(ctx context.Context, convs []models.Conversation, userID uint64) (map[uint64]models.User, map[uint64]uint64, error) {
+	directConvIDs, userIDs := collectSummaryUserIDs(convs, userID)
+	peerByConv := make(map[uint64]uint64)
+	if len(directConvIDs) > 0 {
+		var rows []struct {
+			ConversationID uint64 `gorm:"column:conversation_id"`
+			UserID         uint64 `gorm:"column:user_id"`
+		}
+		if err := s.db.WithContext(ctx).
+			Table("conversation_members").
+			Select("conversation_id, user_id").
+			Where("conversation_id IN ? AND user_id <> ?", directConvIDs, userID).
+			Find(&rows).Error; err != nil {
+			return nil, nil, err
+		}
+		seen := make(map[uint64]struct{})
+		for _, r := range rows {
+			if _, ok := peerByConv[r.ConversationID]; !ok {
+				peerByConv[r.ConversationID] = r.UserID
+			}
+			if _, ok := seen[r.UserID]; ok {
+				continue
+			}
+			seen[r.UserID] = struct{}{}
+			userIDs = append(userIDs, r.UserID)
+		}
+	}
+	if len(userIDs) == 0 {
+		return map[uint64]models.User{}, peerByConv, nil
+	}
+	var users []models.User
+	if err := s.db.WithContext(ctx).Select("id, email, display_name").Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+		return nil, nil, err
+	}
+	userCache := make(map[uint64]models.User, len(users))
+	for _, u := range users {
+		userCache[u.ID] = u
+	}
+	return userCache, peerByConv, nil
+}
+
+// buildConversationSummary constructs a conversation summary, querying peer
+// and assignee users on demand (one DB round-trip each). Prefer
+// buildConversationSummaryBatch when building summaries for many conversations
+// at once to avoid the N+1 query pattern.
 func (s *Service) buildConversationSummary(ctx context.Context, conv models.Conversation, userID uint64) (ConversationSummary, error) {
+	return s.buildConversationSummaryWithUsers(ctx, conv, userID, nil, nil)
+}
+
+// buildConversationSummaryWithUsers is like buildConversationSummary but uses a
+// preloaded user cache (and per-conversation peer mapping) so the per-peer and
+// per-assignee queries are served from memory instead of the database. The
+// cache is optional: when a user/peer is missing it falls back to a direct
+// query, which keeps single-conversation callers correct.
+func (s *Service) buildConversationSummaryWithUsers(ctx context.Context, conv models.Conversation, userID uint64, users map[uint64]models.User, peerByConv map[uint64]uint64) (ConversationSummary, error) {
 	if strings.TrimSpace(conv.Status) == "" {
 		conv.Status = models.ConversationStatusOpen
 	}
@@ -441,13 +538,22 @@ func (s *Service) buildConversationSummary(ctx context.Context, conv models.Conv
 	item := ConversationSummary{Conversation: conv}
 	if conv.Type == models.ConversationTypeDirect && strings.TrimSpace(conv.Title) == "" {
 		var peer models.User
-		err := s.db.WithContext(ctx).
-			Table("conversation_members").
-			Select("users.*").
-			Joins("JOIN users ON users.id = conversation_members.user_id").
-			Where("conversation_members.conversation_id = ? AND conversation_members.user_id <> ?", conv.ID, userID).
-			Take(&peer).Error
-		if err == nil {
+		if peerID, ok := peerByConv[conv.ID]; ok {
+			if u, ok := users[peerID]; ok {
+				peer = u
+			}
+		}
+		if peer.ID == 0 {
+			// Fallback to a direct query (single-conversation callers and any
+			// cache miss). Errors are non-fatal: we simply skip the title.
+			_ = s.db.WithContext(ctx).
+				Table("conversation_members").
+				Select("users.*").
+				Joins("JOIN users ON users.id = conversation_members.user_id").
+				Where("conversation_members.conversation_id = ? AND conversation_members.user_id <> ?", conv.ID, userID).
+				Take(&peer).Error
+		}
+		if peer.ID != 0 {
 			if strings.TrimSpace(peer.DisplayName) != "" {
 				item.Title = peer.DisplayName
 			} else {
@@ -457,7 +563,13 @@ func (s *Service) buildConversationSummary(ctx context.Context, conv models.Conv
 	}
 	if conv.AssigneeUserID != nil {
 		var assignee models.User
-		if err := s.db.WithContext(ctx).Select("email, display_name").Where("id = ?", *conv.AssigneeUserID).Take(&assignee).Error; err == nil {
+		if u, ok := users[*conv.AssigneeUserID]; ok {
+			assignee = u
+		}
+		if assignee.ID == 0 {
+			_ = s.db.WithContext(ctx).Select("email, display_name").Where("id = ?", *conv.AssigneeUserID).Take(&assignee).Error
+		}
+		if assignee.ID != 0 {
 			item.AssigneeEmail = assignee.Email
 			item.AssigneeDisplayName = assignee.DisplayName
 		}
@@ -474,7 +586,9 @@ func (s *Service) buildConversationSummary(ctx context.Context, conv models.Conv
 		if member.LastReadAt != nil {
 			query = query.Where("created_at > ?", *member.LastReadAt)
 		}
-		_ = query.Count(&unread).Error
+		if err := query.Count(&unread).Error; err != nil {
+			s.logger.Warn().Err(err).Uint64("conversation_id", conv.ID).Uint64("user_id", userID).Msg("failed to count unread messages")
+		}
 		item.UnreadCount = unread
 	}
 
@@ -726,7 +840,9 @@ func (s *Service) createMessageTx(ctx context.Context, tx *gorm.DB, organization
 		record, err := s.loadMessageRecord(ctx, message.ID)
 		if err == nil {
 			memberIDs, _ := s.listConversationMemberIDsTx(ctx, tx, conversationID)
-			_ = s.publishMessageCreatedRealtime(ctx, record, memberIDs)
+			if err := s.publishMessageCreatedRealtime(ctx, record, memberIDs); err != nil {
+				s.logger.Warn().Err(err).Uint64("message_id", record.ID).Msg("failed to publish message.created realtime event")
+			}
 		}
 	}
 	return message, nil
@@ -772,7 +888,9 @@ func (s *Service) ensureConversationMemberTx(ctx context.Context, tx *gorm.DB, o
 
 func (s *Service) countRoomParticipants(ctx context.Context, roomID uint64) int64 {
 	var count int64
-	_ = s.db.WithContext(ctx).Model(&models.CallRoomMember{}).Where("room_id = ?", roomID).Count(&count).Error
+	if err := s.db.WithContext(ctx).Model(&models.CallRoomMember{}).Where("room_id = ?", roomID).Count(&count).Error; err != nil {
+		s.logger.Warn().Err(err).Uint64("room_id", roomID).Msg("failed to count room participants")
+	}
 	return count
 }
 

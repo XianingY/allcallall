@@ -28,7 +28,7 @@
     "@react-native-firebase/messaging": "^23.8.6",
     "@react-navigation/native": "^6.1.9",
     "@react-navigation/native-stack": "^6.9.17",
-    "axios": "^1.6.8",
+    "axios": "^1.18.1",
     "expo": "^51.0.0",
     "expo-av": "~14.0.4",
     "expo-clipboard": "~6.0.3",

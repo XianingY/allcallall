@@ -1,0 +1,74 @@
+# Optional observability stack for the self-hosted AllCallAll deployment.
+#
+# Bring it up together with the production stack so Prometheus can reach the
+# backend over the shared `allcallall_network`:
+#
+#   docker compose -f infra/docker-compose.production.yml \
+#                  -f infra/docker-compose.observability.yml up -d
+#
+# (Both files are parsed as one project, so they share the `allcallall_network`
+# network. Prometheus runs inside that internal network, so it can scrape the
+# backend /api/v1/metrics endpoint without the METRICS_BEARER_TOKEN.)
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - allcallall_network
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.1.0
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - ./observability/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - allcallall_network
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:3.1.0
+    command: -config.file=/etc/promtail/promtail.yml
+    volumes:
+      - ./observability/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - allcallall_network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - allcallall_network
+    restart: unless-stopped
+
+networks:
+  allcallall_network:
+    name: allcallall_network
+
+volumes:
+  prometheus_data:
+  loki_data:
+  grafana_data:

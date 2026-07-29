@@ -3,20 +3,41 @@ package collaboration
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
 
 type ChatHub struct {
 	logger  zerolog.Logger
+	redis   *redis.Client
+	nodeID  string
 	mu      sync.RWMutex
 	clients map[uint64]map[*chatClient]struct{}
 }
 
 const chatSendBufferSize = 256
+
+// chatRedisEnvelope wraps a realtime event for cross-instance delivery. The
+// originating node id is included so a node can ignore its own publications
+// (Redis pub/sub also delivers the message back to the publisher) and avoid
+// double-delivering to its local connections.
+type chatRedisEnvelope struct {
+	NodeID         string          `json:"node_id"`
+	UserID         uint64          `json:"user_id"`
+	OrganizationID uint64          `json:"organization_id"`
+	Data           json.RawMessage `json:"data"`
+}
+
+// chatChannel returns the Redis channel a user's events are published to.
+func chatChannel(userID uint64) string {
+	return "chat:user:" + strconv.FormatUint(userID, 10)
+}
 
 // chatWriteDeadline bounds how long a single websocket write may block before
 // the per-connection write goroutine gives up and tears down the connection.
@@ -31,10 +52,57 @@ type chatClient struct {
 	send   chan []byte
 }
 
-func NewChatHub(logger zerolog.Logger) *ChatHub {
+// NewChatHub constructs a chat hub. When redis is non-nil the hub bridges
+// messages across backend instances via Redis pub/sub so a user connected to
+// any node receives every event. When redis is nil the hub operates in
+// local-only mode (fail open) and never panics if Redis is unavailable.
+func NewChatHub(redis *redis.Client, logger zerolog.Logger) *ChatHub {
 	return &ChatHub{
 		logger:  logger.With().Str("component", "chat_hub").Logger(),
+		redis:   redis,
+		nodeID:  uuid.NewString(),
 		clients: make(map[uint64]map[*chatClient]struct{}),
+	}
+}
+
+// Start subscribes to cross-instance chat deliveries. It is a no-op when Redis
+// is not configured. It returns immediately; the subscription loop runs in its
+// own goroutine until ctx is cancelled, so callers (including the server's main
+// goroutine) are never blocked.
+func (h *ChatHub) Start(ctx context.Context) {
+	if h.redis == nil {
+		return
+	}
+	sub := h.redis.PSubscribe(ctx, "chat:user:*")
+	go func() {
+		defer sub.Close()
+		h.redisForwarder(ctx, sub)
+	}()
+}
+
+func (h *ChatHub) redisForwarder(ctx context.Context, sub *redis.PubSub) {
+	ch := sub.Channel()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			var env chatRedisEnvelope
+			if err := json.Unmarshal([]byte(msg.Payload), &env); err != nil {
+				h.logger.Warn().Err(err).Msg("failed to decode redis chat envelope")
+				continue
+			}
+			// Ignore our own publications: Redis pub/sub also delivers the
+			// message back to the publishing node, but we already delivered it
+			// locally in PublishToUser.
+			if env.NodeID == h.nodeID {
+				continue
+			}
+			h.deliverLocal(env.UserID, env.OrganizationID, env.Data)
+		}
 	}
 }
 
@@ -71,24 +139,47 @@ func (h *ChatHub) HandleConnection(ctx context.Context, userID, orgID uint64, co
 	}
 }
 
-func (h *ChatHub) PublishToUser(_ context.Context, event RealtimeEventRecord) error {
+func (h *ChatHub) PublishToUser(ctx context.Context, event RealtimeEventRecord) error {
 	body, err := marshalRealtimeEvent(event)
 	if err != nil {
 		return err
 	}
+	// Local delivery always happens first, regardless of Redis availability.
+	h.deliverLocal(event.UserID, event.OrganizationID, body)
+
+	// Bridge to other instances. Publication failures degrade gracefully to
+	// local-only delivery (fail open) so a Redis outage cannot block chat.
+	if h.redis != nil {
+		envBytes, err := json.Marshal(chatRedisEnvelope{
+			NodeID:         h.nodeID,
+			UserID:         event.UserID,
+			OrganizationID: event.OrganizationID,
+			Data:           body,
+		})
+		if err != nil {
+			h.logger.Warn().Err(err).Uint64("user_id", event.UserID).Msg("failed to marshal chat redis envelope")
+			return nil
+		}
+		if err := h.redis.Publish(ctx, chatChannel(event.UserID), envBytes).Err(); err != nil {
+			h.logger.Warn().Err(err).Uint64("user_id", event.UserID).Msg("failed to publish chat event to redis")
+		}
+	}
+	return nil
+}
+
+func (h *ChatHub) deliverLocal(userID, orgID uint64, body []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	for client := range h.clients[event.UserID] {
-		if client.orgID != event.OrganizationID {
+	for client := range h.clients[userID] {
+		if client.orgID != orgID {
 			continue
 		}
 		select {
 		case client.send <- body:
 		default:
-			h.logger.Warn().Uint64("user_id", event.UserID).Uint64("event_id", event.ID).Msg("dropping chat event due to slow client")
+			h.logger.Warn().Uint64("user_id", userID).Msg("dropping chat event due to slow client")
 		}
 	}
-	return nil
 }
 
 func marshalRealtimeEvent(event RealtimeEventRecord) ([]byte, error) {

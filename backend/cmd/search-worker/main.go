@@ -43,6 +43,7 @@ func main() {
 	searchInitCancel()
 	userSvc := user.NewService(user.NewRepository(db), user.WithPushDeviceSupport())
 	collaborationSvc := collaboration.NewService(db, userSvc)
+	collaborationSvc.WithLogger(appLogger)
 	processor := events.NewProcessor(events.NewStore(db), counterStore)
 	appruntime.RegisterSearchOutboxHandlers(processor, collaborationSvc, searchSvc, appLogger)
 

@@ -22,9 +22,26 @@ func requireSupportNetwork(c *gin.Context) bool {
 		JSONErrorWithCode(c, http.StatusForbidden, "SUPPORT_NETWORK_FORBIDDEN", "support api is restricted to the internal network")
 		return false
 	}
-	if forwarded := strings.TrimSpace(strings.Split(c.GetHeader("X-Forwarded-For"), ",")[0]); forwarded != "" && !isInternalIP(net.ParseIP(forwarded)) {
-		JSONErrorWithCode(c, http.StatusForbidden, "SUPPORT_NETWORK_FORBIDDEN", "support api is restricted to the internal network")
-		return false
+	// The connection originated from an internal proxy/LB. When that proxy
+	// forwards an X-Forwarded-For chain we must require that EVERY hop in the
+	// chain is also an internal address. Otherwise an external client could
+	// spoof the first hop (e.g. "127.0.0.1, 203.0.113.9") and appear trusted.
+	// If the proxy does not rewrite XFF the whole chain is still enforced.
+	if forwarded := strings.TrimSpace(c.GetHeader("X-Forwarded-For")); forwarded != "" {
+		for _, hop := range strings.Split(forwarded, ",") {
+			hop = strings.TrimSpace(hop)
+			if hop == "" {
+				continue
+			}
+			if host, _, err := net.SplitHostPort(hop); err == nil {
+				hop = host
+			}
+			ip := net.ParseIP(hop)
+			if ip == nil || !isInternalIP(ip) {
+				JSONErrorWithCode(c, http.StatusForbidden, "SUPPORT_NETWORK_FORBIDDEN", "support api is restricted to the internal network")
+				return false
+			}
+		}
 	}
 	return true
 }
