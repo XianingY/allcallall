@@ -256,6 +256,33 @@ func TestResolveCommandUsesEffectivePath(t *testing.T) {
 	}
 }
 
+func TestResolveCommandRejectsUnsafeAbsolutePaths(t *testing.T) {
+	directory := t.TempDir()
+	executable := filepath.Join(directory, "run")
+	if err := os.WriteFile(executable, []byte("binary"), 0o755); err != nil {
+		t.Fatalf("write executable: %v", err)
+	}
+	// 合法的绝对路径可执行文件应被放行（覆盖 python 解释器等真实场景）。
+	if resolved, err := resolveCommand(executable, nil); err != nil || resolved != executable {
+		t.Fatalf("resolveCommand(%q) = %q, %v; want %q", executable, resolved, err, executable)
+	}
+	// 目录（非常规文件）应被拒绝。
+	dirPath := filepath.Join(directory, "sub")
+	if err := os.Mkdir(dirPath, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if _, err := resolveCommand(dirPath, nil); err == nil {
+		t.Fatalf("directory should be rejected, got nil error")
+	}
+	// 相对路径或含 ".." 穿透应被拒绝。
+	if _, err := resolveCommand("../bin/sh", nil); err == nil {
+		t.Fatalf("traversal path should be rejected, got nil error")
+	}
+	if _, err := resolveCommand("bin/sh", nil); err == nil {
+		t.Fatalf("relative path should be rejected, got nil error")
+	}
+}
+
 func TestServeCreatesMode0600SingleConnectionSocket(t *testing.T) {
 	directory, err := os.MkdirTemp("/tmp", "aca-supervisor-")
 	if err != nil {
