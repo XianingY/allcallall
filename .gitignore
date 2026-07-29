@@ -240,3 +240,21 @@ mobile/android/app/src/main/assets/models/**/*.bin
 mobile/android/app/src/main/assets/models/**/*.onnx
 mobile/android/app/src/main/assets/models/**/*.spm
 node_modules/
+
+# ============================
+# Local Tooling & Generated Artifacts (audit 2026-07-29)
+# ============================
+# Compiled eval binary (8.9MB Mach-O; rebuild with `go build ./cmd/agent-eval`)
+backend/cmd/agent-eval/agent-eval
+
+# Go coverage artifacts at backend root
+backend/coverage.html
+backend/coverage.out
+
+# AI assistant session/state directories (local-only)
+.omo/
+.workbuddy/
+
+# Ad-hoc local outputs and root-level generated HTML reports
+output/
+/*.html
