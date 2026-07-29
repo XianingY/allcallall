@@ -16,9 +16,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/allcallall/backend/internal/mcpplatform"
 	"github.com/allcallall/backend/internal/models"
 )
+
+// log 是该包内的包级最低限度日志器，用于记录关键清理/状态写入路径上被吞掉的错误。
+// log is the package-level fallback logger for swallowed errors on critical cleanup/state-write paths.
+var log = zerolog.New(os.Stderr).With().Timestamp().Logger()
 
 var (
 	ErrPrivateAddress      = errors.New("sandbox private network destination rejected")
@@ -257,7 +263,9 @@ func (s *Service) Execute(ctx context.Context, request mcpplatform.ExecutionRequ
 				defer func() {
 					closeCtx, closeCancel := context.WithTimeout(context.Background(), 10*time.Second)
 					defer closeCancel()
-					_ = prepared.Close(closeCtx)
+					if closeErr := prepared.Close(closeCtx); closeErr != nil {
+						log.Warn().Err(closeErr).Str("execution_id", request.ExecutionID).Msg("failed to close prepared sandbox execution")
+					}
 				}()
 				persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), terminalReceiptWriteTimeout)
 				stored, executionErr = s.receipts.SetJobID(persistCtx, request.ExecutionID, digest, prepared.JobID())

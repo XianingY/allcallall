@@ -148,7 +148,9 @@ func (e *Engine) setupPeerConnectionHandlers(pc *webrtc.PeerConnection, peerConn
 		// Auto cleanup closed connections
 		if connectionState == webrtc.PeerConnectionStateClosed ||
 			connectionState == webrtc.PeerConnectionStateFailed {
-			_ = e.ClosePeerConnection(peerConn.CallID, peerConn.LocalEmail, peerConn.RemoteEmail)
+			if err := e.ClosePeerConnection(peerConn.CallID, peerConn.LocalEmail, peerConn.RemoteEmail); err != nil {
+				e.logger.Warn().Err(err).Str("call_id", peerConn.CallID).Msg("failed to close peer connection on terminal state")
+			}
 		}
 	})
 

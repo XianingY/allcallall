@@ -335,7 +335,7 @@ func (s *Service) ResendOrganizationInvite(ctx context.Context, organizationID, 
 		return nil, errors.New("accepted invite cannot be resent")
 	}
 	invite.Status = models.InvitationStatusPending
-	invite.ExpiresAt = time.Now().Add(7 * 24 * time.Hour)
+	invite.ExpiresAt = time.Now().Add(defaultInvitationTTL)
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(&invite).Error; err != nil {
 			return err

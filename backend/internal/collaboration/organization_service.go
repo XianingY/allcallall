@@ -14,6 +14,10 @@ import (
 	"github.com/allcallall/backend/internal/models"
 )
 
+// defaultInvitationTTL 是组织邀请的默认有效期（7 天）。
+// defaultInvitationTTL is the default organization-invitation lifetime (7 days).
+const defaultInvitationTTL = 7 * 24 * time.Hour
+
 func (s *Service) EnsurePersonalOrganization(ctx context.Context, userID uint64, displayName string) (*models.Organization, error) {
 	orgs, err := s.listMemberships(ctx, userID)
 	if err != nil {
@@ -155,7 +159,7 @@ func (s *Service) CreateOrganizationInvite(ctx context.Context, organizationID, 
 			return nil, err
 		}
 	}
-	expiresAt := time.Now().Add(7 * 24 * time.Hour)
+	expiresAt := time.Now().Add(defaultInvitationTTL)
 	if input.ExpiresAt != nil {
 		expiresAt = *input.ExpiresAt
 	}

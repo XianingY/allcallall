@@ -2,10 +2,18 @@ package knowledge
 
 import (
 	"context"
+	"os"
+	"time"
+
+	"github.com/rs/zerolog"
+
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/search"
-	"time"
 )
+
+// log 是该包内的包级最低限度日志器，用于记录关键路径上被吞掉的错误。
+// log is the package-level fallback logger for swallowed errors on critical paths.
+var log = zerolog.New(os.Stderr).With().Timestamp().Logger()
 
 func (s *Service) ProcessChunkIndex(ctx context.Context, chunkID uint64) error {
 	var chunk models.RAGChunk
@@ -23,7 +31,9 @@ func (s *Service) ProcessChunkIndex(ctx context.Context, chunkID uint64) error {
 	if s.embedder != nil {
 		vec, err = s.embedder.CreateEmbedding(ctx, chunk.Content)
 		if err != nil {
-			_ = s.markChunkIndexFailed(ctx, chunk.ID, err)
+			if markErr := s.markChunkIndexFailed(ctx, chunk.ID, err); markErr != nil {
+				log.Warn().Err(markErr).Uint64("chunk_id", chunk.ID).Msg("failed to mark chunk index as failed")
+			}
 			return err
 		}
 	}
@@ -51,7 +61,9 @@ func (s *Service) ProcessChunkIndex(ctx context.Context, chunkID uint64) error {
 		CreatedAt:         chunk.CreatedAt,
 		UpdatedAt:         chunk.UpdatedAt,
 	}); err != nil {
-		_ = s.markChunkIndexFailed(ctx, chunk.ID, err)
+		if markErr := s.markChunkIndexFailed(ctx, chunk.ID, err); markErr != nil {
+			log.Warn().Err(markErr).Uint64("chunk_id", chunk.ID).Msg("failed to mark chunk index as failed")
+		}
 		return err
 	}
 	now := time.Now().UTC()

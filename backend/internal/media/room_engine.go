@@ -230,7 +230,9 @@ func (r *RoomEngine) StopRecording(roomID string) ([]RecordingArtifact, error) {
 	artifacts := make([]RecordingArtifact, 0, len(recording.artifacts))
 	for key, artifact := range recording.artifacts {
 		if artifact.writer != nil {
-			_ = artifact.writer.Close()
+			if err := artifact.writer.Close(); err != nil {
+				r.logger.Warn().Err(err).Str("path", artifact.path).Msg("failed to close recording writer")
+			}
 		}
 		artifacts = append(artifacts, RecordingArtifact{
 			ObjectKey:       artifact.path,
@@ -340,7 +342,9 @@ func (r *RoomEngine) removeParticipantLocked(room *mediaRoom, participantID stri
 	if !ok {
 		return
 	}
-	_ = participant.pc.Close()
+	if err := participant.pc.Close(); err != nil {
+		r.logger.Warn().Err(err).Str("participant_id", participantID).Msg("failed to close peer connection on participant removal")
+	}
 	delete(room.participants, participantID)
 
 	for key, track := range room.tracks {
@@ -349,7 +353,9 @@ func (r *RoomEngine) removeParticipantLocked(room *mediaRoom, participantID stri
 		}
 		for _, other := range room.participants {
 			if sender, ok := other.senders[key]; ok {
-				_ = other.pc.RemoveTrack(sender)
+				if err := other.pc.RemoveTrack(sender); err != nil {
+					r.logger.Warn().Err(err).Str("room_id", room.id).Str("participant_id", other.id).Msg("failed to remove track from participant")
+				}
 				delete(other.senders, key)
 			}
 		}
@@ -413,7 +419,9 @@ func (r *RoomEngine) handleRemoteTrack(roomID, participantID string, track *webr
 		delete(roomRef.tracks, key)
 		for _, other := range roomRef.participants {
 			if sender, ok := other.senders[key]; ok {
-				_ = other.pc.RemoveTrack(sender)
+				if err := other.pc.RemoveTrack(sender); err != nil {
+					r.logger.Warn().Err(err).Str("room_id", roomID).Str("participant_id", other.id).Msg("failed to remove track from participant")
+				}
 				delete(other.senders, key)
 			}
 		}

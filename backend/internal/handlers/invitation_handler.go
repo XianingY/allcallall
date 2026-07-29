@@ -19,6 +19,10 @@ import (
 	"github.com/allcallall/backend/internal/user"
 )
 
+// defaultInvitationTTL 是邀请链接的默认有效期（7 天）。
+// defaultInvitationTTL is the default invitation lifetime (7 days).
+const defaultInvitationTTL = 7 * 24 * time.Hour
+
 type InvitationHandler struct {
 	logger      zerolog.Logger
 	invitations *invitation.Service
@@ -71,7 +75,7 @@ func (h *InvitationHandler) handleCreateInvitation(c *gin.Context) {
 		return
 	}
 
-	expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour)
+	expiresAt := time.Now().UTC().Add(defaultInvitationTTL)
 	if req.ExpiresAt != nil && strings.TrimSpace(*req.ExpiresAt) != "" {
 		parsed, parseErr := time.Parse(time.RFC3339, strings.TrimSpace(*req.ExpiresAt))
 		if parseErr != nil {

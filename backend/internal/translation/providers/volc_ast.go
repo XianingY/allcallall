@@ -127,7 +127,9 @@ func (p *VolcASTProvider) Start(
 	}
 
 	if err := session.sendStart(req); err != nil {
-		_ = conn.Close()
+		if closeErr := conn.Close(); closeErr != nil {
+			p.logger.Warn().Err(closeErr).Msg("failed to close websocket after failed start")
+		}
 		return nil, fmt.Errorf("send provider start message: %w", err)
 	}
 
@@ -259,14 +261,18 @@ func (s *volcASTSession) Stop(ctx context.Context) error {
 			} else {
 				s.conn.SetWriteDeadline(time.Now().Add(volcStopWriteTimeout))
 			}
-			_ = s.conn.WriteMessage(websocket.BinaryMessage, frame)
+			if writeErr := s.conn.WriteMessage(websocket.BinaryMessage, frame); writeErr != nil {
+				s.logger.Warn().Err(writeErr).Msg("failed to send finish session frame")
+			}
 		}
 
-		_ = s.conn.WriteControl(
+		if ctrlErr := s.conn.WriteControl(
 			websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
 			time.Now().Add(volcStopWriteTimeout),
-		)
+		); ctrlErr != nil {
+			s.logger.Warn().Err(ctrlErr).Msg("failed to send close control frame")
+		}
 		closeErr = s.conn.Close()
 		close(s.closed)
 	})
@@ -276,7 +282,9 @@ func (s *volcASTSession) Stop(ctx context.Context) error {
 func (s *volcASTSession) readLoop() {
 	defer func() {
 		s.closeOnce.Do(func() {
-			_ = s.conn.Close()
+			if closeErr := s.conn.Close(); closeErr != nil {
+				s.logger.Warn().Err(closeErr).Msg("failed to close websocket in read loop")
+			}
 			close(s.closed)
 		})
 	}()

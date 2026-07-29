@@ -30,6 +30,10 @@ type Manager struct {
 const (
 	TokenTypeAccess  = "access"
 	TokenTypeRefresh = "refresh"
+
+	// defaultTokenTTL 是刷新令牌的默认有效期（7 天）。
+	// defaultTokenTTL is the default refresh-token lifetime (7 days).
+	defaultTokenTTL = 7 * 24 * time.Hour
 )
 
 // Config JWT 配置
@@ -51,7 +55,7 @@ func NewManager(cfg Config) (*Manager, error) {
 		cfg.AccessTokenTTL = time.Hour
 	}
 	if cfg.RefreshTokenTTL <= 0 {
-		cfg.RefreshTokenTTL = 24 * time.Hour * 7
+		cfg.RefreshTokenTTL = defaultTokenTTL
 	}
 	return &Manager{
 		secret:     []byte(cfg.Secret),

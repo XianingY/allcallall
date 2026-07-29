@@ -5,9 +5,11 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/commerce"
@@ -15,6 +17,10 @@ import (
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/user"
 )
+
+// log 是该包内的包级最低限度日志器，用于记录关键路径上被吞掉的错误。
+// log is the package-level fallback logger for swallowed errors on critical paths.
+var log = zerolog.New(os.Stderr).With().Timestamp().Logger()
 
 var (
 	ErrInvitationNotFound      = errors.New("invitation not found")
@@ -84,9 +90,11 @@ func (s *Service) GetByCode(ctx context.Context, code string) (*models.Invitatio
 		return nil, err
 	}
 	if invitation.Status == models.InvitationStatusPending && invitation.ExpiresAt.Before(time.Now().UTC()) {
-		_ = s.db.WithContext(ctx).Model(&models.Invitation{}).
+		if err := s.db.WithContext(ctx).Model(&models.Invitation{}).
 			Where("id = ?", invitation.ID).
-			Update("status", models.InvitationStatusExpired).Error
+			Update("status", models.InvitationStatusExpired).Error; err != nil {
+			log.Warn().Err(err).Uint64("invitation_id", invitation.ID).Msg("failed to mark invitation as expired")
+		}
 		invitation.Status = models.InvitationStatusExpired
 	}
 	return &invitation, nil

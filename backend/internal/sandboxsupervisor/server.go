@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -32,6 +33,27 @@ var (
 	ErrSessionRejected   = errors.New("supervisor session rejected")
 	errMissingNewline    = errors.New("child stdout line is not newline terminated")
 )
+
+// allowedBinaryPaths 列出当命令包含路径分隔符时，resolveCommand 被允许直接执行的
+// 绝对二进制路径白名单。任何带 "/" 或 "\" 的命令必须精确落在该列表（经 filepath.Clean
+// 规范化后）之内，否则将被拒绝，以防止绕过基于 PATH 的命令白名单执行任意二进制。
+// 仅在确需执行固定位置的受信沙箱二进制时，才在此处追加条目；不要加入可被调用方控制的路径。
+// allowedBinaryPaths enumerates the absolute binary paths resolveCommand may run
+// directly when a command carries a path separator. Any command containing "/" or
+// "\" must resolve (after filepath.Clean) to one of these vetted entries, otherwise
+// it is rejected to prevent bypassing the PATH-based allowlist. Extend only with
+// trusted, fixed-location sandbox binaries.
+var allowedBinaryPaths = func() []string {
+	// 默认允许当前进程自身（沙箱主管二进制）作为子命令执行，覆盖自托管/测试场景；
+	// 真实部署中请在下方追加受信沙箱二进制的绝对路径。
+	// By default the running supervisor binary itself is permitted as a child
+	// command (self-host / test scenarios); in production append the absolute
+	// paths of trusted sandbox binaries below.
+	if self, err := os.Executable(); err == nil {
+		return []string{self}
+	}
+	return nil
+}()
 
 // Server executes exactly one child process for exactly one Unix socket
 // connection. Limits are configurable to keep fault-path tests fast; zero
@@ -345,8 +367,16 @@ func safeBaseEnvironment() map[string]string {
 }
 
 func resolveCommand(command string, environment map[string]string) (string, error) {
-	if strings.ContainsRune(command, filepath.Separator) {
-		return command, nil
+	// 含路径分隔符的命令不再直接放行：必须落在显式二进制白名单内，否则拒绝执行，
+	// 避免 exec.Command 执行调用方指定的任意二进制而绕过 PATH 白名单。
+	// Commands containing a path separator are no longer passed through as-is: they
+	// must be on the explicit binary allowlist, otherwise execution is rejected to
+	// avoid running an arbitrary binary and bypassing the PATH allowlist.
+	if containsPathSeparator(command) {
+		if !isAllowedBinaryPath(command) {
+			return "", fmt.Errorf("command %q contains a path separator but is not in the allowed binary allowlist: %w", command, ErrSessionRejected)
+		}
+		return filepath.Clean(command), nil
 	}
 	pathValue, supplied := environment["PATH"]
 	if !supplied {
@@ -363,6 +393,24 @@ func resolveCommand(command string, environment map[string]string) (string, erro
 		}
 	}
 	return "", ErrSessionRejected
+}
+
+// containsPathSeparator 报告命令是否包含路径分隔符（"/" 或 "\"）。
+// containsPathSeparator reports whether the command carries a path separator ("/" or "\").
+func containsPathSeparator(command string) bool {
+	return strings.ContainsRune(command, '/') || strings.ContainsRune(command, '\\') || strings.ContainsRune(command, filepath.Separator)
+}
+
+// isAllowedBinaryPath 判断经规范化的命令是否落在 allowedBinaryPaths 白名单内。
+// isAllowedBinaryPath reports whether the cleaned command is on the allowedBinaryPaths allowlist.
+func isAllowedBinaryPath(command string) bool {
+	cleaned := filepath.Clean(command)
+	for _, allowed := range allowedBinaryPaths {
+		if filepath.Clean(allowed) == cleaned {
+			return true
+		}
+	}
+	return false
 }
 
 func readClientFrames(connection net.Conn, input *childInput, budget int64, events chan<- sessionEvent) {

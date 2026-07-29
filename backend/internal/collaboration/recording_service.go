@@ -16,6 +16,10 @@ import (
 	"github.com/allcallall/backend/internal/storage"
 )
 
+// defaultRecordingRetention 是录制文件的默认保留期（30 天）。
+// defaultRecordingRetention is the default recording retention period (30 days).
+const defaultRecordingRetention = 30 * 24 * time.Hour
+
 func (s *Service) StartRecording(ctx context.Context, organizationID, userID, roomID uint64) (*RecordingView, error) {
 	_, role, err := s.ResolveOrganization(ctx, userID, organizationID)
 	if err != nil {
@@ -378,7 +382,7 @@ func (s *Service) persistRecordingArtifacts(ctx context.Context, organizationID,
 		return err
 	}
 
-	retentionUntil := stoppedAt.Add(30 * 24 * time.Hour)
+	retentionUntil := stoppedAt.Add(defaultRecordingRetention)
 	var policy models.OrganizationPolicy
 	if err := s.db.WithContext(ctx).Where("organization_id = ?", organizationID).Take(&policy).Error; err == nil && policy.RecordingStorageDays > 0 {
 		retentionUntil = stoppedAt.Add(time.Duration(policy.RecordingStorageDays) * 24 * time.Hour)
