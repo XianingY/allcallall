@@ -43,3 +43,17 @@ conversations, meetings, transcripts, permissions, approvals, audit logs, and
 write execution. Splitting the runtime into its own repository keeps the Python
 release cadence independent of the Go monorepo and avoids a large, rarely-built
 Python subtree in the main repository.
+
+## Note for contributors (this repository)
+
+- This repository's `contracts/` directory contains **only legacy fixtures**
+  (`agent_run_request.json`, `agent_run_response.json`, `rag_retrieval_request.json`,
+  `rag_retrieval_response.json`). They are reference samples, not the build/test source
+  of truth, and are not consumed by the Go build.
+- The **authoritative** JSON Schemas and golden fixtures are generated and validated in
+  the standalone sibling repository `allcallall-agent-runtime` (checked out at
+  `../allcallall-agent-runtime`) via `make contracts-check`.
+- Go ↔ Python wire-contract consistency is guarded by that repository's CI
+  (`platform-ci.yml`). Any change to the runtime HTTP API boundary must update the
+  schemas there first; the Go backend must stay compatible. Do not treat the in-tree
+  `contracts/` fixtures as canonical.

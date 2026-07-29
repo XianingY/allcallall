@@ -57,6 +57,7 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 - [Worktree Artifacts](./maintenance/worktree-artifacts.md): local artifacts that must not be committed.
 - [Unit Test Coverage Analysis](./unit-test-coverage-analysis.md): architecture walkthrough and test coverage inventory (2026-07-23).
 - [Optimization Roadmap](./optimization-roadmap.md): P1#8 media RoomEngine 外置 + P2 架构/技术债改造方案（#15/#16/#17/#18/#24）。
+- [代码审查报告](./code-review-2026-07-29.md) — 六维代码审查与分阶段修复计划
 
 ## Runtime / Deployment
 
