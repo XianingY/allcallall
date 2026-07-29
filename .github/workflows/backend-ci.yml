@@ -45,6 +45,37 @@ jobs:
     - name: Coverage summary
       run: go tool cover -func=coverage.out | tail -1
 
+    - name: Coverage gate
+      # Non-blocking gate (visibility + skeleton only). The baseline is not yet
+      # established, so a low total coverage only warns and never fails the run.
+      # ----------------------------------------------------------------------
+      # To flip this into a BLOCKING gate once a baseline is agreed, replace the
+      # `echo "::warning::..."` branch with a hard failure, e.g.:
+      #
+      #   if [ "$cov" -lt 30 ]; then
+      #     echo "::error::total coverage ${cov}% below 30% floor"
+      #     exit 1
+      #   fi
+      #
+      # (Remove the `exit 0` fallback below and keep `set -euo pipefail`.)
+      # ----------------------------------------------------------------------
+      run: |
+        set -euo pipefail
+        MIN_COVERAGE=30
+        line=$(go tool cover -func=coverage.out | tail -n 1)
+        echo "$line"
+        cov=$(echo "$line" | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1)
+        cov_int=${cov%.*}
+        if [ -z "$cov_int" ]; then
+          echo "::warning::could not parse total coverage from '$line'"
+          exit 0
+        fi
+        if [ "$cov_int" -lt "$MIN_COVERAGE" ]; then
+          echo "::warning::total coverage ${cov_int}% below ${MIN_COVERAGE}% floor"
+          exit 0
+        fi
+        echo "total coverage ${cov_int}% meets ${MIN_COVERAGE}% floor"
+
     - name: Upload coverage report
       if: always()
       uses: actions/upload-artifact@v4
