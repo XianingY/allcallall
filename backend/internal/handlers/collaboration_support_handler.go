@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"os"
 	"strings"
@@ -17,7 +18,7 @@ func (h *CollaborationHandler) requireSupportToken(c *gin.Context) bool {
 		JSONErrorWithCode(c, http.StatusServiceUnavailable, "SUPPORT_TOKEN_NOT_CONFIGURED", "support api token is not configured")
 		return false
 	}
-	if strings.TrimSpace(c.GetHeader("X-Support-Token")) != expected {
+	if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(c.GetHeader("X-Support-Token"))), []byte(expected)) != 1 {
 		JSONErrorWithCode(c, http.StatusUnauthorized, "SUPPORT_UNAUTHORIZED", "unauthorized support request")
 		return false
 	}

@@ -35,10 +35,6 @@ func MiddlewareWithValidator(validator TokenValidator) gin.HandlerFunc {
 		// 如果没有找到，尝试从 URL 查询参数中获取（用于 WebSocket 连接）
 		if token == "" {
 			token = c.Query("token")
-			if token != "" {
-				// Debug: 从查询参数获取到 token
-				_ = token // 仅用于调试
-			}
 		}
 
 		if token == "" {

@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,6 +35,12 @@ jobs:
       # Runtime/integration tests that need MySQL/Redis are skipped automatically
       # when their DSN env vars are unset, so this runs the whole tree safely.
       run: go test -coverprofile=coverage.out -covermode=atomic ./...
+
+    - name: Vulnerability scan (informational, non-blocking)
+      # informational, non-blocking: govulncheck may require network access to the
+      # vulnerability database and should never fail the CI pipeline.
+      run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      continue-on-error: true
 
     - name: Coverage summary
       run: go tool cover -func=coverage.out | tail -1

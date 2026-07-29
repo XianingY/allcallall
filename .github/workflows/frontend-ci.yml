@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
 jobs:
   web-ci:
     name: Web
@@ -32,6 +35,10 @@ jobs:
       # The vite.config thresholds act as a regression floor; this step fails
       # the build if coverage drops below the configured minimums.
       run: npm run test:coverage
+    - name: npm audit (informational, non-blocking)
+      # informational, non-blocking
+      run: npm audit --audit-level=high || true
+      continue-on-error: true
     - name: Upload coverage report
       if: always()
       uses: actions/upload-artifact@v4
@@ -62,3 +69,7 @@ jobs:
       run: npm run lint --if-present
     - name: Unit tests
       run: npm run test:unit
+    - name: npm audit (informational, non-blocking)
+      # informational, non-blocking
+      run: npm audit --audit-level=high || true
+      continue-on-error: true

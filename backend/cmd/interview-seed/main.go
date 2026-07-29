@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -90,7 +92,15 @@ type seedOutput struct {
 func seedDemo(ctx context.Context, db *gorm.DB, log zerolog.Logger) (*seedOutput, error) {
 	password := strings.TrimSpace(os.Getenv("INTERVIEW_SEED_PASSWORD"))
 	if password == "" {
-		password = "Interview1234"
+		// No fixed default: generate a one-time random password so seeded demo
+		// accounts are never created with a predictable credential. This is a
+		// one-time seed password — capture it from the logs if you need to sign in.
+		buf := make([]byte, 16)
+		if _, err := rand.Read(buf); err != nil {
+			return nil, fmt.Errorf("generate seed password: %w", err)
+		}
+		password = hex.EncodeToString(buf)
+		fmt.Println("INTERVIEW_SEED_PASSWORD (one-time generated seed password):", password)
 	}
 	owner, err := firstOrCreateUser(ctx, db, "interview.owner@example.com", "Interview Owner", password)
 	if err != nil {
