@@ -158,6 +158,9 @@ func main() {
 		appLogger.Fatal().Err(err).Msg("failed to initialize recording storage")
 	}
 	collaborationSvc.WithRecordingStorage(recordingStorage)
+	// 启动录制文件上传 Worker：persist 阶段 S3 上传失败时，后台带退避重试，
+	// 保证录制文件最终一定落到对象存储（接替原先 RoomEngine 的 fire-and-forget 异步上传）。
+	collaborationSvc.StartUploadWorker(rootCtx, 15*time.Second)
 	transcriptionProvider, transcriptionEnabled, err := appruntime.TranscriptionProviderFromEnv()
 	if err != nil {
 		appLogger.Fatal().Err(err).Msg("failed to initialize transcription provider")

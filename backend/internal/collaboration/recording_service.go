@@ -14,6 +14,23 @@ import (
 	"github.com/allcallall/backend/internal/media"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/storage"
+	"gorm.io/gorm"
+)
+
+// 录制文件上传状态机常量。persist 阶段先尝试同步上传到对象存储；失败则落库为
+// pending，交由 StartUploadWorker 后台重试，保证最终一定上传（至少一次 + S3 覆盖幂等）。
+const (
+	uploadStatusPending   = "pending"
+	uploadStatusUploading = "uploading"
+	uploadStatusDone      = "done"
+	uploadStatusFailed    = "failed"
+	uploadStatusDead      = "dead"
+
+	// maxUploadAttempts 为单文件最大上传尝试次数（含 persist 的首次），超过则标记 dead 告警。
+	maxUploadAttempts = 10
+	// uploadBaseBackoff / uploadMaxBackoff 控制 Worker 重试的指数退避区间。
+	uploadBaseBackoff = 30 * time.Second
+	uploadMaxBackoff  = time.Hour
 )
 
 // defaultRecordingRetention 是录制文件的默认保留期（30 天）。
@@ -395,26 +412,38 @@ func (s *Service) persistRecordingArtifacts(ctx context.Context, organizationID,
 			return errors.New("recording storage not configured")
 		}
 		objectKey := buildRecordingObjectKey(organizationID, roomID, session.ID, artifact.ObjectKey)
-		stored, err := s.storage.SaveFile(ctx, artifact.ObjectKey, objectKey, artifact.ContentType)
-		if err != nil {
-			s.metrics.Inc("recording_storage_write_fail_total")
-			return err
-		}
 		fileSize := int64(0)
 		if info, err := os.Stat(artifact.ObjectKey); err == nil {
 			fileSize = info.Size()
 		}
 		file := models.RecordingFile{
 			RecordingSessionID: session.ID,
-			StorageDriver:      string(stored.Driver),
-			StorageBucket:      stored.Bucket,
-			ObjectKey:          stored.Key,
-			ETag:               stored.ETag,
+			StorageDriver:      string(s.storage.Driver()),
+			ObjectKey:          objectKey,
 			ContentType:        artifact.ContentType,
 			FileSizeBytes:      fileSize,
 			DurationSeconds:    artifact.DurationSeconds,
 			MetadataJSON:       artifact.MetadataJSON,
 			RetentionUntil:     &retentionUntil,
+			// 本地源路径供 Worker 在同步上传失败后重试；object_key 为期望的规范化键，
+			// 上传成功后再被 SaveFile 返回的实际存储键覆盖。
+			LocalSrcPath:   artifact.ObjectKey,
+			UploadStatus:   uploadStatusPending,
+			UploadAttempts: 0,
+		}
+		stored, err := s.storage.SaveFile(ctx, artifact.ObjectKey, objectKey, artifact.ContentType)
+		if err != nil {
+			// 同步上传失败：不阻断整个持久化流程，记录为 pending 交给后台 Worker 重试，
+			// 保证录制文件最终一定落到对象存储（至少一次投递 + S3 同键覆盖幂等）。
+			s.metrics.Inc("recording_storage_write_fail_total")
+			s.logger.Warn().Err(err).Str("object_key", objectKey).Msg("recording upload failed; deferred to upload worker")
+		} else {
+			file.StorageDriver = string(stored.Driver)
+			file.StorageBucket = stored.Bucket
+			file.ObjectKey = stored.Key
+			file.ETag = stored.ETag
+			file.UploadStatus = uploadStatusDone
+			file.UploadAttempts = 1
 		}
 		if err := s.db.WithContext(ctx).Create(&file).Error; err != nil {
 			return err
@@ -430,4 +459,112 @@ func buildRecordingObjectKey(organizationID, roomID, sessionID uint64, srcPath s
 		fmt.Sprintf("session-%d", sessionID),
 		filepath.Base(srcPath),
 	))
+}
+
+// StartUploadWorker 启动后台协程，定期扫描处于 pending/failed 的录制文件并尝试上传到
+// 对象存储。它接替原先 RoomEngine 中 fire-and-forget 的异步上传 goroutine，提供带退避重试
+// 的可靠投递，保证录制文件最终一定落库（至少一次 + S3 同键覆盖幂等）。
+// interval 为扫描周期，<=0 时使用默认 15s。调用方应在进程退出时取消 ctx。
+func (s *Service) StartUploadWorker(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 15 * time.Second
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := s.processUploadBacklog(ctx); err != nil {
+					s.logger.Error().Err(err).Msg("recording upload backlog processing failed")
+				}
+			}
+		}
+	}()
+}
+
+// processUploadBacklog 处理一批待上传/待重试的录制文件。每个候选先以原子 UPDATE 认领
+// （仅当仍处于 pending/failed），多副本部署下避免重复处理；认领后做本地源存在性校验、
+// 调用存储驱动 SaveFile，并按结果推进状态机。
+func (s *Service) processUploadBacklog(ctx context.Context) error {
+	if s.storage == nil {
+		return nil
+	}
+	now := time.Now().UTC()
+	var candidates []models.RecordingFile
+	if err := s.db.WithContext(ctx).
+		Where("upload_status IN ? AND upload_attempts < ? AND (next_retry_at IS NULL OR next_retry_at <= ?)",
+			[]string{uploadStatusPending, uploadStatusFailed}, maxUploadAttempts, now).
+		Order("id ASC").
+		Limit(100).
+		Find(&candidates).Error; err != nil {
+		return err
+	}
+	for _, f := range candidates {
+		// 原子认领：仅当仍处于 pending/failed 时置 uploading 并 +1 尝试次数；
+		// 若已被其他实例认领（RowsAffected==0）则跳过，避免并发重复上传。
+		res := s.db.WithContext(ctx).Model(&models.RecordingFile{}).
+			Where("id = ? AND upload_status IN ?", f.ID, []string{uploadStatusPending, uploadStatusFailed}).
+			Updates(map[string]any{
+				"upload_status":   uploadStatusUploading,
+				"upload_attempts": gorm.Expr("upload_attempts + 1"),
+			})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			continue
+		}
+		attempts := f.UploadAttempts + 1
+
+		if _, statErr := os.Stat(f.LocalSrcPath); statErr != nil {
+			// 本地源文件不可达（如已被清理），无法恢复，标记 dead 并告警。
+			s.db.WithContext(ctx).Model(&models.RecordingFile{}).Where("id = ?", f.ID).
+				Updates(map[string]any{
+					"upload_status":     uploadStatusDead,
+					"upload_last_error": "local source missing: " + statErr.Error(),
+				})
+			s.metrics.Inc("recording_upload_dead_total")
+			continue
+		}
+
+		stored, err := s.storage.SaveFile(ctx, f.LocalSrcPath, f.ObjectKey, f.ContentType)
+		if err != nil {
+			next := now.Add(uploadBackoff(attempts))
+			status := uploadStatusFailed
+			if attempts >= maxUploadAttempts {
+				status = uploadStatusDead
+				s.metrics.Inc("recording_upload_dead_total")
+			}
+			s.db.WithContext(ctx).Model(&models.RecordingFile{}).Where("id = ?", f.ID).
+				Updates(map[string]any{
+					"upload_status":     status,
+					"upload_last_error": err.Error(),
+					"next_retry_at":     next,
+				})
+			continue
+		}
+
+		s.db.WithContext(ctx).Model(&models.RecordingFile{}).Where("id = ?", f.ID).
+			Updates(map[string]any{
+				"upload_status":     uploadStatusDone,
+				"storage_driver":    stored.Driver,
+				"storage_bucket":    stored.Bucket,
+				"object_key":        stored.Key,
+				"e_tag":             stored.ETag,
+				"upload_last_error": "",
+			})
+	}
+	return nil
+}
+
+// uploadBackoff 返回第 attempts 次重试前的等待时长（指数退避，封顶 uploadMaxBackoff）。
+func uploadBackoff(attempts int) time.Duration {
+	d := uploadBaseBackoff * time.Duration(1<<uint(attempts-1))
+	if d > uploadMaxBackoff {
+		d = uploadMaxBackoff
+	}
+	return d
 }

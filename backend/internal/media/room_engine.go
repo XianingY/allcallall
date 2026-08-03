@@ -1,7 +1,6 @@
 package media
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,8 +12,6 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media/oggwriter"
 	"github.com/rs/zerolog"
-
-	"github.com/allcallall/backend/internal/storage"
 )
 
 type RecordingArtifact struct {
@@ -28,10 +25,6 @@ type RoomEngine struct {
 	logger        zerolog.Logger
 	defaultConfig webrtc.Configuration
 	api           *webrtc.API
-
-	// recordingUploader 为可选的对象存储客户端（复用 storage.RecordingStorage）。
-	// 仅在底层为 S3 时，StopRecording 才会将本地录制文件异步上传，未配置则保持纯本地盘行为。
-	recordingUploader storage.RecordingStorage
 
 	mu    sync.Mutex
 	rooms map[string]*mediaRoom
@@ -72,13 +65,12 @@ type trackRecordingArtifact struct {
 	writer      *oggwriter.OggWriter
 }
 
-func newRoomEngine(logger zerolog.Logger, cfg webrtc.Configuration, api *webrtc.API, uploader storage.RecordingStorage) *RoomEngine {
+func newRoomEngine(logger zerolog.Logger, cfg webrtc.Configuration, api *webrtc.API) *RoomEngine {
 	return &RoomEngine{
-		logger:            logger.With().Str("component", "room_engine").Logger(),
-		defaultConfig:     cfg,
-		api:               api,
-		recordingUploader: uploader,
-		rooms:             make(map[string]*mediaRoom),
+		logger:        logger.With().Str("component", "room_engine").Logger(),
+		defaultConfig: cfg,
+		api:           api,
+		rooms:         make(map[string]*mediaRoom),
 	}
 }
 
@@ -242,42 +234,7 @@ func (r *RoomEngine) StopRecording(roomID string) ([]RecordingArtifact, error) {
 		})
 	}
 
-	// 最小安全增量：若配置了 S3 对象存储，将已关闭的本地录制文件异步上传到对象存储，
-	// 避免多副本部署下录制文件随 Pod 销毁丢失。上传失败仅告警，绝不阻断会话结束流程；
-	// 未配置 S3（默认本地盘）时此处完全不执行，行为不变。
-	if r.recordingUploader != nil && r.recordingUploader.Driver() == storage.DriverS3 {
-		baseDir := recording.baseDir
-		r.uploadRecordingsAsync(roomID, baseDir, artifacts)
-	}
 	return artifacts, nil
-}
-
-// uploadRecordingsAsync 在后台将本地录制文件复制到对象存储。任何错误只记录告警，不影响主流程。
-func (r *RoomEngine) uploadRecordingsAsync(roomID, baseDir string, artifacts []RecordingArtifact) {
-	uploader := r.recordingUploader
-	go func() {
-		ctx := context.Background()
-		for _, artifact := range artifacts {
-			src := strings.TrimSpace(artifact.ObjectKey)
-			if src == "" {
-				continue
-			}
-			if info, err := os.Stat(src); err != nil || info.IsDir() {
-				r.logger.Warn().Str("path", src).Msg("recording upload skipped: local file not found")
-				continue
-			}
-			// 用相对 baseDir 的路径作为对象键，保留目录结构；回退到文件名。
-			key := filepath.ToSlash(filepath.Join("recordings", roomID, filepath.Base(src)))
-			if rel, err := filepath.Rel(baseDir, src); err == nil && strings.TrimSpace(rel) != "" && !strings.HasPrefix(rel, "..") {
-				key = filepath.ToSlash(filepath.Join("recordings", roomID, rel))
-			}
-			if _, err := uploader.SaveFile(ctx, src, key, artifact.ContentType); err != nil {
-				r.logger.Warn().Err(err).Str("room_id", roomID).Str("key", key).Msg("failed to upload recording to object storage")
-				continue
-			}
-			r.logger.Info().Str("room_id", roomID).Str("key", key).Msg("recording uploaded to object storage")
-		}
-	}()
 }
 
 func (r *RoomEngine) ensureRoomLocked(roomID string) *mediaRoom {

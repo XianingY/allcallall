@@ -7,8 +7,6 @@ import (
 
 	"github.com/pion/webrtc/v4"
 	"github.com/rs/zerolog"
-
-	"github.com/allcallall/backend/internal/storage"
 )
 
 // Engine 是 Pion WebRTC 媒体引擎
@@ -29,9 +27,6 @@ type Config struct {
 	// WebRTC configuration
 	WebRTCConfig webrtc.Configuration
 	API          *webrtc.API
-	// RecordingUploader 可选的对象存储客户端；配置 S3 后 StopRecording 会异步上传本地录制文件。
-	// RecordingUploader is an optional object-storage client used to async-upload local recordings when S3 is configured.
-	RecordingUploader storage.RecordingStorage
 }
 
 // NewEngine 创建新的媒体引擎
@@ -42,7 +37,7 @@ func NewEngine(logger zerolog.Logger, cfg *Config) (*Engine, error) {
 		peerConnections: make(map[string]*PeerConnection),
 		defaultConfig:   cfg.WebRTCConfig,
 		api:             cfg.API,
-		roomEngine:      newRoomEngine(logger, cfg.WebRTCConfig, cfg.API, cfg.RecordingUploader),
+		roomEngine:      newRoomEngine(logger, cfg.WebRTCConfig, cfg.API),
 	}, nil
 }
 

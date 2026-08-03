@@ -76,8 +76,20 @@ type RecordingFile struct {
 	DurationSeconds    int64      `gorm:"not null;default:0"`
 	MetadataJSON       string     `gorm:"type:longtext"`
 	RetentionUntil     *time.Time `gorm:"index"`
-	DeletedAt          *time.Time `gorm:"index"`
-	CreatedAt          time.Time  `gorm:"autoCreateTime"`
+	// 本地源文件路径：上传到对象存储前的本地副本路径，供上传 Worker 在 persist 阶段
+	// 同步上传失败后进行重试。S3 上传成功后本地文件仍保留直到清理策略回收。
+	LocalSrcPath string `gorm:"size:500;not null;default:''"`
+	// 上传状态机：pending（待上传/待重试）→ uploading（认领中）→ done（已落对象存储）；
+	// 重试超限或源不可达则置为 dead。历史行默认 done，Worker 不会触碰。
+	UploadStatus string `gorm:"size:32;not null;default:'done';index"`
+	// 已尝试上传次数，Worker 认领时原子 +1。
+	UploadAttempts int `gorm:"not null;default:0"`
+	// 最近一次上传失败原因，成功时清空。
+	UploadLastError string `gorm:"type:text"`
+	// 下一次允许重试的时间；pending 行该值为 NULL（立即重试），失败后按指数退避设置。
+	NextRetryAt *time.Time `gorm:"index"`
+	DeletedAt   *time.Time `gorm:"index"`
+	CreatedAt   time.Time  `gorm:"autoCreateTime"`
 }
 
 func (RecordingFile) TableName() string {
