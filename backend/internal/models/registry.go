@@ -21,5 +21,6 @@ func AllModels() []any {
 		&MCPInstallationRevision{}, &MCPTool{}, &MCPExecution{}, &SandboxExecutionReceipt{}, &AgentSkill{}, &AgentSkillTool{},
 		&LangGraphCheckpointThread{}, &LangGraphCheckpoint{}, &LangGraphCheckpointWrite{}, &EventOutbox{},
 		&WeeklyTask{}, &WeeklyTaskRun{},
+		&ChatGroup{}, &ChatGroupMember{}, &ChatMessage{}, &ChatMessageReceipt{},
 	}
 }

@@ -16,6 +16,12 @@ import (
 
 var ErrOutboxEventExists = errors.New("outbox event already exists")
 
+// 领域事件名常量（与 runtime 中的事件常量保持一致，集中管理避免漂移）。
+const (
+	// EventChatMessageCreated 群聊消息已创建（实时投递之外，可经事件总线生产化到 MQ）。
+	EventChatMessageCreated = "chat.message.created"
+)
+
 type Store struct {
 	db *gorm.DB
 }

@@ -30,6 +30,7 @@ type RouteDependencies struct {
 	TranslationWS      *handlers.TranslationWSHandler
 	Realtime           *handlers.RealtimeHandler
 	TaskScheduler      *handlers.TaskSchedulerHandler
+	Chat               *handlers.ChatHandler
 	AuthMiddleware     gin.HandlerFunc
 	ChatRealtimeAuth   gin.HandlerFunc
 	SignalRealtimeAuth gin.HandlerFunc
@@ -106,6 +107,9 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 		}
 		if deps.TaskScheduler != nil {
 			deps.TaskScheduler.RegisterRoutes(protected)
+		}
+		if deps.Chat != nil {
+			deps.Chat.RegisterRoutes(protected)
 		}
 		if deps.SignalingPoll != nil {
 			deps.SignalingPoll.RegisterRoutes(protected)

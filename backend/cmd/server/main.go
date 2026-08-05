@@ -16,6 +16,7 @@ import (
 
 	"github.com/allcallall/backend/internal/agent"
 	"github.com/allcallall/backend/internal/auth"
+	"github.com/allcallall/backend/internal/chat"
 	"github.com/allcallall/backend/internal/cache"
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/commerce"
@@ -29,10 +30,10 @@ import (
 	"github.com/allcallall/backend/internal/logger"
 	"github.com/allcallall/backend/internal/mail"
 	"github.com/allcallall/backend/internal/metrics"
-	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/presence"
 	"github.com/allcallall/backend/internal/ratelimit"
 	appruntime "github.com/allcallall/backend/internal/runtime"
+	"github.com/allcallall/backend/internal/infra/connectionregistry"
 	"github.com/allcallall/backend/internal/server"
 	"github.com/allcallall/backend/internal/settlement"
 	"github.com/allcallall/backend/internal/signaling"
@@ -41,6 +42,7 @@ import (
 	"github.com/allcallall/backend/internal/translation/providers"
 	"github.com/allcallall/backend/internal/user"
 	"github.com/allcallall/backend/internal/usergrpc"
+	"github.com/allcallall/backend/internal/mq"
 )
 
 // main 入口
@@ -296,11 +298,26 @@ func main() {
 		tasksched.WithMaxConcurrent(cfg.TaskScheduler.MaxConcurrent),
 		tasksched.WithMetrics(counterStore),
 	)
-	// 把触发事件接入既有事件总线（下游可订阅 weekly_task.triggered 做具体业务）。
-	outboxProcessor.Register("weekly_task.triggered", func(ctx context.Context, event models.EventOutbox) error {
-		appLogger.Info().Uint64("task_id", event.AggregateID).Msg("weekly task triggered (event delivered)")
-		return nil
-	})
+	// 事件总线生产化：把领域事件（weekly_task.triggered / chat.message.created 等）
+	// 桥接到 Kafka（当 EVENTS_KAFKA_ENABLED 且配置了 KAFKA_BROKERS 时）。
+	// 该调用统一接管 weekly_task.triggered 的 handler，确保事件总线始终有 handler。
+	var eventsProducer mq.Producer
+	if cfg.Events.KafkaEnabled {
+		if ep, enabled, perr := appruntime.KafkaProducerFromEnv(); perr != nil {
+			appLogger.Fatal().Err(perr).Msg("failed to initialize events kafka producer")
+		} else if enabled {
+			eventsProducer = ep
+			defer func() {
+				if cerr := eventsProducer.Close(); cerr != nil {
+					appLogger.Warn().Err(cerr).Msg("events kafka producer close with error")
+				}
+			}()
+			appLogger.Info().Str("prefix", cfg.Events.TopicPrefix).Msg("events kafka bridge enabled")
+		} else {
+			appLogger.Warn().Msg("events kafka enabled but no KAFKA_BROKERS configured; log-only handlers will be used")
+		}
+	}
+	appruntime.RegisterEventsKafkaBridge(outboxProcessor, eventsProducer, cfg.Events, appLogger)
 	if cfg.TaskScheduler.Enabled {
 		go scheduler.Run(rootCtx, time.Duration(cfg.TaskScheduler.IntervalSec)*time.Second)
 		appLogger.Info().Str("worker_id", cfg.TaskScheduler.WorkerID).Msg("weekly task scheduler started")
@@ -308,6 +325,10 @@ func main() {
 		appLogger.Info().Msg("weekly task scheduler disabled (set TASK_SCHEDULER_ENABLED=true to enable)")
 	}
 	taskSchedulerHandler := handlers.NewTaskSchedulerHandler(appLogger, taskService, counterStore)
+
+	// 即时通讯群聊服务（群组 / 消息漫游 / 已读回执 / 富媒体）
+	chatService := chat.NewService(db, chatHub).WithLogger(appLogger).WithMetrics(counterStore).WithOutbox(outboxStore)
+	chatHandler := handlers.NewChatHandler(appLogger, chatService, counterStore)
 
 	// 初始化 FCM 管理器
 	// Initialize FCM manager
@@ -368,6 +389,25 @@ func main() {
 		}
 	}
 
+	// 连接层负载均衡网关：本节点向 Redis 注册表注册并周期心跳，
+	// 后台维护一致哈希环用于连接键路由（多实例部署时启用）。
+	var gateway *connectionregistry.ConnectionGateway
+	if cfg.ConnectionGateway.Enabled {
+		registry := connectionregistry.NewRedisRegistry(redisClient)
+		gateway = connectionregistry.New(cfg.ConnectionGateway, registry).WithLogger(appLogger)
+		if err := gateway.Register(rootCtx, cfg.ConnectionGateway.AdvertiseAddr); err != nil {
+			appLogger.Error().Err(err).Msg("connection gateway self-register failed")
+		}
+		go gateway.Start(rootCtx)
+		go func() {
+			<-rootCtx.Done()
+			if derr := gateway.Deregister(context.Background()); derr != nil {
+				appLogger.Warn().Err(derr).Msg("connection gateway deregister failed")
+			}
+		}()
+		appLogger.Info().Str("self_id", gateway.SelfID()).Msg("connection gateway enabled")
+	}
+
 	server.RegisterRoutes(engine, server.RouteDependencies{
 		AuthHandler:        authHandler,
 		EmailHandler:       emailHandler,
@@ -384,6 +424,7 @@ func main() {
 		TranslationWS:      translationWSHandler,
 		Realtime:           realtimeHandler,
 		TaskScheduler:      taskSchedulerHandler,
+		Chat:               chatHandler,
 		AuthMiddleware:     authMiddleware,
 		ChatRealtimeAuth:   auth.RealtimeMiddleware(realtimeTicketSvc, tokenValidator, "chat"),
 		SignalRealtimeAuth: auth.RealtimeMiddleware(realtimeTicketSvc, tokenValidator, "signaling"),

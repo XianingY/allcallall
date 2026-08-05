@@ -34,8 +34,10 @@ type Config struct {
 	JWT         JWTConfig         `yaml:"jwt"`
 	WebRTC      WebRTCConfig      `yaml:"webrtc"`
 	Translation TranslationConfig `yaml:"translation"`
-	Logging     LoggingConfig     `yaml:"logging"`
-	TaskScheduler TaskSchedulerConfig `yaml:"task_scheduler"`
+	Logging          LoggingConfig          `yaml:"logging"`
+	TaskScheduler     TaskSchedulerConfig     `yaml:"task_scheduler"`
+	ConnectionGateway ConnectionGatewayConfig `yaml:"connection_gateway"`
+	Events            EventsConfig            `yaml:"events"`
 }
 
 // ServerConfig HTTP 服务相关配置
@@ -123,6 +125,26 @@ type TaskSchedulerConfig struct {
 	MaxConcurrent     int    `yaml:"max_concurrent" env:"TASK_SCHEDULER_MAX_CONCURRENT"`
 	LeaseSec          int    `yaml:"lease_seconds" env:"TASK_SCHEDULER_LEASE_SEC"`
 	DefaultMaxFailures int   `yaml:"default_max_failures" env:"TASK_SCHEDULER_DEFAULT_MAX_FAILURES"`
+}
+
+// ConnectionGatewayConfig 连接层负载均衡网关配置
+// ConnectionGatewayConfig controls self node registration and consistent-hash routing.
+type ConnectionGatewayConfig struct {
+	Enabled       bool   `yaml:"enabled" env:"CONNECTION_GATEWAY_ENABLED"`
+	SelfID       string `yaml:"self_id" env:"CONNECTION_GATEWAY_SELF_ID"`
+	AdvertiseAddr string `yaml:"advertise_addr" env:"CONNECTION_GATEWAY_ADVERTISE_ADDR"`
+	HeartbeatSec int    `yaml:"heartbeat_seconds" env:"CONNECTION_GATEWAY_HEARTBEAT_SEC"`
+	NodeTTLSec   int    `yaml:"node_ttl_seconds" env:"CONNECTION_GATEWAY_NODE_TTL_SEC"`
+	HashReplicas int    `yaml:"hash_replicas" env:"CONNECTION_GATEWAY_HASH_REPLICAS"`
+}
+
+// EventsConfig 事件总线生产化（Kafka 桥接）配置
+// EventsConfig controls fan-out of domain events to Kafka when enabled.
+type EventsConfig struct {
+	KafkaEnabled      bool   `yaml:"kafka_enabled" env:"EVENTS_KAFKA_ENABLED"`
+	TopicPrefix       string `yaml:"topic_prefix" env:"EVENTS_KAFKA_TOPIC_PREFIX"`
+	BridgeChat        bool   `yaml:"bridge_chat" env:"EVENTS_BRIDGE_CHAT"`
+	BridgeWeeklyTasks bool   `yaml:"bridge_weekly_tasks" env:"EVENTS_BRIDGE_WEEKLY_TASKS"`
 }
 
 // TranslationConfig 实时翻译配置
@@ -384,7 +406,84 @@ func (c *Config) postProcess() error {
 		return errors.New("config: jwt.secret must not be empty")
 	}
 
+	c.applyConnectionGatewayDefaults()
+	c.applyEventsDefaults()
+
 	return nil
+}
+
+func (c *Config) applyConnectionGatewayDefaults() {
+	if c.ConnectionGateway.HeartbeatSec <= 0 {
+		c.ConnectionGateway.HeartbeatSec = 10
+	}
+	if c.ConnectionGateway.NodeTTLSec <= 0 {
+		c.ConnectionGateway.NodeTTLSec = 30
+	}
+	if c.ConnectionGateway.HashReplicas <= 0 {
+		c.ConnectionGateway.HashReplicas = 100
+	}
+	if c.ConnectionGateway.SelfID == "" {
+		if host, err := os.Hostname(); err == nil && host != "" {
+			c.ConnectionGateway.SelfID = "gateway-" + host
+		} else {
+			c.ConnectionGateway.SelfID = "gateway-unknown"
+		}
+	}
+	if c.ConnectionGateway.AdvertiseAddr == "" {
+		c.ConnectionGateway.AdvertiseAddr = fmt.Sprintf("%s:%d", c.Server.Host, c.Server.Port)
+	}
+
+	if enabled, ok, err := parseBoolEnv("CONNECTION_GATEWAY_ENABLED"); err != nil {
+		return
+	} else if ok {
+		c.ConnectionGateway.Enabled = enabled
+	}
+	if v := os.Getenv("CONNECTION_GATEWAY_SELF_ID"); v != "" {
+		c.ConnectionGateway.SelfID = v
+	}
+	if v := os.Getenv("CONNECTION_GATEWAY_ADVERTISE_ADDR"); v != "" {
+		c.ConnectionGateway.AdvertiseAddr = v
+	}
+	if v, ok, err := parseIntEnv("CONNECTION_GATEWAY_HEARTBEAT_SEC"); err != nil {
+		return
+	} else if ok {
+		c.ConnectionGateway.HeartbeatSec = v
+	}
+	if v, ok, err := parseIntEnv("CONNECTION_GATEWAY_NODE_TTL_SEC"); err != nil {
+		return
+	} else if ok {
+		c.ConnectionGateway.NodeTTLSec = v
+	}
+	if v, ok, err := parseIntEnv("CONNECTION_GATEWAY_HASH_REPLICAS"); err != nil {
+		return
+	} else if ok {
+		c.ConnectionGateway.HashReplicas = v
+	}
+}
+
+func (c *Config) applyEventsDefaults() {
+	if c.Events.TopicPrefix == "" {
+		c.Events.TopicPrefix = "allcallall"
+	}
+
+	if enabled, ok, err := parseBoolEnv("EVENTS_KAFKA_ENABLED"); err != nil {
+		return
+	} else if ok {
+		c.Events.KafkaEnabled = enabled
+	}
+	if v := os.Getenv("EVENTS_KAFKA_TOPIC_PREFIX"); v != "" {
+		c.Events.TopicPrefix = v
+	}
+	if enabled, ok, err := parseBoolEnv("EVENTS_BRIDGE_CHAT"); err != nil {
+		return
+	} else if ok {
+		c.Events.BridgeChat = enabled
+	}
+	if enabled, ok, err := parseBoolEnv("EVENTS_BRIDGE_WEEKLY_TASKS"); err != nil {
+		return
+	} else if ok {
+		c.Events.BridgeWeeklyTasks = enabled
+	}
 }
 
 func parseBoolEnv(key string) (bool, bool, error) {

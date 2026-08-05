@@ -17,8 +17,8 @@ import (
 )
 
 func TestCurrentSchemaVersionIncludesDurableSandboxReceipts(t *testing.T) {
-	if currentSchemaVersion != 7 {
-		t.Fatalf("current schema version=%d want=7", currentSchemaVersion)
+	if currentSchemaVersion != 8 {
+		t.Fatalf("current schema version=%d want=8", currentSchemaVersion)
 	}
 	migrations := map[string]map[string][]string{
 		"000003_workflow_runtime_resume": {
@@ -108,7 +108,7 @@ func TestMySQLWorkflowRuntimeMigrationUpDownUp(t *testing.T) {
 	if !bootstrapped {
 		t.Fatal("expected empty isolated database to be bootstrapped")
 	}
-	assertMigrationVersion(t, migration, 7)
+	assertMigrationVersion(t, migration, 8)
 	assertSandboxReceiptV4Schema(t, sqlDB, databaseName)
 	assertWorkflowRuntimeV3Schema(t, sqlDB, databaseName)
 	if err := migration.Migrate(2); err != nil {
@@ -194,7 +194,7 @@ func TestMySQLSandboxReceiptMigrationUpDownUp(t *testing.T) {
 	if !bootstrapped {
 		t.Fatal("expected empty sandbox migration database to be bootstrapped")
 	}
-	assertMigrationVersion(t, migration, 7)
+	assertMigrationVersion(t, migration, 8)
 	assertSandboxReceiptV4Schema(t, sqlDB, databaseName)
 
 	if err := migration.Migrate(3); err != nil {

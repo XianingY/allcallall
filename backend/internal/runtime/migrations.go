@@ -17,7 +17,7 @@ import (
 	"github.com/allcallall/backend/internal/models"
 )
 
-const currentSchemaVersion = 7
+const currentSchemaVersion = 8
 
 // RunMigrations applies the ordered schema migrations using golang-migrate.
 func RunMigrations(db *gorm.DB, dataSourceNames ...string) error {

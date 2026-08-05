@@ -13,11 +13,13 @@ import (
 
 	"github.com/allcallall/backend/internal/agent"
 	"github.com/allcallall/backend/internal/auth"
+	"github.com/allcallall/backend/internal/config"
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/knowledge"
 	"github.com/allcallall/backend/internal/mcpplatform"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/mq"
 	"github.com/allcallall/backend/internal/search"
 	"github.com/allcallall/backend/internal/settlement"
 	"github.com/allcallall/backend/internal/trace"
@@ -34,6 +36,8 @@ const (
 	EventRAGChunkIndex                   = knowledge.EventChunkIndexRequested
 	EventSettlementRoomEnd               = "settlement.room.ended"
 	EventRecordingTranscriptionRequested = collaboration.EventRecordingTranscriptionRequested
+	EventWeeklyTaskTriggered             = "weekly_task.triggered"
+	EventChatMessageCreated              = events.EventChatMessageCreated
 )
 
 func EmbeddedWorkersEnabledFromEnv() bool {
@@ -95,6 +99,76 @@ func RegisterSettlementKafkaOutboxHandlers(processor *events.Processor, settleme
 			Msg("outbox room settlement published to kafka")
 		return nil
 	})
+}
+
+// RegisterEventsKafkaBridge 把领域事件生产化到 Kafka（当 producer 非 nil）。
+//   - weekly_task.triggered 始终注册处理（记录日志；有 producer 时发布到 Kafka），
+//     以统一接管 main 中内联的仅日志 handler，保证事件总线始终有 handler、不会被判失败。
+//   - 仅当 cfg.BridgeChat 且 producer 非 nil 时，注册 chat.message.created -> Kafka。
+//
+// 注意：outbox processor 每个事件仅支持一个 handler，故 weekly_task.triggered 在此统一处理。
+func RegisterEventsKafkaBridge(processor *events.Processor, producer mq.Producer, cfg config.EventsConfig, log zerolog.Logger) {
+	if processor == nil {
+		return
+	}
+	topicFor := func(name string) string {
+		prefix := strings.TrimSpace(cfg.TopicPrefix)
+		if prefix == "" {
+			return name
+		}
+		return prefix + "." + name
+	}
+	producerEnabled := producer != nil
+
+	processor.Register(EventWeeklyTaskTriggered, func(ctx context.Context, event models.EventOutbox) error {
+		log.Info().
+			Str("request_id", trace.RequestID(ctx)).
+			Uint64("task_id", event.AggregateID).
+			Msg("weekly task triggered (event delivered)")
+		if !producerEnabled {
+			return nil
+		}
+		payload, err := json.Marshal(map[string]any{
+			"event":   event.Event,
+			"task_id": event.AggregateID,
+			"payload": json.RawMessage(event.PayloadJSON),
+		})
+		if err != nil {
+			return err
+		}
+		msg := mq.Message{
+			Key:     []byte(strconv.FormatUint(event.AggregateID, 10)),
+			Value:   payload,
+			Headers: map[string]string{"event": event.Event},
+		}
+		if err := producer.Publish(ctx, topicFor("weekly_task"), msg); err != nil {
+			return err
+		}
+		log.Info().Uint64("task_id", event.AggregateID).Str("topic", topicFor("weekly_task")).Msg("weekly_task event published to kafka")
+		return nil
+	})
+
+	if cfg.BridgeChat && producerEnabled {
+		processor.Register(EventChatMessageCreated, func(ctx context.Context, event models.EventOutbox) error {
+			payload, err := json.Marshal(map[string]any{
+				"event":   event.Event,
+				"payload": json.RawMessage(event.PayloadJSON),
+			})
+			if err != nil {
+				return err
+			}
+			msg := mq.Message{
+				Key:     []byte(strconv.FormatUint(event.AggregateID, 10)),
+				Value:   payload,
+				Headers: map[string]string{"event": event.Event},
+			}
+			if err := producer.Publish(ctx, topicFor("chat_message"), msg); err != nil {
+				return err
+			}
+			log.Info().Uint64("message_id", event.AggregateID).Str("topic", topicFor("chat_message")).Msg("chat.message.created event published to kafka")
+			return nil
+		})
+	}
 }
 
 func RegisterAgentOutboxHandlers(processor *events.Processor, agentSvc *agent.Service, log zerolog.Logger) {
