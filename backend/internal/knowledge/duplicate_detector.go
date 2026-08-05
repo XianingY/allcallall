@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-
 func (s *Service) ListDuplicateCandidates(ctx context.Context, organizationID, userID uint64) ([]models.RAGSourceDuplicate, error) {
 	if err := s.ensureOrganizationMember(ctx, organizationID, userID); err != nil {
 		return nil, err

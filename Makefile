@@ -326,3 +326,16 @@ dev-android:
 dev-ios:
 	@echo "Starting Metro bundler and iOS simulator..."
 	cd mobile && npx expo start --ios
+
+# ===========================
+# Code Style
+# ===========================
+
+fmt:
+	@echo "Formatting Go sources..."
+	cd backend && gofmt -w .
+
+lint:
+	@echo "Vetting backend and linting web..."
+	cd backend && go vet ./...
+	cd web && npm run lint

@@ -16,8 +16,8 @@ import (
 
 	"github.com/allcallall/backend/internal/agent"
 	"github.com/allcallall/backend/internal/auth"
-	"github.com/allcallall/backend/internal/chat"
 	"github.com/allcallall/backend/internal/cache"
+	"github.com/allcallall/backend/internal/chat"
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/commerce"
 	"github.com/allcallall/backend/internal/config"
@@ -25,15 +25,16 @@ import (
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/fcm"
 	"github.com/allcallall/backend/internal/handlers"
+	"github.com/allcallall/backend/internal/infra/connectionregistry"
 	"github.com/allcallall/backend/internal/invitation"
 	"github.com/allcallall/backend/internal/knowledge"
 	"github.com/allcallall/backend/internal/logger"
 	"github.com/allcallall/backend/internal/mail"
 	"github.com/allcallall/backend/internal/metrics"
+	"github.com/allcallall/backend/internal/mq"
 	"github.com/allcallall/backend/internal/presence"
 	"github.com/allcallall/backend/internal/ratelimit"
 	appruntime "github.com/allcallall/backend/internal/runtime"
-	"github.com/allcallall/backend/internal/infra/connectionregistry"
 	"github.com/allcallall/backend/internal/server"
 	"github.com/allcallall/backend/internal/settlement"
 	"github.com/allcallall/backend/internal/signaling"
@@ -42,7 +43,6 @@ import (
 	"github.com/allcallall/backend/internal/translation/providers"
 	"github.com/allcallall/backend/internal/user"
 	"github.com/allcallall/backend/internal/usergrpc"
-	"github.com/allcallall/backend/internal/mq"
 )
 
 // main 入口

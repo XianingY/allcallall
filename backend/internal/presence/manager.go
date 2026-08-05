@@ -126,7 +126,7 @@ func WithManualTTL(d time.Duration) func(*Manager) {
 	}
 }
 
-func (m *Manager) userKey(email string) string    { return presenceKeyPrefix + email }
+func (m *Manager) userKey(email string) string { return presenceKeyPrefix + email }
 func (m *Manager) deviceKey(email, deviceID string) string {
 	return deviceKeyPrefix + email + ":" + deviceID
 }

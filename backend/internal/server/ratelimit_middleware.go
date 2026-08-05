@@ -43,7 +43,7 @@ func GlobalRateLimit(svc *ratelimit.Service) gin.HandlerFunc {
 				c.Header("Retry-After", strconv.FormatInt(retryAfter, 10))
 			}
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-				"error":                "rate_limit_exceeded",
+				"error":               "rate_limit_exceeded",
 				"retry_after_seconds": retryAfter,
 			})
 			return

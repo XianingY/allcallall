@@ -63,14 +63,14 @@ func TestDecodeStartRequestAcceptsStructuredCommands(t *testing.T) {
 
 func TestDecodeStartRequestRejectsUnsafeOrUnboundedFields(t *testing.T) {
 	tests := map[string]string{
-		"unknown field":      `{"version":1,"command":"python","args":[],"env":{},"timeout_ms":1,"shell":true}`,
-		"wrong version":      `{"version":2,"command":"python","args":[],"env":{},"timeout_ms":1}`,
-		"zero timeout":       `{"version":1,"command":"python","args":[],"env":{},"timeout_ms":0}`,
-		"excess timeout":     `{"version":1,"command":"python","args":[],"env":{},"timeout_ms":30001}`,
-		"traversal":          `{"version":1,"command":"bin/../python","args":[],"env":{},"timeout_ms":1}`,
-		"unclean path":       `{"version":1,"command":"./python","args":[],"env":{},"timeout_ms":1}`,
-		"nul argument":       `{"version":1,"command":"python","args":["x\u0000y"],"env":{},"timeout_ms":1}`,
-		"invalid env name":   `{"version":1,"command":"python","args":[],"env":{"A-B":"x"},"timeout_ms":1}`,
+		"unknown field":       `{"version":1,"command":"python","args":[],"env":{},"timeout_ms":1,"shell":true}`,
+		"wrong version":       `{"version":2,"command":"python","args":[],"env":{},"timeout_ms":1}`,
+		"zero timeout":        `{"version":1,"command":"python","args":[],"env":{},"timeout_ms":0}`,
+		"excess timeout":      `{"version":1,"command":"python","args":[],"env":{},"timeout_ms":30001}`,
+		"traversal":           `{"version":1,"command":"bin/../python","args":[],"env":{},"timeout_ms":1}`,
+		"unclean path":        `{"version":1,"command":"./python","args":[],"env":{},"timeout_ms":1}`,
+		"nul argument":        `{"version":1,"command":"python","args":["x\u0000y"],"env":{},"timeout_ms":1}`,
+		"invalid env name":    `{"version":1,"command":"python","args":[],"env":{"A-B":"x"},"timeout_ms":1}`,
 		"trailing JSON value": `{"version":1,"command":"python","args":[],"env":{},"timeout_ms":1} {}`,
 	}
 	for name, payload := range tests {

@@ -20,17 +20,17 @@ import (
 // 自动重试/熔断（连续失败超过阈值则暂停任务）。可独立运行，亦可通过
 // events.Store 把触发事件接入现有事件总线，实现与系统的无缝集成。
 type Scheduler struct {
-	repo         *Repository
-	executor     Executor
-	logger       zerolog.Logger
-	now          func() time.Time
-	workerID     string
-	lease        time.Duration
-	batchSize    int
+	repo          *Repository
+	executor      Executor
+	logger        zerolog.Logger
+	now           func() time.Time
+	workerID      string
+	lease         time.Duration
+	batchSize     int
 	maxConcurrent int
-	events       *events.Store
-	metrics      metrics.Recorder
-	loc          *time.Location
+	events        *events.Store
+	metrics       metrics.Recorder
+	loc           *time.Location
 }
 
 // Option 调度器可选配置

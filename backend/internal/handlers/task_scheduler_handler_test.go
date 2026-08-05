@@ -41,10 +41,10 @@ func TestTaskHandlerCreateAndList(t *testing.T) {
 	r, _ := newTaskHandlerTestRouter(t)
 
 	body, _ := json.Marshal(map[string]any{
-		"title":          "weekly sync",
-		"weekdays":       []int{1, 3, 5},
+		"title":           "weekly sync",
+		"weekdays":        []int{1, 3, 5},
 		"run_time_of_day": "09:30",
-		"timezone":       "UTC",
+		"timezone":        "UTC",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

@@ -11,6 +11,7 @@ import (
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/search"
+	pdf "github.com/ledongthuc/pdf"
 	"gorm.io/gorm"
 	"html"
 	"io"
@@ -22,9 +23,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
-	pdf "github.com/ledongthuc/pdf"
 )
-
 
 const (
 	EventSourceIngestRequested = "rag.source.ingest_requested"
@@ -63,9 +62,9 @@ type EmbeddingProvider interface {
 }
 
 type Service struct {
-	repo    *Repository
-	outbox  *events.Store
-	indexer ChunkIndexer
+	repo     *Repository
+	outbox   *events.Store
+	indexer  ChunkIndexer
 	embedder EmbeddingProvider
 	reranker search.Reranker
 	client   *http.Client

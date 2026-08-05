@@ -1,7 +1,6 @@
 package evals
 
 import (
-
 	"encoding/json"
 	"fmt"
 	"os"

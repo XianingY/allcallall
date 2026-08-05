@@ -255,6 +255,21 @@ cd desktop && npm run check && npm run build
 
 Use the narrowest relevant check for small changes, then broaden when shared behavior or generated surfaces are touched.
 
+## Code Style & Formatting
+
+The codebase follows language-native formatting, and CI expects these to be clean before merge.
+
+- **Go (backend/)**: run `gofmt -w .` to format, then `go vet ./...` and `go test ./...`. The repo does not require `protoc`; gRPC bindings are hand-written from `backend/proto/user/v1/user.proto`.
+- **Web (web/)**: `npm run lint` (ESLint) and `npm run typecheck` (`tsc --noEmit`) are the style/type gates, and `npm test` runs the Vitest suite.
+- **Mobile (mobile/)** and **Desktop (desktop/)**: `npx tsc --noEmit` plus `npm run lint` / `npm run check`.
+
+Convenience wrappers live in the Makefile:
+
+```bash
+make fmt    # gofmt -w on backend/
+make lint   # go vet (backend) + npm run lint (web)
+```
+
 ## Scope Boundaries
 
 - Kubernetes is intentionally not part of the current implementation.

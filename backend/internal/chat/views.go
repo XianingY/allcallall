@@ -34,11 +34,11 @@ type MessageView struct {
 
 // MessagePage 漫游分页结果。
 type MessagePage struct {
-	Messages   []MessageView `json:"messages"`
-	NextBefore *uint64       `json:"next_before,omitempty"`
-	NextAfter  *uint64       `json:"next_after,omitempty"`
-	HasMorePrev bool         `json:"has_more_prev,omitempty"`
-	HasMoreNext bool         `json:"has_more_next,omitempty"`
+	Messages    []MessageView `json:"messages"`
+	NextBefore  *uint64       `json:"next_before,omitempty"`
+	NextAfter   *uint64       `json:"next_after,omitempty"`
+	HasMorePrev bool          `json:"has_more_prev,omitempty"`
+	HasMoreNext bool          `json:"has_more_next,omitempty"`
 }
 
 // ReadReceiptView 单条消息的已读用户。
@@ -54,5 +54,5 @@ type MemberReadView struct {
 	UserID            uint64     `json:"user_id"`
 	LastReadMessageID *uint64    `json:"last_read_message_id,omitempty"`
 	LastReadAt        *time.Time `json:"last_read_at,omitempty"`
-	UnreadCount       int64     `json:"unread_count"`
+	UnreadCount       int64      `json:"unread_count"`
 }

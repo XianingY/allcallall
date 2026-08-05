@@ -246,7 +246,7 @@ func (s *Store) MarkRetry(ctx context.Context, id uint64, cause error, available
 // SELECT ... FOR UPDATE SKIP LOCKED to avoid contention between workers.
 func (s *Store) ClaimBatchPending(workerID string, batchSize int, leaseDuration time.Duration) ([]models.EventOutbox, error) {
 	var claimed []models.EventOutbox
-	
+
 	result := s.db.Raw(`
 		SELECT id, aggregate_type, aggregate_id, event, payload_json, idempotency_key, request_id, status, attempts, locked_by, locked_until, last_error, available_at, published_at, created_at, updated_at
 		FROM event_outbox
@@ -256,20 +256,20 @@ func (s *Store) ClaimBatchPending(workerID string, batchSize int, leaseDuration 
 		LIMIT ?
 		FOR UPDATE SKIP LOCKED
 	`, batchSize).Scan(&claimed)
-	
+
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to claim pending events: %w", result.Error)
 	}
-	
+
 	if len(claimed) == 0 {
 		return nil, nil
 	}
-	
+
 	ids := make([]uint64, len(claimed))
 	for i, event := range claimed {
 		ids[i] = event.ID
 	}
-	
+
 	lockedUntil := time.Now().UTC().Add(leaseDuration)
 	result = s.db.Model(&models.EventOutbox{}).
 		Where("id IN ?", ids).
@@ -278,16 +278,16 @@ func (s *Store) ClaimBatchPending(workerID string, batchSize int, leaseDuration 
 			"locked_until": lockedUntil,
 			"updated_at":   time.Now().UTC(),
 		})
-	
+
 	if result.Error != nil {
 		return nil, fmt.Errorf("failed to update claimed events: %w", result.Error)
 	}
-	
+
 	for i := range claimed {
 		claimed[i].LockedBy = workerID
 		claimed[i].LockedUntil = &lockedUntil
 	}
-	
+
 	return claimed, nil
 }
 
@@ -299,6 +299,6 @@ func (s *Store) ReleaseExpiredLeases() (int64, error) {
 			"locked_by":    "",
 			"locked_until": nil,
 		})
-	
+
 	return result.RowsAffected, result.Error
 }

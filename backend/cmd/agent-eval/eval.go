@@ -32,11 +32,11 @@ type EvalCase struct {
 }
 
 type EvalResult struct {
-	Name                  string        `json:"name"`
-	Passed                bool          `json:"passed"`
-	Errors                []string      `json:"errors,omitempty"`
-	Output agent.PlannerOutput `json:"output"`
-	EstimatedPromptTokens int           `json:"estimated_prompt_tokens"`
+	Name                  string              `json:"name"`
+	Passed                bool                `json:"passed"`
+	Errors                []string            `json:"errors,omitempty"`
+	Output                agent.PlannerOutput `json:"output"`
+	EstimatedPromptTokens int                 `json:"estimated_prompt_tokens"`
 }
 
 type EvalReport struct {

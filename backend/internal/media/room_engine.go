@@ -119,8 +119,8 @@ type RoomEngine struct {
 	renegotiationSink  RenegotiationSink
 	renegotiationQueue chan RenegotiationOffer
 	negDispatchOnce    sync.Once
-	negClosed           chan struct{}
-	neg                 *negotiationTracker
+	negClosed          chan struct{}
+	neg                *negotiationTracker
 
 	mu    sync.Mutex
 	rooms map[string]*mediaRoom
@@ -169,14 +169,14 @@ type trackRecordingArtifact struct {
 
 func newRoomEngine(logger zerolog.Logger, cfg webrtc.Configuration, api *webrtc.API, bw *sfu.BandwidthController) *RoomEngine {
 	return &RoomEngine{
-		logger:         logger.With().Str("component", "room_engine").Logger(),
-		defaultConfig:  cfg,
-		api:            api,
-		gatherPolicy:   sfu.DefaultGatherPolicy(),
-		keyframes:      sfu.NewKeyframeRequester(sfu.DefaultKeyframeInterval),
-		bw:                bw,
-		candidateQueue:    make(chan sfu.LocalCandidate, candidateQueueSize),
-		closed:            make(chan struct{}),
+		logger:             logger.With().Str("component", "room_engine").Logger(),
+		defaultConfig:      cfg,
+		api:                api,
+		gatherPolicy:       sfu.DefaultGatherPolicy(),
+		keyframes:          sfu.NewKeyframeRequester(sfu.DefaultKeyframeInterval),
+		bw:                 bw,
+		candidateQueue:     make(chan sfu.LocalCandidate, candidateQueueSize),
+		closed:             make(chan struct{}),
 		renegotiationQueue: make(chan RenegotiationOffer, renegotiationQueueSize),
 		negClosed:          make(chan struct{}),
 		neg:                newNegotiationTracker(),

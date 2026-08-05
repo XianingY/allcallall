@@ -134,12 +134,12 @@ func TestConsumeTranslationSeconds(t *testing.T) {
 		Tier:        models.EntitlementPremium,
 		Status:      "active",
 	})
-	
+
 	err = svc.ConsumeTranslationSeconds(ctx, 2, 5000) // way over free quota
 	if err != nil {
 		t.Errorf("premium user should not fail on consume: %v", err)
 	}
-	
+
 	usage2, _ := svc.GetUsage(ctx, 2)
 	if usage2[0].UsedUnits != 0 {
 		t.Errorf("premium user should have 0 usage recorded, got %d", usage2[0].UsedUnits)

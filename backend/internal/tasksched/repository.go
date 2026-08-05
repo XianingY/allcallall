@@ -80,9 +80,9 @@ func (r *Repository) Claim(ctx context.Context, id uint64, workerID string, now,
 	res := r.db.WithContext(ctx).Model(&models.WeeklyTask{}).
 		Where("id = ? AND status = ? AND (locked_until IS NULL OR locked_until <= ?)", id, models.WeeklyTaskStatusActive, now.UTC()).
 		Updates(map[string]any{
-			"locked_by":   workerID,
+			"locked_by":    workerID,
 			"locked_until": lockedUntil.UTC(),
-			"updated_at":  now.UTC(),
+			"updated_at":   now.UTC(),
 		})
 	if res.Error != nil {
 		return false, res.Error
@@ -106,11 +106,11 @@ func (r *Repository) UpdateRun(ctx context.Context, run *models.WeeklyTaskRun) e
 func (r *Repository) CompleteRun(ctx context.Context, taskID uint64, lastRunAt time.Time, nextRunAt *time.Time, consecutive int, lastError, status string) error {
 	now := time.Now().UTC()
 	updates := map[string]any{
-		"last_run_at":           lastRunAt,
+		"last_run_at":          lastRunAt,
 		"consecutive_failures": consecutive,
 		"last_error":           lastError,
 		"status":               status,
-		"locked_by":           nil,
+		"locked_by":            nil,
 		"locked_until":         nil,
 		"updated_at":           now,
 	}

@@ -45,10 +45,10 @@ func (h *ChatHandler) RegisterRoutes(rg *gin.RouterGroup) {
 }
 
 type createGroupRequest struct {
-	Name        string  `json:"name"`
-	Description  string  `json:"description"`
-	AvatarURL   string  `json:"avatar_url"`
-	Kind        string  `json:"kind"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	AvatarURL   string   `json:"avatar_url"`
+	Kind        string   `json:"kind"`
 	MemberIDs   []uint64 `json:"member_ids"`
 }
 
@@ -69,7 +69,7 @@ func (h *ChatHandler) handleCreateGroup(c *gin.Context) {
 	}
 	view, err := h.service.CreateGroup(c.Request.Context(), orgID, claims.UserID, chat.CreateGroupInput{
 		Name:        req.Name,
-		Description:  req.Description,
+		Description: req.Description,
 		AvatarURL:   req.AvatarURL,
 		Kind:        req.Kind,
 		MemberIDs:   req.MemberIDs,

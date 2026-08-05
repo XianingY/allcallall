@@ -70,11 +70,10 @@ func (s *CounterStore) RenderPrometheus() string {
 
 type NoopRecorder struct{}
 
-func (n *NoopRecorder) Inc(name string) {}
+func (n *NoopRecorder) Inc(name string)              {}
 func (n *NoopRecorder) Add(name string, delta int64) {}
 func (n *NoopRecorder) Set(name string, value int64) {}
 
 func NewNoopRecorder() Recorder {
 	return &NoopRecorder{}
 }
-

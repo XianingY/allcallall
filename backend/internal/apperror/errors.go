@@ -41,13 +41,13 @@ func Wrap(err error, code, message string, httpStatus int) *AppError {
 }
 
 var (
-	ErrCodeNotFound             = "NOT_FOUND"
-	ErrCodeInvalidRequest       = "INVALID_REQUEST"
-	ErrCodeInternalServerError  = "INTERNAL_SERVER_ERROR"
-	ErrCodeUnauthorized         = "UNAUTHORIZED"
-	ErrCodeForbidden            = "FORBIDDEN"
-	ErrCodeInsufficientBalance  = "INSUFFICIENT_BALANCE"
-	ErrCodeRateLimited          = "RATE_LIMITED"
+	ErrCodeNotFound            = "NOT_FOUND"
+	ErrCodeInvalidRequest      = "INVALID_REQUEST"
+	ErrCodeInternalServerError = "INTERNAL_SERVER_ERROR"
+	ErrCodeUnauthorized        = "UNAUTHORIZED"
+	ErrCodeForbidden           = "FORBIDDEN"
+	ErrCodeInsufficientBalance = "INSUFFICIENT_BALANCE"
+	ErrCodeRateLimited         = "RATE_LIMITED"
 )
 
 func NewNotFound(message string) *AppError {

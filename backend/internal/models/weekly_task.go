@@ -21,10 +21,10 @@ type WeeklyTask struct {
 	Status              string     `gorm:"size:32;not null;default:'active';index:idx_weekly_task_status"`
 	NextRunAt           *time.Time `gorm:"index:idx_weekly_task_next"`
 	LastRunAt           *time.Time
-	LastError           string     `gorm:"type:text"`
-	ConsecutiveFailures int        `gorm:"not null;default:0"`
-	MaxFailures         int        `gorm:"not null;default:5"`
-	LockedBy            *string    `gorm:"size:64"`
+	LastError           string  `gorm:"type:text"`
+	ConsecutiveFailures int     `gorm:"not null;default:0"`
+	MaxFailures         int     `gorm:"not null;default:5"`
+	LockedBy            *string `gorm:"size:64"`
 	LockedUntil         *time.Time
 	CreatedAt           time.Time  `gorm:"autoCreateTime"`
 	UpdatedAt           time.Time  `gorm:"autoUpdateTime"`
@@ -44,17 +44,17 @@ const (
 // WeeklyTaskRun 记录每次触发执行的审计历史。
 // 即使任务被删除，运行历史仍保留以便排查异常。
 type WeeklyTaskRun struct {
-	ID           uint64     `gorm:"primaryKey;autoIncrement"`
-	TaskID       uint64     `gorm:"not null;index:idx_weekly_run_task"`
-	ScheduledAt  time.Time  `gorm:"not null;index:idx_weekly_run_sched"`
+	ID           uint64    `gorm:"primaryKey;autoIncrement"`
+	TaskID       uint64    `gorm:"not null;index:idx_weekly_run_task"`
+	ScheduledAt  time.Time `gorm:"not null;index:idx_weekly_run_sched"`
 	StartedAt    *time.Time
 	FinishedAt   *time.Time
-	Status       string     `gorm:"size:32;not null;default:'running'"` // success | failed | skipped
-	ErrorMessage string     `gorm:"type:text"`
-	Attempt      int        `gorm:"not null;default:1"`
-	WorkerID     string     `gorm:"size:64;not null;default:''"`
-	CreatedAt    time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt    time.Time  `gorm:"autoUpdateTime"`
+	Status       string    `gorm:"size:32;not null;default:'running'"` // success | failed | skipped
+	ErrorMessage string    `gorm:"type:text"`
+	Attempt      int       `gorm:"not null;default:1"`
+	WorkerID     string    `gorm:"size:64;not null;default:''"`
+	CreatedAt    time.Time `gorm:"autoCreateTime"`
+	UpdatedAt    time.Time `gorm:"autoUpdateTime"`
 }
 
 // TableName 指定表名

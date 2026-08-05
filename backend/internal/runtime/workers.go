@@ -13,8 +13,8 @@ import (
 
 	"github.com/allcallall/backend/internal/agent"
 	"github.com/allcallall/backend/internal/auth"
-	"github.com/allcallall/backend/internal/config"
 	"github.com/allcallall/backend/internal/collaboration"
+	"github.com/allcallall/backend/internal/config"
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/knowledge"
 	"github.com/allcallall/backend/internal/mcpplatform"

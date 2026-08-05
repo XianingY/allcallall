@@ -18,7 +18,7 @@ func New(level string) zerolog.Logger {
 	}
 
 	var output io.Writer = os.Stdout
-	
+
 	// Use pretty-printing console writer only in non-release mode for development convenience.
 	// In production (GIN_MODE=release), it defaults to structured JSON for performance and observability.
 	if os.Getenv("GIN_MODE") != "release" {

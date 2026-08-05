@@ -74,7 +74,7 @@ var (
 // CreateGroupInput 创建群组入参。
 type CreateGroupInput struct {
 	Name        string
-	Description  string
+	Description string
 	AvatarURL   string
 	Kind        string
 	MemberIDs   []uint64
@@ -96,11 +96,11 @@ func (s *Service) CreateGroup(ctx context.Context, orgID, creatorID uint64, in C
 
 	group := models.ChatGroup{
 		OrganizationID: orgID,
-		Kind:            kind,
-		Name:            name,
-		Description:     strings.TrimSpace(in.Description),
-		AvatarURL:       strings.TrimSpace(in.AvatarURL),
-		CreatedBy:       creatorID,
+		Kind:           kind,
+		Name:           name,
+		Description:    strings.TrimSpace(in.Description),
+		AvatarURL:      strings.TrimSpace(in.AvatarURL),
+		CreatedBy:      creatorID,
 	}
 	members := map[uint64]string{creatorID: models.ChatGroupRoleOwner}
 	for _, m := range in.MemberIDs {
@@ -289,10 +289,10 @@ func (s *Service) publishToOutbox(ctx context.Context, msg models.ChatMessage) {
 		return
 	}
 	payload := map[string]any{
-		"message_id":     msg.ID,
-		"group_id":       msg.GroupID,
+		"message_id":      msg.ID,
+		"group_id":        msg.GroupID,
 		"organization_id": msg.OrganizationID,
-		"type":           msg.Type,
+		"type":            msg.Type,
 	}
 	if _, err := s.outbox.Enqueue(ctx, events.EnqueueInput{
 		AggregateType:  "chat_message",
@@ -308,9 +308,9 @@ func (s *Service) publishToOutbox(ctx context.Context, msg models.ChatMessage) {
 
 // MessageCursor 漫游游标分页。
 type MessageCursor struct {
-	Limit     int
-	BeforeID  uint64 // 取 id < BeforeID 的一页（更早）
-	AfterID   uint64 // 取 id > AfterID 的一页（更新）
+	Limit    int
+	BeforeID uint64 // 取 id < BeforeID 的一页（更早）
+	AfterID  uint64 // 取 id > AfterID 的一页（更新）
 }
 
 // ListMessages 漫游拉取消息（游标分页，按 id 升序返回）。
@@ -481,10 +481,10 @@ func (s *Service) MarkRead(ctx context.Context, orgID, userID, groupID, upToMess
 		return nil, err
 	}
 	s.publishToMembers(ctx, orgID, groupID, userID, "chat.receipt.updated", map[string]any{
-		"group_id":          groupID,
-		"reader_id":         userID,
-		"up_to_message_id":  upToMessageID,
-		"read_at":           now,
+		"group_id":         groupID,
+		"reader_id":        userID,
+		"up_to_message_id": upToMessageID,
+		"read_at":          now,
 	})
 	return s.GetGroupReadSummary(ctx, orgID, userID, groupID)
 }
@@ -696,7 +696,7 @@ func uniqueUint64s(in []uint64) []uint64 {
 // messageRow 是消息联表查询的投影行。
 type messageRow struct {
 	models.ChatMessage
-	SenderEmail    string `gorm:"column:sender_email"`
+	SenderEmail       string `gorm:"column:sender_email"`
 	SenderDisplayName string `gorm:"column:sender_display_name"`
 }
 

@@ -8,7 +8,6 @@ import (
 	"strings"
 )
 
-
 func (s *Service) Search(ctx context.Context, organizationID uint64, conversationID *uint64, query string, limit int) ([]SearchResult, error) {
 	if limit <= 0 || limit > 50 {
 		limit = defaultSearchLimit

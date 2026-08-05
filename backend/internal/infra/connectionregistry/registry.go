@@ -31,7 +31,7 @@ type Registry interface {
 }
 
 const (
-	redisNodesKey  = "cgw:nodes"
+	redisNodesKey   = "cgw:nodes"
 	redisNodeKeyFmt = "cgw:node:%s"
 )
 

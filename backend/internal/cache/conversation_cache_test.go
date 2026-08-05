@@ -60,7 +60,7 @@ func TestConversationCache_GetOrCreate(t *testing.T) {
 		callCount++
 		return nil, nil
 	})
-	
+
 	_ = result2
 
 	if callCount != 1 {

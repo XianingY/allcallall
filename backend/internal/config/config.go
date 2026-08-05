@@ -27,14 +27,14 @@ var (
 // Config 应用总配置结构
 // Config aggregates all application settings loaded from YAML/Env.
 type Config struct {
-	Server      ServerConfig      `yaml:"server"`
-	Database    DatabaseConfig    `yaml:"database"`
-	Redis       RedisConfig       `yaml:"redis"`
-	Mail        Mail              `yaml:"mail"`
-	JWT         JWTConfig         `yaml:"jwt"`
-	WebRTC      WebRTCConfig      `yaml:"webrtc"`
-	Translation TranslationConfig `yaml:"translation"`
-	Logging          LoggingConfig          `yaml:"logging"`
+	Server            ServerConfig            `yaml:"server"`
+	Database          DatabaseConfig          `yaml:"database"`
+	Redis             RedisConfig             `yaml:"redis"`
+	Mail              Mail                    `yaml:"mail"`
+	JWT               JWTConfig               `yaml:"jwt"`
+	WebRTC            WebRTCConfig            `yaml:"webrtc"`
+	Translation       TranslationConfig       `yaml:"translation"`
+	Logging           LoggingConfig           `yaml:"logging"`
 	TaskScheduler     TaskSchedulerConfig     `yaml:"task_scheduler"`
 	ConnectionGateway ConnectionGatewayConfig `yaml:"connection_gateway"`
 	Events            EventsConfig            `yaml:"events"`
@@ -118,24 +118,24 @@ type LoggingConfig struct {
 // TaskSchedulerConfig 周期性（weekly）任务调度器配置
 // TaskSchedulerConfig controls the weekly task scheduler worker.
 type TaskSchedulerConfig struct {
-	Enabled           bool   `yaml:"enabled" env:"TASK_SCHEDULER_ENABLED"`
-	IntervalSec       int    `yaml:"interval_seconds" env:"TASK_SCHEDULER_INTERVAL_SEC"`
-	Timezone          string `yaml:"timezone" env:"TASK_SCHEDULER_TIMEZONE"`
-	WorkerID          string `yaml:"worker_id" env:"TASK_SCHEDULER_WORKER_ID"`
-	MaxConcurrent     int    `yaml:"max_concurrent" env:"TASK_SCHEDULER_MAX_CONCURRENT"`
-	LeaseSec          int    `yaml:"lease_seconds" env:"TASK_SCHEDULER_LEASE_SEC"`
-	DefaultMaxFailures int   `yaml:"default_max_failures" env:"TASK_SCHEDULER_DEFAULT_MAX_FAILURES"`
+	Enabled            bool   `yaml:"enabled" env:"TASK_SCHEDULER_ENABLED"`
+	IntervalSec        int    `yaml:"interval_seconds" env:"TASK_SCHEDULER_INTERVAL_SEC"`
+	Timezone           string `yaml:"timezone" env:"TASK_SCHEDULER_TIMEZONE"`
+	WorkerID           string `yaml:"worker_id" env:"TASK_SCHEDULER_WORKER_ID"`
+	MaxConcurrent      int    `yaml:"max_concurrent" env:"TASK_SCHEDULER_MAX_CONCURRENT"`
+	LeaseSec           int    `yaml:"lease_seconds" env:"TASK_SCHEDULER_LEASE_SEC"`
+	DefaultMaxFailures int    `yaml:"default_max_failures" env:"TASK_SCHEDULER_DEFAULT_MAX_FAILURES"`
 }
 
 // ConnectionGatewayConfig 连接层负载均衡网关配置
 // ConnectionGatewayConfig controls self node registration and consistent-hash routing.
 type ConnectionGatewayConfig struct {
 	Enabled       bool   `yaml:"enabled" env:"CONNECTION_GATEWAY_ENABLED"`
-	SelfID       string `yaml:"self_id" env:"CONNECTION_GATEWAY_SELF_ID"`
+	SelfID        string `yaml:"self_id" env:"CONNECTION_GATEWAY_SELF_ID"`
 	AdvertiseAddr string `yaml:"advertise_addr" env:"CONNECTION_GATEWAY_ADVERTISE_ADDR"`
-	HeartbeatSec int    `yaml:"heartbeat_seconds" env:"CONNECTION_GATEWAY_HEARTBEAT_SEC"`
-	NodeTTLSec   int    `yaml:"node_ttl_seconds" env:"CONNECTION_GATEWAY_NODE_TTL_SEC"`
-	HashReplicas int    `yaml:"hash_replicas" env:"CONNECTION_GATEWAY_HASH_REPLICAS"`
+	HeartbeatSec  int    `yaml:"heartbeat_seconds" env:"CONNECTION_GATEWAY_HEARTBEAT_SEC"`
+	NodeTTLSec    int    `yaml:"node_ttl_seconds" env:"CONNECTION_GATEWAY_NODE_TTL_SEC"`
+	HashReplicas  int    `yaml:"hash_replicas" env:"CONNECTION_GATEWAY_HASH_REPLICAS"`
 }
 
 // EventsConfig 事件总线生产化（Kafka 桥接）配置

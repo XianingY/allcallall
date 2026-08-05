@@ -34,8 +34,6 @@ type EventPublisher interface {
 	PublishToUser(ctx context.Context, event RealtimeEventRecord) error
 }
 
-
-
 type redisCacheClient interface {
 	Get(ctx context.Context, key string) *redis.StringCmd
 	Set(ctx context.Context, key string, value any, expiration time.Duration) *redis.StatusCmd

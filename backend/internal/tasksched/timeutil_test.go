@@ -68,7 +68,7 @@ func TestComputeNextRun(t *testing.T) {
 
 func TestComputeNextRunIntervalWeeks(t *testing.T) {
 	loc := time.UTC
-	maskSunday := WeekdayMask([]int{0}) // 仅周日
+	maskSunday := WeekdayMask([]int{0})           // 仅周日
 	anchor := mustTime(t, "2026-08-02T00:00:00Z") // 周日
 
 	// 每 2 周一次，after 为周三，下一次应为 2 周后的周日 2026-08-16

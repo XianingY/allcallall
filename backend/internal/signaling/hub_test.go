@@ -2,8 +2,8 @@ package signaling
 
 import (
 	"context"
-	"testing"
 	"encoding/json"
+	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -153,7 +153,7 @@ func TestHubBroadcastToTarget(t *testing.T) {
 
 	msg := SignalMessage{From: "alice@test.com", To: "bob@test.com", Type: TypeCallInvite, CallID: "call-123"}
 	encoded, _ := json.Marshal(msg)
-	
+
 	hub.dispatchLocal("bob@test.com", encoded)
 	time.Sleep(50 * time.Millisecond)
 

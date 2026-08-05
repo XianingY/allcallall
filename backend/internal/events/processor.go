@@ -19,8 +19,6 @@ var ErrOutboxHandlerNotFound = errors.New("outbox handler not found")
 
 type Handler func(ctx context.Context, event models.EventOutbox) error
 
-
-
 type Processor struct {
 	store       *Store
 	handlers    map[string]Handler

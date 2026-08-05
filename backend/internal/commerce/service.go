@@ -24,8 +24,6 @@ var (
 	ErrFollowupNotFound          = errors.New("call follow-up not found")
 )
 
-
-
 // Service is the coordinator that delegates to focused sub-services.
 // All callers continue to use *Service for backward compatibility.
 type Service struct {
@@ -69,7 +67,7 @@ func NewServiceWithRepository(repo *Repository, recorders ...metrics.Recorder) *
 
 // ─── Legal delegation ────────────────────────────────────────────────────────
 
-func (s *Service) CurrentLegal() LegalDocumentSet               { return s.legal.CurrentLegal() }
+func (s *Service) CurrentLegal() LegalDocumentSet { return s.legal.CurrentLegal() }
 func (s *Service) AcceptLegal(ctx context.Context, userID uint64) error {
 	return s.legal.AcceptLegal(ctx, userID)
 }
