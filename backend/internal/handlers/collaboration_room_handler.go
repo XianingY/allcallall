@@ -121,8 +121,9 @@ func (h *CollaborationHandler) handleRoomOffer(c *gin.Context) {
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{
-		"room":   toRoomStateResponse(*result.State),
-		"answer": result.Answer,
+		"room":        toRoomStateResponse(*result.State),
+		"answer":      result.Answer,
+		"trickle_ice": result.TrickleICE,
 	})
 }
 

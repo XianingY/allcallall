@@ -236,6 +236,10 @@ func (s *Service) HandleRoomOffer(ctx context.Context, organizationID, userID, r
 		return nil, errors.New("media engine not attached")
 	}
 
+	// Capture the room -> organization mapping before the offer so trickled
+	// candidates can be routed without hitting the database on the ICE path.
+	s.roomOrgs.remember(roomID, organizationID)
+
 	answerSDP, err := s.media.HandleRoomOffer(strconv.FormatUint(roomID, 10), strconv.FormatUint(userID, 10), sdp)
 	if err != nil {
 		return nil, err
@@ -256,6 +260,7 @@ func (s *Service) HandleRoomOffer(ctx context.Context, organizationID, userID, r
 			Type: "answer",
 			SDP:  answerSDP,
 		},
+		TrickleICE: s.trickleICE,
 	}, nil
 }
 
@@ -384,6 +389,7 @@ func (s *Service) LeaveRoom(ctx context.Context, organizationID, userID, roomID 
 		s.publishConversationPatchUpdate(ctx, organizationID, *state.ConversationID, changes)
 	}
 	if state.Room.Status == models.RoomStatusEnded {
+		s.roomOrgs.forget(roomID)
 		s.publishRoomEnded(ctx, organizationID, state)
 	} else {
 		s.publishRoomStateUpdated(ctx, organizationID, state, "meeting.left")

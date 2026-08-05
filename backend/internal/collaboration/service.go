@@ -53,6 +53,8 @@ type Service struct {
 	outbox              *events.Store
 	transcriber         transcription.Provider
 	maxRoomParticipants int
+	trickleICE          bool
+	roomOrgs            *roomOrgRegistry
 	logger              zerolog.Logger
 }
 
@@ -61,7 +63,14 @@ func NewService(db *gorm.DB, users *user.Service) *Service {
 	if configured, err := strconv.Atoi(strings.TrimSpace(os.Getenv("ROOM_MAX_PARTICIPANTS"))); err == nil && configured > 0 {
 		maxRoomParticipants = configured
 	}
-	svc := &Service{db: db, users: users, outbox: events.NewStore(db), maxRoomParticipants: maxRoomParticipants}
+	svc := &Service{
+		db:                  db,
+		users:               users,
+		outbox:              events.NewStore(db),
+		maxRoomParticipants: maxRoomParticipants,
+		trickleICE:          parseBoolEnv("ROOM_TRICKLE_ICE", false),
+		roomOrgs:            newRoomOrgRegistry(),
+	}
 	svc.metrics = metrics.NewCounterStore()
 	svc.logger = zerolog.Nop()
 	if localStorage, err := storage.NewRecordingStorage(storage.Config{Driver: storage.DriverLocal}); err == nil {
@@ -89,6 +98,27 @@ func (s *Service) WithLogger(logger zerolog.Logger) {
 
 func (s *Service) WithMediaEngine(engine *media.Engine) {
 	s.media = engine
+	s.wireTrickleICE()
+}
+
+// WithTrickleICE toggles out-of-band delivery of server side ICE candidates.
+// It must be called before WithMediaEngine to take effect on the sink wiring.
+func (s *Service) WithTrickleICE(enabled bool) *Service {
+	s.trickleICE = enabled
+	s.wireTrickleICE()
+	return s
+}
+
+func parseBoolEnv(key string, fallback bool) bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	switch raw {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func (s *Service) WithRecordingStorage(recordingStorage storage.RecordingStorage) {

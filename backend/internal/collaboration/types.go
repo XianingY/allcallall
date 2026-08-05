@@ -241,6 +241,9 @@ type RoomMemberSummary struct {
 type RoomOfferResult struct {
 	State  *RoomState        `json:"state"`
 	Answer media.OfferAnswer `json:"answer"`
+	// TrickleICE tells the client the answer may omit candidates and that the
+	// remaining ones arrive as room.ice.candidate realtime events.
+	TrickleICE bool `json:"trickle_ice"`
 }
 
 type DealInput struct {

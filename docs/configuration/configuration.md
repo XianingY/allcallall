@@ -85,6 +85,7 @@ Realtime translation remains configurable in YAML, but its mobile UI entry point
 | `AGENT_RUNTIME_TOOL_TOKEN` | Go-side bearer token for the internal read-only tool bridge. Leave empty to disable the bridge. |
 | `PY_AGENT_TOOL_BRIDGE_BASE_URL`, `PY_AGENT_TOOL_BRIDGE_TOKEN` | Python-side Go tool bridge URL and token. When unset, Python uses only preloaded context. |
 | `ROOM_MAX_PARTICIPANTS` | Maximum active/invited members in a meeting room; defaults to `6`. |
+| `ROOM_TRICKLE_ICE` | Enables trickle ICE for meeting rooms; defaults to `false`. When enabled, `POST /rooms/:roomId/offer` answers as soon as the local description is set (the response carries `trickle_ice: true`) and the remaining server-side candidates are delivered as `room.ice.candidate` realtime events. Only turn it on once every client applies those events. |
 | `ELASTICSEARCH_URL` | Enables Elasticsearch search and chunk indexing. |
 | `ELASTICSEARCH_INDEX` | Message index name, default `allcallall_messages`. |
 | `ELASTICSEARCH_USERNAME` | Optional basic auth username. |

@@ -12,7 +12,18 @@ import (
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media/oggwriter"
 	"github.com/rs/zerolog"
+
+	"github.com/allcallall/backend/internal/media/sfu"
 )
+
+// candidateQueueSize bounds the trickle ICE dispatch queue. Candidates are
+// produced on Pion's ICE agent goroutine, which must never block on the
+// application transport, so a full queue drops the oldest entries instead.
+const candidateQueueSize = 512
+
+// maxRoomCandidateBuffers caps how many distinct participants may hold a
+// pre-offer candidate buffer in a single room.
+const maxRoomCandidateBuffers = 64
 
 type RecordingArtifact struct {
 	ObjectKey       string
@@ -26,6 +37,17 @@ type RoomEngine struct {
 	defaultConfig webrtc.Configuration
 	api           *webrtc.API
 
+	gatherPolicy sfu.GatherPolicy
+	keyframes    *sfu.KeyframeRequester
+
+	sinkMu         sync.RWMutex
+	candidateSink  sfu.CandidateSink
+	candidateQueue chan sfu.LocalCandidate
+	dispatchOnce   sync.Once
+	closeOnce      sync.Once
+	closed         chan struct{}
+	droppedTrickle uint64
+
 	mu    sync.Mutex
 	rooms map[string]*mediaRoom
 }
@@ -34,7 +56,11 @@ type mediaRoom struct {
 	id           string
 	participants map[string]*roomParticipant
 	tracks       map[string]*publishedTrack
-	recording    *roomRecording
+	// candidates buffers remote ICE candidates per participant. It is keyed
+	// separately from participants because with trickle ICE the first
+	// candidate regularly overtakes the offer that creates the participant.
+	candidates map[string]*sfu.CandidateBuffer
+	recording  *roomRecording
 }
 
 type roomParticipant struct {
@@ -48,6 +74,8 @@ type publishedTrack struct {
 	participantID string
 	track         *webrtc.TrackRemote
 	local         *webrtc.TrackLocalStaticRTP
+	kind          webrtc.RTPCodecType
+	ssrc          uint32
 }
 
 type roomRecording struct {
@@ -67,10 +95,118 @@ type trackRecordingArtifact struct {
 
 func newRoomEngine(logger zerolog.Logger, cfg webrtc.Configuration, api *webrtc.API) *RoomEngine {
 	return &RoomEngine{
-		logger:        logger.With().Str("component", "room_engine").Logger(),
-		defaultConfig: cfg,
-		api:           api,
-		rooms:         make(map[string]*mediaRoom),
+		logger:         logger.With().Str("component", "room_engine").Logger(),
+		defaultConfig:  cfg,
+		api:            api,
+		gatherPolicy:   sfu.DefaultGatherPolicy(),
+		keyframes:      sfu.NewKeyframeRequester(sfu.DefaultKeyframeInterval),
+		candidateQueue: make(chan sfu.LocalCandidate, candidateQueueSize),
+		closed:         make(chan struct{}),
+		rooms:          make(map[string]*mediaRoom),
+	}
+}
+
+// SetRoomICECandidateSink wires the transport used to trickle server side ICE
+// candidates to clients. Passing a non nil sink also switches HandleRoomOffer
+// into trickle mode: the answer is returned as soon as the local description
+// is set instead of waiting for gathering to finish.
+func (e *Engine) SetRoomICECandidateSink(sink sfu.CandidateSink) {
+	e.roomEngine.SetICECandidateSink(sink)
+}
+
+// RoomKeyframeStats exposes emitted/coalesced keyframe request counters.
+func (e *Engine) RoomKeyframeStats() (sent uint64, throttled uint64) {
+	return e.roomEngine.KeyframeStats()
+}
+
+// SetICECandidateSink installs the trickle transport and starts the dispatch
+// goroutine on first use.
+func (r *RoomEngine) SetICECandidateSink(sink sfu.CandidateSink) {
+	r.sinkMu.Lock()
+	r.candidateSink = sink
+	r.sinkMu.Unlock()
+
+	if sink == nil {
+		return
+	}
+	r.dispatchOnce.Do(func() { go r.dispatchCandidates() })
+}
+
+// SetGatherPolicy overrides the ICE gathering deadlines. Zero valued fields
+// keep their defaults.
+func (r *RoomEngine) SetGatherPolicy(policy sfu.GatherPolicy) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if policy.TrickleTimeout > 0 {
+		r.gatherPolicy.TrickleTimeout = policy.TrickleTimeout
+	}
+	if policy.BlockingTimeout > 0 {
+		r.gatherPolicy.BlockingTimeout = policy.BlockingTimeout
+	}
+}
+
+// KeyframeStats exposes emitted/coalesced keyframe request counters.
+func (r *RoomEngine) KeyframeStats() (sent uint64, throttled uint64) {
+	return r.keyframes.Stats()
+}
+
+// DroppedTrickleCandidates reports how many locally gathered candidates were
+// discarded because the dispatch queue was saturated.
+func (r *RoomEngine) DroppedTrickleCandidates() uint64 {
+	r.sinkMu.RLock()
+	defer r.sinkMu.RUnlock()
+	return r.droppedTrickle
+}
+
+// Close stops the trickle dispatch goroutine.
+func (r *RoomEngine) Close() {
+	r.closeOnce.Do(func() { close(r.closed) })
+}
+
+func (r *RoomEngine) iceCandidateSink() sfu.CandidateSink {
+	r.sinkMu.RLock()
+	defer r.sinkMu.RUnlock()
+	return r.candidateSink
+}
+
+func (r *RoomEngine) trickleEnabled() bool {
+	return r.iceCandidateSink() != nil
+}
+
+// emitCandidate hands a locally gathered candidate to the dispatch queue. It
+// never blocks: Pion invokes OnICECandidate from the ICE agent goroutine and a
+// slow transport there would stall connectivity checks for every participant.
+func (r *RoomEngine) emitCandidate(candidate sfu.LocalCandidate) {
+	if !r.trickleEnabled() {
+		return
+	}
+	select {
+	case r.candidateQueue <- candidate:
+	default:
+		r.sinkMu.Lock()
+		r.droppedTrickle++
+		dropped := r.droppedTrickle
+		r.sinkMu.Unlock()
+		r.logger.Warn().
+			Str("room_id", candidate.RoomID).
+			Str("participant_id", candidate.ParticipantID).
+			Uint64("dropped_total", dropped).
+			Msg("trickle ice queue saturated, dropping candidate")
+	}
+}
+
+func (r *RoomEngine) dispatchCandidates() {
+	for {
+		select {
+		case <-r.closed:
+			return
+		case candidate := <-r.candidateQueue:
+			sink := r.iceCandidateSink()
+			if sink == nil {
+				continue
+			}
+			sink(candidate)
+		}
 	}
 }
 
@@ -111,19 +247,16 @@ func (r *RoomEngine) HandleOffer(roomID, participantID, sdp string) (string, err
 		r.mu.Unlock()
 		return "", err
 	}
-	for key, track := range room.tracks {
+	candidateBuffer, err := r.ensureCandidateBufferLocked(room, participantID)
+	if err != nil {
+		r.mu.Unlock()
+		return "", err
+	}
+	for _, track := range room.tracks {
 		if track.participantID == participantID {
 			continue
 		}
-		if _, ok := participant.senders[key]; ok {
-			continue
-		}
-		sender, addErr := participant.pc.AddTrack(track.local)
-		if addErr != nil {
-			r.logger.Warn().Err(addErr).Str("room_id", roomID).Str("participant_id", participantID).Msg("failed to add published track to participant")
-			continue
-		}
-		participant.senders[key] = sender
+		r.attachTrackLocked(room, participant, track)
 	}
 	r.mu.Unlock()
 
@@ -132,6 +265,17 @@ func (r *RoomEngine) HandleOffer(roomID, participantID, sdp string) (string, err
 		SDP:  sdp,
 	}); err != nil {
 		return "", err
+	}
+
+	// Candidates trickled in before the offer reached us could not be applied
+	// yet; replay them now that a remote description exists.
+	for _, pending := range candidateBuffer.MarkRemoteReady() {
+		if addErr := participant.pc.AddICECandidate(pending); addErr != nil {
+			r.logger.Warn().Err(addErr).
+				Str("room_id", roomID).
+				Str("participant_id", participantID).
+				Msg("failed to apply buffered ice candidate")
+		}
 	}
 
 	answer, err := participant.pc.CreateAnswer(nil)
@@ -143,7 +287,18 @@ func (r *RoomEngine) HandleOffer(roomID, participantID, sdp string) (string, err
 	if err := participant.pc.SetLocalDescription(answer); err != nil {
 		return "", err
 	}
-	<-gatherComplete
+
+	// Waiting for full gathering costs the slowest STUN/TURN probe in the ICE
+	// server list. When a trickle transport is wired we only wait long enough
+	// to pick up host candidates and deliver the rest asynchronously.
+	trickle := r.trickleEnabled()
+	if !sfu.WaitGather(gatherComplete, r.gatherTimeout(trickle)) {
+		r.logger.Debug().
+			Str("room_id", roomID).
+			Str("participant_id", participantID).
+			Bool("trickle", trickle).
+			Msg("returning sdp answer before ice gathering completed")
+	}
 
 	// Inject Opus DTX (Discontinuous Transmission) to save bandwidth during silence
 	// This is a commercial-grade optimization (Pillar A)
@@ -153,6 +308,13 @@ func (r *RoomEngine) HandleOffer(roomID, participantID, sdp string) (string, err
 	return finalSDP, nil
 }
 
+func (r *RoomEngine) gatherTimeout(trickle bool) time.Duration {
+	r.mu.Lock()
+	policy := r.gatherPolicy
+	r.mu.Unlock()
+	return policy.Timeout(trickle)
+}
+
 func (r *RoomEngine) AddICECandidate(roomID, participantID string, candidate webrtc.ICECandidateInit) error {
 	r.mu.Lock()
 	room, ok := r.rooms[roomID]
@@ -160,12 +322,36 @@ func (r *RoomEngine) AddICECandidate(roomID, participantID string, candidate web
 		r.mu.Unlock()
 		return fmt.Errorf("room not found")
 	}
-	participant, ok := room.participants[participantID]
+	// With trickle ICE the first candidates frequently overtake the offer, so
+	// buffer them rather than rejecting them. No peer connection is created
+	// here: a stray candidate must not be able to allocate media resources.
+	buffer, err := r.ensureCandidateBufferLocked(room, participantID)
+	if err != nil {
+		r.mu.Unlock()
+		return err
+	}
+	participant := room.participants[participantID]
 	r.mu.Unlock()
-	if !ok {
+
+	if !buffer.Accept(candidate) {
+		return nil
+	}
+	if participant == nil {
 		return fmt.Errorf("participant not found")
 	}
 	return participant.pc.AddICECandidate(candidate)
+}
+
+func (r *RoomEngine) ensureCandidateBufferLocked(room *mediaRoom, participantID string) (*sfu.CandidateBuffer, error) {
+	if buffer, ok := room.candidates[participantID]; ok {
+		return buffer, nil
+	}
+	if len(room.candidates) >= maxRoomCandidateBuffers {
+		return nil, fmt.Errorf("too many pending ice candidate buffers for room")
+	}
+	buffer := sfu.NewCandidateBuffer(sfu.DefaultMaxPendingCandidates)
+	room.candidates[participantID] = buffer
+	return buffer, nil
 }
 
 func (r *RoomEngine) LeaveParticipant(roomID, participantID string) error {
@@ -246,6 +432,7 @@ func (r *RoomEngine) ensureRoomLocked(roomID string) *mediaRoom {
 		id:           roomID,
 		participants: make(map[string]*roomParticipant),
 		tracks:       make(map[string]*publishedTrack),
+		candidates:   make(map[string]*sfu.CandidateBuffer),
 	}
 	r.rooms[roomID] = room
 	return room
@@ -273,7 +460,34 @@ func (r *RoomEngine) ensureParticipantLocked(room *mediaRoom, participantID stri
 		senders: make(map[string]*webrtc.RTPSender),
 	}
 
+	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+		if candidate == nil {
+			r.emitCandidate(sfu.LocalCandidate{
+				RoomID:          room.id,
+				ParticipantID:   participantID,
+				EndOfCandidates: true,
+			})
+			return
+		}
+		init := candidate.ToJSON()
+		r.emitCandidate(sfu.LocalCandidate{
+			RoomID:           room.id,
+			ParticipantID:    participantID,
+			Candidate:        init.Candidate,
+			SDPMid:           init.SDPMid,
+			SDPMLineIndex:    init.SDPMLineIndex,
+			UsernameFragment: init.UsernameFragment,
+		})
+	})
+
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		if state == webrtc.PeerConnectionStateConnected {
+			// A freshly connected subscriber cannot decode anything until the
+			// publishers emit an IDR frame, so ask for one right away instead
+			// of showing a black tile until the next natural keyframe.
+			go r.requestKeyframesForSubscriber(room.id, participantID)
+			return
+		}
 		if state == webrtc.PeerConnectionStateClosed || state == webrtc.PeerConnectionStateFailed {
 			r.mu.Lock()
 			defer r.mu.Unlock()
@@ -294,6 +508,107 @@ func (r *RoomEngine) ensureParticipantLocked(room *mediaRoom, participantID stri
 	return participant, nil
 }
 
+// attachTrackLocked subscribes a participant to a published track. The caller
+// must hold r.mu.
+func (r *RoomEngine) attachTrackLocked(room *mediaRoom, subscriber *roomParticipant, published *publishedTrack) bool {
+	if subscriber == nil || published == nil || subscriber.id == published.participantID {
+		return false
+	}
+	if _, ok := subscriber.senders[published.key]; ok {
+		return false
+	}
+	sender, err := subscriber.pc.AddTrack(published.local)
+	if err != nil {
+		r.logger.Warn().Err(err).
+			Str("room_id", room.id).
+			Str("participant_id", subscriber.id).
+			Str("track_key", published.key).
+			Msg("failed to attach relay track to participant")
+		return false
+	}
+	subscriber.senders[published.key] = sender
+	go r.forwardSubscriberFeedback(room.id, published.key, sender)
+	return true
+}
+
+// forwardSubscriberFeedback drains RTCP coming back from a subscriber and
+// relays keyframe requests to the publisher. Draining is mandatory even when
+// nothing is forwarded: an unread sender stalls the interceptor chain.
+func (r *RoomEngine) forwardSubscriberFeedback(roomID, trackKey string, sender *webrtc.RTPSender) {
+	for {
+		packets, _, err := sender.ReadRTCP()
+		if err != nil {
+			return
+		}
+		if !sfu.ContainsKeyframeRequest(packets) {
+			continue
+		}
+		r.requestKeyframeForTrack(roomID, trackKey)
+	}
+}
+
+type keyframeTarget struct {
+	pc   *webrtc.PeerConnection
+	ssrc uint32
+}
+
+func (r *RoomEngine) requestKeyframesForSubscriber(roomID, subscriberID string) {
+	r.mu.Lock()
+	room, ok := r.rooms[roomID]
+	if !ok {
+		r.mu.Unlock()
+		return
+	}
+	targets := make([]keyframeTarget, 0, len(room.tracks))
+	for _, track := range room.tracks {
+		if track.participantID == subscriberID || track.kind != webrtc.RTPCodecTypeVideo {
+			continue
+		}
+		publisher, ok := room.participants[track.participantID]
+		if !ok {
+			continue
+		}
+		targets = append(targets, keyframeTarget{pc: publisher.pc, ssrc: track.ssrc})
+	}
+	r.mu.Unlock()
+
+	r.sendKeyframeRequests(roomID, targets)
+}
+
+func (r *RoomEngine) requestKeyframeForTrack(roomID, trackKey string) {
+	r.mu.Lock()
+	room, ok := r.rooms[roomID]
+	if !ok {
+		r.mu.Unlock()
+		return
+	}
+	track, ok := room.tracks[trackKey]
+	if !ok || track.kind != webrtc.RTPCodecTypeVideo {
+		r.mu.Unlock()
+		return
+	}
+	publisher, ok := room.participants[track.participantID]
+	if !ok {
+		r.mu.Unlock()
+		return
+	}
+	target := keyframeTarget{pc: publisher.pc, ssrc: track.ssrc}
+	r.mu.Unlock()
+
+	r.sendKeyframeRequests(roomID, []keyframeTarget{target})
+}
+
+func (r *RoomEngine) sendKeyframeRequests(roomID string, targets []keyframeTarget) {
+	for _, target := range targets {
+		if _, err := r.keyframes.Request(target.pc, target.ssrc); err != nil {
+			r.logger.Debug().Err(err).
+				Str("room_id", roomID).
+				Uint32("ssrc", target.ssrc).
+				Msg("failed to send keyframe request")
+		}
+	}
+}
+
 func (r *RoomEngine) removeParticipantLocked(room *mediaRoom, participantID string) {
 	participant, ok := room.participants[participantID]
 	if !ok {
@@ -303,6 +618,7 @@ func (r *RoomEngine) removeParticipantLocked(room *mediaRoom, participantID stri
 		r.logger.Warn().Err(err).Str("participant_id", participantID).Msg("failed to close peer connection on participant removal")
 	}
 	delete(room.participants, participantID)
+	delete(room.candidates, participantID)
 
 	for key, track := range room.tracks {
 		if track.participantID != participantID {
@@ -335,29 +651,35 @@ func (r *RoomEngine) handleRemoteTrack(roomID, participantID string, track *webr
 		key = fmt.Sprintf("%s:%s:%s:%s", participantID, track.Kind().String(), track.ID(), rid)
 	}
 
+	ssrc := uint32(track.SSRC())
+
 	r.mu.Lock()
 	room := r.ensureRoomLocked(roomID)
-	room.tracks[key] = &publishedTrack{
+	published := &publishedTrack{
 		key:           key,
 		participantID: participantID,
 		track:         track,
 		local:         localTrack,
+		kind:          track.Kind(),
+		ssrc:          ssrc,
 	}
+	room.tracks[key] = published
+	subscribers := 0
 	for otherID, other := range room.participants {
 		if otherID == participantID {
 			continue
 		}
-		if _, ok := other.senders[key]; ok {
-			continue
+		if r.attachTrackLocked(room, other, published) {
+			subscribers++
 		}
-		sender, addErr := other.pc.AddTrack(localTrack)
-		if addErr != nil {
-			r.logger.Warn().Err(addErr).Str("room_id", roomID).Str("participant_id", otherID).Msg("failed to attach relay track to participant")
-			continue
-		}
-		other.senders[key] = sender
 	}
 	r.mu.Unlock()
+
+	// Subscribers that were already in the room joined mid-stream and need an
+	// IDR frame before they can render this track.
+	if subscribers > 0 && track.Kind() == webrtc.RTPCodecTypeVideo {
+		r.requestKeyframeForTrack(roomID, key)
+	}
 
 	for {
 		packet, _, readErr := track.ReadRTP()
@@ -384,6 +706,7 @@ func (r *RoomEngine) handleRemoteTrack(roomID, participantID string, track *webr
 		}
 	}
 	r.mu.Unlock()
+	r.keyframes.Forget(ssrc)
 }
 
 func (r *RoomEngine) writeRecordingPacket(roomID, participantID string, track *webrtc.TrackRemote, packet *rtp.Packet) {

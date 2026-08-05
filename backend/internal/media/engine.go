@@ -250,6 +250,9 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 	}
 
 	e.peerConnections = make(map[string]*PeerConnection)
+	if e.roomEngine != nil {
+		e.roomEngine.Close()
+	}
 
 	if lastErr != nil {
 		return fmt.Errorf("shutdown with errors: %w", lastErr)
