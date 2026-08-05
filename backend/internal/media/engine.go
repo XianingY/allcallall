@@ -7,6 +7,8 @@ import (
 
 	"github.com/pion/webrtc/v4"
 	"github.com/rs/zerolog"
+
+	"github.com/allcallall/backend/internal/media/sfu"
 )
 
 // Engine 是 Pion WebRTC 媒体引擎
@@ -27,6 +29,10 @@ type Config struct {
 	// WebRTC configuration
 	WebRTCConfig webrtc.Configuration
 	API          *webrtc.API
+	// Bandwidth is the optional GCC bandwidth controller. When non-nil it
+	// enables per-participant bandwidth estimation and bandwidth-aware
+	// forwarding for meeting-room peer connections.
+	Bandwidth *sfu.BandwidthController
 }
 
 // NewEngine 创建新的媒体引擎
@@ -37,7 +43,7 @@ func NewEngine(logger zerolog.Logger, cfg *Config) (*Engine, error) {
 		peerConnections: make(map[string]*PeerConnection),
 		defaultConfig:   cfg.WebRTCConfig,
 		api:             cfg.API,
-		roomEngine:      newRoomEngine(logger, cfg.WebRTCConfig, cfg.API),
+		roomEngine:      newRoomEngine(logger, cfg.WebRTCConfig, cfg.API, cfg.Bandwidth),
 	}, nil
 }
 

@@ -25,6 +25,13 @@ const candidateQueueSize = 512
 // pre-offer candidate buffer in a single room.
 const maxRoomCandidateBuffers = 64
 
+// bandwidthSampleWindow is how often a published track's send bitrate is
+// re-measured from RTP traffic to feed the bandwidth manager.
+const bandwidthSampleWindow = 2 * time.Second
+
+// rtpHeaderSize is the fixed RTP header size used when estimating send bitrate.
+const rtpHeaderSize = 12
+
 type RecordingArtifact struct {
 	ObjectKey       string
 	ContentType     string
@@ -39,6 +46,7 @@ type RoomEngine struct {
 
 	gatherPolicy sfu.GatherPolicy
 	keyframes    *sfu.KeyframeRequester
+	bw           *sfu.BandwidthController
 
 	sinkMu         sync.RWMutex
 	candidateSink  sfu.CandidateSink
@@ -93,13 +101,14 @@ type trackRecordingArtifact struct {
 	writer      *oggwriter.OggWriter
 }
 
-func newRoomEngine(logger zerolog.Logger, cfg webrtc.Configuration, api *webrtc.API) *RoomEngine {
+func newRoomEngine(logger zerolog.Logger, cfg webrtc.Configuration, api *webrtc.API, bw *sfu.BandwidthController) *RoomEngine {
 	return &RoomEngine{
 		logger:         logger.With().Str("component", "room_engine").Logger(),
 		defaultConfig:  cfg,
 		api:            api,
 		gatherPolicy:   sfu.DefaultGatherPolicy(),
 		keyframes:      sfu.NewKeyframeRequester(sfu.DefaultKeyframeInterval),
+		bw:             bw,
 		candidateQueue: make(chan sfu.LocalCandidate, candidateQueueSize),
 		closed:         make(chan struct{}),
 		rooms:          make(map[string]*mediaRoom),
@@ -117,6 +126,13 @@ func (e *Engine) SetRoomICECandidateSink(sink sfu.CandidateSink) {
 // RoomKeyframeStats exposes emitted/coalesced keyframe request counters.
 func (e *Engine) RoomKeyframeStats() (sent uint64, throttled uint64) {
 	return e.roomEngine.KeyframeStats()
+}
+
+// RoomBandwidthStats exposes per-participant downlink estimates and forwarding
+// decisions collected by the GCC bandwidth estimator. Enabled is false when
+// bandwidth estimation was not initialised.
+func (e *Engine) RoomBandwidthStats() sfu.BandwidthStats {
+	return e.roomEngine.BandwidthStats()
 }
 
 // SetICECandidateSink installs the trickle transport and starts the dispatch
@@ -171,6 +187,46 @@ func (r *RoomEngine) iceCandidateSink() sfu.CandidateSink {
 
 func (r *RoomEngine) trickleEnabled() bool {
 	return r.iceCandidateSink() != nil
+}
+
+// BandwidthStats returns the bandwidth manager snapshot, or a disabled snapshot
+// when estimation is not configured.
+func (r *RoomEngine) BandwidthStats() sfu.BandwidthStats {
+	if r.bw == nil {
+		return sfu.BandwidthStats{Enabled: false}
+	}
+	return r.bw.Manager().Stats()
+}
+
+// The following helpers are nil-safe so the forwarding/hot paths can call them
+// unconditionally; they are no-ops when bandwidth estimation is disabled.
+
+func (r *RoomEngine) bwUnmarkForwarded(subscriberID, trackKey string) {
+	if r.bw == nil {
+		return
+	}
+	r.bw.Manager().UnmarkForwarded(subscriberID, trackKey)
+}
+
+func (r *RoomEngine) bwForgetParticipant(participantID string) {
+	if r.bw == nil {
+		return
+	}
+	r.bw.ForgetParticipant(participantID)
+}
+
+func (r *RoomEngine) bwForgetTrack(trackKey string) {
+	if r.bw == nil {
+		return
+	}
+	r.bw.Manager().ForgetTrack(trackKey)
+}
+
+func (r *RoomEngine) bwRegisterTrack(trackKey string, bps int) {
+	if r.bw == nil {
+		return
+	}
+	r.bw.Manager().RegisterTrack(trackKey, bps)
 }
 
 // emitCandidate hands a locally gathered candidate to the dispatch queue. It
@@ -443,6 +499,13 @@ func (r *RoomEngine) ensureParticipantLocked(room *mediaRoom, participantID stri
 		return participant, nil
 	}
 
+	// Stash the participant id so the GCC estimator produced synchronously
+	// inside NewPeerConnection can be bound to it (see BandwidthController).
+	if r.bw != nil {
+		r.bw.SetPending(participantID)
+		defer r.bw.ClearPending()
+	}
+
 	var pc *webrtc.PeerConnection
 	var err error
 	if r.api != nil {
@@ -517,6 +580,24 @@ func (r *RoomEngine) attachTrackLocked(room *mediaRoom, subscriber *roomParticip
 	if _, ok := subscriber.senders[published.key]; ok {
 		return false
 	}
+
+	// Bandwidth-aware forwarding: when GCC estimation is active and this is a
+	// video track, only attach it if the subscriber's downlink budget can
+	// absorb it. Audio is never gated so voice is preserved on weak links. Both
+	// the decision and the bookkeeping are no-ops when estimation is disabled.
+	if r.bw != nil && published.kind == webrtc.RTPCodecTypeVideo {
+		if !r.bw.Manager().ShouldForward(subscriber.id, published.key) {
+			r.bw.Manager().RecordThrottled()
+			r.logger.Debug().
+				Str("room_id", room.id).
+				Str("participant_id", subscriber.id).
+				Str("track_key", published.key).
+				Msg("skipping video track attach: subscriber downlink budget exceeded")
+			return false
+		}
+		r.bw.Manager().MarkForwarded(subscriber.id, published.key)
+	}
+
 	sender, err := subscriber.pc.AddTrack(published.local)
 	if err != nil {
 		r.logger.Warn().Err(err).
@@ -619,6 +700,7 @@ func (r *RoomEngine) removeParticipantLocked(room *mediaRoom, participantID stri
 	}
 	delete(room.participants, participantID)
 	delete(room.candidates, participantID)
+	r.bwForgetParticipant(participantID)
 
 	for key, track := range room.tracks {
 		if track.participantID != participantID {
@@ -630,6 +712,7 @@ func (r *RoomEngine) removeParticipantLocked(room *mediaRoom, participantID stri
 					r.logger.Warn().Err(err).Str("room_id", room.id).Str("participant_id", other.id).Msg("failed to remove track from participant")
 				}
 				delete(other.senders, key)
+				r.bwUnmarkForwarded(other.id, key)
 			}
 		}
 		delete(room.tracks, key)
@@ -681,6 +764,8 @@ func (r *RoomEngine) handleRemoteTrack(roomID, participantID string, track *webr
 		r.requestKeyframeForTrack(roomID, key)
 	}
 
+	var sampledBytes int64
+	sampledAt := time.Now()
 	for {
 		packet, _, readErr := track.ReadRTP()
 		if readErr != nil {
@@ -691,17 +776,29 @@ func (r *RoomEngine) handleRemoteTrack(roomID, participantID string, track *webr
 			continue
 		}
 		r.writeRecordingPacket(roomID, participantID, track, packet)
+
+		// Periodically re-measure this published track's send bitrate so the
+		// bandwidth manager holds a fresh value for forwarding decisions.
+		sampledBytes += int64(len(packet.Payload)) + rtpHeaderSize
+		if elapsed := time.Since(sampledAt); elapsed >= bandwidthSampleWindow {
+			bps := int(float64(sampledBytes*8) / elapsed.Seconds())
+			r.bwRegisterTrack(key, bps)
+			sampledBytes = 0
+			sampledAt = time.Now()
+		}
 	}
 
 	r.mu.Lock()
 	if roomRef, ok := r.rooms[roomID]; ok {
 		delete(roomRef.tracks, key)
+		r.bwForgetTrack(key)
 		for _, other := range roomRef.participants {
 			if sender, ok := other.senders[key]; ok {
 				if err := other.pc.RemoveTrack(sender); err != nil {
 					r.logger.Warn().Err(err).Str("room_id", roomID).Str("participant_id", other.id).Msg("failed to remove track from participant")
 				}
 				delete(other.senders, key)
+				r.bwUnmarkForwarded(other.id, key)
 			}
 		}
 	}
