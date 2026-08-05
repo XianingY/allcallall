@@ -55,3 +55,13 @@ translation:
 
 logging:
   level: "info"
+
+# 周期性（weekly）任务调度器
+# 生产环境默认关闭，通过环境变量 TASK_SCHEDULER_ENABLED=true 开启
+task_scheduler:
+  enabled: false
+  interval_seconds: 60
+  timezone: "UTC"
+  max_concurrent: 8
+  lease_seconds: 120
+  default_max_failures: 5

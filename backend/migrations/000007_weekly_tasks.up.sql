@@ -1,0 +1,45 @@
+-- 000007_weekly_tasks: 周期性（weekly）任务调度表
+CREATE TABLE `weekly_tasks` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `owner_id` BIGINT UNSIGNED NOT NULL,
+  `org_id` BIGINT UNSIGNED NULL,
+  `title` VARCHAR(255) NOT NULL,
+  `description` TEXT NULL,
+  `timezone` VARCHAR(64) NOT NULL DEFAULT 'UTC',
+  `weekdays` TEXT NULL,
+  `run_time_of_day` VARCHAR(8) NOT NULL DEFAULT '09:00',
+  `interval_weeks` INT NOT NULL DEFAULT 1,
+  `status` VARCHAR(32) NOT NULL DEFAULT 'active',
+  `next_run_at` DATETIME(3) NULL,
+  `last_run_at` DATETIME(3) NULL,
+  `last_error` TEXT NULL,
+  `consecutive_failures` INT NOT NULL DEFAULT 0,
+  `max_failures` INT NOT NULL DEFAULT 5,
+  `locked_by` VARCHAR(64) NULL,
+  `locked_until` DATETIME(3) NULL,
+  `created_at` DATETIME(3) NULL,
+  `updated_at` DATETIME(3) NULL,
+  `deleted_at` DATETIME(3) NULL,
+  PRIMARY KEY (`id`),
+  INDEX `idx_weekly_task_owner` (`owner_id`),
+  INDEX `idx_weekly_task_org` (`org_id`),
+  INDEX `idx_weekly_task_status` (`status`),
+  INDEX `idx_weekly_task_next` (`next_run_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `weekly_task_runs` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `task_id` BIGINT UNSIGNED NOT NULL,
+  `scheduled_at` DATETIME(3) NOT NULL,
+  `started_at` DATETIME(3) NULL,
+  `finished_at` DATETIME(3) NULL,
+  `status` VARCHAR(32) NOT NULL DEFAULT 'running',
+  `error_message` TEXT NULL,
+  `attempt` INT NOT NULL DEFAULT 1,
+  `worker_id` VARCHAR(64) NOT NULL DEFAULT '',
+  `created_at` DATETIME(3) NULL,
+  `updated_at` DATETIME(3) NULL,
+  PRIMARY KEY (`id`),
+  INDEX `idx_weekly_run_task` (`task_id`),
+  INDEX `idx_weekly_run_sched` (`scheduled_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

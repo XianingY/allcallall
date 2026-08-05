@@ -29,12 +29,14 @@ import (
 	"github.com/allcallall/backend/internal/logger"
 	"github.com/allcallall/backend/internal/mail"
 	"github.com/allcallall/backend/internal/metrics"
+	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/presence"
 	"github.com/allcallall/backend/internal/ratelimit"
 	appruntime "github.com/allcallall/backend/internal/runtime"
 	"github.com/allcallall/backend/internal/server"
 	"github.com/allcallall/backend/internal/settlement"
 	"github.com/allcallall/backend/internal/signaling"
+	"github.com/allcallall/backend/internal/tasksched"
 	"github.com/allcallall/backend/internal/translation"
 	"github.com/allcallall/backend/internal/translation/providers"
 	"github.com/allcallall/backend/internal/user"
@@ -282,6 +284,31 @@ func main() {
 	presenceBroadcaster := presence.NewBroadcaster(redisClient, appLogger)
 	go presenceBroadcaster.Start(rootCtx)
 
+	// 周期（weekly）任务调度：仓储 + 服务 + 调度器
+	// Weekly task scheduler: repository, service, scheduler worker.
+	taskService := tasksched.NewService(db)
+	taskExecutor := tasksched.NewLoggingExecutor(appLogger)
+	scheduler := tasksched.NewScheduler(db, taskExecutor, appLogger,
+		tasksched.WithEvents(outboxStore),
+		tasksched.WithWorkerID(cfg.TaskScheduler.WorkerID),
+		tasksched.WithLease(time.Duration(cfg.TaskScheduler.LeaseSec)*time.Second),
+		tasksched.WithBatchSize(100),
+		tasksched.WithMaxConcurrent(cfg.TaskScheduler.MaxConcurrent),
+		tasksched.WithMetrics(counterStore),
+	)
+	// 把触发事件接入既有事件总线（下游可订阅 weekly_task.triggered 做具体业务）。
+	outboxProcessor.Register("weekly_task.triggered", func(ctx context.Context, event models.EventOutbox) error {
+		appLogger.Info().Uint64("task_id", event.AggregateID).Msg("weekly task triggered (event delivered)")
+		return nil
+	})
+	if cfg.TaskScheduler.Enabled {
+		go scheduler.Run(rootCtx, time.Duration(cfg.TaskScheduler.IntervalSec)*time.Second)
+		appLogger.Info().Str("worker_id", cfg.TaskScheduler.WorkerID).Msg("weekly task scheduler started")
+	} else {
+		appLogger.Info().Msg("weekly task scheduler disabled (set TASK_SCHEDULER_ENABLED=true to enable)")
+	}
+	taskSchedulerHandler := handlers.NewTaskSchedulerHandler(appLogger, taskService, counterStore)
+
 	// 初始化 FCM 管理器
 	// Initialize FCM manager
 	fcmManager, err := fcm.NewManager(rootCtx, appLogger, os.Getenv("FCM_SERVICE_ACCOUNT_PATH"))
@@ -356,6 +383,7 @@ func main() {
 		WebRTCHandler:      webrtcHandler,
 		TranslationWS:      translationWSHandler,
 		Realtime:           realtimeHandler,
+		TaskScheduler:      taskSchedulerHandler,
 		AuthMiddleware:     authMiddleware,
 		ChatRealtimeAuth:   auth.RealtimeMiddleware(realtimeTicketSvc, tokenValidator, "chat"),
 		SignalRealtimeAuth: auth.RealtimeMiddleware(realtimeTicketSvc, tokenValidator, "signaling"),
