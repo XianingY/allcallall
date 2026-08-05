@@ -35,6 +35,12 @@ export function useMeetingEngine(roomId: number, options: MeetingOptions) {
   const [remoteStreams, setRemoteStreams] = useState<
     Map<string, MediaStream>
   >(new Map());
+  // peerReady flips to true only after the initial offer/answer exchange has
+  // assigned `peer.current`. The room realtime socket is gated on it so a
+  // server-initiated renegotiation offer can never arrive before the peer
+  // connection exists (which would silently drop the offer, since backfill is
+  // disabled via a max since_id).
+  const [peerReady, setPeerReady] = useState(false);
   const [state, setState] = useState<
     RTCPeerConnectionState | "permission_denied" | "joining"
   >(blockedByOtherTab ? "failed" : "joining");
@@ -83,6 +89,19 @@ export function useMeetingEngine(roomId: number, options: MeetingOptions) {
           connection.addTransceiver("video", { direction: "recvonly" });
         connection.ontrack = (event) => {
           const stream = event.streams[0] ?? new MediaStream([event.track]);
+          // Drop the stream when any of its tracks ends (e.g. the remote
+          // participant left and the SFU removed their transceiver). Without
+          // this the last frame would stay frozen on screen after they leave.
+          stream.getTracks().forEach((track) => {
+            track.onended = () => {
+              setRemoteStreams((prev) => {
+                if (!prev.has(stream.id)) return prev;
+                const next = new Map(prev);
+                next.delete(stream.id);
+                return next;
+              });
+            };
+          });
           setRemoteStreams((prev) => {
             const next = new Map(prev);
             next.set(stream.id, stream);
@@ -102,6 +121,9 @@ export function useMeetingEngine(roomId: number, options: MeetingOptions) {
         await connection.setLocalDescription(offer);
         const response = await sendRoomOffer(roomId, offer.sdp ?? "");
         await connection.setRemoteDescription(response.answer);
+        // The peer connection now exists with a remote description, so it is
+        // safe to start consuming server renegotiation/ICE events.
+        setPeerReady(true);
         await updateRoomMedia(roomId, {
           audio_enabled: options.audio,
           video_enabled: options.video,
@@ -135,6 +157,7 @@ export function useMeetingEngine(roomId: number, options: MeetingOptions) {
       active = false;
       window.removeEventListener("beforeunload", leave);
       leave();
+      setPeerReady(false);
     };
   }, [
     roomId,
@@ -149,8 +172,10 @@ export function useMeetingEngine(roomId: number, options: MeetingOptions) {
   // (when ROOM_TRICKLE_ICE is enabled) server side ICE candidates. since_id is
   // set to the maximum so the server does NOT replay old signaling events -
   // a stale offer or candidate would corrupt the live peer connection.
+  // The socket is only opened once `peerReady` is true, so a renegotiation
+  // offer can never be processed before the peer connection exists.
   useEffect(() => {
-    if (blockedByOtherTab || !organizationId) return;
+    if (blockedByOtherTab || !organizationId || !peerReady) return;
     const socket = new TicketSocket<RoomRealtimeEvent>(
       "room",
       { organization_id: organizationId, since_id: Number.MAX_SAFE_INTEGER },
@@ -180,13 +205,15 @@ export function useMeetingEngine(roomId: number, options: MeetingOptions) {
               err,
             ),
           );
+        } else if (action.kind === "room_ended") {
+          setRemoteStreams(new Map());
         }
       },
       () => {},
     );
     socket.connect();
     return () => socket.disconnect();
-  }, [roomId, organizationId, blockedByOtherTab]);
+  }, [roomId, organizationId, blockedByOtherTab, peerReady]);
 
   const toggleAudio = useCallback(() => {
     const next = !audio;

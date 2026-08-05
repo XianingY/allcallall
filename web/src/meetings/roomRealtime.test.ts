@@ -88,6 +88,17 @@ describe("interpretRoomRealtimeEvent", () => {
     };
     expect(interpretRoomRealtimeEvent(event, 7)).toEqual({ kind: "ignore" });
   });
+
+  it("marks the room as ended for a room.ended event", () => {
+    const event: RoomRealtimeEvent = {
+      ...baseEvent,
+      event: "room.ended",
+      payload: {},
+    };
+    expect(interpretRoomRealtimeEvent(event, 7)).toEqual({
+      kind: "room_ended",
+    });
+  });
 });
 
 describe("upsertRemoteStream", () => {

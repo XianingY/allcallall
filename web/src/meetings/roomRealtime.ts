@@ -12,6 +12,7 @@ export interface RoomRealtimeEvent {
 export type RoomRealtimeAction =
   | { kind: "renegotiate"; sdp: string }
   | { kind: "ice"; candidate: RTCIceCandidateInit }
+  | { kind: "room_ended" }
   | { kind: "ignore" };
 
 interface RenegotiatePayload {
@@ -53,6 +54,11 @@ export function interpretRoomRealtimeEvent(
         usernameFragment: payload.usernameFragment ?? null,
       },
     };
+  }
+  if (event.event === "room.ended") {
+    // The whole room terminated: drop every remote stream so no frozen frame
+    // lingers after the meeting closes.
+    return { kind: "room_ended" };
   }
   return { kind: "ignore" };
 }
