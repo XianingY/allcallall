@@ -1370,7 +1370,7 @@ export interface components {
         RealtimeTicket: {
             ticket: string;
             /** @enum {string} */
-            channel: "chat" | "signaling";
+            channel: "chat" | "signaling" | "room";
             /** Format: date-time */
             expires_at: string;
             websocket_path: string;
@@ -2774,7 +2774,7 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    channel: "chat" | "signaling";
+                    channel: "chat" | "signaling" | "room";
                 };
             };
         };

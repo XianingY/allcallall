@@ -99,6 +99,7 @@ func (s *Service) WithLogger(logger zerolog.Logger) {
 func (s *Service) WithMediaEngine(engine *media.Engine) {
 	s.media = engine
 	s.wireTrickleICE()
+	s.media.SetRenegotiationSink(s.publishRoomRenegotiation)
 }
 
 // WithTrickleICE toggles out-of-band delivery of server side ICE candidates.

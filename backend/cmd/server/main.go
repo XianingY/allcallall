@@ -428,6 +428,7 @@ func main() {
 		AuthMiddleware:     authMiddleware,
 		ChatRealtimeAuth:   auth.RealtimeMiddleware(realtimeTicketSvc, tokenValidator, "chat"),
 		SignalRealtimeAuth: auth.RealtimeMiddleware(realtimeTicketSvc, tokenValidator, "signaling"),
+		RoomRealtimeAuth:   auth.RealtimeMiddleware(realtimeTicketSvc, tokenValidator, "room"),
 		Metrics:            counterStore,
 		ReadinessChecks: map[string]server.ReadinessCheck{
 			"mysql": func(ctx context.Context) error {

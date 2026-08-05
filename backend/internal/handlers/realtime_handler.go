@@ -43,6 +43,8 @@ func (h *RealtimeHandler) handleIssueTicket(c *gin.Context) {
 	path := "/ws"
 	if channel == "chat" {
 		path = "/chat/ws"
+	} else if channel == "room" {
+		path = "/rooms/ws"
 	}
 	JSONSuccess(c, http.StatusCreated, gin.H{
 		"ticket":         ticket,

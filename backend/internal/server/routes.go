@@ -34,6 +34,7 @@ type RouteDependencies struct {
 	AuthMiddleware     gin.HandlerFunc
 	ChatRealtimeAuth   gin.HandlerFunc
 	SignalRealtimeAuth gin.HandlerFunc
+	RoomRealtimeAuth   gin.HandlerFunc
 	Metrics            *metrics.CounterStore
 	ReadinessChecks    map[string]ReadinessCheck
 }
@@ -51,6 +52,9 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 	registerHealthRoutes(api, deps)
 	if deps.Collaboration != nil && deps.ChatRealtimeAuth != nil {
 		deps.Collaboration.RegisterRealtimeRoutes(api, deps.ChatRealtimeAuth)
+	}
+	if deps.Collaboration != nil && deps.RoomRealtimeAuth != nil {
+		deps.Collaboration.RegisterRoomRealtimeRoutes(api, deps.RoomRealtimeAuth)
 	}
 	if deps.SignalingHandler != nil && deps.SignalRealtimeAuth != nil {
 		api.GET("/ws", deps.SignalRealtimeAuth, deps.SignalingHandler.Handle)

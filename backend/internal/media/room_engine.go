@@ -32,6 +32,66 @@ const bandwidthSampleWindow = 2 * time.Second
 // rtpHeaderSize is the fixed RTP header size used when estimating send bitrate.
 const rtpHeaderSize = 12
 
+// RenegotiationOffer is delivered to a single meeting participant when the
+// server must renegotiate an established peer connection (for example a new
+// publisher joined and the subscriber needs to receive the new track). The
+// server acts as the offerer; the client answers and returns the answer over
+// the renegotiation HTTP endpoint.
+type RenegotiationOffer struct {
+	RoomID        string
+	ParticipantID string
+	SDP           string
+}
+
+// RenegotiationSink receives server-initiated renegotiation offers so the
+// collaboration layer can forward them to the participant as a realtime event.
+type RenegotiationSink func(RenegotiationOffer)
+
+// renegotiationQueueSize bounds the server-initiated renegotiation dispatch
+// queue. Renegotiation offers are rare (only on membership or track changes)
+// but each one is mandatory for the affected subscriber, so unlike trickle ICE
+// the queue only drops the oldest entry as a last resort.
+const renegotiationQueueSize = 64
+
+// negotiationTracker serialises renegotiation per participant. Only one offer
+// may be in flight at a time; further changes observed while an offer is
+// outstanding are recorded as queued and replayed once the answer lands. It is
+// pure logic and unit tested without a live PeerConnection.
+type negotiationTracker struct {
+	mu      sync.Mutex
+	pending map[string]bool
+	queued  map[string]bool
+}
+
+func newNegotiationTracker() *negotiationTracker {
+	return &negotiationTracker{pending: make(map[string]bool), queued: make(map[string]bool)}
+}
+
+// request marks the participant as having an in-flight negotiation. It returns
+// true when a renegotiation should be started now; if one is already pending it
+// records the change as queued and returns false.
+func (t *negotiationTracker) request(id string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.pending[id] {
+		t.queued[id] = true
+		return false
+	}
+	t.pending[id] = true
+	return true
+}
+
+// complete clears the in-flight flag and reports whether another negotiation
+// was queued while it was outstanding.
+func (t *negotiationTracker) complete(id string) (queued bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	queued = t.queued[id]
+	delete(t.pending, id)
+	delete(t.queued, id)
+	return queued
+}
+
 type RecordingArtifact struct {
 	ObjectKey       string
 	ContentType     string
@@ -55,6 +115,12 @@ type RoomEngine struct {
 	closeOnce      sync.Once
 	closed         chan struct{}
 	droppedTrickle uint64
+
+	renegotiationSink  RenegotiationSink
+	renegotiationQueue chan RenegotiationOffer
+	negDispatchOnce    sync.Once
+	negClosed           chan struct{}
+	neg                 *negotiationTracker
 
 	mu    sync.Mutex
 	rooms map[string]*mediaRoom
@@ -108,10 +174,13 @@ func newRoomEngine(logger zerolog.Logger, cfg webrtc.Configuration, api *webrtc.
 		api:            api,
 		gatherPolicy:   sfu.DefaultGatherPolicy(),
 		keyframes:      sfu.NewKeyframeRequester(sfu.DefaultKeyframeInterval),
-		bw:             bw,
-		candidateQueue: make(chan sfu.LocalCandidate, candidateQueueSize),
-		closed:         make(chan struct{}),
-		rooms:          make(map[string]*mediaRoom),
+		bw:                bw,
+		candidateQueue:    make(chan sfu.LocalCandidate, candidateQueueSize),
+		closed:            make(chan struct{}),
+		renegotiationQueue: make(chan RenegotiationOffer, renegotiationQueueSize),
+		negClosed:          make(chan struct{}),
+		neg:                newNegotiationTracker(),
+		rooms:              make(map[string]*mediaRoom),
 	}
 }
 
@@ -135,6 +204,19 @@ func (e *Engine) RoomBandwidthStats() sfu.BandwidthStats {
 	return e.roomEngine.BandwidthStats()
 }
 
+// SetRenegotiationSink installs the delivery transport for server-initiated
+// renegotiation offers (used for multi-party meetings when tracks are added or
+// removed after the initial offer/answer).
+func (e *Engine) SetRenegotiationSink(sink RenegotiationSink) {
+	e.roomEngine.SetRenegotiationSink(sink)
+}
+
+// HandleRenegotiationAnswer applies a client's answer to a server-initiated
+// renegotiation offer for the given room participant.
+func (e *Engine) HandleRenegotiationAnswer(roomID, participantID, sdp string) error {
+	return e.roomEngine.SetRenegotiationAnswer(roomID, participantID, sdp)
+}
+
 // SetICECandidateSink installs the trickle transport and starts the dispatch
 // goroutine on first use.
 func (r *RoomEngine) SetICECandidateSink(sink sfu.CandidateSink) {
@@ -146,6 +228,122 @@ func (r *RoomEngine) SetICECandidateSink(sink sfu.CandidateSink) {
 		return
 	}
 	r.dispatchOnce.Do(func() { go r.dispatchCandidates() })
+}
+
+// SetRenegotiationSink installs the delivery transport for server-initiated
+// renegotiation offers and starts the dispatch goroutine on first use.
+func (r *RoomEngine) SetRenegotiationSink(sink RenegotiationSink) {
+	r.sinkMu.Lock()
+	r.renegotiationSink = sink
+	r.sinkMu.Unlock()
+
+	if sink == nil {
+		return
+	}
+	r.negDispatchOnce.Do(func() { go r.dispatchRenegotiation() })
+}
+
+func (r *RoomEngine) renegotiationSinkLocked() RenegotiationSink {
+	r.sinkMu.RLock()
+	defer r.sinkMu.RUnlock()
+	return r.renegotiationSink
+}
+
+func (r *RoomEngine) emitRenegotiationOffer(offer RenegotiationOffer) {
+	select {
+	case r.renegotiationQueue <- offer:
+	default:
+		// Queue saturated: drop the oldest pending offer rather than blocking
+		// the renegotiation goroutine. A lost offer stalls one participant's
+		// view until the next membership change re-triggers it.
+		select {
+		case <-r.renegotiationQueue:
+		default:
+		}
+		select {
+		case r.renegotiationQueue <- offer:
+		default:
+		}
+	}
+}
+
+func (r *RoomEngine) dispatchRenegotiation() {
+	for {
+		select {
+		case <-r.negClosed:
+			return
+		case offer := <-r.renegotiationQueue:
+			if sink := r.renegotiationSinkLocked(); sink != nil {
+				sink(offer)
+			}
+		}
+	}
+}
+
+// requestRenegotiation asks the given participant's peer connection to produce
+// a new offer so the client can receive recently added or removed tracks. It is
+// safe to call while the caller already holds r.mu because it only touches the
+// negotiation tracker and the supplied peer connection; the blocking
+// CreateOffer runs in a separate goroutine. The tracker coalesces bursts of
+// track changes into a single renegotiation, replaying any change that arrives
+// while one is in flight once the outstanding answer is applied.
+func (r *RoomEngine) requestRenegotiation(roomID, participantID string, pc *webrtc.PeerConnection) {
+	if pc == nil {
+		return
+	}
+	if !r.neg.request(participantID) {
+		return
+	}
+	go r.performRenegotiation(roomID, participantID, pc)
+}
+
+func (r *RoomEngine) performRenegotiation(roomID, participantID string, pc *webrtc.PeerConnection) {
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		r.neg.complete(participantID)
+		r.logger.Warn().Err(err).Str("room_id", roomID).Str("participant_id", participantID).Msg("failed to create renegotiation offer")
+		return
+	}
+	if err := pc.SetLocalDescription(offer); err != nil {
+		r.neg.complete(participantID)
+		r.logger.Warn().Err(err).Str("room_id", roomID).Str("participant_id", participantID).Msg("failed to set local renegotiation offer")
+		return
+	}
+	r.emitRenegotiationOffer(RenegotiationOffer{
+		RoomID:        roomID,
+		ParticipantID: participantID,
+		SDP:           offer.SDP,
+	})
+}
+
+// SetRenegotiationAnswer applies a client's answer to a server-initiated
+// renegotiation offer and clears the in-flight flag. If further track changes
+// were observed while the offer was outstanding, another renegotiation is
+// scheduled immediately.
+func (r *RoomEngine) SetRenegotiationAnswer(roomID, participantID, sdp string) error {
+	r.mu.Lock()
+	room, ok := r.rooms[roomID]
+	var pc *webrtc.PeerConnection
+	if ok {
+		if p := room.participants[participantID]; p != nil {
+			pc = p.pc
+		}
+	}
+	r.mu.Unlock()
+	if pc == nil {
+		return fmt.Errorf("participant not found")
+	}
+	if err := pc.SetRemoteDescription(webrtc.SessionDescription{
+		Type: webrtc.SDPTypeAnswer,
+		SDP:  sdp,
+	}); err != nil {
+		r.neg.complete(participantID)
+		return err
+	}
+	if queued := r.neg.complete(participantID); queued {
+		r.requestRenegotiation(roomID, participantID, pc)
+	}
+	return nil
 }
 
 // SetGatherPolicy overrides the ICE gathering deadlines. Zero valued fields
@@ -174,9 +372,12 @@ func (r *RoomEngine) DroppedTrickleCandidates() uint64 {
 	return r.droppedTrickle
 }
 
-// Close stops the trickle dispatch goroutine.
+// Close stops the trickle dispatch goroutine and the renegotiation dispatcher.
 func (r *RoomEngine) Close() {
-	r.closeOnce.Do(func() { close(r.closed) })
+	r.closeOnce.Do(func() {
+		close(r.closed)
+		close(r.negClosed)
+	})
 }
 
 func (r *RoomEngine) iceCandidateSink() sfu.CandidateSink {
@@ -713,6 +914,9 @@ func (r *RoomEngine) removeParticipantLocked(room *mediaRoom, participantID stri
 				}
 				delete(other.senders, key)
 				r.bwUnmarkForwarded(other.id, key)
+				// The subscriber lost a sender; renegotiate so its peer
+				// connection drops the now-removed m-line.
+				r.requestRenegotiation(room.id, other.id, other.pc)
 			}
 		}
 		delete(room.tracks, key)
@@ -754,6 +958,9 @@ func (r *RoomEngine) handleRemoteTrack(roomID, participantID string, track *webr
 		}
 		if r.attachTrackLocked(room, other, published) {
 			subscribers++
+			// A new sender was attached to this subscriber's peer connection;
+			// renegotiate so the client can receive the new track.
+			r.requestRenegotiation(room.id, otherID, other.pc)
 		}
 	}
 	r.mu.Unlock()
@@ -799,6 +1006,7 @@ func (r *RoomEngine) handleRemoteTrack(roomID, participantID string, track *webr
 				}
 				delete(other.senders, key)
 				r.bwUnmarkForwarded(other.id, key)
+				r.requestRenegotiation(roomID, other.id, other.pc)
 			}
 		}
 	}

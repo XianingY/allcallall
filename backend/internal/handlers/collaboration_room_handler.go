@@ -224,3 +224,31 @@ func (h *CollaborationHandler) handleRoomState(c *gin.Context) {
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"room": toRoomStateResponse(*state)})
 }
+
+func (h *CollaborationHandler) handleRoomRenegotiationAnswer(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	roomID, err := parseUintParam(c.Param("roomId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid room id")
+		return
+	}
+	var req struct {
+		SDP string `json:"sdp"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.service.HandleRoomRenegotiationAnswer(c.Request.Context(), orgID, claims.UserID, roomID, req.SDP); err != nil {
+		code := ""
+		if errors.Is(err, collaboration.ErrRoomAccessDenied) {
+			code = "ROOM_ACCESS_DENIED"
+		}
+		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
+}

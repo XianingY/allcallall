@@ -39,7 +39,7 @@ func NewRealtimeTicketService(client *redis.Client) *RealtimeTicketService {
 
 func (s *RealtimeTicketService) Issue(ctx context.Context, claims *Claims, channel string) (string, time.Time, error) {
 	channel = strings.ToLower(strings.TrimSpace(channel))
-	if channel != "chat" && channel != "signaling" {
+	if channel != "chat" && channel != "signaling" && channel != "room" {
 		return "", time.Time{}, ErrInvalidRealtimeChannel
 	}
 	if s == nil || s.redis == nil || claims == nil {

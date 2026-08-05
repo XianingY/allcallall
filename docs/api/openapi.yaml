@@ -259,7 +259,7 @@ paths:
             schema:
               type: object
               required: [channel]
-              properties: { channel: { type: string, enum: [chat, signaling] } }
+              properties: { channel: { type: string, enum: [chat, signaling, room] } }
       responses:
         '201':
           description: Realtime ticket issued.
@@ -1009,7 +1009,7 @@ components:
       required: [ticket, channel, expires_at, websocket_path]
       properties:
         ticket: { type: string }
-        channel: { type: string, enum: [chat, signaling] }
+        channel: { type: string, enum: [chat, signaling, room] }
         expires_at: { type: string, format: date-time }
         websocket_path: { type: string }
     RoomMember:
