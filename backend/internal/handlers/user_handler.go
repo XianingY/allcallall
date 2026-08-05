@@ -66,6 +66,7 @@ func (h *UserHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/me", h.handleMe)
 	rg.GET("/search", h.handleSearch)
 	rg.GET("/presence", h.handlePresence)
+	rg.POST("/presence/state", h.handleSetPresenceState)
 	rg.POST("/change-password", h.handleChangePassword)
 	rg.POST("/fcm-token", h.handleSaveFCMToken)
 
@@ -195,13 +196,58 @@ func (h *UserHandler) handlePresence(c *gin.Context) {
 	for _, email := range emails {
 		status := statuses[email]
 		resp = append(resp, gin.H{
-			"email":     status.Email,
-			"online":    status.Online,
-			"last_seen": status.LastSeen,
+			"email":          status.Email,
+			"state":          string(status.State),
+			"online":         status.Online,
+			"last_seen":      status.LastSeen,
+			"custom_message": status.CustomMessage,
+			"devices":        status.Devices,
 		})
 	}
 
 	JSONSuccess(c, http.StatusOK, gin.H{"presence": resp})
+}
+
+type setPresenceStateRequest struct {
+	State         string `json:"state" binding:"required"`
+	CustomMessage string `json:"custom_message"`
+}
+
+// handleSetPresenceState 设置用户主动状态（away/busy/dnd），或清除主动态恢复
+// 为设备推导的在线态（online/offline）。
+func (h *UserHandler) handleSetPresenceState(c *gin.Context) {
+	claims, err := auth.GetClaimsFromContext(c)
+	if err != nil {
+		JSONError(c, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req setPresenceStateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	state := presence.State(req.State)
+	switch state {
+	case presence.StateBusy, presence.StateAway, presence.StateDND:
+		if err := h.presence.SetManualState(c.Request.Context(), claims.Email, state, req.CustomMessage); err != nil {
+			JSONError(c, http.StatusBadRequest, err.Error())
+			return
+		}
+	case presence.StateOnline, presence.StateOffline:
+		// online/offline are derived from device heartbeats; clearing any manual
+		// override lets the connection state take over again.
+		if err := h.presence.ClearManualState(c.Request.Context(), claims.Email); err != nil {
+			JSONError(c, http.StatusInternalServerError, "failed to clear presence state")
+			return
+		}
+	default:
+		JSONError(c, http.StatusBadRequest, "unsupported presence state")
+		return
+	}
+
+	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
 }
 
 type addContactRequest struct {

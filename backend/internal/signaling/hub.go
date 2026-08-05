@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+	"strings"
 
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/commerce"
@@ -67,6 +68,17 @@ const (
 	TypeIceCandidate  = "ice.candidate"
 	TypeClientPing    = "client.ping"
 	TypeServerPong    = "server.pong"
+	TypeServerPing    = "server.ping"
+)
+
+const (
+	// pongWait bounds how long a connection may stay silent before it is
+	// declared dead. Combined with the server ping ticker this detects
+	// half-open connections (e.g. phone in tunnel) that TCP alone would not.
+	pongWait = 60 * time.Second
+	// pingPeriod is slightly below pongWait so a live client always answers
+	// before the read deadline trips.
+	pingPeriod = 45 * time.Second
 )
 
 const (
@@ -135,8 +147,21 @@ func (h *Hub) HandleConnection(ctx context.Context, email string, conn *websocke
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// Detect dead/half-open connections: require a pong (or any inbound frame)
+	// within pongWait, and refresh that deadline whenever a pong arrives.
+	cl.conn.SetReadDeadline(time.Now().Add(pongWait))
+	cl.conn.SetPongHandler(func(string) error {
+		cl.conn.SetReadDeadline(time.Now().Add(pongWait))
+		if h.presence != nil {
+			if err := h.presence.Heartbeat(ctx, email, "signaling", ""); err != nil {
+				h.logger.Debug().Err(err).Str("email", email).Msg("presence heartbeat on pong failed")
+			}
+		}
+		return nil
+	})
+
 	if h.presence != nil {
-		if err := h.presence.SetOnline(ctx, email); err != nil {
+		if err := h.presence.Heartbeat(ctx, email, "signaling", ""); err != nil {
 			h.logger.Warn().Err(err).Str("email", email).Msg("failed to mark user online")
 		}
 		defer func() {
@@ -152,6 +177,7 @@ func (h *Hub) HandleConnection(ctx context.Context, email string, conn *websocke
 	defer h.removeClient(cl)
 
 	go h.writeLoop(ctx, cl)
+	go h.pingTicker(ctx, cl)
 
 	// Redis channel for cross-instance delivery.
 	sub := h.redis.Subscribe(ctx, h.channelName(email))
@@ -244,6 +270,9 @@ func (h *Hub) handleIncoming(ctx context.Context, fromClient *client, data []byt
 	if msg.Type == TypeCallInvite {
 		h.registerCallInvite(ctx, msg.CallID, msg.From, msg.To)
 		h.sendCallNotification(ctx, msg.To, msg.From, msg.CallID)
+		// 通话中自动置忙，覆盖设备推导的在线态。
+		// Mark both participants busy while the call is live.
+		h.setBusy(ctx, msg.From, msg.To)
 		if h.metrics != nil {
 			h.metrics.Inc("call_invite_total")
 		}
@@ -251,6 +280,13 @@ func (h *Hub) handleIncoming(ctx context.Context, fromClient *client, data []byt
 	h.recordCallLifecycle(ctx, msg)
 
 	if msg.Type == TypeClientPing {
+		// A client pong (or app-level ping reply) proves the connection is
+		// alive: renew the device heartbeat so the user stays online.
+		if h.presence != nil {
+			if err := h.presence.Heartbeat(ctx, msg.From, "signaling", ""); err != nil {
+				h.logger.Debug().Err(err).Str("email", msg.From).Msg("presence heartbeat on ping failed")
+			}
+		}
 		return nil
 	}
 
@@ -490,6 +526,7 @@ func (h *Hub) recordCallLifecycle(ctx context.Context, msg SignalMessage) {
 		if err := h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusRejected, "rejected"); err != nil {
 			h.logger.Warn().Err(err).Str("call_id", msg.CallID).Msg("failed to update call status on reject")
 		}
+		h.clearBusy(ctx, msg.From, msg.To)
 		if h.collab != nil {
 			if err := h.collab.AppendDirectCallEventByEmail(ctx, msg.From, msg.To, msg.CallID, "call.rejected", map[string]any{
 				"status": models.CallStatusRejected,
@@ -502,6 +539,7 @@ func (h *Hub) recordCallLifecycle(ctx context.Context, msg SignalMessage) {
 		if err := h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusEnded, "ended"); err != nil {
 			h.logger.Warn().Err(err).Str("call_id", msg.CallID).Msg("failed to update call status on end")
 		}
+		h.clearBusy(ctx, msg.From, msg.To)
 		if h.collab != nil {
 			if err := h.collab.AppendDirectCallEventByEmail(ctx, msg.From, msg.To, msg.CallID, "call.ended", map[string]any{
 				"status": models.CallStatusEnded,
@@ -598,6 +636,28 @@ func (h *Hub) writeLoop(ctx context.Context, cl *client) {
 	}
 }
 
+// pingTicker periodically prods the client so idle but alive connections keep
+// their read deadline alive, and dead ones are reaped by the deadline.
+func (h *Hub) pingTicker(ctx context.Context, cl *client) {
+	ticker := time.NewTicker(pingPeriod)
+	defer ticker.Stop()
+	ping, err := json.Marshal(SignalMessage{Type: TypeServerPing, To: cl.email, From: cl.email})
+	if err != nil {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cl.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if err := cl.conn.WriteMessage(websocket.TextMessage, ping); err != nil {
+				return
+			}
+		}
+	}
+}
+
 func (h *Hub) redisForwarder(ctx context.Context, sub *redis.PubSub, cl *client) {
 	ch := sub.Channel()
 	for {
@@ -627,6 +687,65 @@ func (h *Hub) redisForwarder(ctx context.Context, sub *redis.PubSub, cl *client)
 
 func (h *Hub) channelName(email string) string {
 	return fmt.Sprintf("signal:%s", email)
+}
+
+// setBusy / clearBusy 在通话生命周期内维护"忙碌"主动态。
+// setBusy / clearBusy maintain the busy manual state across a call's lifetime.
+func (h *Hub) setBusy(ctx context.Context, emails ...string) {
+	if h.presence == nil {
+		return
+	}
+	for _, email := range emails {
+		if email == "" {
+			continue
+		}
+		if err := h.presence.SetManualState(ctx, email, presence.StateBusy, ""); err != nil {
+			h.logger.Debug().Err(err).Str("email", email).Msg("presence: set busy failed")
+		}
+	}
+}
+
+func (h *Hub) clearBusy(ctx context.Context, emails ...string) {
+	if h.presence == nil {
+		return
+	}
+	for _, email := range emails {
+		if email == "" {
+			continue
+		}
+		if err := h.presence.ClearManualState(ctx, email); err != nil {
+			h.logger.Debug().Err(err).Str("email", email).Msg("presence: clear busy failed")
+		}
+	}
+}
+
+// StartPresenceFeed 将 presence:feed:* 的状态变更投递到本节点已连接的设备。
+// 复用既有 Redis pub/sub 跨实例桥接与按 email 寻址的客户端表，实现实时广播。
+func (h *Hub) StartPresenceFeed(ctx context.Context) {
+	if h.redis == nil {
+		return
+	}
+	const prefix = "presence:feed:"
+	sub := h.redis.PSubscribe(ctx, prefix+"*")
+	go func() {
+		defer sub.Close()
+		ch := sub.Channel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case msg, ok := <-ch:
+				if !ok {
+					return
+				}
+				email := strings.TrimPrefix(msg.Channel, prefix)
+				if email == "" || email == msg.Channel {
+					continue
+				}
+				h.dispatchLocal(email, []byte(msg.Payload))
+			}
+		}
+	}()
 }
 
 // sendCallNotification 发送来电推送通知

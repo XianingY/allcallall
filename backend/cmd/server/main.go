@@ -278,6 +278,9 @@ func main() {
 	invitationHandler := handlers.NewInvitationHandler(appLogger, invitationSvc, contactSvc, userSvc)
 	webrtcHandler := handlers.NewWebRTCHandler(appLogger, cfg.WebRTC)
 	signalingHub := signaling.NewHub(redisClient, appLogger, presenceManager)
+	signalingHub.StartPresenceFeed(rootCtx)
+	presenceBroadcaster := presence.NewBroadcaster(redisClient, appLogger)
+	go presenceBroadcaster.Start(rootCtx)
 
 	// 初始化 FCM 管理器
 	// Initialize FCM manager
