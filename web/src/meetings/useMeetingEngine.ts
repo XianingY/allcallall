@@ -1,14 +1,48 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getWebRTCConfig } from "@/api/realtime";
-import { joinRoom, leaveRoom, sendRoomICE, sendRoomOffer, updateRoomMedia } from "@/api/meetings";
+import {
+  joinRoom,
+  leaveRoom,
+  sendRoomICE,
+  sendRoomOffer,
+  sendRoomRenegotiationAnswer,
+  updateRoomMedia,
+} from "@/api/meetings";
+import { useOrganization } from "@/organizations/OrganizationContext";
+import { TicketSocket } from "@/realtime/TicketSocket";
+import {
+  interpretRoomRealtimeEvent,
+  type RoomRealtimeEvent,
+} from "@/meetings/roomRealtime";
 
-interface MeetingOptions { audio: boolean; video: boolean; audioDeviceId?: string; videoDeviceId?: string }
+interface MeetingOptions {
+  audio: boolean;
+  video: boolean;
+  audioDeviceId?: string;
+  videoDeviceId?: string;
+}
 
 export function useMeetingEngine(roomId: number, options: MeetingOptions) {
-  const peer = useRef<RTCPeerConnection | null>(null); const localRef = useRef<MediaStream | null>(null);
-  const [blockedByOtherTab] = useState(() => Boolean(localStorage.getItem(`allcallall.meeting.${roomId}`)));
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null); const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null); const [state, setState] = useState<RTCPeerConnectionState | "permission_denied" | "joining">(blockedByOtherTab ? "failed" : "joining"); const [audio, setAudio] = useState(options.audio); const [video, setVideo] = useState(options.video); const [error, setError] = useState(blockedByOtherTab ? "该会议已在另一个标签页中打开" : "");
+  const peer = useRef<RTCPeerConnection | null>(null);
+  const localRef = useRef<MediaStream | null>(null);
+  const { activeOrganization } = useOrganization();
+  const organizationId = activeOrganization?.id;
+  const [blockedByOtherTab] = useState(() =>
+    Boolean(localStorage.getItem(`allcallall.meeting.${roomId}`)),
+  );
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStreams, setRemoteStreams] = useState<
+    Map<string, MediaStream>
+  >(new Map());
+  const [state, setState] = useState<
+    RTCPeerConnectionState | "permission_denied" | "joining"
+  >(blockedByOtherTab ? "failed" : "joining");
+  const [audio, setAudio] = useState(options.audio);
+  const [video, setVideo] = useState(options.video);
+  const [error, setError] = useState(
+    blockedByOtherTab ? "该会议已在另一个标签页中打开" : "",
+  );
 
   useEffect(() => {
     let active = true;
@@ -19,33 +53,196 @@ export function useMeetingEngine(roomId: number, options: MeetingOptions) {
     const connect = async () => {
       try {
         await joinRoom(roomId);
-        const media = await navigator.mediaDevices.getUserMedia({ audio: options.audio ? (options.audioDeviceId ? { deviceId: { exact: options.audioDeviceId } } : true) : false, video: options.video ? (options.videoDeviceId ? { deviceId: { exact: options.videoDeviceId } } : true) : false });
-        if (!active) { media.getTracks().forEach((track) => track.stop()); return; }
-        localRef.current = media; setLocalStream(media);
-        const config = await getWebRTCConfig(); const connection = new RTCPeerConnection({ iceServers: config.ice_servers }); peer.current = connection;
+        const media = await navigator.mediaDevices.getUserMedia({
+          audio: options.audio
+            ? options.audioDeviceId
+              ? { deviceId: { exact: options.audioDeviceId } }
+              : true
+            : false,
+          video: options.video
+            ? options.videoDeviceId
+              ? { deviceId: { exact: options.videoDeviceId } }
+              : true
+            : false,
+        });
+        if (!active) {
+          media.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        localRef.current = media;
+        setLocalStream(media);
+        const config = await getWebRTCConfig();
+        const connection = new RTCPeerConnection({
+          iceServers: config.ice_servers,
+        });
+        peer.current = connection;
         media.getTracks().forEach((track) => connection.addTrack(track, media));
-        if (!options.audio) connection.addTransceiver("audio", { direction: "recvonly" }); if (!options.video) connection.addTransceiver("video", { direction: "recvonly" });
-        connection.ontrack = (event) => setRemoteStream(event.streams[0] ?? new MediaStream([event.track]));
-        connection.onicecandidate = (event) => { if (event.candidate) void sendRoomICE(roomId, event.candidate.toJSON()); };
-        connection.onconnectionstatechange = () => { setState(connection.connectionState); void updateRoomMedia(roomId, { connection_state: connection.connectionState }); };
-        const offer = await connection.createOffer(); await connection.setLocalDescription(offer); const response = await sendRoomOffer(roomId, offer.sdp ?? ""); await connection.setRemoteDescription(response.answer);
-        await updateRoomMedia(roomId, { audio_enabled: options.audio, video_enabled: options.video, connection_state: "connecting" });
+        if (!options.audio)
+          connection.addTransceiver("audio", { direction: "recvonly" });
+        if (!options.video)
+          connection.addTransceiver("video", { direction: "recvonly" });
+        connection.ontrack = (event) => {
+          const stream = event.streams[0] ?? new MediaStream([event.track]);
+          setRemoteStreams((prev) => {
+            const next = new Map(prev);
+            next.set(stream.id, stream);
+            return next;
+          });
+        };
+        connection.onicecandidate = (event) => {
+          if (event.candidate) void sendRoomICE(roomId, event.candidate.toJSON());
+        };
+        connection.onconnectionstatechange = () => {
+          setState(connection.connectionState);
+          void updateRoomMedia(roomId, {
+            connection_state: connection.connectionState,
+          });
+        };
+        const offer = await connection.createOffer();
+        await connection.setLocalDescription(offer);
+        const response = await sendRoomOffer(roomId, offer.sdp ?? "");
+        await connection.setRemoteDescription(response.answer);
+        await updateRoomMedia(roomId, {
+          audio_enabled: options.audio,
+          video_enabled: options.video,
+          connection_state: "connecting",
+        });
       } catch (caught) {
-        if (caught instanceof DOMException && (caught.name === "NotAllowedError" || caught.name === "NotFoundError")) setState("permission_denied"); else setState("failed");
+        if (
+          caught instanceof DOMException &&
+          (caught.name === "NotAllowedError" ||
+            caught.name === "NotFoundError")
+        )
+          setState("permission_denied");
+        else setState("failed");
         setError(caught instanceof Error ? caught.message : "无法加入会议");
       }
     };
     void connect();
-    const leave = () => { peer.current?.close(); peer.current = null; localRef.current?.getTracks().forEach((track) => track.stop()); localRef.current = null; if (localStorage.getItem(lockKey) === owner) localStorage.removeItem(lockKey); void leaveRoom(roomId).catch((err) => console.error("[useMeetingEngine] leaveRoom failed", err)); };
+    const leave = () => {
+      peer.current?.close();
+      peer.current = null;
+      localRef.current?.getTracks().forEach((track) => track.stop());
+      localRef.current = null;
+      if (localStorage.getItem(lockKey) === owner)
+        localStorage.removeItem(lockKey);
+      void leaveRoom(roomId).catch((err) =>
+        console.error("[useMeetingEngine] leaveRoom failed", err),
+      );
+    };
     window.addEventListener("beforeunload", leave);
-    return () => { active = false; window.removeEventListener("beforeunload", leave); leave(); };
-  }, [roomId, options.audio, options.video, options.audioDeviceId, options.videoDeviceId, blockedByOtherTab]);
+    return () => {
+      active = false;
+      window.removeEventListener("beforeunload", leave);
+      leave();
+    };
+  }, [
+    roomId,
+    options.audio,
+    options.video,
+    options.audioDeviceId,
+    options.videoDeviceId,
+    blockedByOtherTab,
+  ]);
 
-  const toggleAudio = useCallback(() => { const next = !audio; localRef.current?.getAudioTracks().forEach((track) => { track.enabled = next; }); setAudio(next); void updateRoomMedia(roomId, { audio_enabled: next }); }, [audio, roomId]);
+  // Room realtime channel: receives server-initiated renegotiation offers and
+  // (when ROOM_TRICKLE_ICE is enabled) server side ICE candidates. since_id is
+  // set to the maximum so the server does NOT replay old signaling events -
+  // a stale offer or candidate would corrupt the live peer connection.
+  useEffect(() => {
+    if (blockedByOtherTab || !organizationId) return;
+    const socket = new TicketSocket<RoomRealtimeEvent>(
+      "room",
+      { organization_id: organizationId, since_id: Number.MAX_SAFE_INTEGER },
+      (event) => {
+        const action = interpretRoomRealtimeEvent(event, roomId);
+        const connection = peer.current;
+        if (action.kind === "renegotiate") {
+          if (!connection) return;
+          void (async () => {
+            try {
+              await connection.setRemoteDescription({
+                type: "offer",
+                sdp: action.sdp,
+              });
+              const answer = await connection.createAnswer();
+              await connection.setLocalDescription(answer);
+              await sendRoomRenegotiationAnswer(roomId, answer.sdp ?? "");
+            } catch (err) {
+              console.error("[useMeetingEngine] renegotiation failed", err);
+            }
+          })();
+        } else if (action.kind === "ice") {
+          if (!connection || !connection.remoteDescription) return;
+          void connection.addIceCandidate(action.candidate).catch((err) =>
+            console.error(
+              "[useMeetingEngine] failed to add server ICE candidate",
+              err,
+            ),
+          );
+        }
+      },
+      () => {},
+    );
+    socket.connect();
+    return () => socket.disconnect();
+  }, [roomId, organizationId, blockedByOtherTab]);
+
+  const toggleAudio = useCallback(() => {
+    const next = !audio;
+    localRef.current?.getAudioTracks().forEach((track) => {
+      track.enabled = next;
+    });
+    setAudio(next);
+    void updateRoomMedia(roomId, { audio_enabled: next });
+  }, [audio, roomId]);
+
   const toggleVideo = useCallback(async () => {
-    const next = !video; const connection = peer.current; const stream = localRef.current; if (!connection || !stream) return;
-    if (!next) { const sender = connection.getSenders().find((item) => item.track?.kind === "video"); await sender?.replaceTrack(null); stream.getVideoTracks().forEach((track) => { stream.removeTrack(track); track.stop(); }); setLocalStream(new MediaStream(stream.getTracks())); setVideo(false); void updateRoomMedia(roomId, { video_enabled: false }); return; }
-    try { const camera = await navigator.mediaDevices.getUserMedia({ video: true }); const track = camera.getVideoTracks()[0]; const sender = connection.getSenders().find((item) => item.track?.kind === "video"); if (sender) await sender.replaceTrack(track); else connection.addTrack(track, stream); stream.addTrack(track); setLocalStream(new MediaStream(stream.getTracks())); setVideo(true); void updateRoomMedia(roomId, { video_enabled: true }); } catch (caught) { setError(caught instanceof Error ? caught.message : "无法开启摄像头"); }
+    const next = !video;
+    const connection = peer.current;
+    const stream = localRef.current;
+    if (!connection || !stream) return;
+    if (!next) {
+      const sender = connection
+        .getSenders()
+        .find((item) => item.track?.kind === "video");
+      await sender?.replaceTrack(null);
+      stream.getVideoTracks().forEach((track) => {
+        stream.removeTrack(track);
+        track.stop();
+      });
+      setLocalStream(new MediaStream(stream.getTracks()));
+      setVideo(false);
+      void updateRoomMedia(roomId, { video_enabled: false });
+      return;
+    }
+    try {
+      const camera = await navigator.mediaDevices.getUserMedia({
+        video: true,
+      });
+      const track = camera.getVideoTracks()[0];
+      const sender = connection
+        .getSenders()
+        .find((item) => item.track?.kind === "video");
+      if (sender) await sender.replaceTrack(track);
+      else connection.addTrack(track, stream);
+      stream.addTrack(track);
+      setLocalStream(new MediaStream(stream.getTracks()));
+      setVideo(true);
+      void updateRoomMedia(roomId, { video_enabled: true });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "无法开启摄像头");
+    }
   }, [roomId, video]);
-  return { localStream, remoteStream, state, error, audio, video, toggleAudio, toggleVideo };
+
+  return {
+    localStream,
+    remoteStreams,
+    state,
+    error,
+    audio,
+    video,
+    toggleAudio,
+    toggleVideo,
+  };
 }
