@@ -156,6 +156,16 @@ Common backend variables:
 - `KAFKA_BROKERS`, `KAFKA_SETTLEMENT_TOPIC`: enables settlement event publishing/consumption.
 - `ELASTICSEARCH_URL`, `ELASTICSEARCH_INDEX`: enables Elasticsearch message/search indexing.
 
+Privacy / compliance variables (see [Privacy & Message Compliance](#privacy--message-compliance)):
+
+- `MESSAGE_RETENTION_ENABLED`, `MESSAGE_RETENTION_TEXT_TTL_HOURS` (default `72`), `MESSAGE_RETENTION_MEDIA_TTL_HOURS` (default `120`), `MESSAGE_RETENTION_PURGE_SYSTEM`, `MESSAGE_RETENTION_CLEANUP_INTERVAL_MIN` (default `30`), `MESSAGE_RETENTION_CLEANUP_BATCH_LIMIT` (default `500`).
+- `MESSAGE_ENCRYPTION_ENABLED`, `MESSAGE_ENCRYPTION_MASTER_KEY` (base64; **required** when encryption is enabled — startup fails otherwise), `MESSAGE_ENCRYPTION_KEY_ID`.
+- `MESSAGE_RECALL_ENABLED`, `MESSAGE_RECALL_WINDOW_MINUTES`, `MESSAGE_RECALL_ALLOW_ADMIN_OVERRIDE`.
+- `SEARCH_INDEX_ENABLED`, `SEARCH_INDEX_BODY_SNIPPET_MAX_RUNES` (default `64`).
+- `CONTENT_MODERATION_ENABLED`, `CONTENT_MODERATION_KEYWORDS` (comma-separated).
+- `SECURITY_REQUIRE_TLS`: rejects plaintext `/api/v1` traffic with `403 HTTPS_REQUIRED`; trusts `X-Forwarded-Proto: https` behind a terminating proxy.
+- `AUDIT_LOG_RETENTION_DAYS` (default `180`): retention floor for organization audit events.
+
 Web runtime public variables are injected through `/config.js` in production:
 
 - `PUBLIC_API_BASE_URL`
@@ -206,6 +216,24 @@ make beta-seed
 ```
 
 The command creates deterministic owner/member accounts, an organization, a team, a conversation, sample messages, a completed meeting, ready transcript segments, and audit events. It prints login credentials and direct Web routes. The seeded transcript is metadata and text-only; it is useful for UI and Agent grounding demos, not for real ASR/download validation.
+
+## Privacy & Message Compliance
+
+Message handling follows a WeChat-style "transit, not archive" model, aligned with PIPL obligations. All policies are assembled in one place (`runtime.ApplyPrivacyPolicies`) so the API server and every worker process share identical behavior. Everything is config-gated and off by default unless noted.
+
+| Capability | Where | Behavior |
+| --- | --- | --- |
+| Retention TTL | `internal/collaboration/message_retention.go` | Text bodies are physically cleared after 72h, media after 120h. Message skeletons (ids, timestamps, sender) survive so threads stay coherent. System and call-event messages are exempt by default. |
+| Envelope encryption | `internal/messagecrypto` | Each message gets a random AES-256-GCM DEK, wrapped by the master key and stored alongside the ciphertext. Fail-closed: a missing or invalid master key aborts startup rather than silently writing plaintext. |
+| Recall | `internal/collaboration/message_recall.go` | `POST /api/v1/conversations/:id/messages/:messageId/recall`. Destroys body, metadata, envelope, attachment objects, and the search copy; keeps the skeleton. Idempotent. Admins can force-recall past the window for takedown requests. |
+| Search index minimization | `internal/collaboration/search_policy.go` | Search documents carry a rune-truncated snippet plus a `body_length` signal instead of the full body, so an index service outside the trust boundary never holds complete content. |
+| Right to erasure | `internal/collaboration/message_erasure.go` | `POST /api/v1/organizations/:id/users/:userId/messages/erase` (self, or owner/admin for anyone) and `POST /api/v1/organizations/:id/messages/erase` (owner/admin only). Batched, idempotent, marks `erased_at`/`erased_by`. |
+| Content moderation | `internal/collaboration/message_moderation.go` | Pluggable `ModerationService` invoked asynchronously after publish, so moderation never blocks delivery. Hits write an audit event and broadcast a flag. A keyword implementation ships by default. |
+| Transport TLS | `internal/server/middleware.go` | `RequireTLS` rejects plaintext `/api/v1` traffic. |
+| Audit retention | `internal/collaboration/audit_retention.go` | A worker purges organization audit events older than `AUDIT_LOG_RETENTION_DAYS` in batches. |
+| Identity verification | `models.User.IdentityVerified` | When an organization sets `RequireIdentityVerification`, unverified users are rejected at invite acceptance with `ErrIdentityVerificationRequired`. |
+
+Related migrations: `000009_message_retention` through `000013_identity_binding`. Bump `currentSchemaVersion` in `internal/runtime/migrations.go` and the assertion in `migrations_test.go` whenever a migration is added.
 
 ## Documentation
 

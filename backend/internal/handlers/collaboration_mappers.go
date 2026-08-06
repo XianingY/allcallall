@@ -265,6 +265,8 @@ func toMessageResponse(item collaboration.MessageRecord) messageResponse {
 		EditedAt:          item.EditedAt,
 		DeletedAt:         item.DeletedAt,
 		DeletedBy:         item.DeletedBy,
+		RecalledAt:        item.RecalledAt,
+		RecalledBy:        item.RecalledBy,
 		CreatedAt:         item.CreatedAt,
 	}
 	if item.ReplyTo != nil {
@@ -275,6 +277,7 @@ func toMessageResponse(item collaboration.MessageRecord) messageResponse {
 			SenderDisplayName: item.ReplyTo.SenderDisplayName,
 			Body:              item.ReplyTo.Body,
 			Deleted:           item.ReplyTo.Deleted,
+			Recalled:          item.ReplyTo.Recalled,
 		}
 	}
 	for _, attachment := range item.Attachments {

@@ -209,6 +209,21 @@ func (s *Service) AcceptOrganizationInvite(ctx context.Context, code string, use
 		}
 		return nil, errors.New("organization invite expired")
 	}
+	// 实名绑定：若组织要求身份核验，未通过核验的用户在加入时被拒绝。
+	// Real-name binding: reject unverified users when the org requires identity verification.
+	var policy models.OrganizationPolicy
+	if err := s.db.WithContext(ctx).Where("organization_id = ?", invite.OrganizationID).Take(&policy).Error; err != nil {
+		return nil, err
+	}
+	if policy.RequireIdentityVerification {
+		var user models.User
+		if err := s.db.WithContext(ctx).Where("id = ?", userID).Take(&user).Error; err != nil {
+			return nil, err
+		}
+		if !user.IdentityVerified {
+			return nil, ErrIdentityVerificationRequired
+		}
+	}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
 		member := models.OrganizationMember{
@@ -278,14 +293,18 @@ func (s *Service) UpdateOrganizationPolicy(ctx context.Context, organizationID, 
 		policy.RecordingStorageDays = input.RecordingStorageDays
 	}
 	policy.RecordingExportAllowed = input.RecordingExportAllowed
+	if input.RequireIdentityVerification != nil {
+		policy.RequireIdentityVerification = *input.RequireIdentityVerification
+	}
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(&policy).Error; err != nil {
 			return err
 		}
 		return s.recordOrganizationAuditTx(ctx, tx, organizationID, userID, "organization.policy.updated", "policy", strconv.FormatUint(policy.ID, 10), map[string]any{
-			"recording_mode":           policy.RecordingMode,
-			"recording_storage_days":   policy.RecordingStorageDays,
-			"recording_export_allowed": policy.RecordingExportAllowed,
+			"recording_mode":                policy.RecordingMode,
+			"recording_storage_days":        policy.RecordingStorageDays,
+			"recording_export_allowed":      policy.RecordingExportAllowed,
+			"require_identity_verification": policy.RequireIdentityVerification,
 		})
 	}); err != nil {
 		return nil, err

@@ -31,6 +31,10 @@ func (s *Service) loadConversationContext(ctx context.Context, organizationID, u
 		Find(&messages).Error; err != nil {
 		return nil, err
 	}
+	// 消息正文在库中是密文，装入 Agent 上下文前必须解密；
+	// 解密失败时置空而不是把密文塞进 LLM prompt（fail-closed）。
+	// Bodies are ciphertext at rest; decrypt before building LLM context, fail closed on error.
+	decryptMessageBodies(messages)
 	var rooms []models.CallRoom
 	if err := s.db.WithContext(ctx).
 		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).

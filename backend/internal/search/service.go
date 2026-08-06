@@ -19,6 +19,7 @@ type MessageDocument struct {
 	SenderDisplayName string    `json:"sender_display_name"`
 	Type              string    `json:"type"`
 	Body              string    `json:"body"`
+	BodyLength        int       `json:"body_length"`
 	CreatedAt         time.Time `json:"created_at"`
 }
 

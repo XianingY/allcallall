@@ -216,6 +216,8 @@ type messageResponse struct {
 	EditedAt          *time.Time                `json:"edited_at,omitempty"`
 	DeletedAt         *time.Time                `json:"deleted_at,omitempty"`
 	DeletedBy         *uint64                   `json:"deleted_by,omitempty"`
+	RecalledAt        *time.Time                `json:"recalled_at,omitempty"`
+	RecalledBy        *uint64                   `json:"recalled_by,omitempty"`
 	CreatedAt         time.Time                 `json:"created_at"`
 }
 
@@ -226,6 +228,7 @@ type messageReplyResponse struct {
 	SenderDisplayName string `json:"sender_display_name"`
 	Body              string `json:"body"`
 	Deleted           bool   `json:"deleted"`
+	Recalled          bool   `json:"recalled"`
 }
 
 type attachmentResponse struct {

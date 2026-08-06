@@ -14,9 +14,10 @@ type OrganizationSummary struct {
 }
 
 type OrganizationPolicyInput struct {
-	RecordingMode          string `json:"recording_mode"`
-	RecordingStorageDays   int    `json:"recording_storage_days"`
-	RecordingExportAllowed bool   `json:"recording_export_allowed"`
+	RecordingMode               string `json:"recording_mode"`
+	RecordingStorageDays        int    `json:"recording_storage_days"`
+	RecordingExportAllowed      bool   `json:"recording_export_allowed"`
+	RequireIdentityVerification *bool  `json:"require_identity_verification"`
 }
 
 type OrganizationInviteInput struct {
@@ -139,6 +140,10 @@ type MessageReplyPreview struct {
 	SenderDisplayName string `json:"sender_display_name"`
 	Body              string `json:"body"`
 	Deleted           bool   `json:"deleted"`
+	// Recalled 与 Deleted 分开暴露：客户端对两者的提示文案不同
+	// （「消息已删除」vs「XX 撤回了一条消息」）。
+	// Recalled is separate from Deleted because clients render different tombstones.
+	Recalled bool `json:"recalled"`
 }
 
 type AttachmentView struct {

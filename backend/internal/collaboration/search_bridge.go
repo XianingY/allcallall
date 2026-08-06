@@ -20,7 +20,8 @@ func (s *Service) BuildMessageSearchDocument(ctx context.Context, messageID uint
 		SenderEmail:       record.SenderEmail,
 		SenderDisplayName: record.SenderDisplayName,
 		Type:              record.Type,
-		Body:              record.Body,
+		Body:              s.searchIndex.IndexBody(record.Body),
+		BodyLength:        s.searchIndex.BodyLength(record.Body),
 		CreatedAt:         record.CreatedAt,
 	}, nil
 }

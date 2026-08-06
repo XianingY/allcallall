@@ -64,6 +64,8 @@ func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGrou
 	protected.GET("/organizations/:id/audit-events", h.handleListOrganizationAuditEvents)
 	protected.GET("/organizations/:id/policy", h.handleGetOrganizationPolicy)
 	protected.PUT("/organizations/:id/policy", h.handleUpdateOrganizationPolicy)
+	protected.POST("/organizations/:id/users/:userId/messages/erase", h.handleEraseUserMessages)
+	protected.POST("/organizations/:id/messages/erase", h.handleEraseOrganizationMessages)
 
 	protected.GET("/conversations", h.handleListConversations)
 	protected.POST("/conversations", h.handleCreateConversation)
@@ -73,6 +75,7 @@ func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGrou
 	protected.POST("/conversations/:id/messages", h.handleCreateMessage)
 	protected.PATCH("/conversations/:id/messages/:messageId", h.handleUpdateMessage)
 	protected.DELETE("/conversations/:id/messages/:messageId", h.handleDeleteMessage)
+	protected.POST("/conversations/:id/messages/:messageId/recall", h.handleRecallMessage)
 	protected.POST("/conversations/:id/messages/:messageId/reactions", h.handleAddMessageReaction)
 	protected.DELETE("/conversations/:id/messages/:messageId/reactions/:emoji", h.handleRemoveMessageReaction)
 	protected.POST("/conversations/:id/messages/:messageId/pin", h.handlePinMessage)

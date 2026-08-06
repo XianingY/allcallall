@@ -17,8 +17,8 @@ import (
 )
 
 func TestCurrentSchemaVersionIncludesDurableSandboxReceipts(t *testing.T) {
-	if currentSchemaVersion != 8 {
-		t.Fatalf("current schema version=%d want=8", currentSchemaVersion)
+	if currentSchemaVersion != 13 {
+		t.Fatalf("current schema version=%d want=13", currentSchemaVersion)
 	}
 	migrations := map[string]map[string][]string{
 		"000003_workflow_runtime_resume": {
@@ -28,6 +28,26 @@ func TestCurrentSchemaVersionIncludesDurableSandboxReceipts(t *testing.T) {
 		"000004_sandbox_execution_receipts": {
 			"up":   {"sandbox_execution_receipts", "request_digest", "reconcile_attempts", "next_reconcile_at", "idx_mcp_executions_reconcile"},
 			"down": {"sandbox_execution_receipts", "reconcile_attempts", "next_reconcile_at", "idx_mcp_executions_reconcile"},
+		},
+		"000009_message_retention": {
+			"up":   {"retention_until", "purged_at", "idx_messages_retention_until", "idx_attachments_retention_until"},
+			"down": {"retention_until", "purged_at", "idx_messages_retention_until", "idx_attachments_retention_until"},
+		},
+		"000010_message_encryption": {
+			"up":   {"encryption_metadata"},
+			"down": {"encryption_metadata"},
+		},
+		"000011_message_recall": {
+			"up":   {"recalled_at", "recalled_by", "idx_messages_recalled_at", "idx_messages_recalled_by"},
+			"down": {"recalled_at", "recalled_by", "idx_messages_recalled_at", "idx_messages_recalled_by"},
+		},
+		"000012_message_erasure": {
+			"up":   {"erased_at", "erased_by", "idx_messages_erased_at", "idx_messages_erased_by"},
+			"down": {"erased_at", "erased_by", "idx_messages_erased_at", "idx_messages_erased_by"},
+		},
+		"000013_identity_binding": {
+			"up":   {"real_name", "identity_verified", "require_identity_verification"},
+			"down": {"real_name", "identity_verified", "require_identity_verification"},
 		},
 	}
 	for migration, directions := range migrations {
@@ -108,7 +128,7 @@ func TestMySQLWorkflowRuntimeMigrationUpDownUp(t *testing.T) {
 	if !bootstrapped {
 		t.Fatal("expected empty isolated database to be bootstrapped")
 	}
-	assertMigrationVersion(t, migration, 8)
+	assertMigrationVersion(t, migration, currentSchemaVersion)
 	assertSandboxReceiptV4Schema(t, sqlDB, databaseName)
 	assertWorkflowRuntimeV3Schema(t, sqlDB, databaseName)
 	if err := migration.Migrate(2); err != nil {
@@ -194,7 +214,7 @@ func TestMySQLSandboxReceiptMigrationUpDownUp(t *testing.T) {
 	if !bootstrapped {
 		t.Fatal("expected empty sandbox migration database to be bootstrapped")
 	}
-	assertMigrationVersion(t, migration, 8)
+	assertMigrationVersion(t, migration, currentSchemaVersion)
 	assertSandboxReceiptV4Schema(t, sqlDB, databaseName)
 
 	if err := migration.Migrate(3); err != nil {

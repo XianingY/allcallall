@@ -14,6 +14,7 @@ import (
 
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/media"
+	"github.com/allcallall/backend/internal/messagecrypto"
 	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/storage"
 	"github.com/allcallall/backend/internal/transcription"
@@ -21,13 +22,14 @@ import (
 )
 
 var (
-	ErrOrganizationAccessDenied  = errors.New("organization access denied")
-	ErrConversationAccessDenied  = errors.New("conversation access denied")
-	ErrRoomAccessDenied          = errors.New("room access denied")
-	ErrRoomParticipantLimit      = errors.New("room participant limit reached")
-	ErrRecordingNotAllowed       = errors.New("recording not allowed")
-	ErrTranscriptionNotRetryable = errors.New("recording transcription is not retryable")
-	ErrInviteEmailMismatch       = errors.New("invite email mismatch")
+	ErrOrganizationAccessDenied     = errors.New("organization access denied")
+	ErrConversationAccessDenied     = errors.New("conversation access denied")
+	ErrRoomAccessDenied             = errors.New("room access denied")
+	ErrRoomParticipantLimit         = errors.New("room participant limit reached")
+	ErrRecordingNotAllowed          = errors.New("recording not allowed")
+	ErrTranscriptionNotRetryable    = errors.New("recording transcription is not retryable")
+	ErrInviteEmailMismatch          = errors.New("invite email mismatch")
+	ErrIdentityVerificationRequired = errors.New("organization requires identity verification before joining")
 )
 
 type EventPublisher interface {
@@ -53,6 +55,11 @@ type Service struct {
 	maxRoomParticipants int
 	trickleICE          bool
 	roomOrgs            *roomOrgRegistry
+	messageRetention    MessageRetentionPolicy
+	messageRecall       MessageRecallPolicy
+	searchIndex         SearchIndexPolicy
+	moderation          ModerationService
+	messageCipher       messagecrypto.Cipher
 	logger              zerolog.Logger
 }
 
@@ -71,6 +78,15 @@ func NewService(db *gorm.DB, users *user.Service) *Service {
 	}
 	svc.metrics = metrics.NewCounterStore()
 	svc.logger = zerolog.Nop()
+	// 默认关闭留存策略，保持既有部署行为不变；由 runtime 依据 config 显式开启。
+	// Retention is opt-in so existing deployments keep their current behaviour.
+	svc.messageRetention = MessageRetentionPolicy{}.Normalized()
+	// 撤回同样是显式开启：老部署没有 recalled_at 语义，默认放行会让前端渲染出不存在的状态。
+	// Recall is opt-in too; legacy clients don't know how to render the tombstone.
+	svc.messageRecall = MessageRecallPolicy{}.Normalized()
+	// 搜索索引最小化默认开启：信任边界外的索引服务不应持有完整正文。
+	// Search index minimization is on by default; the indexer must not hold full bodies.
+	svc.searchIndex = DefaultSearchIndexPolicy()
 	if localStorage, err := storage.NewRecordingStorage(storage.Config{Driver: storage.DriverLocal}); err == nil {
 		svc.storage = localStorage
 	}

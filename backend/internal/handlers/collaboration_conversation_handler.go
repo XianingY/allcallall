@@ -188,6 +188,75 @@ func (h *CollaborationHandler) handleDeleteMessage(c *gin.Context) {
 	JSONSuccess(c, http.StatusOK, gin.H{"message": toMessageResponse(*item)})
 }
 
+// handleRecallMessage 撤回一条消息（对齐微信「撤回」）。
+// 错误码刻意与删除区分：超窗返回 409，让客户端知道这是状态问题而不是权限问题，
+// 从而停止重试并降级为「删除」提示。
+// handleRecallMessage performs a WeChat-style recall with state-aware status codes.
+func (h *CollaborationHandler) handleRecallMessage(c *gin.Context) {
+	claims, orgID, conversationID, messageID, ok := h.messageRouteParams(c)
+	if !ok {
+		return
+	}
+	item, err := h.service.RecallMessage(c.Request.Context(), orgID, claims.UserID, conversationID, messageID)
+	if err != nil {
+		switch {
+		case errors.Is(err, collaboration.ErrRecallWindowExpired):
+			JSONError(c, http.StatusConflict, err.Error())
+		case errors.Is(err, collaboration.ErrRecallForbidden), errors.Is(err, collaboration.ErrRecallDisabled):
+			JSONError(c, http.StatusForbidden, err.Error())
+		default:
+			JSONError(c, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"message": toMessageResponse(*item)})
+}
+
+// handleEraseUserMessages 触发「被遗忘权」：擦除某用户在组织内的全部消息。
+// 仅本人可擦除自己，或组织 owner/admin 擦除任意成员；权限在服务层二次校验。
+// handleEraseUserMessages triggers right-to-be-forgotten erasure for a single user.
+func (h *CollaborationHandler) handleEraseUserMessages(c *gin.Context) {
+	claims, orgID, ok := h.organizationRouteParams(c)
+	if !ok {
+		return
+	}
+	targetUserID, err := parseUintParam(c.Param("userId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	count, err := h.service.PurgeUserMessages(c.Request.Context(), orgID, claims.UserID, targetUserID)
+	if err != nil {
+		if errors.Is(err, collaboration.ErrErasureForbidden) {
+			JSONError(c, http.StatusForbidden, err.Error())
+			return
+		}
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"erased_messages": count})
+}
+
+// handleEraseOrganizationMessages 组织级一键擦除：销毁组织内全部消息（组织注销 / 全盘合规下架）。
+// 仅 owner/admin 可执行；权限在服务层二次校验。
+// handleEraseOrganizationMessages performs an organization-wide erasure.
+func (h *CollaborationHandler) handleEraseOrganizationMessages(c *gin.Context) {
+	claims, orgID, ok := h.organizationRouteParams(c)
+	if !ok {
+		return
+	}
+	count, err := h.service.PurgeOrganizationMessages(c.Request.Context(), orgID, claims.UserID)
+	if err != nil {
+		if errors.Is(err, collaboration.ErrErasureForbidden) {
+			JSONError(c, http.StatusForbidden, err.Error())
+			return
+		}
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"erased_messages": count})
+}
+
 func (h *CollaborationHandler) handleAddMessageReaction(c *gin.Context) {
 	claims, orgID, conversationID, messageID, ok := h.messageRouteParams(c)
 	if !ok {

@@ -124,9 +124,20 @@ func (s *Service) EditMessage(ctx context.Context, organizationID, userID, conve
 		return nil, errors.New("deleted message cannot be edited")
 	}
 	now := time.Now()
+	// 编辑同样走加密写入，并刷新信封元数据（每次编辑重新生成 DEK）。
+	// Edits are re-encrypted with a fresh DEK and refreshed envelope metadata.
+	storedBody, encryptionMetadata, err := s.encryptMessageBody(body)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.db.WithContext(ctx).Model(&models.Message{}).
 		Where("id = ?", messageID).
-		Updates(map[string]any{"body": body, "edited_at": now, "updated_at": now}).Error; err != nil {
+		Updates(map[string]any{
+			"body":                storedBody,
+			"encryption_metadata": encryptionMetadata,
+			"edited_at":           now,
+			"updated_at":          now,
+		}).Error; err != nil {
 		return nil, err
 	}
 	record, err := s.loadMessageRecordForUser(ctx, messageID, userID)
@@ -160,7 +171,15 @@ func (s *Service) DeleteMessage(ctx context.Context, organizationID, userID, con
 	now := time.Now()
 	if err := s.db.WithContext(ctx).Model(&models.Message{}).
 		Where("id = ?", messageID).
-		Updates(map[string]any{"deleted_at": now, "deleted_by": userID, "body": "", "updated_at": now}).Error; err != nil {
+		Updates(map[string]any{
+			"deleted_at": now,
+			"deleted_by": userID,
+			"body":       "",
+			// 正文已清空，信封元数据必须一并清除，否则读路径会尝试解密空串。
+			// Clear the envelope too, otherwise the read path would try to decrypt an empty body.
+			"encryption_metadata": "",
+			"updated_at":          now,
+		}).Error; err != nil {
 		return nil, err
 	}
 	record, err := s.loadMessageRecordForUser(ctx, messageID, userID)
@@ -370,6 +389,9 @@ func (s *Service) SaveConversationAttachment(ctx context.Context, organizationID
 		FileName:       fileName,
 		ContentType:    contentType,
 		FileSize:       written,
+		// 上传即打留存戳：即使用户最终没有发送该附件（孤儿对象），也会被清理 worker 回收。
+		// Stamp on upload so orphaned objects are reclaimed even if never attached to a message.
+		RetentionUntil: s.messageRetention.AttachmentRetentionUntil(time.Now()),
 	}
 	if err := s.db.WithContext(ctx).Create(attachment).Error; err != nil {
 		_ = s.storage.Delete(ctx, storage.ObjectRef{Driver: stored.Driver, Bucket: stored.Bucket, Key: stored.Key, ETag: stored.ETag})
@@ -412,7 +434,13 @@ func (s *Service) PublishMessageCreatedFromOutbox(ctx context.Context, messageID
 	if err != nil {
 		return err
 	}
-	return s.publishMessageCreatedRealtime(ctx, record, memberIDs)
+	if err := s.publishMessageCreatedRealtime(ctx, record, memberIDs); err != nil {
+		return err
+	}
+	// 消息已落库并实时投递后，异步触发内容审核（非阻塞、不延缓投递）。
+	// Moderation runs after the message is stored and delivered, asynchronously.
+	s.runModerationAsync(record.OrganizationID, record.ConversationID, record.ID, record.Body)
+	return nil
 }
 
 func reverseMessages(items []MessageRecord) {

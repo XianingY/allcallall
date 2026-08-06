@@ -68,7 +68,8 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 - [Meeting Room State Protocol](./deployment/meeting-room-state-protocol.md): room state event contract.
 - [Web Auth Session](./deployment/web-auth-session.md): browser refresh-cookie session behavior.
 - [Observability](./observability.md): optional Prometheus + Grafana + Loki stack shipped with the repo.
-- [Security Guidelines](./configuration/security-guidelines.md): security and privacy rules.
+- [Security Guidelines](./configuration/security-guidelines.md): infrastructure/network security rules.
+- [Message Privacy & Compliance](./configuration/message-privacy-compliance.md): retention TTL, envelope encryption, recall, search minimization, erasure, moderation, TLS enforcement, audit retention, identity verification.
 - [Beta Smoke Checklist](./testing/beta-smoke-checklist.md): small-team Beta validation checklist and seed-data flow.
 
 ## Client / Development

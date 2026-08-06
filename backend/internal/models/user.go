@@ -5,16 +5,24 @@ import "time"
 // User 用户实体
 // User represents a registered account identified by email.
 type User struct {
-	ID           uint64     `gorm:"primaryKey;autoIncrement"`
-	Email        string     `gorm:"size:255;uniqueIndex;not null"`
-	PasswordHash string     `gorm:"size:255;not null"`
-	DisplayName  string     `gorm:"size:100"`
-	FCMToken     string     `gorm:"size:255;index"` // Firebase Cloud Messaging token
-	Status       string     `gorm:"size:32;not null;default:'active';index"`
-	DeletedAt    *time.Time `gorm:"index"`
-	CreatedAt    time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt    time.Time  `gorm:"autoUpdateTime"`
-	LastSeen     *time.Time `gorm:"index"`
+	ID           uint64 `gorm:"primaryKey;autoIncrement"`
+	Email        string `gorm:"size:255;uniqueIndex;not null"`
+	PasswordHash string `gorm:"size:255;not null"`
+	DisplayName  string `gorm:"size:100"`
+	FCMToken     string `gorm:"size:255;index"` // Firebase Cloud Messaging token
+	// RealName 实名信息（如适用司法/金融监管要求）。仅在组织策略开启「实名绑定」时用于校验，
+	// 默认留空表示未提供实名。
+	// RealName holds the legal name when real-name binding is required by an org policy.
+	RealName string `gorm:"size:128"`
+	// IdentityVerified 标识该用户是否已完成身份核验（由认证/合规流程置位）。
+	// 组织开启 RequireIdentityVerification 时，未核验用户无法加入该组织。
+	// IdentityVerified marks whether the user passed identity verification.
+	IdentityVerified bool       `gorm:"not null;default:false;index"`
+	Status           string     `gorm:"size:32;not null;default:'active';index"`
+	DeletedAt        *time.Time `gorm:"index"`
+	CreatedAt        time.Time  `gorm:"autoCreateTime"`
+	UpdatedAt        time.Time  `gorm:"autoUpdateTime"`
+	LastSeen         *time.Time `gorm:"index"`
 }
 
 // RefreshSession tracks a revocable refresh-cookie session.

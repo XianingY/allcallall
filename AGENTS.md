@@ -32,8 +32,10 @@ Mobile:
 Desktop:
   cd desktop && npm run dev
 
-Root Makefile (there is NO `make lint` or `make typecheck` target; use the
-per-module commands above):
+Root Makefile (there is NO `make typecheck` target; use the per-module `tsc`
+commands above for type checking):
+  make fmt                 # gofmt -w on backend/
+  make lint                # go vet (backend) + npm run lint (web)
   make test-backend        # cd backend && go test ./...
   make verify              # backend tests + web/mobile tsc + python pytest
   make web-contract-check  # web OpenAPI contract check

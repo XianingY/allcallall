@@ -32,6 +32,12 @@ func main() {
 	collaborationSvc := collaboration.NewService(db, nil)
 	collaborationSvc.WithLogger(appLogger)
 	collaborationSvc.WithMetrics(counterStore)
+	// 装配隐私/合规策略（消息留存 TTL、正文信封加密），保证各进程策略一致。
+	// 失败必须直接退出：静默降级会造成「以为加密了其实是明文」的最坏结果。
+	// Wire privacy policies so every process shares retention + encryption behaviour.
+	if err := appruntime.ApplyPrivacyPolicies(cfg, collaborationSvc); err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to apply privacy policies")
+	}
 	recordingStorage, err := appruntime.RecordingStorageFromEnv()
 	if err != nil {
 		appLogger.Fatal().Err(err).Msg("failed to initialize recording storage")

@@ -37,6 +37,7 @@ type RouteDependencies struct {
 	RoomRealtimeAuth   gin.HandlerFunc
 	Metrics            *metrics.CounterStore
 	ReadinessChecks    map[string]ReadinessCheck
+	RequireTLS         bool
 }
 
 // RegisterRoutes 注册所有 HTTP 路由
@@ -49,6 +50,7 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 		deps.Invitations.RegisterDocumentRoutes(router)
 	}
 	api := router.Group("/api/v1")
+	api.Use(RequireTLS(deps.RequireTLS))
 	registerHealthRoutes(api, deps)
 	if deps.Collaboration != nil && deps.ChatRealtimeAuth != nil {
 		deps.Collaboration.RegisterRealtimeRoutes(api, deps.ChatRealtimeAuth)

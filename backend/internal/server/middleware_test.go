@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,71 @@ import (
 
 	"github.com/allcallall/backend/internal/trace"
 )
+
+func TestRequireTLSRejectsPlaintextWhenEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(RequireTLS(true))
+	router.GET("/api/v1/secret", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/secret", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for plaintext request, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "HTTPS_REQUIRED") {
+		t.Fatalf("expected HTTPS_REQUIRED error code, got %q", rec.Body.String())
+	}
+}
+
+func TestRequireTLSAcceptsDirectTLSAndForwardedProto(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) }
+
+	// 直接 TLS：请求带 c.Request.TLS 状态。
+	// Direct TLS: the request carries a TLS state.
+	routerTLS := gin.New()
+	routerTLS.Use(RequireTLS(true))
+	routerTLS.GET("/ok", handler)
+	reqTLS := httptest.NewRequest(http.MethodGet, "/ok", nil)
+	reqTLS.TLS = &tls.ConnectionState{}
+	recTLS := httptest.NewRecorder()
+	routerTLS.ServeHTTP(recTLS, reqTLS)
+	if recTLS.Code != http.StatusOK {
+		t.Fatalf("direct TLS request should pass, got %d", recTLS.Code)
+	}
+
+	// 经反代终结 TLS：X-Forwarded-Proto: https。
+	// Behind a TLS-terminating proxy: X-Forwarded-Proto: https.
+	routerProxy := gin.New()
+	routerProxy.Use(RequireTLS(true))
+	routerProxy.GET("/ok", handler)
+	reqProxy := httptest.NewRequest(http.MethodGet, "/ok", nil)
+	reqProxy.Header.Set("X-Forwarded-Proto", "https")
+	recProxy := httptest.NewRecorder()
+	routerProxy.ServeHTTP(recProxy, reqProxy)
+	if recProxy.Code != http.StatusOK {
+		t.Fatalf("forwarded-proto https should pass, got %d", recProxy.Code)
+	}
+}
+
+func TestRequireTLSPassthroughWhenDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(RequireTLS(false))
+	router.GET("/ok", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+
+	req := httptest.NewRequest(http.MethodGet, "/ok", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disabled RequireTLS must not block, got %d", rec.Code)
+	}
+}
 
 func TestCORSMiddlewareAllowsCredentialedOrigin(t *testing.T) {
 	gin.SetMode(gin.TestMode)

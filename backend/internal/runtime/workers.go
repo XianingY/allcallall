@@ -438,6 +438,84 @@ func StartSettlementBridgeWorker(ctx context.Context, log zerolog.Logger, proces
 func StartCleanupWorker(ctx context.Context, log zerolog.Logger, collaborationSvc *collaboration.Service, refreshSessions *auth.RefreshSessionService) {
 	StartRecordingCleanupWorker(ctx, log, collaborationSvc)
 	StartRefreshSessionCleanupWorker(ctx, log, refreshSessions)
+	StartMessageRetentionWorker(ctx, log, collaborationSvc)
+	StartAuditRetentionWorker(ctx, log, collaborationSvc)
+}
+
+// StartAuditRetentionWorker 周期性清理超过最短留存期的组织审计事件。
+// 审计留存期默认 180 天（≥《网络安全法》第二十一条 6 个月要求），由环境变量
+// AUDIT_LOG_RETENTION_DAYS 覆写；到期即物理删除，不再作为合规证据留存。
+// StartAuditRetentionWorker periodically purges org audit events past their retention window.
+func StartAuditRetentionWorker(ctx context.Context, log zerolog.Logger, collaborationSvc *collaboration.Service) {
+	if collaborationSvc == nil {
+		return
+	}
+	retentionDays := intFromEnvAllowZero("AUDIT_LOG_RETENTION_DAYS", 180)
+	if retentionDays <= 0 {
+		log.Info().Msg("audit retention worker disabled (retention <= 0)")
+		return
+	}
+	intervalMinutes := intFromEnv("AUDIT_RETENTION_CLEANUP_INTERVAL_MIN", 1440)
+	interval := time.Duration(intervalMinutes) * time.Minute
+	log.Info().
+		Int("retention_days", retentionDays).
+		Int("interval_min", intervalMinutes).
+		Msg("audit retention worker enabled")
+	go runTicker(ctx, interval, func() {
+		runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		defer cancel()
+		before := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour)
+		purged, err := collaborationSvc.PurgeExpiredAuditEvents(runCtx, before, 500)
+		if err != nil {
+			log.Error().Err(err).Msg("audit retention worker failed")
+			return
+		}
+		if purged > 0 {
+			log.Info().Int64("purged", purged).Msg("audit retention worker completed")
+		}
+	})
+}
+
+// StartMessageRetentionWorker 周期性清理到期的消息正文与附件对象。
+// 该 worker 是 PIPL 第十九条「最短必要保存期限」在工程侧的执行者：到期即物理清空正文，
+// 并把清空后的空文档回写搜索索引，杜绝「库里删了、索引还能搜」的留存漏洞。
+// StartMessageRetentionWorker periodically purges expired message bodies and attachments.
+func StartMessageRetentionWorker(ctx context.Context, log zerolog.Logger, collaborationSvc *collaboration.Service) {
+	if collaborationSvc == nil {
+		return
+	}
+	policy := collaborationSvc.MessageRetentionPolicySnapshot()
+	if !policy.Enabled {
+		log.Info().Msg("message retention worker disabled")
+		return
+	}
+	intervalMinutes := intFromEnv("MESSAGE_RETENTION_CLEANUP_INTERVAL_MIN", 30)
+	batchLimit := intFromEnv("MESSAGE_RETENTION_CLEANUP_BATCH_LIMIT", 500)
+	interval := time.Duration(intervalMinutes) * time.Minute
+	log.Info().
+		Int("interval_min", intervalMinutes).
+		Int("batch_limit", batchLimit).
+		Dur("text_ttl", policy.TextTTL).
+		Dur("media_ttl", policy.MediaTTL).
+		Msg("message retention worker enabled")
+	go runTicker(ctx, interval, func() {
+		runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		defer cancel()
+		result, err := collaborationSvc.CleanupExpiredMessages(runCtx, time.Now(), batchLimit)
+		if err != nil {
+			log.Error().Err(err).Msg("message retention worker failed")
+			return
+		}
+		if result.MessagesPurged > 0 || result.AttachmentsPurged > 0 || result.AttachmentsFailed > 0 {
+			log.Info().
+				Int("messages_checked", result.MessagesChecked).
+				Int("messages_purged", result.MessagesPurged).
+				Int("attachments_checked", result.AttachmentsChecked).
+				Int("attachments_purged", result.AttachmentsPurged).
+				Int("attachments_failed", result.AttachmentsFailed).
+				Msg("message retention worker completed")
+		}
+	})
 }
 
 func StartRecordingCleanupWorker(ctx context.Context, log zerolog.Logger, collaborationSvc *collaboration.Service) {

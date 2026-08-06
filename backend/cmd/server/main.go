@@ -106,6 +106,12 @@ func main() {
 	collaborationSvc := collaboration.NewService(db, userSvc)
 	collaborationSvc.WithLogger(appLogger)
 	collaborationSvc.WithMetrics(counterStore)
+	// 装配隐私/合规策略（消息留存 TTL、正文信封加密），保证各进程策略一致。
+	// 失败必须直接退出：静默降级会造成「以为加密了其实是明文」的最坏结果。
+	// Wire privacy policies so every process shares retention + encryption behaviour.
+	if err := appruntime.ApplyPrivacyPolicies(cfg, collaborationSvc); err != nil {
+		appLogger.Fatal().Err(err).Msg("failed to apply privacy policies")
+	}
 	collaborationSvc.WithAdminSummaryCache(redisClient)
 	outboxStore := events.NewStore(db)
 	collaborationSvc.WithOutbox(outboxStore)
@@ -430,6 +436,7 @@ func main() {
 		SignalRealtimeAuth: auth.RealtimeMiddleware(realtimeTicketSvc, tokenValidator, "signaling"),
 		RoomRealtimeAuth:   auth.RealtimeMiddleware(realtimeTicketSvc, tokenValidator, "room"),
 		Metrics:            counterStore,
+		RequireTLS:         cfg.Security.RequireTLS,
 		ReadinessChecks: map[string]server.ReadinessCheck{
 			"mysql": func(ctx context.Context) error {
 				sqlDB, err := db.DB()

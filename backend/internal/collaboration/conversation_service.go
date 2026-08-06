@@ -576,6 +576,9 @@ func (s *Service) buildConversationSummaryWithUsers(ctx context.Context, conv mo
 	}
 	var last models.Message
 	if err := s.db.WithContext(ctx).Where("conversation_id = ?", conv.ID).Order("created_at DESC").Take(&last).Error; err == nil {
+		// 会话列表的「最后一条消息」预览同样来自加密列，必须解密后再截断。
+		// The conversation list preview also reads the encrypted column.
+		s.decryptMessageInPlace(&last)
 		item.LastMessagePreview = truncate(last.Body, 120)
 		item.LastMessageType = last.Type
 	}
@@ -760,14 +763,22 @@ func (s *Service) createMessageTx(ctx context.Context, tx *gorm.DB, organization
 		}
 		metadataJSON = string(raw)
 	}
+	// 落库前做应用层信封加密：数据库/备份/从库中只留密文。
+	// 注意这不是端到端加密——服务端持有主密钥，威胁模型见 messagecrypto 包注释。
+	// Encrypt before persisting so the DB/backups only ever hold ciphertext.
+	storedBody, encryptionMetadata, err := s.encryptMessageBody(body)
+	if err != nil {
+		return nil, err
+	}
 	message := &models.Message{
-		OrganizationID:   organizationID,
-		ConversationID:   conversationID,
-		SenderID:         userID,
-		ReplyToMessageID: input.ReplyToMessageID,
-		Type:             input.Type,
-		Body:             body,
-		MetadataJSON:     metadataJSON,
+		OrganizationID:     organizationID,
+		ConversationID:     conversationID,
+		SenderID:           userID,
+		ReplyToMessageID:   input.ReplyToMessageID,
+		Type:               input.Type,
+		Body:               storedBody,
+		MetadataJSON:       metadataJSON,
+		EncryptionMetadata: encryptionMetadata,
 	}
 	if message.ReplyToMessageID != nil {
 		var count int64
@@ -794,6 +805,11 @@ func (s *Service) createMessageTx(ctx context.Context, tx *gorm.DB, organization
 		if result.RowsAffected != int64(len(ids)) {
 			return nil, errors.New("one or more attachments are unavailable")
 		}
+	}
+	// 打上服务端留存终点（PIPL 第十九条「最短必要期限」）；策略关闭时为 no-op。
+	// Stamp the server-side retention deadline; no-op when the policy is disabled.
+	if err := s.applyMessageRetentionTx(ctx, tx, message, input.AttachmentIDs); err != nil {
+		return nil, err
 	}
 	now := time.Now()
 	if err := tx.Model(&models.Conversation{}).

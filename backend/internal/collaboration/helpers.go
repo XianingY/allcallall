@@ -148,8 +148,16 @@ func (s *Service) hydrateMessageRecords(ctx context.Context, viewerID uint64, re
 		if records[i].ReplyToMessageID != nil {
 			replyIDs = append(replyIDs, *records[i].ReplyToMessageID)
 		}
-		if records[i].DeletedAt != nil {
+		// 统一解密入口：ListMessagePage / loadMessageRecordForUser 都收敛到这里，
+		// 保证任何对外返回的 MessageRecord 都是明文，且数据库中始终是密文。
+		// Single decryption choke point for every outbound MessageRecord.
+		s.decryptMessageInPlace(&records[i].Message)
+		// 已删除 / 已撤回的消息只返回骨架。撤回的写路径已经清空了 body，
+		// 这里再兜一层，避免任何绕过写路径的数据（如历史行、直接改库）泄露正文。
+		// Deleted and recalled messages expose skeletons only; belt-and-braces over the write path.
+		if records[i].DeletedAt != nil || records[i].RecalledAt != nil {
 			records[i].Body = ""
+			records[i].MetadataJSON = ""
 		}
 	}
 
@@ -165,9 +173,15 @@ func (s *Service) hydrateMessageRecords(ctx context.Context, viewerID uint64, re
 		}
 		replyByID := map[uint64]MessageReplyPreview{}
 		for _, reply := range replies {
-			body := reply.Body
+			// 被引用消息是独立查询出来的，同样需要解密后才能做预览截断。
+			// Quoted messages are fetched separately, so they need decryption too.
+			body := s.decryptMessageBody(reply.Body, reply.EncryptionMetadata)
 			deleted := reply.DeletedAt != nil
-			if deleted {
+			recalled := reply.RecalledAt != nil
+			// 引用预览是最容易漏掉的泄露口：正文被撤回后，
+			// 若引用它的那条消息还带着 120 字预览，撤回就等于没做。
+			// Quote previews are the classic recall leak; blank them out as well.
+			if deleted || recalled {
 				body = ""
 			}
 			replyByID[reply.ID] = MessageReplyPreview{
@@ -177,6 +191,7 @@ func (s *Service) hydrateMessageRecords(ctx context.Context, viewerID uint64, re
 				SenderDisplayName: reply.SenderDisplayName,
 				Body:              truncate(body, 120),
 				Deleted:           deleted,
+				Recalled:          recalled,
 			}
 		}
 		for i := range records {

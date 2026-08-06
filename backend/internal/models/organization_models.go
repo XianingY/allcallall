@@ -81,13 +81,18 @@ func (OrganizationInvite) TableName() string {
 }
 
 type OrganizationPolicy struct {
-	ID                     uint64    `gorm:"primaryKey;autoIncrement"`
-	OrganizationID         uint64    `gorm:"not null;uniqueIndex"`
-	RecordingMode          string    `gorm:"size:48;not null;default:'off'"`
-	RecordingStorageDays   int       `gorm:"not null;default:30"`
-	RecordingExportAllowed bool      `gorm:"not null;default:false"`
-	CreatedAt              time.Time `gorm:"autoCreateTime"`
-	UpdatedAt              time.Time `gorm:"autoUpdateTime"`
+	ID                     uint64 `gorm:"primaryKey;autoIncrement"`
+	OrganizationID         uint64 `gorm:"not null;uniqueIndex"`
+	RecordingMode          string `gorm:"size:48;not null;default:'off'"`
+	RecordingStorageDays   int    `gorm:"not null;default:30"`
+	RecordingExportAllowed bool   `gorm:"not null;default:false"`
+	// RequireIdentityVerification 要求加入本组织的成员完成身份核验（实名绑定）。
+	// 开启后，未通过身份核验的用户在 AcceptOrganizationInvite 时会被拒绝，
+	// 满足金融/监管场景下「谁在操作」可追溯的合规要求。
+	// RequireIdentityVerification forces members to be identity-verified before joining.
+	RequireIdentityVerification bool      `gorm:"not null;default:false"`
+	CreatedAt                   time.Time `gorm:"autoCreateTime"`
+	UpdatedAt                   time.Time `gorm:"autoUpdateTime"`
 }
 
 func (OrganizationPolicy) TableName() string {

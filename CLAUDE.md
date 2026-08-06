@@ -21,15 +21,23 @@ runtime is a sibling repo `../allcallall-agent-runtime` (built in CI via
   Web:      cd web && npm run dev ; npx vitest run
   Mobile:   cd mobile && npx tsc --noEmit ; npm run test:unit
   Desktop:  cd desktop && npm run dev
-  Root:     make test-backend        (backend tests)
+  Root:     make fmt                 (gofmt -w on backend/)
+            make lint                (go vet backend + npm run lint web)
+            make test-backend        (backend tests)
             make verify              (backend + web/mobile tsc + python pytest)
             make web-contract-check  (web OpenAPI contract check)
 
-There is no `make lint` or `make typecheck` target at the repo root.
+There is no `make typecheck` target at the repo root; use the per-module `tsc`
+commands above.
 
 ## Security defaults
 
 - Production deployments MUST use HTTPS; never serve the API over plain HTTP in prod.
+  Set `SECURITY_REQUIRE_TLS=true` so the API rejects plaintext `/api/v1` traffic.
+- Message privacy policies (retention TTL, envelope encryption, recall, search
+  minimization, erasure, moderation) are assembled in
+  `backend/internal/runtime/privacy.go`. Any new process must call
+  `ApplyPrivacyPolicies` so policy stays consistent across API and workers.
 - All secrets/keys come from environment variables; never hardcode credentials or tokens.
 - Do not commit `.env`, `.omo`, `.workbuddy`, or `output/`.
 - Keep `ci.yml`, `backend-ci.yml`, `frontend-ci.yml`, `platform-ci.yml` green. Push over SSH.

@@ -14,6 +14,29 @@ import (
 
 const requestIDHeader = "X-Request-ID"
 
+// RequireTLS 返回一个强制使用 HTTPS 的中间件（当 enabled 为 true 时）。
+// 判定顺序：请求直接携带 TLS 状态（c.Request.TLS != nil）视为安全；
+// 经反向代理终结 TLS 的场景下，信任 X-Forwarded-Proto: https。
+// 两者皆不满足时返回 403，防止令牌/会话在明文通道上被中间人截获。
+// 关闭（enabled=false）时本中间件为空操作，保持向后兼容。
+// RequireTLS rejects non-HTTPS requests with 403 when enabled.
+func RequireTLS(enabled bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !enabled {
+			c.Next()
+			return
+		}
+		if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
+			c.Next()
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"error":   "HTTPS_REQUIRED",
+			"message": "this endpoint requires a TLS (https) connection",
+		})
+	}
+}
+
 type CORSConfig struct {
 	AllowedOrigins []string
 }
