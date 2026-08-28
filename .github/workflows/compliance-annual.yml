@@ -1,0 +1,55 @@
+name: Annual Compliance Self-Audit
+
+on:
+  # 每年 1 月 2 日 06:00 UTC 触发
+  schedule:
+    - cron: "0 6 2 1 *"
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      # 注入生产合规环境变量（来自仓库 Secrets / Environment），供
+      # opsjobs.RunAnnualAudit 评估态势与到期项。
+      - name: Run annual compliance self-audit
+        working-directory: backend
+        env:
+          SECURITY_REQUIRE_TLS: "true"
+          MESSAGE_RETENTION_ENABLED: "true"
+          MESSAGE_ENCRYPTION_ENABLED: "true"
+          MESSAGE_RECALL_ENABLED: "true"
+          SEARCH_INDEX_ENABLED: "true"
+          CONTENT_MODERATION_ENABLED: "true"
+          MESSAGE_ERASURE_ENABLED: "true"
+          REALNAME_VERIFICATION_ENABLED: "true"
+          AIGC_LABELING_ENABLED: "true"
+          KMS_PROVIDER: "cloud"
+          ICP_LICENSE_NUMBER: ${{ secrets.ICP_LICENSE_NUMBER }}
+          AI_ALGORITHM_FILING_NUMBER: ${{ secrets.AI_ALGORITHM_FILING_NUMBER }}
+          TLS_CERT_EXPIRY_DATE: ${{ secrets.TLS_CERT_EXPIRY_DATE }}
+          KMS_KEY_ROTATED_AT: ${{ secrets.KMS_KEY_ROTATED_AT }}
+          MLPS_GRADE: ${{ secrets.MLPS_GRADE }}
+          MLPS_CERT_NO: ${{ secrets.MLPS_CERT_NO }}
+        run: go run ./cmd/opsaudit -report compliance -out ../compliance-audit.json
+
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: compliance-audit
+          path: compliance-audit.json
+
+      # 年检不达标（overall=fail）则让流水线失败，触发人工介入
+      - name: Evaluate result
+        run: |
+          overall=$(jq -r '.compliance.overall' compliance-audit.json)
+          echo "Audit overall: $overall"
+          if [ "$overall" = "fail" ]; then
+            echo "::error::Annual compliance audit failed — manual remediation required"
+            exit 1
+          fi
