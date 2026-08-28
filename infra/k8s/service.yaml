@@ -1,0 +1,33 @@
+# Service：ClusterIP + 会话亲和关闭（无状态，任意副本可处理）。
+# 对外暴露由 Ingress / Gateway（含 WAF）负责，见 infra/waf。
+apiVersion: v1
+kind: Service
+metadata:
+  name: allcallall-api
+  namespace: allcallall
+  labels:
+    app.kubernetes.io/name: allcallall-api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: allcallall-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  # 无状态服务不使用会话亲和
+  sessionAffinity: None
+---
+# PodDisruptionBudget：保证滚动更新/节点维护时至少 2 个副本可用。
+# 配合 topologySpreadConstraints，单 zone 故障仍维持多数可用。
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: allcallall-api
+  namespace: allcallall
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: allcallall-api

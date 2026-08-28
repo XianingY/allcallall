@@ -156,4 +156,5 @@ func registerHealthRoutes(api *gin.RouterGroup, deps RouteDependencies) {
 			c.Data(http.StatusOK, "text/plain; version=0.0.4", []byte(deps.Metrics.RenderPrometheus()))
 		})
 	}
+	RegisterStatusRoutes(api, deps)
 }

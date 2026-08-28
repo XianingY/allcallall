@@ -1,0 +1,71 @@
+# AllCallAll WAF 规则集（Cloudflare 风格）
+#
+# 适用于在 Cloudflare / 边缘网关前置的 WAF。覆盖 OWASP Top 10 中与 AI 聊天
+# 服务相关的风险，并针对生成式 AI 接口（提示注入、滥用、爬取）做了专项加固。
+#
+# 部署方式（Cloudflare API）：
+#   cf api --post accounts/:account_id/rulesets/... \
+#     -d @cloudflare-ruleset.yaml
+# 或导入 Cloudflare 控制台的 Custom Rules / WAF Managed Rules。
+#
+# 说明：
+#  - action: "block" 直接拒绝；"challenge" 质询；"log" 仅记录（灰度期先用 log 观察）。
+#  - 生产建议先用 log 模式跑 1-2 周，确认误杀后再切 block。
+
+description: "AllCallAll production WAF — OWASP Top 10 + AI abuse protection"
+kind: managed
+name: allcallall-edge-waf
+phases:
+  - phase: 1   # 已知恶意来源 / 扫描器
+    rules:
+      - action: block
+        description: "Block known bad autonomous scanners / credential stuffing ASNs"
+        expression: "(cf.verified_bot_category eq \"Scraper\" and not cf.verified_bot) or ip.geoip.asnum in {45090 396982 208046}"
+      - action: challenge
+        description: "Challenge clients with no valid user-agent hitting API"
+        expression: "http.request.uri.path matches \"^/api/\" and not http.user_agent exists"
+
+  - phase: 2   # OWASP A03/A01 — 注入与认证
+    rules:
+      - action: block
+        description: "OWASP A03 — SQLi in query/body (covers chat & auth endpoints)"
+        expression: "any(http.request.headers.names[*] contains \"x-\") or cf.waf.match(2, \"sqli\") or http.request.body.raw contains \"' or '1'='1'\""
+      - action: block
+        description: "OWASP A01 — Path traversal / LFI attempts"
+        expression: "http.request.uri.path matches \"(\\.\\./|%2e%2e|/etc/passwd|/proc/self)\""
+      - action: block
+        description: "OWASP A03 — Command injection in prompt/params"
+        expression: "http.request.body.raw matches \"(;|\|)(cat|curl|wget|bash|sh|nc)\\s\" or http.request.uri.query matches \"(;|\|)ping\""
+
+  - phase: 3   # OWASP A05/A07 — 越权与 SSRF
+    rules:
+      - action: block
+        description: "OWASP A10/A07 — SSRF via image/url fetch params"
+        expression: "http.request.uri.query matches \"(url|image_url|webhook|callback)=\" and (http.request.uri.query matches \"169.254.169.254|metadata.google|127.0.0.1|localhost\")"
+      - action: log
+        description: "OWASP A07 — Mass assignment: client attempting to set org/id fields"
+        expression: "http.request.body.raw matches \"(\\\"organization_id\\\"|\\\"is_admin\\\"|\\\"role\\\")\""
+
+  - phase: 4   # AI 专项 — 提示注入 / 滥用 / 爬取
+    rules:
+      - action: block
+        description: "AI abuse — prompt injection patterns targeting system prompt"
+        expression: "http.request.body.raw matches \"(ignore previous instructions|disregard your system prompt|you are now|system prompt:|<system>)\" and http.request.uri.path matches \"^/api/v1/(agent|chat|knowledge)\""
+      - action: log
+        description: "AI abuse — bulk scraping detection (high request rate to RAG endpoints)"
+        expression: "http.request.uri.path matches \"^/api/v1/(knowledge|search)\" and cf.threat_score gt 20"
+      - action: challenge
+        description: "AI abuse — token harvesting bots hitting free-tier signup"
+        expression: "http.request.uri.path matches \"^/api/v1/auth/(register|login)\" and cf.bot_management.score lt 30"
+
+  - phase: 5   # 速率限制（兜底）
+    rules:
+      - action: log
+        description: "Global API rate limit — 600 req / 1 min per IP (enforced at edge, backend also limits)"
+        expression: "http.request.uri.path matches \"^/api/\""
+        ratelimit:
+          characteristics: ["ip.src"]
+          period: 60
+          threshold: 600
+          action: block
+          mitigation_timeout: 600
