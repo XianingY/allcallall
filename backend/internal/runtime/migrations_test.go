@@ -17,8 +17,8 @@ import (
 )
 
 func TestCurrentSchemaVersionIncludesDurableSandboxReceipts(t *testing.T) {
-	if currentSchemaVersion != 13 {
-		t.Fatalf("current schema version=%d want=13", currentSchemaVersion)
+	if currentSchemaVersion != 14 {
+		t.Fatalf("current schema version=%d want=14", currentSchemaVersion)
 	}
 	migrations := map[string]map[string][]string{
 		"000003_workflow_runtime_resume": {

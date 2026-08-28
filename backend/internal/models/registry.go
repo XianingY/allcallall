@@ -22,5 +22,6 @@ func AllModels() []any {
 		&LangGraphCheckpointThread{}, &LangGraphCheckpoint{}, &LangGraphCheckpointWrite{}, &EventOutbox{},
 		&WeeklyTask{}, &WeeklyTaskRun{},
 		&ChatGroup{}, &ChatGroupMember{}, &ChatMessage{}, &ChatMessageReceipt{},
+		&OrganizationPlan{}, &OrganizationUsageLedger{}, &Invoice{}, &InvoiceLine{}, &QuotaPolicy{},
 	}
 }
