@@ -112,6 +112,72 @@ func TestWorkflowCheckpointBusyReleasesLeaseWithoutAttemptCost(t *testing.T) {
 	}
 }
 
+func TestWorkflowCheckpointTooLargeFallsBackToLegacyEngine(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	// The external LangGraph runtime reports an oversized checkpoint.
+	runtime := &fakeMeetingBriefRuntime{runErr: &CheckpointTransactionTooLargeError{Body: `{"detail":{"code":"checkpoint_transaction_too_large"}}`}}
+	svc.WithWorkflowRuntime(runtime)
+	conversation := seedWorkflowConversation(t, db)
+	seedReadyMeetingTranscript(t, db, conversation, 88)
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Preset:         WorkflowPresetMeetingBrief,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Run.RuntimeOwner != WorkflowRuntimePythonLangGraph {
+		t.Fatalf("expected Python owner at creation, got %q", created.Run.RuntimeOwner)
+	}
+	result, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatalf("expected checkpoint-too-large to degrade to legacy engine, got error: %v", err)
+	}
+	if result.Run.Status == models.WorkflowRunStatusFailed {
+		t.Fatalf("checkpoint-too-large permanently failed instead of degrading: %+v", result.Run)
+	}
+	if runtime.calls != 1 {
+		t.Fatalf("expected exactly one external call before fallback, got %d", runtime.calls)
+	}
+	var fallbackCount int64
+	if err := db.Model(&models.WorkflowHistoryEvent{}).
+		Where("workflow_run_id = ? AND event_type = ?", created.Run.ID, models.WorkflowHistoryEventCheckpointFallback).
+		Count(&fallbackCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if fallbackCount != 1 {
+		t.Fatalf("expected exactly one checkpoint_fallback history event, got %d", fallbackCount)
+	}
+}
+
+func TestWorkflowCheckpointTooLargeFailsClosedWhenDisabled(t *testing.T) {
+	t.Setenv("WORKFLOW_CHECKPOINT_FALLBACK", "false")
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	runtime := &fakeMeetingBriefRuntime{runErr: &CheckpointTransactionTooLargeError{Body: `{"detail":{"code":"checkpoint_transaction_too_large"}}`}}
+	svc.WithWorkflowRuntime(runtime)
+	conversation := seedWorkflowConversation(t, db)
+	seedReadyMeetingTranscript(t, db, conversation, 88)
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Preset:         WorkflowPresetMeetingBrief,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ProcessWorkflowRun(ctx, created.Run.ID); !errors.Is(err, ErrCheckpointTransactionTooLarge) {
+		t.Fatalf("expected checkpoint-too-large error when fallback disabled, got %v", err)
+	}
+	var stored models.WorkflowRun
+	if err := db.Take(&stored, created.Run.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != models.WorkflowRunStatusFailed {
+		t.Fatalf("expected failed run when fallback disabled, got %s", stored.Status)
+	}
+}
+
 func TestWorkflowTaskAttemptCannotFinishWithStaleRunLease(t *testing.T) {
 	ctx := context.Background()
 	svc, db := newWorkflowTestService(t)

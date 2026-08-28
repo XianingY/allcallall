@@ -24,15 +24,27 @@ import (
 //     scrapers are never throttled.
 //   - The limit/window are configurable via GLOBAL_RATE_LIMIT (requests per
 //     window) and GLOBAL_RATE_WINDOW (Go duration string, e.g. "1m").
+//   - By default the limiter uses a sliding window (RATE_LIMIT_SLIDING_WINDOW,
+//     default "true") which avoids the boundary-burst weakness of a fixed
+//     window. Set it to "false" to revert to the fixed-window algorithm.
 func GlobalRateLimit(svc *ratelimit.Service) gin.HandlerFunc {
 	limit := globalRateLimit()
 	window := globalRateWindow()
+	useSliding := globalRateSlidingWindow()
 	return func(c *gin.Context) {
 		if isHealthOrMetricsPath(c.Request.URL.Path) {
 			c.Next()
 			return
 		}
-		allowed, retryAfter, err := svc.Allow(c.Request.Context(), "global:ip:"+c.ClientIP(), limit, window)
+		key := "global:ip:" + c.ClientIP()
+		var allowed bool
+		var retryAfter int64
+		var err error
+		if useSliding {
+			allowed, retryAfter, err = svc.SlidingAllow(c.Request.Context(), key, int(limit), window)
+		} else {
+			allowed, retryAfter, err = svc.Allow(c.Request.Context(), key, limit, window)
+		}
 		if err != nil {
 			// Fail open: never block traffic because the limiter is unhealthy.
 			c.Next()
@@ -83,4 +95,16 @@ func globalRateWindow() time.Duration {
 		}
 	}
 	return time.Minute
+}
+
+// globalRateSlidingWindow reports whether the global limiter should use the
+// sliding-window algorithm. It defaults to true; set RATE_LIMIT_SLIDING_WINDOW
+// to "false" to fall back to the fixed-window algorithm.
+func globalRateSlidingWindow() bool {
+	if v := strings.TrimSpace(os.Getenv("RATE_LIMIT_SLIDING_WINDOW")); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+	}
+	return true
 }

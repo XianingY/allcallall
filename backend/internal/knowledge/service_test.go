@@ -77,6 +77,12 @@ func (f *fakeHybridChunkIndexer) SearchChunksHybrid(_ context.Context, query sea
 	return out, nil
 }
 
+// SearchChunks mirrors the production ElasticsearchIndexer: a hybrid-capable
+// indexer routes SearchChunks through the dual-channel (RRF) path by default.
+func (f *fakeHybridChunkIndexer) SearchChunks(ctx context.Context, query search.ContextChunkSearchQuery) ([]search.ContextChunkSearchResult, error) {
+	return f.SearchChunksHybrid(ctx, query)
+}
+
 type reverseReranker struct{}
 
 func (reverseReranker) Rerank(_ context.Context, input search.RerankInput) ([]search.RerankResult, error) {

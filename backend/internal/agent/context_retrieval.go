@@ -47,10 +47,6 @@ type bm25ChunkSearcher interface {
 	SearchChunksBM25(ctx context.Context, query search.ContextChunkSearchQuery) ([]search.ContextChunkSearchResult, error)
 }
 
-type hybridChunkSearcher interface {
-	SearchChunksHybrid(ctx context.Context, query search.ContextChunkSearchQuery) ([]search.ContextChunkSearchResult, error)
-}
-
 func (s *Service) refreshConversationContextChunks(ctx context.Context, conversationCtx *conversationContext) error {
 	organizationID := conversationCtx.Conversation.OrganizationID
 	conversationID := conversationCtx.Conversation.ID
@@ -213,34 +209,10 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, convers
 					searchRes []search.ContextChunkSearchResult
 					searchErr error
 				)
-				if hybrid, ok := s.indexer.(hybridChunkSearcher); ok {
-					searchRes, searchErr = hybrid.SearchChunksHybrid(ctx, searchQuery)
-				} else {
-					searchRes, searchErr = s.indexer.SearchChunks(ctx, searchQuery)
-				}
+				searchRes, searchErr = s.indexer.SearchChunks(ctx, searchQuery)
 				if searchErr == nil && len(searchRes) > 0 {
 					for _, res := range searchRes {
-						scored = append(scored, RetrievedContextChunk{
-							Chunk: models.AgentContextChunk{
-								OrganizationID: res.OrganizationID,
-								ConversationID: res.ConversationID,
-								SourceType:     res.SourceType,
-								SourceID:       res.SourceID,
-								Content:        res.Content,
-								Keywords:       res.Keywords,
-								UpdatedAt:      res.UpdatedAt,
-							},
-							Score:         hybridConversationChunkScore(res),
-							RetrievalMode: FirstNonEmptyString(res.RetrievalMode, models.RAGRetrievalModeVector),
-							BM25Rank:      res.BM25Rank,
-							VectorRank:    res.VectorRank,
-							RRFScore:      res.RRFScore,
-							BM25Score:     res.BM25Score,
-							VectorScore:   res.VectorScore,
-							RerankScore:   res.RerankScore,
-							RerankReason:  res.RerankReason,
-							FinalRank:     res.FinalRank,
-						})
+						scored = append(scored, retrievedContextChunkFromSearch(res, models.RAGRetrievalModeVector))
 					}
 				} else if searchErr != nil {
 					fallbackReason = "vector_error"
@@ -256,27 +228,7 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, convers
 				searchRes, searchErr := bm25.SearchChunksBM25(ctx, searchQuery)
 				if searchErr == nil && len(searchRes) > 0 {
 					for _, res := range searchRes {
-						scored = append(scored, RetrievedContextChunk{
-							Chunk: models.AgentContextChunk{
-								OrganizationID: res.OrganizationID,
-								ConversationID: res.ConversationID,
-								SourceType:     res.SourceType,
-								SourceID:       res.SourceID,
-								Content:        res.Content,
-								Keywords:       res.Keywords,
-								UpdatedAt:      res.UpdatedAt,
-							},
-							Score:         hybridConversationChunkScore(res),
-							RetrievalMode: FirstNonEmptyString(res.RetrievalMode, models.RAGRetrievalModeBM25),
-							BM25Rank:      res.BM25Rank,
-							VectorRank:    res.VectorRank,
-							RRFScore:      res.RRFScore,
-							BM25Score:     res.BM25Score,
-							VectorScore:   res.VectorScore,
-							RerankScore:   res.RerankScore,
-							RerankReason:  res.RerankReason,
-							FinalRank:     res.FinalRank,
-						})
+						scored = append(scored, retrievedContextChunkFromSearch(res, models.RAGRetrievalModeBM25))
 					}
 					fallbackReason = ""
 				} else if searchErr != nil {
@@ -367,4 +319,32 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, convers
 		scored = scored[:limit]
 	}
 	return scored, nil
+}
+
+// retrievedContextChunkFromSearch converts a search result into the
+// RetrievedContextChunk shape used by the agent context pipeline. The vector
+// and BM25 call sites differed only in the default retrieval mode, so this
+// helper removes the duplicated mapping that previously lived in both blocks.
+func retrievedContextChunkFromSearch(res search.ContextChunkSearchResult, defaultMode string) RetrievedContextChunk {
+	return RetrievedContextChunk{
+		Chunk: models.AgentContextChunk{
+			OrganizationID: res.OrganizationID,
+			ConversationID: res.ConversationID,
+			SourceType:     res.SourceType,
+			SourceID:       res.SourceID,
+			Content:        res.Content,
+			Keywords:       res.Keywords,
+			UpdatedAt:      res.UpdatedAt,
+		},
+		Score:         hybridConversationChunkScore(res),
+		RetrievalMode: search.NormalizeRetrievalMode(res.RetrievalMode, defaultMode),
+		BM25Rank:      res.BM25Rank,
+		VectorRank:    res.VectorRank,
+		RRFScore:      res.RRFScore,
+		BM25Score:     res.BM25Score,
+		VectorScore:   res.VectorScore,
+		RerankScore:   res.RerankScore,
+		RerankReason:  res.RerankReason,
+		FinalRank:     res.FinalRank,
+	}
 }

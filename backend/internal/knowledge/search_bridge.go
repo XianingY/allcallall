@@ -35,11 +35,7 @@ func (s *Service) Search(ctx context.Context, organizationID uint64, conversatio
 			}
 			var searchRes []search.ContextChunkSearchResult
 			var searchErr error
-			if hybrid, ok := s.indexer.(HybridChunkSearcher); ok {
-				searchRes, searchErr = hybrid.SearchChunksHybrid(ctx, searchQuery)
-			} else {
-				searchRes, searchErr = s.indexer.SearchChunks(ctx, searchQuery)
-			}
+			searchRes, searchErr = s.indexer.SearchChunks(ctx, searchQuery)
 			if searchErr == nil && len(searchRes) > 0 {
 				out := s.searchResultsToOutput(searchRes, chunks, sources, versions, limit)
 				if len(out) > 0 {
@@ -94,10 +90,7 @@ func (s *Service) searchResultsToOutput(results []search.ContextChunkSearchResul
 			continue
 		}
 		seen[chunk.ContentHash] = true
-		mode := item.RetrievalMode
-		if mode == "" {
-			mode = models.RAGRetrievalModeVector
-		}
+		mode := search.NormalizeRetrievalMode(item.RetrievalMode, models.RAGRetrievalModeVector)
 		score := int(item.Score * 100)
 		if item.RRFScore > 0 {
 			score = int(item.RRFScore * 10000)

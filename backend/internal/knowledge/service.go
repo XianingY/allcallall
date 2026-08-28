@@ -53,10 +53,6 @@ type BM25ChunkSearcher interface {
 	SearchChunksBM25(ctx context.Context, query search.ContextChunkSearchQuery) ([]search.ContextChunkSearchResult, error)
 }
 
-type HybridChunkSearcher interface {
-	SearchChunksHybrid(ctx context.Context, query search.ContextChunkSearchQuery) ([]search.ContextChunkSearchResult, error)
-}
-
 type EmbeddingProvider interface {
 	CreateEmbedding(ctx context.Context, text string) ([]float32, error)
 }

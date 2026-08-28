@@ -260,6 +260,14 @@ func (s *Service) ExecuteRun(ctx context.Context, runID uint64) (result *RunResu
 			}
 		}
 		if errors.Is(resultErr, ErrCheckpointTransactionTooLarge) {
+			if agentCheckpointTooLargeFallbackToGo() {
+				// The LangGraph checkpoint exceeded the persistence size limit.
+				// Degrade to the in-process Go ReAct engine, which does not
+				// persist LangGraph checkpoints and is therefore unaffected by
+				// the size ceiling. The run still produces a result instead of
+				// being permanently failed.
+				return s.executeLegacyAgentRun(ctx, run, goal)
+			}
 			attempts = agentRunMaxAttempts
 		}
 		// Persist terminal state even when the execution context timed out or was canceled.

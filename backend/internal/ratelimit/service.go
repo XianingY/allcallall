@@ -3,6 +3,8 @@ package ratelimit
 import (
 	"context"
 	"fmt"
+	"math"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -43,6 +45,33 @@ func (s *Service) Allow(ctx context.Context, key string, limit int64, window tim
 			return false, 0, ttlErr
 		}
 		return false, int64(ttl.Seconds()), nil
+	}
+	return true, 0, nil
+}
+
+// SlidingAllow enforces the rate limit with the sliding-window algorithm,
+// which eliminates the boundary-burst weakness of Allow's fixed window (where
+// a client can fire the full quota right before AND right after a window
+// boundary). It fails open: a nil client or a Redis error returns
+// allowed=true so the limiter can never take down the API during a Redis
+// outage. On denial it returns a Retry-After hint in seconds.
+func (s *Service) SlidingAllow(ctx context.Context, key string, limit int, window time.Duration) (bool, int64, error) {
+	if s == nil || s.redis == nil {
+		return true, 0, nil
+	}
+	if limit <= 0 {
+		limit = 1
+	}
+	if window <= 0 {
+		window = time.Minute
+	}
+	sw := NewSlidingWindow(s.redis, limit, window)
+	allowed, err := sw.Allow(key)
+	if err != nil {
+		return false, 0, err
+	}
+	if !allowed {
+		return false, sw.RetryAfter(key), nil
 	}
 	return true, 0, nil
 }
@@ -128,4 +157,38 @@ func (sw *SlidingWindow) GetRemaining(key string) (int64, error) {
 	}
 
 	return remaining, nil
+}
+
+// RetryAfter returns the number of seconds until the oldest request currently
+// inside the window ages out, at which point a new request would be permitted
+// again. It falls back to the full window duration when the key has no entries
+// or Redis is unavailable, so callers always get a sane, non-zero hint.
+func (sw *SlidingWindow) RetryAfter(key string) int64 {
+	now := time.Now()
+	windowStart := now.Add(-sw.window)
+
+	// The oldest still-valid member is the next one to age out of the window.
+	members, err := sw.redis.ZRangeByScore(context.Background(), key, &redis.ZRangeBy{
+		Min:    fmt.Sprintf("%d", windowStart.UnixNano()),
+		Max:    fmt.Sprintf("%d", now.UnixNano()),
+		Offset: 0,
+		Count:  1,
+	}).Result()
+	if err != nil || len(members) == 0 {
+		return int64(sw.window.Seconds())
+	}
+	oldest, err := strconv.ParseInt(members[0], 10, 64)
+	if err != nil {
+		return int64(sw.window.Seconds())
+	}
+	// Time until oldest.UnixNano() + window <= now.
+	untilNanos := oldest + sw.window.Nanoseconds() - now.UnixNano()
+	if untilNanos < 0 {
+		untilNanos = 0
+	}
+	secs := int64(math.Ceil(float64(untilNanos) / float64(time.Second)))
+	if secs < 1 {
+		secs = 1
+	}
+	return secs
 }
