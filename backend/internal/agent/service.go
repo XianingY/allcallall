@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/allcallall/backend/internal/async"
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/knowledge"
 	"github.com/allcallall/backend/internal/mcpplatform"
@@ -59,6 +60,8 @@ type Service struct {
 	workflowRuntime    WorkflowRuntime
 	toolCapabilities   ToolCapabilityProvider
 	mcpPlatform        *mcpplatform.Service
+	// jobs 是有界的后台任务池（RAG 分片索引等）。未注入时回退到裸 goroutine。
+	jobs *async.Pool
 }
 
 type RunInput struct {
@@ -165,6 +168,13 @@ func (s *Service) WithOutbox(outbox *events.Store) {
 
 func (s *Service) WithStreamPublisher(p StreamPublisher) *Service {
 	s.streamPublisher = p
+	return s
+}
+
+// WithAsyncPool 注入有界任务池，用于 RAG 分片索引等后台工作。
+// 不注入则回退为每任务一个协程（无并发上限）。
+func (s *Service) WithAsyncPool(pool *async.Pool) *Service {
+	s.jobs = pool
 	return s
 }
 

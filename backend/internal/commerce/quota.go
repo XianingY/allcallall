@@ -2,13 +2,15 @@ package commerce
 
 import (
 	"context"
+	"strconv"
 
+	"github.com/allcallall/backend/internal/alerting"
 	"github.com/allcallall/backend/internal/models"
 )
 
 // premiumGatedFeatures require a premium (paid) user or org plan to use.
 var premiumGatedFeatures = map[string]bool{
-	"advanced_analytics": true,
+	"advanced_analytics":  true,
 	"custom_integrations": true,
 }
 
@@ -16,11 +18,20 @@ var premiumGatedFeatures = map[string]bool{
 type QuotaService struct {
 	repo        *OrgRepository
 	entitlement *EntitlementService
+	alerter     *alerting.Service
 }
 
 // NewQuotaService builds a QuotaService.
 func NewQuotaService(repo *OrgRepository, entitlement *EntitlementService) *QuotaService {
 	return &QuotaService{repo: repo, entitlement: entitlement}
+}
+
+// WithAlerter 接入告警服务。配额熔断（org_quota_exceeded）时按 P2 上报，
+// 由 alerting 的去重窗口抑制同一租户/功能的重复告警，避免请求级刷屏。
+// WithAlerter wires an alerting service so quota breaches are observable.
+func (s *QuotaService) WithAlerter(svc *alerting.Service) *QuotaService {
+	s.alerter = svc
+	return s
 }
 
 // AccessDecision describes whether a feature may be used.
@@ -55,7 +66,9 @@ func (s *QuotaService) CheckFeatureAccess(ctx context.Context, orgID, userID uin
 					periodKey := periodKeyNow()
 					ledger, lerr := s.repo.GetOrgUsageLedger(ctx, orgID, feature, periodKey)
 					if lerr == nil && ledger.Units >= policy.LimitUnits {
-						return AccessDecision{Allowed: false, Reason: "org_quota_exceeded"}, nil
+						decision := AccessDecision{Allowed: false, Reason: "org_quota_exceeded"}
+						s.emitQuotaBreach(orgID, userID, feature, policy.LimitUnits, ledger.Units)
+						return decision, nil
 					}
 				}
 			}
@@ -92,4 +105,27 @@ func (s *QuotaService) RecordUsage(ctx context.Context, orgID, userID uint64, fe
 		}
 	}
 	return nil
+}
+
+// emitQuotaBreach 在租户配额熔断时按 P2 上报。alerting 的去重窗口会抑制同一
+// 租户/功能在短时间内重复触发的告警，避免请求级刷屏。未配置 alerter 时静默。
+// emitQuotaBreach notifies on-call when a tenant's quota circuit-breaker trips.
+func (s *QuotaService) emitQuotaBreach(orgID, userID uint64, feature string, limit, used int64) {
+	if s.alerter == nil {
+		return
+	}
+	if err := s.alerter.Emit(context.Background(), alerting.Alert{
+		Severity: alerting.SeverityP2,
+		Title:    "tenant quota exceeded",
+		Detail:   "feature " + feature + " blocked: usage " + strconv.FormatInt(used, 10) + " >= limit " + strconv.FormatInt(limit, 10),
+		Labels: map[string]string{
+			"component": "quota",
+			"org_id":    strconv.FormatUint(orgID, 10),
+			"user_id":   strconv.FormatUint(userID, 10),
+			"feature":   feature,
+		},
+	}); err != nil {
+		// 告警失败不应阻断主流程；Emit 已内部记录。
+		_ = err
+	}
 }

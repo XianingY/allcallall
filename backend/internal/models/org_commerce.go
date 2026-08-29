@@ -10,7 +10,7 @@ type OrganizationPlan struct {
 	PlanID             string    `gorm:"size:64;not null;index"`
 	PlanName           string    `gorm:"size:120"`
 	Status             string    `gorm:"size:32;not null;default:'active';index"` // active|canceled|past_due
-	BillingCycle       string    `gorm:"size:16;not null;default:'monthly'"`       // monthly|annual
+	BillingCycle       string    `gorm:"size:16;not null;default:'monthly'"`      // monthly|annual
 	CurrentPeriodStart time.Time `gorm:"index"`
 	CurrentPeriodEnd   time.Time `gorm:"index"`
 	Seats              int       `gorm:"not null;default:1"`
@@ -46,7 +46,7 @@ type Invoice struct {
 	SubtotalMinor      int64      `gorm:"not null;default:0"` // 最小货币单位(分)
 	TaxMinor           int64      `gorm:"not null;default:0"`
 	TotalMinor         int64      `gorm:"not null;default:0"`
-	TaxRatePermille    int        `gorm:"not null;default:0"` // 税率(千分比): 60=6%, 130=13%
+	TaxRatePermille    int        `gorm:"not null;default:0"`                     // 税率(千分比): 60=6%, 130=13%
 	Status             string     `gorm:"size:32;not null;default:'draft';index"` // draft|issued|paid|void
 	IssuedAt           *time.Time `gorm:"index"`
 	CreatedAt          time.Time  `gorm:"autoCreateTime"`

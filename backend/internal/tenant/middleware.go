@@ -14,8 +14,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/allcallall/backend/internal/auth"
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
@@ -85,20 +85,45 @@ func (h HeaderFallbackResolver) Resolve(c *gin.Context) (uint64, uint64, bool) {
 	return orgID, userID, true
 }
 
-// TenantMiddleware enforces that every request is bound to a single tenant and
-// stores the resolved identity in the context for downstream handlers and scopes.
+// Config controls how TenantMiddleware treats requests it cannot bind to a tenant.
+type Config struct {
+	// Enforce turns an unresolvable tenant into a hard 403.
+	//
+	// Enable it only when every legitimate caller is guaranteed to belong to an
+	// organization. In this product a freshly registered user has no membership
+	// yet, so enabling Enforce globally would lock such users out of
+	// account-level endpoints (profile, logout, ...). The recommended rollout is
+	// therefore: annotate everywhere, enforce once membership is guaranteed.
+	Enforce bool
+}
+
+// TenantMiddleware binds every request to a single tenant and stores the resolved
+// identity in the context. Unresolvable requests are rejected with 403.
 func TenantMiddleware(resolver Resolver) gin.HandlerFunc {
+	return TenantMiddlewareWithConfig(resolver, Config{Enforce: true})
+}
+
+// TenantMiddlewareWithConfig annotates the request with the resolved tenant and
+// optionally enforces it. Without Enforce the middleware never blocks: handlers
+// still get tenant.OrgID(c) when available, and organization-scoped endpoints
+// keep being guarded by their own ResolveOrganization checks. This is what makes
+// a staged rollout possible without breaking users that have no organization yet.
+func TenantMiddlewareWithConfig(resolver Resolver, cfg Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		orgID, userID, ok := resolver.Resolve(c)
-		if !ok {
+		if ok {
+			c.Set(string(OrgIDKey), orgID)
+			c.Set(string(UserIDKey), userID)
+			c.Next()
+			return
+		}
+		if cfg.Enforce {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"error":   "tenant_unresolved",
 				"message": "request is not associated with an organization",
 			})
 			return
 		}
-		c.Set(string(OrgIDKey), orgID)
-		c.Set(string(UserIDKey), userID)
 		c.Next()
 	}
 }

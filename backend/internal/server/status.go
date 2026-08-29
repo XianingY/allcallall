@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -52,7 +54,10 @@ func buildStatusResponse(deps RouteDependencies) StatusResponse {
 		start := time.Now()
 		if err := check(context.Background()); err != nil {
 			cs.Healthy = false
-			cs.Error = err.Error()
+			// 该端点无需鉴权即可访问，依赖的原始错误会泄露内网地址、端口与
+			// 数据库类型（如 "dial tcp 10.0.1.20:3306: connect: refused"），
+			// 为横向移动提供侦察信息。对外只回显错误类别。
+			cs.Error = errCategory(err)
 			allHealthy = false
 		}
 		cs.LatencyMs = time.Since(start).Milliseconds()
@@ -75,6 +80,30 @@ func buildStatusResponse(deps RouteDependencies) StatusResponse {
 		resp.Metrics = deps.Metrics.Snapshot()
 	}
 	return resp
+}
+
+// errCategory maps a dependency error to a coarse, non-revealing category.
+// Detailed errors stay in server logs; the public status page must not expose
+// internal hosts, ports or driver internals.
+func errCategory(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case strings.Contains(msg, "connection refused"):
+		return "unreachable"
+	case strings.Contains(msg, "no such host"), strings.Contains(msg, "lookup "):
+		return "dns_failure"
+	case strings.Contains(msg, "timeout"), strings.Contains(msg, "deadline exceeded"):
+		return "timeout"
+	case strings.Contains(msg, "authentication"), strings.Contains(msg, "access denied"):
+		return "auth_failure"
+	default:
+		return "dependency_error"
+	}
 }
 
 // RegisterStatusRoutes adds the public SLA status page under the API group.

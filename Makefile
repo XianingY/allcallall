@@ -338,4 +338,5 @@ fmt:
 lint:
 	@echo "Vetting backend and linting web..."
 	cd backend && go vet ./...
+	cd backend && go run ./cmd/check-unbounded-find
 	cd web && npm run lint

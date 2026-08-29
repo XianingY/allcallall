@@ -66,12 +66,12 @@ func (s *Service) SlidingAllow(ctx context.Context, key string, limit int, windo
 		window = time.Minute
 	}
 	sw := NewSlidingWindow(s.redis, limit, window)
-	allowed, err := sw.Allow(key)
+	allowed, err := sw.Allow(ctx, key)
 	if err != nil {
 		return false, 0, err
 	}
 	if !allowed {
-		return false, sw.RetryAfter(key), nil
+		return false, sw.RetryAfter(ctx, key), nil
 	}
 	return true, 0, nil
 }
@@ -94,7 +94,7 @@ func NewSlidingWindow(redis *redis.Client, maxRequests int, window time.Duration
 
 // Allow checks if a request is allowed under the sliding window limit.
 // Returns true if allowed, false if rate limited.
-func (sw *SlidingWindow) Allow(key string) (bool, error) {
+func (sw *SlidingWindow) Allow(ctx context.Context, key string) (bool, error) {
 	now := time.Now()
 	windowStart := now.Add(-sw.window)
 
@@ -102,23 +102,23 @@ func (sw *SlidingWindow) Allow(key string) (bool, error) {
 	pipe := sw.redis.Pipeline()
 
 	// Remove old entries outside the window
-	pipe.ZRemRangeByScore(context.Background(), key, "0", fmt.Sprintf("%d", windowStart.UnixNano()))
+	pipe.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", windowStart.UnixNano()))
 
 	// Count current entries in window
-	countCmd := pipe.ZCard(context.Background(), key)
+	countCmd := pipe.ZCard(ctx, key)
 
 	// Add current request
 	member := fmt.Sprintf("%d", now.UnixNano())
-	pipe.ZAdd(context.Background(), key, redis.Z{
+	pipe.ZAdd(ctx, key, redis.Z{
 		Score:  float64(now.UnixNano()),
 		Member: member,
 	})
 
 	// Set expiry on the key
-	pipe.Expire(context.Background(), key, sw.window+time.Second)
+	pipe.Expire(ctx, key, sw.window+time.Second)
 
 	// Execute pipeline
-	_, err := pipe.Exec(context.Background())
+	_, err := pipe.Exec(ctx)
 	if err != nil {
 		return false, fmt.Errorf("redis pipeline failed: %w", err)
 	}
@@ -128,8 +128,8 @@ func (sw *SlidingWindow) Allow(key string) (bool, error) {
 
 	// If adding this request would exceed limit, remove it and deny
 	if count >= int64(sw.maxRequests) {
-		pipe.ZRem(context.Background(), key, member)
-		pipe.Exec(context.Background())
+		pipe.ZRem(ctx, key, member)
+		pipe.Exec(ctx)
 		return false, nil
 	}
 
@@ -137,16 +137,16 @@ func (sw *SlidingWindow) Allow(key string) (bool, error) {
 }
 
 // GetRemaining returns the number of requests remaining in the current window.
-func (sw *SlidingWindow) GetRemaining(key string) (int64, error) {
+func (sw *SlidingWindow) GetRemaining(ctx context.Context, key string) (int64, error) {
 	now := time.Now()
 	windowStart := now.Add(-sw.window)
 
 	// Remove old entries and count
 	pipe := sw.redis.Pipeline()
-	pipe.ZRemRangeByScore(context.Background(), key, "0", fmt.Sprintf("%d", windowStart.UnixNano()))
-	countCmd := pipe.ZCard(context.Background(), key)
+	pipe.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", windowStart.UnixNano()))
+	countCmd := pipe.ZCard(ctx, key)
 
-	_, err := pipe.Exec(context.Background())
+	_, err := pipe.Exec(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -163,12 +163,12 @@ func (sw *SlidingWindow) GetRemaining(key string) (int64, error) {
 // inside the window ages out, at which point a new request would be permitted
 // again. It falls back to the full window duration when the key has no entries
 // or Redis is unavailable, so callers always get a sane, non-zero hint.
-func (sw *SlidingWindow) RetryAfter(key string) int64 {
+func (sw *SlidingWindow) RetryAfter(ctx context.Context, key string) int64 {
 	now := time.Now()
 	windowStart := now.Add(-sw.window)
 
 	// The oldest still-valid member is the next one to age out of the window.
-	members, err := sw.redis.ZRangeByScore(context.Background(), key, &redis.ZRangeBy{
+	members, err := sw.redis.ZRangeByScore(ctx, key, &redis.ZRangeBy{
 		Min:    fmt.Sprintf("%d", windowStart.UnixNano()),
 		Max:    fmt.Sprintf("%d", now.UnixNano()),
 		Offset: 0,

@@ -34,7 +34,7 @@ func TestSlidingWindow_Allow(t *testing.T) {
 
 	// First 10 requests should be allowed
 	for i := 0; i < 10; i++ {
-		allowed, err := limiter.Allow("user:123")
+		allowed, err := limiter.Allow(context.Background(), "user:123")
 		if err != nil {
 			t.Fatalf("Allow failed: %v", err)
 		}
@@ -44,7 +44,7 @@ func TestSlidingWindow_Allow(t *testing.T) {
 	}
 
 	// 11th request should be denied
-	allowed, err := limiter.Allow("user:123")
+	allowed, err := limiter.Allow(context.Background(), "user:123")
 	if err != nil {
 		t.Fatalf("Allow failed: %v", err)
 	}
@@ -61,11 +61,11 @@ func TestSlidingWindow_WindowExpiry(t *testing.T) {
 
 	// Use up the limit
 	for i := 0; i < 5; i++ {
-		limiter.Allow("user:456")
+		limiter.Allow(context.Background(), "user:456")
 	}
 
 	// Should be denied now
-	allowed, _ := limiter.Allow("user:456")
+	allowed, _ := limiter.Allow(context.Background(), "user:456")
 	if allowed {
 		t.Error("Should be denied after using up limit")
 	}
@@ -74,7 +74,7 @@ func TestSlidingWindow_WindowExpiry(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond)
 
 	// Should be allowed again
-	allowed, _ = limiter.Allow("user:456")
+	allowed, _ = limiter.Allow(context.Background(), "user:456")
 	if !allowed {
 		t.Error("Should be allowed after window expiry")
 	}
@@ -93,7 +93,7 @@ func TestSlidingWindow_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			result, _ := limiter.Allow("user:789")
+			result, _ := limiter.Allow(context.Background(), "user:789")
 			allowed[idx] = result
 		}(i)
 	}

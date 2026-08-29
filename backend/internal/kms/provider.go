@@ -34,17 +34,26 @@ type StaticProvider struct {
 	// EnvVar is the environment variable holding the base64 master key.
 	// Defaults to MESSAGE_ENCRYPTION_MASTER_KEY.
 	EnvVar string
+	// Value, when non-empty, is used directly instead of reading EnvVar. It lets
+	// callers that already resolved the key (e.g. from the config layer) reuse
+	// this provider's decoding and validation instead of duplicating it.
+	Value string
 }
 
 // GetMasterKey implements MasterKeyProvider.
 func (p StaticProvider) GetMasterKey(_ context.Context, _ string) ([]byte, error) {
-	env := p.EnvVar
-	if env == "" {
-		env = "MESSAGE_ENCRYPTION_MASTER_KEY"
-	}
-	raw := strings.TrimSpace(os.Getenv(env))
+	raw := strings.TrimSpace(p.Value)
+	source := "value"
 	if raw == "" {
-		return nil, fmt.Errorf("kms: %s is not set", env)
+		env := p.EnvVar
+		if env == "" {
+			env = "MESSAGE_ENCRYPTION_MASTER_KEY"
+		}
+		source = env
+		raw = strings.TrimSpace(os.Getenv(env))
+	}
+	if raw == "" {
+		return nil, fmt.Errorf("kms: %s is not set", source)
 	}
 	key, err := decodeBase64(raw)
 	if err != nil {

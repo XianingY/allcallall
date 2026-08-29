@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
 	"github.com/allcallall/backend/internal/agent"
+	"github.com/allcallall/backend/internal/alerting"
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/cache"
 	"github.com/allcallall/backend/internal/chat"
@@ -32,6 +33,7 @@ import (
 	"github.com/allcallall/backend/internal/mail"
 	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/mq"
+	"github.com/allcallall/backend/internal/opsjobs"
 	"github.com/allcallall/backend/internal/presence"
 	"github.com/allcallall/backend/internal/ratelimit"
 	appruntime "github.com/allcallall/backend/internal/runtime"
@@ -58,6 +60,9 @@ func main() {
 	appLogger := logger.New(cfg.Logging.Level)
 	counterStore := metrics.NewCounterStore()
 	appruntime.ConfigureTraceFromEnv(appLogger)
+	// 告警分级路由：此前 internal/alerting 整包零引用，P1/P2/P3 告警无人接收。
+	// 日志 sink 常驻，配置 ALERT_WEBHOOK_URL 后 P1/P2 额外推送到 webhook。
+	alertingSvc := appruntime.AlertingFromEnv(appLogger)
 
 	mode := os.Getenv("GIN_MODE")
 	if mode == "" {
@@ -100,7 +105,17 @@ func main() {
 	rateLimitSvc := ratelimit.NewService(redisClient)
 	// Coarse global per-client rate limit across all non-health endpoints.
 	engine.Use(server.GlobalRateLimit(rateLimitSvc))
-	commerceSvc := commerce.NewService(db, counterStore)
+	// 共享同一个 Repository，避免计费与 entitlement 各建一套。
+	commerceRepo := commerce.NewRepository(db)
+	commerceSvc := commerce.NewServiceWithRepository(commerceRepo, counterStore)
+	// B2B 组织级计费（Phase 2）：此前四个服务仅定义未实例化，是死代码。
+	orgRepo := commerce.NewOrgRepository(db)
+	entitlementSvc := commerce.NewEntitlementService(commerceRepo, counterStore)
+	orgBillingSvc := commerce.NewOrgBillingService(orgRepo)
+	usageStatsSvc := commerce.NewUsageStatsService(orgRepo)
+	invoiceSvc := commerce.NewInvoiceService(orgRepo)
+	quotaSvc := commerce.NewQuotaService(orgRepo, entitlementSvc)
+	quotaSvc.WithAlerter(alertingSvc)
 	userRepo := user.NewRepository(db)
 	userSvc := user.NewService(userRepo, user.WithPushDeviceSupport())
 	collaborationSvc := collaboration.NewService(db, userSvc)
@@ -109,7 +124,16 @@ func main() {
 	// 装配隐私/合规策略（消息留存 TTL、正文信封加密），保证各进程策略一致。
 	// 失败必须直接退出：静默降级会造成「以为加密了其实是明文」的最坏结果。
 	// Wire privacy policies so every process shares retention + encryption behaviour.
-	if err := appruntime.ApplyPrivacyPolicies(cfg, collaborationSvc); err != nil {
+	if err := appruntime.ApplyPrivacyPolicies(rootCtx, cfg, collaborationSvc); err != nil {
+		// 退出前先上报 P1：加密装配失败若只写本地日志，集群滚动重启时极易被忽略。
+		if alertErr := alertingSvc.Emit(rootCtx, alerting.Alert{
+			Severity: alerting.SeverityP1,
+			Title:    "privacy policy assembly failed",
+			Detail:   err.Error(),
+			Labels:   map[string]string{"component": "runtime", "stage": "startup"},
+		}); alertErr != nil {
+			appLogger.Warn().Err(alertErr).Msg("failed to emit startup alert")
+		}
 		appLogger.Fatal().Err(err).Msg("failed to apply privacy policies")
 	}
 	collaborationSvc.WithAdminSummaryCache(redisClient)
@@ -156,7 +180,19 @@ func main() {
 		agentSvc.WithStreamPublisher(appruntime.NewRedisStreamPublisher(redisClient))
 	}
 
-	outboxProcessor := events.NewProcessor(outboxStore, counterStore)
+	// 有界后台任务池：内容审核与 RAG 分片索引此前各用裸 goroutine，
+	// 高吞吐下协程无上限、失败静默。统一改为有界池 + 重试 + 死信告警。
+	backgroundJobs := appruntime.AsyncPoolsFromEnv(appLogger, counterStore, alertingSvc)
+	for _, pool := range backgroundJobs {
+		pool.Start(rootCtx)
+		defer pool.Close()
+	}
+	collaborationSvc.WithAsyncPool(appruntime.PoolByName(backgroundJobs, "moderation"))
+	agentSvc.WithAsyncPool(appruntime.PoolByName(backgroundJobs, "rag-index"))
+
+	outboxProcessor := events.NewProcessor(outboxStore, counterStore).
+		WithLogger(appLogger).
+		WithAlerter(alertingSvc)
 	appruntime.RegisterAgentOutboxHandlers(outboxProcessor, agentSvc, appLogger)
 	appruntime.RegisterKnowledgeOutboxHandlers(outboxProcessor, knowledgeSvc, appLogger)
 	appruntime.RegisterCollaborationOutboxHandlers(outboxProcessor, collaborationSvc, appLogger)
@@ -278,6 +314,7 @@ func main() {
 	})
 	pushHandler := handlers.NewPushHandler(appLogger, userSvc)
 	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, mailSvc, rateLimitSvc, counterStore)
+	orgBillingHandler := handlers.NewOrgBillingHandler(appLogger, orgBillingSvc, usageStatsSvc, invoiceSvc, quotaSvc)
 	collaborationHandler := handlers.NewCollaborationHandler(appLogger, collaborationSvc, userSvc, chatHub)
 	collaborationHandler.WithSearchService(searchSvc)
 	agentHandler := handlers.NewAgentHandler(appLogger, agentSvc).
@@ -295,7 +332,7 @@ func main() {
 	// 周期（weekly）任务调度：仓储 + 服务 + 调度器
 	// Weekly task scheduler: repository, service, scheduler worker.
 	taskService := tasksched.NewService(db)
-	taskExecutor := tasksched.NewLoggingExecutor(appLogger)
+	taskExecutor := opsjobs.NewScheduledExecutor(db, appLogger)
 	scheduler := tasksched.NewScheduler(db, taskExecutor, appLogger,
 		tasksched.WithEvents(outboxStore),
 		tasksched.WithWorkerID(cfg.TaskScheduler.WorkerID),
@@ -325,6 +362,13 @@ func main() {
 	}
 	appruntime.RegisterEventsKafkaBridge(outboxProcessor, eventsProducer, cfg.Events, appLogger)
 	if cfg.TaskScheduler.Enabled {
+		// 幂等播种内置运维作业（增长/留存分析、年度合规自检、季度渗透测试计划），
+		// 使其不再依赖人工 CI 触发，由调度器自动按周期编排运行。
+		if serr := opsjobs.SeedScheduledJobs(rootCtx, taskService); serr != nil {
+			appLogger.Error().Err(serr).Msg("seed builtin scheduled ops jobs failed")
+		} else {
+			appLogger.Info().Msg("seeded builtin scheduled ops jobs (growth/retention, compliance audit, pentest plan)")
+		}
 		go scheduler.Run(rootCtx, time.Duration(cfg.TaskScheduler.IntervalSec)*time.Second)
 		appLogger.Info().Str("worker_id", cfg.TaskScheduler.WorkerID).Msg("weekly task scheduler started")
 	} else {
@@ -430,6 +474,7 @@ func main() {
 		TranslationWS:      translationWSHandler,
 		Realtime:           realtimeHandler,
 		TaskScheduler:      taskSchedulerHandler,
+		OrgBilling:         orgBillingHandler,
 		Chat:               chatHandler,
 		AuthMiddleware:     authMiddleware,
 		ChatRealtimeAuth:   auth.RealtimeMiddleware(realtimeTicketSvc, tokenValidator, "chat"),
@@ -437,6 +482,10 @@ func main() {
 		RoomRealtimeAuth:   auth.RealtimeMiddleware(realtimeTicketSvc, tokenValidator, "room"),
 		Metrics:            counterStore,
 		RequireTLS:         cfg.Security.RequireTLS,
+		// 租户隔离：组织归属从认证主体派生，杜绝客户端伪造 X-Organization-ID 越权。
+		// 强制开关见 TENANT_ISOLATION_ENFORCE（默认仅标注不拦截，避免锁死无组织用户）。
+		TenantResolver: appruntime.TenantResolverFromService(collaborationSvc),
+		TenantEnforce:  appruntime.TenantEnforceFromEnv(),
 		ReadinessChecks: map[string]server.ReadinessCheck{
 			"mysql": func(ctx context.Context) error {
 				sqlDB, err := db.DB()

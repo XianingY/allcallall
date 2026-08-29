@@ -36,6 +36,7 @@ func toWorkflowResultResponse(result *agent.WorkflowResult) gin.H {
 		"citations":   result.Citations,
 		"actionItems": result.ActionItems,
 		"riskFlags":   result.RiskFlags,
+		"truncated":   result.Truncated,
 	}
 }
 

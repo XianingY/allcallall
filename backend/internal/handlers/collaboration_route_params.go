@@ -74,6 +74,18 @@ func parseUintParam(value string) (uint64, error) {
 	return strconv.ParseUint(strings.TrimSpace(value), 10, 64)
 }
 
+// atoiDefault 解析字符串为整数，解析失败或为空时回退到默认值。
+func atoiDefault(value string, def int) int {
+	if strings.TrimSpace(value) == "" {
+		return def
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return def
+	}
+	return n
+}
+
 func parseUintHeader(value string) (uint64, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {

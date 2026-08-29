@@ -11,16 +11,16 @@ import (
 // 服务算法备案 (CAC algorithm filing) and ICP alignment. Persist it (signed) for
 // audits and regulator requests.
 type GenerativeAIServiceFiling struct {
-	ServiceName            string   `json:"service_name"`
-	Domain                 string   `json:"domain"`
-	ICPNumber              string   `json:"icp_number"`
-	AlgorithmFilingNumber  string   `json:"algorithm_filing_number"` // 算法备案号
-	Provider               string   `json:"provider"`
-	ModelList              []string `json:"model_list"`
-	Owner                  string   `json:"owner"`
-	Contact                string   `json:"contact"`
-	FilingDate             string   `json:"filing_date"`
-	Status                 string   `json:"status"` // filed | pending | exempt
+	ServiceName           string   `json:"service_name"`
+	Domain                string   `json:"domain"`
+	ICPNumber             string   `json:"icp_number"`
+	AlgorithmFilingNumber string   `json:"algorithm_filing_number"` // 算法备案号
+	Provider              string   `json:"provider"`
+	ModelList             []string `json:"model_list"`
+	Owner                 string   `json:"owner"`
+	Contact               string   `json:"contact"`
+	FilingDate            string   `json:"filing_date"`
+	Status                string   `json:"status"` // filed | pending | exempt
 }
 
 // ToJSON serializes the filing for storage / regulator submission.
@@ -49,18 +49,18 @@ const (
 
 // Control is a single compliance posture control.
 type Control struct {
-	ID       string        `json:"id"`
-	Name     string        `json:"name"`
-	Status   ControlStatus `json:"status"`
-	Note     string        `json:"note,omitempty"`
+	ID     string        `json:"id"`
+	Name   string        `json:"name"`
+	Status ControlStatus `json:"status"`
+	Note   string        `json:"note,omitempty"`
 }
 
 // CompliancePosture is a point-in-time readiness assessment.
 type CompliancePosture struct {
-	GeneratedAt   string    `json:"generated_at"`
-	Controls      []Control `json:"controls"`
-	ReadinessPct  int       `json:"readiness_pct"`
-	GAReady       bool      `json:"ga_ready"`
+	GeneratedAt  string    `json:"generated_at"`
+	Controls     []Control `json:"controls"`
+	ReadinessPct int       `json:"readiness_pct"`
+	GAReady      bool      `json:"ga_ready"`
 }
 
 func envBool(name string) bool {
@@ -97,9 +97,9 @@ func AssessPosture() CompliancePosture {
 	}
 	return CompliancePosture{
 		GeneratedAt:  time.Now().UTC().Format(time.RFC3339),
-		Controls:      controls,
-		ReadinessPct:  pct,
-		GAReady:       pct >= 90,
+		Controls:     controls,
+		ReadinessPct: pct,
+		GAReady:      pct >= 90,
 	}
 }
 

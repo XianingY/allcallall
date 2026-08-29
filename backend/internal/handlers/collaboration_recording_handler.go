@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/allcallall/backend/internal/collaboration"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
 func (h *CollaborationHandler) handleStartRecording(c *gin.Context) {
@@ -64,16 +65,28 @@ func (h *CollaborationHandler) handleListRecordings(c *gin.Context) {
 	if !ok {
 		return
 	}
-	items, err := h.service.ListRecordings(c.Request.Context(), orgID, claims.UserID)
+	page := pagination.Page{
+		Limit:  atoiDefault(c.Query("limit"), pagination.DefaultLimit),
+		Offset: atoiDefault(c.Query("offset"), 0),
+	}
+	result, err := h.service.ListRecordings(c.Request.Context(), orgID, claims.UserID, page)
 	if err != nil {
 		JSONErrorWithCode(c, http.StatusBadRequest, "RECORDING_LIST_FAILED", err.Error())
 		return
 	}
-	response := make([]recordingResponse, 0, len(items))
-	for _, item := range items {
+	response := make([]recordingResponse, 0, len(result.Items))
+	for _, item := range result.Items {
 		response = append(response, toRecordingResponse(item))
 	}
-	JSONSuccess(c, http.StatusOK, gin.H{"recordings": response})
+	JSONSuccess(c, http.StatusOK, gin.H{
+		"recordings": response,
+		"pagination": gin.H{
+			"total":    result.Total,
+			"limit":    result.Limit,
+			"offset":   result.Offset,
+			"has_more": result.HasMore,
+		},
+	})
 }
 
 func (h *CollaborationHandler) handleGetRecording(c *gin.Context) {

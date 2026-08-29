@@ -9,6 +9,7 @@ import (
 
 	"gorm.io/gorm/clause"
 
+	"github.com/allcallall/backend/internal/async"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/search"
 )
@@ -139,11 +140,8 @@ func (s *Service) upsertContextChunk(ctx context.Context, organizationID, conver
 
 	// Index to Elasticsearch
 	if s.indexer != nil {
-		go func() {
-			// Best effort async indexing to prevent blocking
-			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			_ = s.indexer.IndexChunk(bgCtx, search.ContextChunkDocument{
+		index := func(ctx context.Context) error {
+			return s.indexer.IndexChunk(ctx, search.ContextChunkDocument{
 				ID:             docID,
 				OrganizationID: organizationID,
 				ConversationID: conversationID,
@@ -155,6 +153,29 @@ func (s *Service) upsertContextChunk(ctx context.Context, organizationID, conver
 				CreatedAt:      now,
 				UpdatedAt:      now,
 			})
+		}
+
+		// 有界池：批量导入时不会每个 chunk 一个协程；失败由池重试，
+		// 重试耗尽后进入死信回调（此前错误被 `_ =` 完全丢弃，索引静默缺失）。
+		if s.jobs != nil {
+			if err := s.jobs.Submit(context.Background(), async.Job{
+				Kind: "rag_index",
+				Key:  docID,
+				Run:  index,
+			}); err != nil {
+				// 丢弃必须可观测：此前索引失败被 `_ =` 丢弃，召回静默缺失。
+				s.metrics.Inc("rag_index_dropped_total")
+			}
+			return nil
+		}
+
+		// 未注入池时回退旧行为（尽力而为，不阻塞）。
+		go func() {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := index(bgCtx); err != nil {
+				s.metrics.Inc("rag_index_dropped_total")
+			}
 		}()
 	}
 

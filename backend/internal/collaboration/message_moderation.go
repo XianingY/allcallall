@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/allcallall/backend/internal/async"
 	"github.com/allcallall/backend/internal/models"
 )
 
@@ -78,21 +79,48 @@ func (s *Service) runModerationAsync(orgID, conversationID, messageID uint64, bo
 	if s.moderation == nil || body == "" {
 		return
 	}
-	go func() {
-		mctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		result, err := s.moderation.ModerateMessage(mctx, orgID, conversationID, messageID, body)
+	check := func(ctx context.Context) error {
+		result, err := s.moderation.ModerateMessage(ctx, orgID, conversationID, messageID, body)
 		if err != nil {
 			// 审核失败只告警不阻断：审核是增强项，不能因为审核服务抖动而丢弃消息。
 			// A moderation failure only warns; it must never drop the message.
-			s.logger.Warn().Err(err).Uint64("message_id", messageID).Msg("moderation check failed")
-			return
+			return err
 		}
 		if result == nil || result.Allowed {
-			return
+			return nil
 		}
-		s.handleModerationHit(mctx, orgID, conversationID, messageID, result)
+		s.handleModerationHit(ctx, orgID, conversationID, messageID, result)
+		return nil
+	}
+
+	// 有界池：高吞吐下不会出现"每条消息一个协程"的协程爆炸。
+	if s.jobs != nil {
+		if err := s.jobs.Submit(context.Background(), async.Job{
+			Kind: "moderation",
+			Key:  strconv.FormatUint(messageID, 10),
+			Run:  check,
+		}); err != nil {
+			// 队列满导致的丢弃已被池计数（async_dropped_total），此处只做降级记录。
+			s.logger.Warn().Err(err).Uint64("message_id", messageID).Msg("moderation job dropped")
+		}
+		return
+	}
+
+	// 未注入池时回退旧行为，保证向后兼容。
+	go func() {
+		mctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := check(mctx); err != nil {
+			s.logger.Warn().Err(err).Uint64("message_id", messageID).Msg("moderation check failed")
+		}
 	}()
+}
+
+// WithAsyncPool 注入有界任务池，用于内容审核等后台工作。
+// 不注入则回退为每任务一个协程（无并发上限）。
+func (s *Service) WithAsyncPool(pool *async.Pool) *Service {
+	s.jobs = pool
+	return s
 }
 
 // handleModerationHit 命中违规词后的处置：计数、写审计事件、广播标记事件供客户端/管理员感知。

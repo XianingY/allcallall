@@ -215,29 +215,62 @@ func (s *Service) failWorkflowRun(ctx context.Context, run models.WorkflowRun, c
 	s.syncBackingAgentRun(ctx, run, models.AgentRunStatusFailed, message)
 }
 
+// workflowResultMaxRows 限定单次构建工作流结果时每个子集合载入的最大行数。
+// 长跑 Agent 工作流可能产生上千条消息/历史，若全量载入内存会随运行时长
+// 线性恶化；超过此上限仅保留最近 N 条，并在结果上标记 Truncated 供客户端
+// 按需二次拉取。
+const workflowResultMaxRows = 1000
+
+// loadWorkflowCollection 载入指定 run 下某子表的"最近 N 条"，按 id ASC 返回。
+// 当集合实际规模达到上限时置 *truncated=true（提示仍有更早记录被省略）。
+// 采用先 DESC 取最近 N 条再内存反转的方式，避免 OFFSET 深翻页的性能悬崖。
+func loadWorkflowCollection[T any](ctx context.Context, db *gorm.DB, dst *[]T, runID uint64, truncated *bool) error {
+	var recent []T
+	if err := db.WithContext(ctx).
+		Where("workflow_run_id = ?", runID).
+		Order("id DESC").
+		Limit(workflowResultMaxRows).
+		Find(&recent).Error; err != nil {
+		return err
+	}
+	if len(recent) >= workflowResultMaxRows {
+		*truncated = true
+	}
+	// 反转回 id ASC，保持与历史排序一致。
+	n := len(recent)
+	for i := 0; i < n/2; i++ {
+		recent[i], recent[n-1-i] = recent[n-1-i], recent[i]
+	}
+	*dst = recent
+	return nil
+}
+
 func (s *Service) buildWorkflowResult(ctx context.Context, run models.WorkflowRun) (*WorkflowResult, error) {
-	var tasks []models.WorkflowTask
-	if err := s.db.WithContext(ctx).Where("workflow_run_id = ?", run.ID).Order("id ASC").Find(&tasks).Error; err != nil {
+	var (
+		tasks     []models.WorkflowTask
+		messages  []models.AgentMessage
+		approvals []models.ToolApproval
+		history   []models.WorkflowHistoryEvent
+		signals   []models.WorkflowSignal
+		timers    []models.WorkflowTimer
+	)
+	truncated := false
+	if err := loadWorkflowCollection(ctx, s.db, &tasks, run.ID, &truncated); err != nil {
 		return nil, err
 	}
-	var messages []models.AgentMessage
-	if err := s.db.WithContext(ctx).Where("workflow_run_id = ?", run.ID).Order("id ASC").Find(&messages).Error; err != nil {
+	if err := loadWorkflowCollection(ctx, s.db, &messages, run.ID, &truncated); err != nil {
 		return nil, err
 	}
-	var approvals []models.ToolApproval
-	if err := s.db.WithContext(ctx).Where("workflow_run_id = ?", run.ID).Order("id ASC").Find(&approvals).Error; err != nil {
+	if err := loadWorkflowCollection(ctx, s.db, &approvals, run.ID, &truncated); err != nil {
 		return nil, err
 	}
-	var history []models.WorkflowHistoryEvent
-	if err := s.db.WithContext(ctx).Where("workflow_run_id = ?", run.ID).Order("id ASC").Find(&history).Error; err != nil {
+	if err := loadWorkflowCollection(ctx, s.db, &history, run.ID, &truncated); err != nil {
 		return nil, err
 	}
-	var signals []models.WorkflowSignal
-	if err := s.db.WithContext(ctx).Where("workflow_run_id = ?", run.ID).Order("id ASC").Find(&signals).Error; err != nil {
+	if err := loadWorkflowCollection(ctx, s.db, &signals, run.ID, &truncated); err != nil {
 		return nil, err
 	}
-	var timers []models.WorkflowTimer
-	if err := s.db.WithContext(ctx).Where("workflow_run_id = ?", run.ID).Order("id ASC").Find(&timers).Error; err != nil {
+	if err := loadWorkflowCollection(ctx, s.db, &timers, run.ID, &truncated); err != nil {
 		return nil, err
 	}
 	var citations []Citation
@@ -255,5 +288,6 @@ func (s *Service) buildWorkflowResult(ctx context.Context, run models.WorkflowRu
 		Citations:   citations,
 		ActionItems: decodeStringSlice(run.ActionItemsJSON),
 		RiskFlags:   decodeStringSlice(run.RiskFlagsJSON),
+		Truncated:   truncated,
 	}, nil
 }

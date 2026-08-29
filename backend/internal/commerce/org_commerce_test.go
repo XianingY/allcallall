@@ -2,14 +2,44 @@ package commerce
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/allcallall/backend/internal/alerting"
 	"github.com/allcallall/backend/internal/models"
 )
+
+// captureProvider 是测试用的告警接收器，记录所有发出的告警。
+type captureProvider struct {
+	mu     sync.Mutex
+	alerts []alerting.Alert
+}
+
+func (c *captureProvider) Notify(_ context.Context, a alerting.Alert) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.alerts = append(c.alerts, a)
+	return nil
+}
+
+func (c *captureProvider) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.alerts)
+}
+
+func (c *captureProvider) lastTitle() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.alerts) == 0 {
+		return ""
+	}
+	return c.alerts[len(c.alerts)-1].Title
+}
 
 func newCommerceDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -122,7 +152,9 @@ func TestQuotaServiceFeatureAccess(t *testing.T) {
 	ctx := context.Background()
 	repo := NewOrgRepository(db)
 	ent := NewEntitlementService(&Repository{db: db}, nil)
-	qs := NewQuotaService(repo, ent)
+	captured := &captureProvider{}
+	alerter := alerting.NewService(alerting.Routing{alerting.SeverityP2: {captured}})
+	qs := NewQuotaService(repo, ent).WithAlerter(alerter)
 
 	// Free user, premium-gated feature, no org grant -> denied.
 	dec, err := qs.CheckFeatureAccess(ctx, 0, 7, "advanced_analytics")
@@ -135,7 +167,7 @@ func TestQuotaServiceFeatureAccess(t *testing.T) {
 
 	// Org plan with unlimited quota for the gated feature -> allowed.
 	start := time.Now().UTC()
-	_, _ = NewOrgBillingService(repo).EnsureOrganizationPlan(ctx, 10, "business", "Business", "monthly", 5, start, start.AddDate(0,1,0))
+	_, _ = NewOrgBillingService(repo).EnsureOrganizationPlan(ctx, 10, "business", "Business", "monthly", 5, start, start.AddDate(0, 1, 0))
 	_ = repo.UpsertQuotaPolicy(ctx, &models.QuotaPolicy{PlanID: "business", Feature: "advanced_analytics", Unlimited: true})
 	dec, err = qs.CheckFeatureAccess(ctx, 10, 7, "advanced_analytics")
 	if err != nil {
@@ -143,6 +175,29 @@ func TestQuotaServiceFeatureAccess(t *testing.T) {
 	}
 	if !dec.Allowed {
 		t.Fatal("expected org-granted access for premium feature")
+	}
+
+	// Org quota exceeded -> denied AND a P2 alert is emitted.
+	start2 := time.Now().UTC()
+	_, _ = NewOrgBillingService(repo).EnsureOrganizationPlan(ctx, 20, "team", "Team", "monthly", 5, start2, start2.AddDate(0, 1, 0))
+	_ = repo.UpsertQuotaPolicy(ctx, &models.QuotaPolicy{PlanID: "team", Feature: "translation_seconds", LimitUnits: 100})
+	_ = NewOrgBillingService(repo).RecordOrganizationUsage(ctx, 20, "translation_seconds", 100)
+	before := captured.count()
+	dec, err = qs.CheckFeatureAccess(ctx, 20, 3, "translation_seconds")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec.Allowed {
+		t.Fatal("expected org_quota_exceeded denial")
+	}
+	if dec.Reason != "org_quota_exceeded" {
+		t.Fatalf("expected org_quota_exceeded reason, got %q", dec.Reason)
+	}
+	if captured.count() != before+1 {
+		t.Fatalf("expected exactly one quota-breach alert, got %d", captured.count()-before)
+	}
+	if captured.lastTitle() != "tenant quota exceeded" {
+		t.Fatalf("unexpected alert title: %q", captured.lastTitle())
 	}
 }
 
