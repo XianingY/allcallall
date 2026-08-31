@@ -4,6 +4,7 @@ updates:
     directory: "/backend"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 10
     target-branch: "main"
 
   - package-ecosystem: "npm"
@@ -34,14 +35,23 @@ updates:
     open-pull-requests-limit: 10
     target-branch: "main"
 
+  # Bundle every GitHub Action bump into ONE PR instead of one-per-action
+  # (setup-go/setup-node/setup-python/upload-artifact were each opening their
+  # own PR). The 5-cap is a safety net; the group keeps it at ~1.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - "*"
     target-branch: "main"
 
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
     target-branch: "main"
