@@ -1,0 +1,22 @@
+# AllCallAll secret-scanning configuration.
+# Used by `gitleaks` both in the local pre-commit hook (scripts/secret-scan.sh)
+# and in CI (.github/workflows/secret-scan.yml).
+#
+# Extends gitleaks' built-in default rule set, then allowlists files that
+# intentionally contain only placeholders (never real credentials).
+
+title = "AllCallAll gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Template/example files contain only placeholders, never real credentials."
+paths = [
+  '''(?i)\.example\.env$''',
+  '''(?i)\.env\.example$''',
+  '''(?i)\.env\.template$''',
+  '''(?i)\.example\.(ya?ml|json|toml)$''',
+  '''(?i)\.xcode\.env$''',
+  '''(?i)/testdata/''',
+]
