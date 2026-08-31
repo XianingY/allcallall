@@ -126,6 +126,17 @@ func (s *Store) ClaimPending(ctx context.Context, limit int, workerID string, le
 	return s.ClaimPendingForEvents(ctx, limit, workerID, lease, nil)
 }
 
+// ClaimPendingForEvents claims up to limit pending events for a worker.
+//
+// The read-then-lock sequence runs inside a single transaction so it is atomic.
+// On MySQL the candidate read uses SELECT ... FOR UPDATE SKIP LOCKED, letting
+// concurrent workers take disjoint slices without blocking each other; on engines
+// without row locking (e.g. SQLite) the transaction serialises the claim and the
+// UPDATE re-checks the pending/lease conditions, so double claiming is still
+// impossible.
+//
+// Round trips are O(1) — select candidates, batch lock, fetch winners — instead
+// of the previous O(N) per-row update plus per-row refetch (2N+1 for a batch).
 func (s *Store) ClaimPendingForEvents(ctx context.Context, limit int, workerID string, lease time.Duration, events []string) ([]models.EventOutbox, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("outbox store database is nil")
@@ -137,36 +148,59 @@ func (s *Store) ClaimPendingForEvents(ctx context.Context, limit int, workerID s
 	if lease <= 0 {
 		lease = time.Minute
 	}
-	events = normalizeEventFilter(events)
-	rows, err := s.ListPendingForEvents(ctx, limit, events)
-	if err != nil {
-		return nil, err
+	if limit <= 0 || limit > 500 {
+		limit = 100
 	}
+	events = normalizeEventFilter(events)
+
 	now := time.Now().UTC()
 	lockedUntil := now.Add(lease)
-	claimed := make([]models.EventOutbox, 0, len(rows))
-	for _, row := range rows {
-		query := s.db.WithContext(ctx).Model(&models.EventOutbox{}).
-			Where("id = ? AND status = ? AND (available_at IS NULL OR available_at <= ?) AND (locked_until IS NULL OR locked_until <= ?)", row.ID, models.EventOutboxStatusPending, now, now)
+
+	var claimed []models.EventOutbox
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 1) Select candidate IDs. On MySQL these rows are locked with
+		//    SKIP LOCKED so other workers skip straight past them.
+		selectSQL := "SELECT id FROM event_outbox WHERE status = ? AND (available_at IS NULL OR available_at <= ?) AND (locked_until IS NULL OR locked_until <= ?)"
+		args := []any{models.EventOutboxStatusPending, now, now}
 		if len(events) > 0 {
-			query = query.Where("event IN ?", events)
+			selectSQL += " AND event IN ?"
+			args = append(args, events)
 		}
-		update := query.Updates(map[string]any{
-			"locked_by":    workerID,
-			"locked_until": lockedUntil,
-			"updated_at":   now,
-		})
-		if update.Error != nil {
-			return nil, update.Error
+		selectSQL += " ORDER BY id ASC LIMIT ?"
+		args = append(args, limit)
+		if s.db.Dialector.Name() == "mysql" {
+			selectSQL += " FOR UPDATE SKIP LOCKED"
 		}
-		if update.RowsAffected == 0 {
-			continue
+
+		var ids []uint64
+		if err := tx.Raw(selectSQL, args...).Scan(&ids).Error; err != nil {
+			return fmt.Errorf("select outbox candidates: %w", err)
 		}
-		var claimedRow models.EventOutbox
-		if err := s.db.WithContext(ctx).Take(&claimedRow, row.ID).Error; err != nil {
-			return nil, err
+		if len(ids) == 0 {
+			claimed = nil
+			return nil
 		}
-		claimed = append(claimed, claimedRow)
+
+		// 2) Lock the whole batch in one statement. The pending/lease
+		//    conditions are re-checked so engines without row locking cannot
+		//    hand the same row to two workers.
+		if err := tx.Model(&models.EventOutbox{}).
+			Where("id IN ? AND status = ? AND (available_at IS NULL OR available_at <= ?) AND (locked_until IS NULL OR locked_until <= ?)",
+				ids, models.EventOutboxStatusPending, now, now).
+			Updates(map[string]any{
+				"locked_by":    workerID,
+				"locked_until": lockedUntil,
+				"updated_at":   now,
+			}).Error; err != nil {
+			return fmt.Errorf("lock outbox batch: %w", err)
+		}
+
+		// 3) Fetch only the rows this worker actually won, in one query.
+		return tx.Where("id IN ? AND locked_by = ? AND locked_until = ?", ids, workerID, lockedUntil).
+			Order("id ASC").Find(&claimed).Error
+	})
+	if err != nil {
+		return nil, err
 	}
 	return claimed, nil
 }
@@ -242,53 +276,59 @@ func (s *Store) MarkRetry(ctx context.Context, id uint64, cause error, available
 		}).Error
 }
 
-// ClaimBatchPending claims up to batchSize pending events atomically using
-// SELECT ... FOR UPDATE SKIP LOCKED to avoid contention between workers.
-func (s *Store) ClaimBatchPending(workerID string, batchSize int, leaseDuration time.Duration) ([]models.EventOutbox, error) {
-	var claimed []models.EventOutbox
-
-	result := s.db.Raw(`
-		SELECT id, aggregate_type, aggregate_id, event, payload_json, idempotency_key, request_id, status, attempts, locked_by, locked_until, last_error, available_at, published_at, created_at, updated_at
-		FROM event_outbox
-		WHERE status = 'pending' 
-		  AND (available_at IS NULL OR available_at <= NOW())
-		ORDER BY id ASC
-		LIMIT ?
-		FOR UPDATE SKIP LOCKED
-	`, batchSize).Scan(&claimed)
-
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to claim pending events: %w", result.Error)
+// MarkDead 将事件转入死信终态：达到最大重试次数后仍失败时使用。死信事件不再被
+// ClaimPendingForEvents 认领，因此不会继续占用处理批次（解除毒事件队头阻塞），
+// 但会保留 last_error 与 attempts 供审计与人工重放。
+// MarkDead moves an event into the dead-letter terminal state.
+func (s *Store) MarkDead(ctx context.Context, id uint64, cause error) error {
+	if id == 0 {
+		return errors.New("outbox id is required")
 	}
-
-	if len(claimed) == 0 {
-		return nil, nil
+	message := ""
+	if cause != nil {
+		message = cause.Error()
 	}
+	now := time.Now().UTC()
+	return s.db.WithContext(ctx).Model(&models.EventOutbox{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"status":       models.EventOutboxStatusDead,
+			"last_error":   message,
+			"attempts":     gorm.Expr("attempts + 1"),
+			"locked_by":    "",
+			"locked_until": nil,
+			"updated_at":   now,
+		}).Error
+}
 
-	ids := make([]uint64, len(claimed))
-	for i, event := range claimed {
-		ids[i] = event.ID
+// CountDead 返回当前死信事件数量，供运维监控与积压告警使用。
+// CountDead returns the number of dead-letter events currently stored.
+func (s *Store) CountDead(ctx context.Context) (int64, error) {
+	if s == nil || s.db == nil {
+		return 0, errors.New("outbox store database is nil")
 	}
-
-	lockedUntil := time.Now().UTC().Add(leaseDuration)
-	result = s.db.Model(&models.EventOutbox{}).
-		Where("id IN ?", ids).
-		Updates(map[string]interface{}{
-			"locked_by":    workerID,
-			"locked_until": lockedUntil,
-			"updated_at":   time.Now().UTC(),
-		})
-
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to update claimed events: %w", result.Error)
+	var count int64
+	if err := s.db.WithContext(ctx).Model(&models.EventOutbox{}).
+		Where("status = ?", models.EventOutboxStatusDead).
+		Count(&count).Error; err != nil {
+		return 0, err
 	}
+	return count, nil
+}
 
-	for i := range claimed {
-		claimed[i].LockedBy = workerID
-		claimed[i].LockedUntil = &lockedUntil
+// ListDead 按 id 升序返回死信事件，便于运维人工排查与重放。
+// ListDead returns dead-letter events in id order for operator inspection.
+func (s *Store) ListDead(ctx context.Context, limit int) ([]models.EventOutbox, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
 	}
-
-	return claimed, nil
+	var rows []models.EventOutbox
+	if err := s.db.WithContext(ctx).
+		Where("status = ?", models.EventOutboxStatusDead).
+		Order("id ASC").Limit(limit).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // ReleaseExpiredLeases releases events whose lease has expired

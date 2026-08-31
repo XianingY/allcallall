@@ -95,3 +95,31 @@ func TestGlobalRateLimitFailsOpenOnRedisError(t *testing.T) {
 		t.Fatalf("expected fail-open 200 when limiter is unhealthy, got %d", w.Code)
 	}
 }
+
+// TestGlobalRateLimitFixedWindowFallback verifies that opting out of the
+// sliding window (RATE_LIMIT_SLIDING_WINDOW=false) still enforces the limit
+// via the fixed-window algorithm.
+func TestGlobalRateLimitFixedWindowFallback(t *testing.T) {
+	t.Setenv("RATE_LIMIT_SLIDING_WINDOW", "false")
+	mini := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	defer client.Close()
+
+	engine := newRateLimitEngine(t, ratelimit.NewService(client))
+	// Default fixed-window limit is 600/min; exhaust it, then deny the 601st.
+	for i := 0; i < 600; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/foo", nil)
+		req.RemoteAddr = "192.0.2.50:1234"
+		engine.ServeHTTP(httptest.NewRecorder(), req)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/foo", nil)
+	req.RemoteAddr = "192.0.2.50:1234"
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 with fixed-window fallback, got %d", w.Code)
+	}
+	if w.Header().Get("Retry-After") == "" {
+		t.Fatal("expected Retry-After header on 429")
+	}
+}

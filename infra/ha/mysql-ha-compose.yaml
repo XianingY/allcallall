@@ -1,0 +1,95 @@
+# AllCallAll — MySQL high-availability stack (3-node Group Replication + ProxySQL).
+#
+# This compose file is a concrete, runnable reference for self-managed HA.
+# In production prefer a managed service (Aliyun RDS / TencentDB / AWS RDS)
+# or the MySQL Operator for Kubernetes (mysql-operator / Vitess) with the
+# same topology:
+#   - 3 MySQL 8.0 nodes in single-primary Group Replication
+#   - ProxySQL for read/write splitting and automatic primary failover
+#   - synchronous replication => zero data loss on node failure
+#
+# Bring up:  docker compose -f mysql-ha-compose.yaml up -d
+# Bootstrap GR on first node, then join the other two (see README).
+
+services:
+  mysql1:
+    image: mysql:8.0
+    container_name: allcallall-mysql1
+    command:
+      - --server-id=1
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+      - --transaction-write-set-extraction=XXHASH64
+      - --plugin-load=group_replication.so
+      - --group_replication_group_name=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+      - --group_replication_start_on_boot=OFF
+      - --group_replication_local_address=mysql1:33061
+      - --group_replication_group_seeds=mysql1:33061,mysql2:33061,mysql3:33061
+      - --group_replication_bootstrap_group=OFF
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
+      MYSQL_DATABASE: allcallall
+    ports: ["3306"]
+    volumes:
+      - mysql1-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      retries: 10
+
+  mysql2:
+    image: mysql:8.0
+    container_name: allcallall-mysql2
+    command:
+      - --server-id=2
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+      - --transaction-write-set-extraction=XXHASH64
+      - --plugin-load=group_replication.so
+      - --group_replication_group_name=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+      - --group_replication_start_on_boot=OFF
+      - --group_replication_local_address=mysql2:33061
+      - --group_replication_group_seeds=mysql1:33061,mysql2:33061,mysql3:33061
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
+    volumes: ["mysql2-data:/var/lib/mysql"]
+    depends_on: [mysql1]
+
+  mysql3:
+    image: mysql:8.0
+    container_name: allcallall-mysql3
+    command:
+      - --server-id=3
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+      - --transaction-write-set-extraction=XXHASH64
+      - --plugin-load=group_replication.so
+      - --group_replication_group_name=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+      - --group_replication_start_on_boot=OFF
+      - --group_replication_local_address=mysql3:33061
+      - --group_replication_group_seeds=mysql1:33061,mysql2:33061,mysql3:33061
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
+    volumes: ["mysql3-data:/var/lib/mysql"]
+    depends_on: [mysql1]
+
+  proxysql:
+    image: proxysql/proxysql:2.5
+    container_name: allcallall-proxysql
+    ports: ["6033:6033"]
+    volumes: ["proxysql-data:/var/lib/proxysql"]
+    depends_on: [mysql1, mysql2, mysql3]
+    # Configure backend hostgroups: writer=node1, readers=all; enable
+    # mysql-monitor and group_replication monitoring for auto-failover.
+
+volumes:
+  mysql1-data:
+  mysql2-data:
+  mysql3-data:
+  proxysql-data:

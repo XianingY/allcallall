@@ -575,9 +575,11 @@ func (c *Config) applyPrivacyDefaults() error {
 	}
 	// 开启加密却没有主密钥属于致命配置错误：若放行，全部消息会以明文落库，
 	// 但运维会误以为已加密。这里必须启动即失败。
-	// Enabling encryption without a key would silently store plaintext; fail fast instead.
-	if encryption.Enabled && encryption.MasterKeyBase64 == "" {
-		return errors.New("config: MESSAGE_ENCRYPTION_MASTER_KEY is required when privacy.encryption.enabled is true")
+	// 例外：主密钥交由云 KMS 下发时（KMS_PROVIDER=cloud），环境里本就不该有明文密钥，
+	// 此时由 runtime 在构造加密器时向 KMS 取钥，取不到同样会启动失败。
+	// Enabling encryption without a key would silently store plaintext; fail fast.
+	if encryption.Enabled && encryption.MasterKeyBase64 == "" && !UsingCloudKMS() {
+		return errors.New("config: MESSAGE_ENCRYPTION_MASTER_KEY is required when privacy.encryption.enabled is true (or set KMS_PROVIDER=cloud)")
 	}
 
 	recall := &c.Privacy.MessageRecall
@@ -721,6 +723,14 @@ func (c *Config) applyEventsDefaults() {
 	} else if ok {
 		c.Events.BridgeWeeklyTasks = enabled
 	}
+}
+
+// UsingCloudKMS 判断主密钥是否由外部 KMS 下发（KMS_PROVIDER=cloud）。
+// 为 true 时允许 MESSAGE_ENCRYPTION_MASTER_KEY 为空——明文密钥不应出现在环境里。
+// UsingCloudKMS reports whether the master key comes from an external KMS.
+func UsingCloudKMS() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("KMS_PROVIDER")))
+	return v == "cloud"
 }
 
 func parseBoolEnv(key string) (bool, bool, error) {

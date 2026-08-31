@@ -9,6 +9,7 @@ import (
 
 	"gorm.io/gorm/clause"
 
+	"github.com/allcallall/backend/internal/async"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/search"
 )
@@ -45,10 +46,6 @@ type RetrievedContextChunk struct {
 
 type bm25ChunkSearcher interface {
 	SearchChunksBM25(ctx context.Context, query search.ContextChunkSearchQuery) ([]search.ContextChunkSearchResult, error)
-}
-
-type hybridChunkSearcher interface {
-	SearchChunksHybrid(ctx context.Context, query search.ContextChunkSearchQuery) ([]search.ContextChunkSearchResult, error)
 }
 
 func (s *Service) refreshConversationContextChunks(ctx context.Context, conversationCtx *conversationContext) error {
@@ -143,11 +140,8 @@ func (s *Service) upsertContextChunk(ctx context.Context, organizationID, conver
 
 	// Index to Elasticsearch
 	if s.indexer != nil {
-		go func() {
-			// Best effort async indexing to prevent blocking
-			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			_ = s.indexer.IndexChunk(bgCtx, search.ContextChunkDocument{
+		index := func(ctx context.Context) error {
+			return s.indexer.IndexChunk(ctx, search.ContextChunkDocument{
 				ID:             docID,
 				OrganizationID: organizationID,
 				ConversationID: conversationID,
@@ -159,6 +153,29 @@ func (s *Service) upsertContextChunk(ctx context.Context, organizationID, conver
 				CreatedAt:      now,
 				UpdatedAt:      now,
 			})
+		}
+
+		// 有界池：批量导入时不会每个 chunk 一个协程；失败由池重试，
+		// 重试耗尽后进入死信回调（此前错误被 `_ =` 完全丢弃，索引静默缺失）。
+		if s.jobs != nil {
+			if err := s.jobs.Submit(context.Background(), async.Job{
+				Kind: "rag_index",
+				Key:  docID,
+				Run:  index,
+			}); err != nil {
+				// 丢弃必须可观测：此前索引失败被 `_ =` 丢弃，召回静默缺失。
+				s.metrics.Inc("rag_index_dropped_total")
+			}
+			return nil
+		}
+
+		// 未注入池时回退旧行为（尽力而为，不阻塞）。
+		go func() {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := index(bgCtx); err != nil {
+				s.metrics.Inc("rag_index_dropped_total")
+			}
 		}()
 	}
 
@@ -213,34 +230,10 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, convers
 					searchRes []search.ContextChunkSearchResult
 					searchErr error
 				)
-				if hybrid, ok := s.indexer.(hybridChunkSearcher); ok {
-					searchRes, searchErr = hybrid.SearchChunksHybrid(ctx, searchQuery)
-				} else {
-					searchRes, searchErr = s.indexer.SearchChunks(ctx, searchQuery)
-				}
+				searchRes, searchErr = s.indexer.SearchChunks(ctx, searchQuery)
 				if searchErr == nil && len(searchRes) > 0 {
 					for _, res := range searchRes {
-						scored = append(scored, RetrievedContextChunk{
-							Chunk: models.AgentContextChunk{
-								OrganizationID: res.OrganizationID,
-								ConversationID: res.ConversationID,
-								SourceType:     res.SourceType,
-								SourceID:       res.SourceID,
-								Content:        res.Content,
-								Keywords:       res.Keywords,
-								UpdatedAt:      res.UpdatedAt,
-							},
-							Score:         hybridConversationChunkScore(res),
-							RetrievalMode: FirstNonEmptyString(res.RetrievalMode, models.RAGRetrievalModeVector),
-							BM25Rank:      res.BM25Rank,
-							VectorRank:    res.VectorRank,
-							RRFScore:      res.RRFScore,
-							BM25Score:     res.BM25Score,
-							VectorScore:   res.VectorScore,
-							RerankScore:   res.RerankScore,
-							RerankReason:  res.RerankReason,
-							FinalRank:     res.FinalRank,
-						})
+						scored = append(scored, retrievedContextChunkFromSearch(res, models.RAGRetrievalModeVector))
 					}
 				} else if searchErr != nil {
 					fallbackReason = "vector_error"
@@ -256,27 +249,7 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, convers
 				searchRes, searchErr := bm25.SearchChunksBM25(ctx, searchQuery)
 				if searchErr == nil && len(searchRes) > 0 {
 					for _, res := range searchRes {
-						scored = append(scored, RetrievedContextChunk{
-							Chunk: models.AgentContextChunk{
-								OrganizationID: res.OrganizationID,
-								ConversationID: res.ConversationID,
-								SourceType:     res.SourceType,
-								SourceID:       res.SourceID,
-								Content:        res.Content,
-								Keywords:       res.Keywords,
-								UpdatedAt:      res.UpdatedAt,
-							},
-							Score:         hybridConversationChunkScore(res),
-							RetrievalMode: FirstNonEmptyString(res.RetrievalMode, models.RAGRetrievalModeBM25),
-							BM25Rank:      res.BM25Rank,
-							VectorRank:    res.VectorRank,
-							RRFScore:      res.RRFScore,
-							BM25Score:     res.BM25Score,
-							VectorScore:   res.VectorScore,
-							RerankScore:   res.RerankScore,
-							RerankReason:  res.RerankReason,
-							FinalRank:     res.FinalRank,
-						})
+						scored = append(scored, retrievedContextChunkFromSearch(res, models.RAGRetrievalModeBM25))
 					}
 					fallbackReason = ""
 				} else if searchErr != nil {
@@ -367,4 +340,32 @@ func (s *Service) retrieveConversationContextChunks(ctx context.Context, convers
 		scored = scored[:limit]
 	}
 	return scored, nil
+}
+
+// retrievedContextChunkFromSearch converts a search result into the
+// RetrievedContextChunk shape used by the agent context pipeline. The vector
+// and BM25 call sites differed only in the default retrieval mode, so this
+// helper removes the duplicated mapping that previously lived in both blocks.
+func retrievedContextChunkFromSearch(res search.ContextChunkSearchResult, defaultMode string) RetrievedContextChunk {
+	return RetrievedContextChunk{
+		Chunk: models.AgentContextChunk{
+			OrganizationID: res.OrganizationID,
+			ConversationID: res.ConversationID,
+			SourceType:     res.SourceType,
+			SourceID:       res.SourceID,
+			Content:        res.Content,
+			Keywords:       res.Keywords,
+			UpdatedAt:      res.UpdatedAt,
+		},
+		Score:         hybridConversationChunkScore(res),
+		RetrievalMode: search.NormalizeRetrievalMode(res.RetrievalMode, defaultMode),
+		BM25Rank:      res.BM25Rank,
+		VectorRank:    res.VectorRank,
+		RRFScore:      res.RRFScore,
+		BM25Score:     res.BM25Score,
+		VectorScore:   res.VectorScore,
+		RerankScore:   res.RerankScore,
+		RerankReason:  res.RerankReason,
+		FinalRank:     res.FinalRank,
+	}
 }

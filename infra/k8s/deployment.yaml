@@ -1,0 +1,120 @@
+# AllCallAll API — 多可用区 Deployment
+# 关键 SRE 设计点：
+#  1. replicas=3 + topologySpreadConstraints 保证跨 zone（topology.kubernetes.io/zone）
+#     均匀打散，单 zone 故障不影响多数副本。
+#  2. PodAntiAffinity 防止同一节点挤 multiple 副本。
+#  3. readinessProbe 命中 /ready（依赖 mysql/redis 探针），livenessProbe 命中
+#     /health（仅进程存活），两者区分避免就绪失败引发错误重启。
+#  4. 优雅终止：terminationGracePeriodSeconds + preStop 摘流量。
+#  5. 安全基线：非 root、只读根文件系统、drop ALL capabilities。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: allcallall-api
+  namespace: allcallall
+  labels:
+    app.kubernetes.io/name: allcallall-api
+    app.kubernetes.io/part-of: allcallall
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: allcallall-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: allcallall-api
+        app.kubernetes.io/part-of: allcallall
+    spec:
+      priorityClassName: allcallall-critical
+      # 软反亲和：尽量不与其他副本同节点（同节点仍允许，避免无法调度）
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: allcallall-api
+                topologyKey: kubernetes.io/hostname
+      # 跨可用区均匀打散（硬约束：不满足则不调度，保证多 AZ 容灾）
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: allcallall-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: registry.example.com/allcallall/api:1.4.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: allcallall-api
+            - secretRef:
+                name: allcallall-api
+          env:
+            - name: ALLCALLALL_VERSION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app.kubernetes.io/version']
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # 就绪探测：依赖 mysql/redis 探针，失败则从 Service 摘流量但不重启
+          readinessProbe:
+            httpGet:
+              path: /api/v1/ready
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # 存活探测：仅判断进程是否卡死，失败才重启
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # 优雅摘流：先停止接收新连接，再等待在途请求完成
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 30

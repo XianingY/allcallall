@@ -1,0 +1,40 @@
+# 运行时配置（非敏感）。与后端 env-driven 设计一致：
+# 后端所有开关均从环境变量读取，无需改代码即可切换行为。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: allcallall-api
+  namespace: allcallall
+data:
+  # —— 部署元数据（供 /api/v1/status 暴露）——
+  DEPLOY_ENVIRONMENT: "production"
+  DEPLOY_REGION: "ap-shanghai"
+
+  # —— 安全 / 隐私 7 件套（与 deploy/prod-config.example.env 对齐）——
+  SECURITY_REQUIRE_TLS: "true"
+  MESSAGE_RETENTION_ENABLED: "true"
+  MESSAGE_ENCRYPTION_ENABLED: "true"
+  MESSAGE_ENCRYPTION_MASTER_KEY: "" # 实际值来自 Secret，留空由 init 容器注入
+  MESSAGE_RECALL_ENABLED: "true"
+  SEARCH_INDEX_ENABLED: "true"
+  CONTENT_MODERATION_ENABLED: "true"
+  MESSAGE_ERASURE_ENABLED: "true"
+  REALNAME_VERIFICATION_ENABLED: "true"
+
+  # —— 合规 ——
+  AIGC_LABELING_ENABLED: "true"
+  ICP_LICENSE_NUMBER: ""          # 来自 Secret
+  KMS_PROVIDER: "env"            # env | cloud | rotating
+
+  # —— 限速 ——
+  RATE_LIMIT_ENABLED: "true"
+  RATE_LIMIT_RPS: "50"
+
+  # —— 数据库 / 缓存（地址来自 Secret 或集群内 Service）——
+  DB_HOST: "mysql.allcallall.svc.cluster.local"
+  DB_PORT: "3306"
+  REDIS_ADDR: "redis.allcallall.svc.cluster.local:6379"
+
+  # —— 外部依赖开关 ——
+  TASK_SCHEDULER_ENABLED: "true"
+  EVENTS_KAFKA_ENABLED: "false"

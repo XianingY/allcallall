@@ -13,6 +13,7 @@ import (
 
 	"github.com/allcallall/backend/internal/media"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 	"github.com/allcallall/backend/internal/storage"
 	"gorm.io/gorm"
 )
@@ -177,13 +178,23 @@ func (s *Service) StopRecording(ctx context.Context, organizationID, userID, roo
 	return recording, nil
 }
 
-func (s *Service) ListRecordings(ctx context.Context, organizationID, userID uint64) ([]RecordingView, error) {
+func (s *Service) ListRecordings(ctx context.Context, organizationID, userID uint64, page pagination.Page) (pagination.Result[RecordingView], error) {
 	if _, _, err := s.ResolveOrganization(ctx, userID, organizationID); err != nil {
-		return nil, err
+		return pagination.Result[RecordingView]{}, err
+	}
+	np := page.Normalize()
+	var total int64
+	if err := s.db.WithContext(ctx).Model(&models.RecordingSession{}).
+		Where("organization_id = ?", organizationID).
+		Count(&total).Error; err != nil {
+		return pagination.Result[RecordingView]{}, err
 	}
 	var sessions []models.RecordingSession
-	if err := s.db.WithContext(ctx).Where("organization_id = ?", organizationID).Order("id DESC").Find(&sessions).Error; err != nil {
-		return nil, err
+	if err := s.db.WithContext(ctx).
+		Where("organization_id = ?", organizationID).Order("id DESC").
+		Scopes(np.Scope).
+		Find(&sessions).Error; err != nil {
+		return pagination.Result[RecordingView]{}, err
 	}
 	result := make([]RecordingView, 0, len(sessions))
 	for _, session := range sessions {
@@ -191,7 +202,7 @@ func (s *Service) ListRecordings(ctx context.Context, organizationID, userID uin
 		transcription, _ := s.loadRecordingTranscriptionView(ctx, session.ID)
 		result = append(result, RecordingView{Session: session, Files: files, Transcription: transcription})
 	}
-	return result, nil
+	return pagination.NewResult(result, total, np), nil
 }
 
 func (s *Service) GetRecording(ctx context.Context, organizationID, userID, recordingID uint64) (*RecordingView, error) {

@@ -35,6 +35,7 @@ type ElasticsearchIndexer struct {
 	username   string
 	password   string
 	httpClient *http.Client
+	mode       ChunkSearchMode
 }
 
 func NewElasticsearchIndexer(cfg ElasticsearchConfig) (*ElasticsearchIndexer, error) {
@@ -49,7 +50,7 @@ func NewElasticsearchIndexer(cfg ElasticsearchConfig) (*ElasticsearchIndexer, er
 	if index == "" {
 		index = "allcallall_messages"
 	}
-	return &ElasticsearchIndexer{
+	indexer := &ElasticsearchIndexer{
 		baseURL:  baseURL,
 		index:    index,
 		username: strings.TrimSpace(cfg.Username),
@@ -57,7 +58,18 @@ func NewElasticsearchIndexer(cfg ElasticsearchConfig) (*ElasticsearchIndexer, er
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
-	}, nil
+		mode: ChunkSearchModeFromEnv(),
+	}
+	return indexer, nil
+}
+
+// WithChunkSearchMode overrides the recall mode explicitly. Useful for tests
+// and for callers that want to force a single path without relying on env.
+func (e *ElasticsearchIndexer) WithChunkSearchMode(mode ChunkSearchMode) *ElasticsearchIndexer {
+	if mode != "" {
+		e.mode = mode
+	}
+	return e
 }
 
 func (e *ElasticsearchIndexer) InitMessageIndex(ctx context.Context) error {
@@ -411,8 +423,23 @@ func (e *ElasticsearchIndexer) IndexChunk(ctx context.Context, doc ContextChunkD
 	return nil
 }
 
+// SearchChunks routes to the configured recall path. Hybrid is the default:
+// when a query vector is present it fuses BM25 and dense-vector recall via RRF,
+// otherwise it falls back to lexical-only recall. This removes the previous
+// silent downgrade where callers had to type-assert HybridChunkSearcher to get
+// the dual-channel behaviour.
 func (e *ElasticsearchIndexer) SearchChunks(ctx context.Context, query ContextChunkSearchQuery) ([]ContextChunkSearchResult, error) {
-	return e.SearchChunksVector(ctx, query)
+	switch e.mode {
+	case ChunkSearchModeBM25:
+		return e.SearchChunksBM25(ctx, query)
+	case ChunkSearchModeVector:
+		return e.SearchChunksVector(ctx, query)
+	default:
+		if len(query.QueryVector) > 0 {
+			return e.SearchChunksHybrid(ctx, query)
+		}
+		return e.SearchChunksBM25(ctx, query)
+	}
 }
 
 func (e *ElasticsearchIndexer) SearchChunksBM25(ctx context.Context, query ContextChunkSearchQuery) ([]ContextChunkSearchResult, error) {

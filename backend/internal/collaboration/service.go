@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 
+	"github.com/allcallall/backend/internal/async"
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/media"
 	"github.com/allcallall/backend/internal/messagecrypto"
@@ -61,6 +62,9 @@ type Service struct {
 	moderation          ModerationService
 	messageCipher       messagecrypto.Cipher
 	logger              zerolog.Logger
+	// jobs 是有界的后台任务池。未注入时回退到"每条消息一个协程"的旧行为，
+	// 以保证不注入也能跑；生产必须注入以限制并发。
+	jobs *async.Pool
 }
 
 func NewService(db *gorm.DB, users *user.Service) *Service {

@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
+	"github.com/allcallall/backend/internal/alerting"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/trace"
 )
@@ -24,6 +26,8 @@ type Processor struct {
 	handlers    map[string]Handler
 	events      []string
 	metrics     metrics.Recorder
+	logger      zerolog.Logger
+	alerter     *alerting.Service
 	batchSize   int
 	maxAttempts int
 	retryDelay  time.Duration
@@ -41,12 +45,27 @@ func NewProcessor(store *Store, recorders ...metrics.Recorder) *Processor {
 		store:       store,
 		handlers:    make(map[string]Handler),
 		metrics:     metrics,
+		logger:      zerolog.Nop(),
 		batchSize:   100,
 		maxAttempts: 3,
 		retryDelay:  time.Minute,
 		workerID:    "outbox-" + uuid.NewString(),
 		lease:       2 * time.Minute,
 	}
+}
+
+// WithLogger 注入日志器。生产环境务必注入——否则 outbox 批量失败只会体现在指标上。
+// WithLogger injects a logger so batch-level failures are visible in logs.
+func (p *Processor) WithLogger(logger zerolog.Logger) *Processor {
+	p.logger = logger
+	return p
+}
+
+// WithAlerter 注入告警服务。批次级失败会按 P2 上报，避免积压静默无人知晓。
+// WithAlerter routes batch-level failures to the on-call alerting pipeline.
+func (p *Processor) WithAlerter(svc *alerting.Service) *Processor {
+	p.alerter = svc
+	return p
 }
 
 func (p *Processor) Register(event string, handler Handler) {
@@ -119,14 +138,42 @@ func (p *Processor) Run(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	_, _ = p.ProcessOnce(ctx)
+	if _, err := p.ProcessOnce(ctx); err != nil {
+		p.recordRunFailure(err)
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_, _ = p.ProcessOnce(ctx)
+			if _, err := p.ProcessOnce(ctx); err != nil {
+				p.recordRunFailure(err)
+			}
 		}
+	}
+}
+
+// recordRunFailure 让批次级失败可见并上报。此前错误被整体丢弃，outbox 会静默
+// 停滞而循环继续空转，故障完全不可观测。
+// recordRunFailure surfaces batch-level failures instead of dropping them.
+func (p *Processor) recordRunFailure(err error) {
+	if p.metrics != nil {
+		p.metrics.Inc("outbox_run_errors_total")
+	}
+	p.logger.Error().Err(err).Str("worker", p.workerID).
+		Msg("outbox processing cycle failed; backlog may be stalling")
+	if p.alerter == nil {
+		return
+	}
+	// 事件积压会直接表现为业务链路静默中断，按 P2 上报（去重窗口内只报一次）。
+	alertErr := p.alerter.Emit(context.Background(), alerting.Alert{
+		Severity: alerting.SeverityP2,
+		Title:    "outbox processing cycle failed",
+		Detail:   err.Error(),
+		Labels:   map[string]string{"worker": p.workerID, "component": "outbox"},
+	})
+	if alertErr != nil {
+		p.logger.Warn().Err(alertErr).Msg("failed to emit outbox failure alert")
 	}
 }
 
@@ -153,9 +200,30 @@ func (p *Processor) processEvent(ctx context.Context, row models.EventOutbox) er
 
 	if row.Attempts+1 >= p.maxAttempts {
 		if p.metrics != nil {
-			p.metrics.Inc("outbox_publish_failed_total")
+			p.metrics.Inc("outbox_dead_letter_total")
 		}
-		return p.store.MarkFailed(ctx, row.ID, err)
+		// 达到最大重试次数：转入死信终态并告警，避免毒事件继续占用处理批次。
+		// 此处 Emit 与 recordRunFailure 一致使用 background ctx，因为事件已离开
+		// 请求生命周期；死信属数据投递失败，按 P1 上报（可能丢失业务事件）。
+		if p.alerter != nil {
+			if alertErr := p.alerter.Emit(context.Background(), alerting.Alert{
+				Severity: alerting.SeverityP1,
+				Title:    "outbox event moved to dead-letter",
+				Detail:   err.Error(),
+				Labels: map[string]string{
+					"worker":         p.workerID,
+					"component":      "outbox",
+					"event":          row.Event,
+					"outbox_id":      strconv.FormatUint(row.ID, 10),
+					"aggregate_type": row.AggregateType,
+					"aggregate_id":   strconv.FormatUint(row.AggregateID, 10),
+				},
+			}); alertErr != nil {
+				p.logger.Warn().Err(alertErr).Uint64("outbox_id", row.ID).
+					Msg("failed to emit outbox dead-letter alert")
+			}
+		}
+		return p.store.MarkDead(ctx, row.ID, err)
 	}
 	if p.metrics != nil {
 		p.metrics.Inc("outbox_publish_retry_total")

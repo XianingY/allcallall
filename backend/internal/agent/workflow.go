@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -289,6 +290,23 @@ func (s *Service) ProcessWorkflowRun(ctx context.Context, workflowRunID uint64) 
 				return nil, err
 			}
 			if errors.Is(err, ErrCheckpointTransactionTooLarge) {
+				if workflowCheckpointTooLargeFallbackToGo() {
+					// The LangGraph checkpoint exceeded the persistence size
+					// limit. That is a structural limit of the external
+					// runtime's checkpoint store, not a defect in the workflow
+					// logic. Degrade gracefully: re-run via the in-process Go
+					// engine, which does not persist LangGraph checkpoints and
+					// is therefore immune to the size ceiling. We lose
+					// fine-grained LangGraph interrupt resumability, but the
+					// run still produces a result instead of being permanently
+					// failed.
+					_ = s.appendWorkflowHistory(ctx, run, models.WorkflowHistoryEventCheckpointFallback, "workflow_run", &run.ID, map[string]any{
+						"from":   WorkflowRuntimePythonLangGraph,
+						"to":     WorkflowRuntimeLegacyGo,
+						"reason": "checkpoint_transaction_too_large",
+					})
+					return s.executeWorkflowWithLegacyEngine(ctx, run)
+				}
 				run.Attempts = workflowRunMaxAttempts
 			}
 			s.failWorkflowRun(ctx, run, err)
@@ -307,6 +325,17 @@ func (s *Service) ProcessWorkflowRun(ctx context.Context, workflowRunID uint64) 
 		return nil, err
 	}
 
+	// RuntimeOwner is "" or legacy_go → execute via the in-process Go engine.
+	// This is also the degradation target when the external LangGraph runtime
+	// fails with ErrCheckpointTransactionTooLarge.
+	return s.executeWorkflowWithLegacyEngine(ctx, run)
+}
+
+// executeWorkflowWithLegacyEngine runs the workflow end-to-end with the
+// in-process Go engine. It does not depend on the external LangGraph runtime
+// or its checkpoint store, so it is unaffected by the checkpoint size ceiling
+// that can trigger ErrCheckpointTransactionTooLarge.
+func (s *Service) executeWorkflowWithLegacyEngine(ctx context.Context, run models.WorkflowRun) (*WorkflowResult, error) {
 	conversationCtx, err := s.loadConversationContext(ctx, run.OrganizationID, run.UserID, run.ConversationID, run.Goal)
 	if err != nil {
 		s.failWorkflowRun(ctx, run, err)
@@ -361,6 +390,35 @@ func (s *Service) ProcessWorkflowRun(ctx context.Context, workflowRunID uint64) 
 		return nil, err
 	}
 	return s.buildWorkflowResult(ctx, updated)
+}
+
+// workflowCheckpointTooLargeFallbackToGo reports whether a workflow run that
+// fails in the external LangGraph runtime due to an oversized checkpoint should
+// be degraded to the in-process Go engine instead of being failed permanently.
+// Defaults to true; set WORKFLOW_CHECKPOINT_FALLBACK=false to restore the old
+// fail-closed behavior.
+func workflowCheckpointTooLargeFallbackToGo() bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv("WORKFLOW_CHECKPOINT_FALLBACK")))
+	if raw == "" {
+		return true
+	}
+	if raw == "false" || raw == "0" || raw == "no" || raw == "off" {
+		return false
+	}
+	return raw == "go" || raw == "legacy" || raw == "true" || raw == "1"
+}
+
+// agentCheckpointTooLargeFallbackToGo mirrors workflowCheckpointTooLargeFallbackToGo
+// for agent runs (controlled by AGENT_CHECKPOINT_FALLBACK).
+func agentCheckpointTooLargeFallbackToGo() bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv("AGENT_CHECKPOINT_FALLBACK")))
+	if raw == "" {
+		return true
+	}
+	if raw == "false" || raw == "0" || raw == "no" || raw == "off" {
+		return false
+	}
+	return raw == "go" || raw == "legacy" || raw == "true" || raw == "1"
 }
 
 func (s *Service) deferWorkflowRun(ctx context.Context, run models.WorkflowRun, cause error) error {

@@ -6,6 +6,10 @@ const (
 	EventOutboxStatusPending   = "pending"
 	EventOutboxStatusPublished = "published"
 	EventOutboxStatusFailed    = "failed"
+	// EventOutboxStatusDead 为死信终态：达到最大重试次数后仍失败的事件转入此
+	// 状态，不再被 ClaimPendingForEvents 认领，从而避免毒事件持续占用处理批次；
+	// 转入时由 processor 触发 P1 告警，便于人工介入重放或归档。
+	EventOutboxStatusDead = "dead"
 )
 
 // EventOutbox stores durable domain events that can be published asynchronously.

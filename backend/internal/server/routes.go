@@ -8,6 +8,7 @@ import (
 
 	"github.com/allcallall/backend/internal/handlers"
 	"github.com/allcallall/backend/internal/metrics"
+	"github.com/allcallall/backend/internal/tenant"
 )
 
 type ReadinessCheck func(context.Context) error
@@ -30,6 +31,7 @@ type RouteDependencies struct {
 	TranslationWS      *handlers.TranslationWSHandler
 	Realtime           *handlers.RealtimeHandler
 	TaskScheduler      *handlers.TaskSchedulerHandler
+	OrgBilling         *handlers.OrgBillingHandler
 	Chat               *handlers.ChatHandler
 	AuthMiddleware     gin.HandlerFunc
 	ChatRealtimeAuth   gin.HandlerFunc
@@ -38,6 +40,25 @@ type RouteDependencies struct {
 	Metrics            *metrics.CounterStore
 	ReadinessChecks    map[string]ReadinessCheck
 	RequireTLS         bool
+	// TenantResolver 解析请求的组织归属。为 nil 时不挂载租户中间件（向后兼容）。
+	// TenantResolver resolves the request's organization; nil disables the middleware.
+	TenantResolver tenant.Resolver
+	// TenantEnforce 为 true 时，无法归属到组织的请求一律 403。
+	// 默认应关闭：新注册用户尚无组织成员身份，强制会锁死账户级端点。
+	// TenantEnforce rejects unresolvable tenants with 403.
+	TenantEnforce bool
+}
+
+// protectedMiddlewares 组装受保护路由组的中间件链。
+// 顺序很关键：租户中间件必须排在鉴权之后，组织归属一律从已认证主体派生，
+// 绝不采信客户端传入的 X-Organization-ID。
+// protectedMiddlewares builds the middleware chain for authenticated routes.
+func protectedMiddlewares(deps RouteDependencies) []gin.HandlerFunc {
+	chain := []gin.HandlerFunc{deps.AuthMiddleware}
+	if deps.TenantResolver != nil {
+		chain = append(chain, tenant.TenantMiddlewareWithConfig(deps.TenantResolver, tenant.Config{Enforce: deps.TenantEnforce}))
+	}
+	return chain
 }
 
 // RegisterRoutes 注册所有 HTTP 路由
@@ -83,7 +104,9 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 	deps.EmailHandler.RegisterRoutes(emailGroup)
 
 	protected := api.Group("/")
-	protected.Use(deps.AuthMiddleware)
+	for _, mw := range protectedMiddlewares(deps) {
+		protected.Use(mw)
+	}
 	{
 		protectedAuthGroup := protected.Group("/auth")
 		deps.AuthHandler.RegisterProtectedRoutes(protectedAuthGroup)
@@ -113,6 +136,9 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 		}
 		if deps.TaskScheduler != nil {
 			deps.TaskScheduler.RegisterRoutes(protected)
+		}
+		if deps.OrgBilling != nil {
+			deps.OrgBilling.RegisterProtectedRoutes(protected)
 		}
 		if deps.Chat != nil {
 			deps.Chat.RegisterRoutes(protected)
@@ -156,4 +182,5 @@ func registerHealthRoutes(api *gin.RouterGroup, deps RouteDependencies) {
 			c.Data(http.StatusOK, "text/plain; version=0.0.4", []byte(deps.Metrics.RenderPrometheus()))
 		})
 	}
+	RegisterStatusRoutes(api, deps)
 }

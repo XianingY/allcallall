@@ -1,0 +1,12 @@
+#!/bin/sh
+# AllCallAll git pre-commit hook.
+# Delegates to scripts/secret-scan.sh, which scans staged changes for secrets
+# before the commit is created.
+#
+# Install via:  make install-hooks
+# (or copy this file to .git/hooks/pre-commit and chmod +x)
+#
+# The hook resolves the repo root so it works regardless of CWD.
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+exec "$ROOT/scripts/secret-scan.sh"

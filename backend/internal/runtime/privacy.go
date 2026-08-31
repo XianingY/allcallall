@@ -1,11 +1,14 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/config"
+	"github.com/allcallall/backend/internal/kms"
 	"github.com/allcallall/backend/internal/messagecrypto"
 )
 
@@ -52,23 +55,37 @@ func SearchIndexPolicyFromConfig(cfg *config.Config) collaboration.SearchIndexPo
 	}
 }
 
-// MessageCipherFromConfig 依据配置构造消息正文加密器。
+// MessageCipherFromConfig 依据配置构造消息正文加密器，主密钥一律经 KMS provider 解析。
 // 未开启时返回 NoopCipher（历史明文照常读写）；开启但密钥非法时返回错误，
 // 绝不静默降级——静默降级会造成「以为加密了其实没加密」的最坏结果。
-// MessageCipherFromConfig builds the body cipher; never silently downgrades.
-func MessageCipherFromConfig(cfg *config.Config) (messagecrypto.Cipher, error) {
+//
+// 默认 provider 读取环境变量 MESSAGE_ENCRYPTION_MASTER_KEY（与 config 同源，行为不变）。
+// 使用云 KMS 时，调用方通过 kms.WithCloudFetcher 注入解密回调，即可获得带 TTL 缓存
+// 的轮转 provider，无需在环境里存放明文主密钥。
+// MessageCipherFromConfig builds the body cipher through the KMS abstraction; never silently downgrades.
+func MessageCipherFromConfig(ctx context.Context, cfg *config.Config, opts ...kms.Option) (messagecrypto.Cipher, error) {
 	if cfg == nil || !cfg.Privacy.Encryption.Enabled {
 		return messagecrypto.NoopCipher{}, nil
 	}
-	cipher, err := messagecrypto.NewEnvelopeCipherFromBase64(
-		cfg.Privacy.Encryption.MasterKeyBase64,
-		cfg.Privacy.Encryption.KeyID,
-	)
+	keyID := strings.TrimSpace(cfg.Privacy.Encryption.KeyID)
+	if keyID == "" {
+		keyID = defaultMasterKeyID
+	}
+	provider := kms.ResolveFromEnv(opts...)
+	// 配置里已解析出主密钥时优先使用（来源同为 MESSAGE_ENCRYPTION_MASTER_KEY，
+	// 行为与旧实现一致）；为空则交由 provider 解析——即云 KMS（需注入 fetcher）。
+	if v := strings.TrimSpace(cfg.Privacy.Encryption.MasterKeyBase64); v != "" {
+		provider = kms.StaticProvider{Value: v}
+	}
+	cipher, err := kms.NewCipher(ctx, provider, keyID)
 	if err != nil {
 		return nil, fmt.Errorf("message encryption: %w", err)
 	}
 	return cipher, nil
 }
+
+// defaultMasterKeyID 与 config 层的默认值保持一致。
+const defaultMasterKeyID = "local-v1"
 
 // ContentModerationFromConfig 把配置翻译成 collaboration 层的内容审核器。
 // 未开启时返回 nil（不注入审核），保持向后兼容与零额外开销。
@@ -84,8 +101,8 @@ func ContentModerationFromConfig(cfg *config.Config) collaboration.ModerationSer
 // 所有入口（server / cleanup-worker / outbox-worker）都应调用它，
 // 否则会出现「A 实例写了密文、B 实例不会解密」的策略漂移。
 // ApplyPrivacyPolicies wires all privacy & compliance policies onto the collaboration service.
-func ApplyPrivacyPolicies(cfg *config.Config, svc *collaboration.Service) error {
-	cipher, err := MessageCipherFromConfig(cfg)
+func ApplyPrivacyPolicies(ctx context.Context, cfg *config.Config, svc *collaboration.Service, opts ...kms.Option) error {
+	cipher, err := MessageCipherFromConfig(ctx, cfg, opts...)
 	if err != nil {
 		return err
 	}

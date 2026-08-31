@@ -75,6 +75,14 @@ setup:
 	cd mobile && npm install
 	@echo "Setup complete!"
 
+install-hooks:
+	@echo "Installing git pre-commit secret-scan hook..."
+	@mkdir -p .git/hooks
+	@cp scripts/git-hooks/pre-commit .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-commit
+	@echo "Done. Staged changes are now scanned for secrets before each commit."
+	@echo "Install gitleaks (brew install gitleaks) for full rule coverage."
+
 # ===========================
 # Build Commands
 # ===========================
@@ -338,4 +346,5 @@ fmt:
 lint:
 	@echo "Vetting backend and linting web..."
 	cd backend && go vet ./...
+	cd backend && go run ./cmd/check-unbounded-find
 	cd web && npm run lint

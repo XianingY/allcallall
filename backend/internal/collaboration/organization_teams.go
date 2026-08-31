@@ -12,25 +12,91 @@ import (
 	"github.com/allcallall/backend/internal/models"
 )
 
+// maxTeamsPerPage 限制单次列出的团队数，避免组织规模增长后端点退化为慢查询。
+const maxTeamsPerPage = 500
+
 func (s *Service) ListTeams(ctx context.Context, organizationID, userID uint64) ([]TeamView, error) {
+	// 组织归属只解析一次：此前循环内每个团队都会重复调用（内部是两次查询）。
 	if _, _, err := s.ResolveOrganization(ctx, userID, organizationID); err != nil {
 		return nil, err
 	}
 	var teams []models.Team
-	if err := s.db.WithContext(ctx).Where("organization_id = ?", organizationID).Order("name ASC").Find(&teams).Error; err != nil {
+	if err := s.db.WithContext(ctx).
+		Where("organization_id = ?", organizationID).
+		Order("name ASC").
+		Limit(maxTeamsPerPage).
+		Find(&teams).Error; err != nil {
 		return nil, err
 	}
+	if len(teams) == 0 {
+		return []TeamView{}, nil
+	}
+
+	teamIDs := make([]uint64, 0, len(teams))
+	for _, t := range teams {
+		teamIDs = append(teamIDs, t.ID)
+	}
+
+	// 一次聚合取代 N 次 COUNT。
+	counts := make(map[uint64]int64, len(teamIDs))
+	var rows []struct {
+		TeamID uint64 `gorm:"column:team_id"`
+		Total  int64  `gorm:"column:total"`
+	}
+	if err := s.db.WithContext(ctx).
+		Model(&models.TeamMember{}).
+		Select("team_id, COUNT(*) AS total").
+		Where("team_id IN ?", teamIDs).
+		Group("team_id").
+		Scan(&rows).Error; err != nil {
+		s.logger.Warn().Err(err).Msg("failed to count team members in batch")
+	} else {
+		for _, r := range rows {
+			counts[r.TeamID] = r.Total
+		}
+	}
+
+	// 一次批量查询取代 N 次成员列表查询。
+	membersByTeam, err := s.listTeamMembersBatch(ctx, organizationID, teamIDs)
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("failed to load team members in batch")
+	}
+
 	result := make([]TeamView, 0, len(teams))
 	for _, team := range teams {
-		view := TeamView{Team: team}
-		if err := s.db.WithContext(ctx).Model(&models.TeamMember{}).Where("team_id = ?", team.ID).Count(&view.MemberCount).Error; err != nil {
-			s.logger.Warn().Err(err).Uint64("team_id", team.ID).Msg("failed to count team members")
-		}
-		members, _ := s.ListTeamMembers(ctx, organizationID, userID, team.ID)
-		view.Members = members
-		result = append(result, view)
+		result = append(result, TeamView{
+			Team:        team,
+			MemberCount: counts[team.ID],
+			Members:     membersByTeam[team.ID],
+		})
 	}
 	return result, nil
+}
+
+// listTeamMembersBatch 一次性取出多个团队的成员（含用户邮箱与昵称）。
+func (s *Service) listTeamMembersBatch(ctx context.Context, organizationID uint64, teamIDs []uint64) (map[uint64][]TeamMemberView, error) {
+	out := make(map[uint64][]TeamMemberView, len(teamIDs))
+	if len(teamIDs) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		TeamMemberView
+		TeamID uint64 `gorm:"column:team_id"`
+	}
+	if err := s.db.WithContext(ctx).
+		Table("team_members").
+		Select("team_members.team_id AS team_id, team_members.*, users.email AS email, users.display_name AS display_name").
+		Joins("JOIN users ON users.id = team_members.user_id").
+		Joins("JOIN teams ON teams.id = team_members.team_id").
+		Where("teams.organization_id = ? AND team_members.team_id IN ?", organizationID, teamIDs).
+		Order("users.display_name ASC, users.email ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.TeamID] = append(out[r.TeamID], r.TeamMemberView)
+	}
+	return out, nil
 }
 
 func (s *Service) CreateTeam(ctx context.Context, organizationID, actorID uint64, input TeamInput) (*TeamView, error) {

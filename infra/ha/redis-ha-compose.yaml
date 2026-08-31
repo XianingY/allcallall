@@ -1,0 +1,56 @@
+# AllCallAll — Redis high-availability stack (3 master + 3 Sentinel).
+#
+# Sentinel provides automatic failover: when the primary Redis node fails,
+# Sentinel promotes a replica and reconfigures clients. Application must use
+# a Sentinel-aware client (or connect to the primary discovered via Sentinel).
+#
+# Bring up:  docker compose -f redis-ha-compose.yaml up -d
+
+services:
+  redis1:
+    image: redis:7
+    container_name: allcallall-redis1
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    ports: ["6379"]
+    volumes: ["redis1-data:/data"]
+
+  redis2:
+    image: redis:7
+    container_name: allcallall-redis2
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes", "--replicaof", "redis1", "6379"]
+    volumes: ["redis2-data:/data"]
+    depends_on: [redis1]
+
+  redis3:
+    image: redis:7
+    container_name: allcallall-redis3
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes", "--replicaof", "redis1", "6379"]
+    volumes: ["redis3-data:/data"]
+    depends_on: [redis1]
+
+  sentinel1:
+    image: redis:7
+    container_name: allcallall-sentinel1
+    command: ["redis-sentinel", "/etc/redis/sentinel.conf"]
+    volumes: ["./sentinel.conf:/etc/redis/sentinel.conf:ro"]
+    ports: ["26379"]
+    depends_on: [redis1, redis2, redis3]
+
+  sentinel2:
+    image: redis:7
+    container_name: allcallall-sentinel2
+    command: ["redis-sentinel", "/etc/redis/sentinel.conf"]
+    volumes: ["./sentinel.conf:/etc/redis/sentinel.conf:ro"]
+    depends_on: [redis1, redis2, redis3]
+
+  sentinel3:
+    image: redis:7
+    container_name: allcallall-sentinel3
+    command: ["redis-sentinel", "/etc/redis/sentinel.conf"]
+    volumes: ["./sentinel.conf:/etc/redis/sentinel.conf:ro"]
+    depends_on: [redis1, redis2, redis3]
+
+volumes:
+  redis1-data:
+  redis2-data:
+  redis3-data:

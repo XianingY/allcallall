@@ -144,11 +144,11 @@ func TestProcessorRetriesThenFails(t *testing.T) {
 	if err := db.Take(&row, event.ID).Error; err != nil {
 		t.Fatalf("load row after failed failed: %v", err)
 	}
-	if row.Status != models.EventOutboxStatusFailed || row.Attempts != 2 {
-		t.Fatalf("expected failed row, got %+v", row)
+	if row.Status != models.EventOutboxStatusDead || row.Attempts != 2 {
+		t.Fatalf("expected dead-letter row, got %+v", row)
 	}
 	snapshot := counters.Snapshot()
-	if snapshot["outbox_publish_retry_total"] != 1 || snapshot["outbox_publish_failed_total"] != 1 {
+	if snapshot["outbox_publish_retry_total"] != 1 || snapshot["outbox_dead_letter_total"] != 1 {
 		t.Fatalf("unexpected metrics: %v", snapshot)
 	}
 }

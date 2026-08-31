@@ -31,6 +31,11 @@ jobs:
     - name: Vet
       run: go vet ./...
 
+    - name: Pagination gate (no unbounded list Find)
+      # 拦截新增的"面向用户列表端点裸写 .Find(&...) 不加 .Limit"回归。
+      # 存量违规在 cmd/check-unbounded-find 的 allowlist 中豁免，治理后移除。
+      run: go run ./cmd/check-unbounded-find
+
     - name: Test with coverage
       # Runtime/integration tests that need MySQL/Redis are skipped automatically
       # when their DSN env vars are unset, so this runs the whole tree safely.

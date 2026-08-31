@@ -1,6 +1,10 @@
 package collaboration
 
-import "context"
+import (
+	"context"
+
+	"github.com/allcallall/backend/internal/pagination"
+)
 
 // ChatServiceBoundary defines the chat/thread subset to extract from Service.
 type ChatServiceBoundary interface {
@@ -21,7 +25,7 @@ type RoomServiceBoundary interface {
 type RecordingServiceBoundary interface {
 	StartRecording(ctx context.Context, organizationID, userID, roomID uint64) (*RecordingView, error)
 	StopRecording(ctx context.Context, organizationID, userID, roomID uint64) (*RecordingView, error)
-	ListRecordings(ctx context.Context, organizationID, userID uint64) ([]RecordingView, error)
+	ListRecordings(ctx context.Context, organizationID, userID uint64, page pagination.Page) (pagination.Result[RecordingView], error)
 }
 
 // SupportServiceBoundary defines the read-only diagnostics subset to extract from Service.

@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -132,6 +133,36 @@ func requestLogger(log zerolog.Logger, counters *metrics.CounterStore) gin.Handl
 			Str("client_ip", c.ClientIP()).
 			Dur("duration", duration).
 			Msg("http_request_completed")
+	}
+}
+
+// ForceHTTPSRedirect 返回一个 301 重定向中间件：对明文 HTTP 请求（且非本地健康检查）
+// 统一跳转到等效的 https 地址。与 RequireTLS（对 API 返回 403）互补——
+// 前者用于 Web 用户无感升级到 HTTPS，后者用于阻止明文 API 调用泄露令牌。
+// 经反向代理终结 TLS 时，信任 X-Forwarded-Proto: https。
+// ForceHTTPSRedirect redirects plaintext HTTP traffic to HTTPS (301).
+func ForceHTTPSRedirect() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
+			c.Next()
+			return
+		}
+		if isHealthOrMetricsPath(c.Request.URL.Path) {
+			c.Next()
+			return
+		}
+		host := c.GetHeader("X-Forwarded-Host")
+		if host == "" {
+			host = c.Request.Host
+		}
+		target := &url.URL{
+			Scheme:   "https",
+			Host:     host,
+			Path:     c.Request.URL.Path,
+			RawQuery: c.Request.URL.RawQuery,
+		}
+		c.Redirect(http.StatusMovedPermanently, target.String())
+		c.Abort()
 	}
 }
 

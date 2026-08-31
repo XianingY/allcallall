@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/allcallall/backend/internal/config"
+	"github.com/allcallall/backend/internal/kms"
 	"github.com/allcallall/backend/internal/messagecrypto"
 )
 
@@ -44,7 +46,7 @@ func TestMessageCipherFromConfigDisabledReturnsNoop(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Privacy.Encryption.Enabled = false
 
-	cipher, err := MessageCipherFromConfig(cfg)
+	cipher, err := MessageCipherFromConfig(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("disabled encryption should not error: %v", err)
 	}
@@ -69,7 +71,7 @@ func TestMessageCipherFromConfigRejectsInvalidKey(t *testing.T) {
 			cfg.Privacy.Encryption.MasterKeyBase64 = key
 			cfg.Privacy.Encryption.KeyID = "primary"
 
-			cipher, err := MessageCipherFromConfig(cfg)
+			cipher, err := MessageCipherFromConfig(context.Background(), cfg)
 			if err == nil {
 				t.Fatalf("expected error for %s, got cipher=%T", name, cipher)
 			}
@@ -91,8 +93,57 @@ func TestApplyPrivacyPoliciesFailsClosedOnBadKey(t *testing.T) {
 	cfg.Privacy.Encryption.Enabled = true
 	cfg.Privacy.Encryption.MasterKeyBase64 = "definitely-not-a-valid-key"
 
-	if err := ApplyPrivacyPolicies(cfg, nil); err == nil {
+	if err := ApplyPrivacyPolicies(context.Background(), cfg, nil); err == nil {
 		t.Fatal("ApplyPrivacyPolicies must fail when the master key is unusable")
+	}
+}
+
+// 关键回归点：主密钥必须经 KMS provider 解析，而非绕过 KMS 直接读配置。
+// 此前 MessageCipherFromConfig 直接读 cfg.MasterKeyBase64，导致 internal/kms
+// 的云 KMS 适配与轮转能力完全不生效。
+func TestMessageCipherFromConfigUsesKMSProvider(t *testing.T) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("generate master key: %v", err)
+	}
+
+	cfg := &config.Config{}
+	cfg.Privacy.Encryption.Enabled = true
+	// 故意不设置 MasterKeyBase64：主密钥只能来自注入的 KMS provider。
+	cfg.Privacy.Encryption.KeyID = "cloud-key-1"
+
+	var gotKeyID string
+	calls := 0
+	fetcher := func(_ context.Context, keyID string) ([]byte, error) {
+		calls++
+		gotKeyID = keyID
+		return key, nil
+	}
+
+	cipher, err := MessageCipherFromConfig(context.Background(), cfg, kms.WithCloudFetcher(fetcher, time.Minute))
+	if err != nil {
+		t.Fatalf("cipher via cloud KMS: %v", err)
+	}
+	if calls == 0 {
+		t.Fatal("expected the KMS fetcher to be invoked")
+	}
+	if gotKeyID != "cloud-key-1" {
+		t.Fatalf("fetcher received key id=%q want=cloud-key-1", gotKeyID)
+	}
+	if cipher.KeyID() != "cloud-key-1" {
+		t.Fatalf("cipher key id=%q want=cloud-key-1", cipher.KeyID())
+	}
+
+	ciphertext, metadata, err := cipher.Encrypt("云 KMS 回归正文")
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	plaintext, err := cipher.Decrypt(ciphertext, metadata)
+	if err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+	if plaintext != "云 KMS 回归正文" {
+		t.Fatalf("round trip=%q want=云 KMS 回归正文", plaintext)
 	}
 }
 
@@ -111,7 +162,7 @@ func TestApplyPrivacyPoliciesInstallsProcessDefaultCipher(t *testing.T) {
 
 	// svc 传 nil：进程级默认加密器仍必须装配，
 	// 否则 agent 侧上下文装载会读到密文当明文用。
-	if err := ApplyPrivacyPolicies(cfg, nil); err != nil {
+	if err := ApplyPrivacyPolicies(context.Background(), cfg, nil); err != nil {
 		t.Fatalf("ApplyPrivacyPolicies: %v", err)
 	}
 	installed := messagecrypto.Default()

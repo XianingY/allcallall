@@ -56,6 +56,9 @@ type WorkflowResult struct {
 	Citations   []Citation                    `json:"citations"`
 	ActionItems []string                      `json:"action_items"`
 	RiskFlags   []string                      `json:"risk_flags"`
+	// Truncated 为 true 表示部分子集合因超过单次载入上限（workflowResultMaxRows）
+	// 仅保留了最近 N 条，客户端需按需二次分页拉取更早的记录。
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 type workflowTaskSpec struct {

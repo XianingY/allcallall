@@ -1,0 +1,34 @@
+# AllCallAll API — Multi-AZ Namespace
+# 多可用区部署命名空间。所有资源归属同一 namespace，通过 topology spread
+# 约束分散到不同 zone，配合 PDB 保证滚动更新/节点故障时的可用副本数。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: allcallall
+  labels:
+    app.kubernetes.io/part-of: allcallall
+    # 生产环境建议打上环境标签，便于 NetworkPolicy / ResourceQuota 区分
+    env: production
+---
+# ResourceQuota 为 namespace 设上限，避免单租户爆炸影响多 AZ 稳定性。
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: allcallall-quota
+  namespace: allcallall
+spec:
+  hard:
+    requests.cpu: "32"
+    requests.memory: 64Gi
+    limits.cpu: "64"
+    limits.memory: 128Gi
+    pods: "40"
+---
+# 默认调度到生产节点池，并尽量分散到不同 zone。
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: allcallall-critical
+value: 1000000
+globalDefault: false
+description: "Critical AllCallAll API workload — preempt lower priority batch jobs."
