@@ -1,0 +1,46 @@
+# Scheduled vulnerability scan — surfaces new CVEs WITHOUT blocking PR merges.
+#
+# Why this exists: on 2026-09-02 a newly-published CVE (CVE-2026-56854 in
+# golang.org/x/crypto) entered the Trivy DB and made the PR-blocking Trivy step
+# in platform-ci.yml fail for *every* PR, even unrelated ones. This workflow
+# separates "awareness" (scheduled, can fail to alert) from "gating" (PR
+# builds/tests). It does NOT run on pull_request, so it never blocks merges.
+name: Security Scan
+
+on:
+  schedule:
+    # Weekly, Monday 02:17 UTC — offset to avoid the top-of-hour rush.
+    - cron: "17 2 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  trivy-fs:
+    name: Trivy filesystem scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Go module dependencies (backend).
+      - name: Scan backend (Go modules)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: backend
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      # Frontend dependencies (web npm workspace).
+      - name: Scan web (npm)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: web
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
