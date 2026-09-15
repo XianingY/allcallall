@@ -1,4 +1,4 @@
-# .trivyignore.yaml — Trivy vulnerability suppressions for AllCallAll CI image scans.
+# .trivyignore — Trivy vulnerability suppressions for AllCallAll CI image scans.
 #
 # Every entry below is a CVE that lives in an UPSTREAM BASE IMAGE (OS package or
 # bundled library), not in AllCallAll application code. Each has a known fixed
