@@ -369,3 +369,5 @@ jobs:
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+          # Suppress CVEs that live in upstream base images (see .trivyignore).
+          trivyignores: .trivyignore
