@@ -11,7 +11,6 @@ export class SignalingMachine {
   private state: SignalingState = 'disconnected';
   private listeners: Set<Listener> = new Set();
   private ws: WebSocket | null = null;
-  private peerConnection: RTCPeerConnection | null = null;
 
   constructor(private url: string, private token: string) {}
 
