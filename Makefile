@@ -321,9 +321,14 @@ verify:
 	@echo "Running verification suite..."
 	cd backend && go test ./...
 	cd web && npm run typecheck
-	cd mobile && npx tsc --noEmit
-	cd allcallall-agent-runtime/services/agent-runtime && pytest
-	cd allcallall-agent-runtime/services/rag-runtime && pytest
+	cd mobile && npm run typecheck
+	@if [ -d allcallall-agent-runtime ]; then \
+		cd allcallall-agent-runtime/services/agent-runtime && pytest; \
+		cd "$(CURDIR)/allcallall-agent-runtime/services/rag-runtime" && pytest; \
+	else \
+		echo "allcallall-agent-runtime not checked out; skipping Python runtime tests."; \
+		echo "Clone it as a sibling directory to include them (see AGENTS.md)."; \
+	fi
 
 # ===========================
 # Development Commands
