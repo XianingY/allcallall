@@ -5,7 +5,7 @@ PYTHON ?= python3
 AGENT_RUNTIME_PYTHON ?= $(if $(wildcard allcallall-agent-runtime/services/agent-runtime/.venv/bin/python),allcallall-agent-runtime/services/agent-runtime/.venv/bin/python,$(PYTHON))
 RAG_RUNTIME_PYTHON ?= $(if $(wildcard allcallall-agent-runtime/services/rag-runtime/.venv/bin/python),allcallall-agent-runtime/services/rag-runtime/.venv/bin/python,$(PYTHON))
 
-.PHONY: help setup build-android build-ios clean test run-api run-agent-runtime run-rag-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed interview-up interview-smoke interview-chaos interview-status interview-down interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval python-rag-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval ai-agent-jd-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check helm-check
+.PHONY: help setup install-hooks build-android build-android-release build-ios clean clean-android test test-backend run-backend run-api run-agent-runtime run-rag-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed dev-android dev-ios fmt lint verify interview-up interview-smoke interview-chaos interview-status interview-down interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval python-rag-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval ai-agent-jd-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check helm-check
 
 # Default target
 help:
@@ -172,7 +172,9 @@ clean-android:
 
 test:
 	@echo "Running tests..."
-	cd mobile && npm test
+	cd backend && go test ./...
+	cd web && npm test
+	cd mobile && npm run test:unit
 
 test-backend:
 	@echo "Running backend tests..."
