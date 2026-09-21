@@ -12,6 +12,7 @@ import (
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
 // EventPublisher 接收实时事件并投递给指定用户（由 collaboration.ChatHub 实现，
@@ -185,6 +186,7 @@ func (s *Service) ListGroups(ctx context.Context, orgID, userID uint64) ([]Group
 	var members []models.ChatGroupMember
 	if err := s.db.WithContext(ctx).
 		Where("organization_id = ? AND user_id = ?", orgID, userID).
+		Limit(pagination.MaxLimit).
 		Find(&members).Error; err != nil {
 		return nil, err
 	}

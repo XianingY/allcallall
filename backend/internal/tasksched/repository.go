@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
 // ErrWeeklyTaskNotFound 任务不存在
@@ -51,6 +52,7 @@ func (r *Repository) ListByOwner(ctx context.Context, ownerID uint64) ([]models.
 	if err := r.db.WithContext(ctx).
 		Where("owner_id = ?", ownerID).
 		Order("next_run_at ASC").
+		Limit(pagination.MaxLimit).
 		Find(&tasks).Error; err != nil {
 		return nil, err
 	}

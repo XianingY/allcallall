@@ -10,6 +10,7 @@ import (
 
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
 // ---------- 已读回执 ----------
@@ -78,7 +79,7 @@ func (s *Service) ListReadReceipts(ctx context.Context, orgID, userID, groupID, 
 	}
 	var receipts []models.ChatMessageReceipt
 	if err := s.db.WithContext(ctx).Where("organization_id = ? AND group_id = ? AND message_id = ?", orgID, groupID, messageID).
-		Order("read_at ASC").Find(&receipts).Error; err != nil {
+		Order("read_at ASC").Limit(pagination.MaxLimit).Find(&receipts).Error; err != nil {
 		return nil, err
 	}
 	out := make([]ReadReceiptView, 0, len(receipts))

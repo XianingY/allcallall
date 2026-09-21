@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
 // Repository 用户数据访问层
@@ -132,6 +133,7 @@ func (r *Repository) ListPushDevices(ctx context.Context, userID uint64) ([]mode
 	if err := r.db.WithContext(ctx).
 		Where("user_id = ?", userID).
 		Order("last_registered DESC").
+		Limit(pagination.MaxLimit).
 		Find(&devices).Error; err != nil {
 		return nil, err
 	}

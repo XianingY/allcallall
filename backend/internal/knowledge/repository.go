@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
 // Repository encapsulates database operations for knowledge sources, chunks, and duplicates.
@@ -210,6 +211,7 @@ func (r *Repository) ListSourcesInGroup(ctx context.Context, organizationID, gro
 	err := r.db.WithContext(ctx).
 		Where("organization_id = ? AND source_group_id = ?", organizationID, groupID).
 		Order("id ASC").
+		Limit(pagination.MaxLimit).
 		Find(&sources).Error
 	return sources, err
 }
@@ -293,7 +295,7 @@ func (r *Repository) NextVersionNumberTx(ctx context.Context, tx *gorm.DB, sourc
 // ListVersionsBySource returns versions for a source.
 func (r *Repository) ListVersionsBySource(ctx context.Context, sourceID uint64) ([]models.RAGSourceVersion, error) {
 	var versions []models.RAGSourceVersion
-	err := r.db.WithContext(ctx).Where("source_id = ?", sourceID).Order("version DESC").Find(&versions).Error
+	err := r.db.WithContext(ctx).Where("source_id = ?", sourceID).Order("version DESC").Limit(pagination.MaxLimit).Find(&versions).Error
 	return versions, err
 }
 
@@ -378,7 +380,7 @@ func (r *Repository) ListChunksBySource(ctx context.Context, sourceID uint64) ([
 // ListChunksByVersion returns chunks for a version.
 func (r *Repository) ListChunksByVersion(ctx context.Context, versionID uint64) ([]models.RAGChunk, error) {
 	var chunks []models.RAGChunk
-	err := r.db.WithContext(ctx).Where("source_version_id = ?", versionID).Order("chunk_index ASC").Find(&chunks).Error
+	err := r.db.WithContext(ctx).Where("source_version_id = ?", versionID).Order("chunk_index ASC").Limit(pagination.MaxLimit).Find(&chunks).Error
 	return chunks, err
 }
 

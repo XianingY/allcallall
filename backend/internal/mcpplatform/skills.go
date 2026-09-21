@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
 func (s *Service) ListSkills(ctx context.Context, organizationID, userID uint64) ([]models.AgentSkill, error) {
@@ -23,7 +24,7 @@ func (s *Service) ListSkills(ctx context.Context, organizationID, userID uint64)
 	err := s.db.WithContext(ctx).
 		Where("organization_id = ? AND deleted_at IS NULL AND (scope = ? OR (scope = ? AND owner_user_id = ?))",
 			organizationID, models.MCPInstallationScopeOrganization, models.MCPInstallationScopePersonal, userID).
-		Order("updated_at DESC, id DESC").Find(&skills).Error
+		Order("updated_at DESC, id DESC").Limit(pagination.MaxLimit).Find(&skills).Error
 	return skills, err
 }
 

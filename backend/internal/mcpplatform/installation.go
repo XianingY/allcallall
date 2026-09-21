@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
 func (s *Service) CreateInstallation(ctx context.Context, organizationID, userID uint64, input CreateInstallationInput) (*models.MCPInstallation, error) {
@@ -91,7 +92,7 @@ func (s *Service) ListInstallations(ctx context.Context, organizationID, userID 
 	err := s.db.WithContext(ctx).
 		Where("organization_id = ? AND deleted_at IS NULL AND (scope = ? OR (scope = ? AND owner_user_id = ?))",
 			organizationID, models.MCPInstallationScopeOrganization, models.MCPInstallationScopePersonal, userID).
-		Order("created_at DESC, id DESC").Find(&items).Error
+		Order("created_at DESC, id DESC").Limit(pagination.MaxLimit).Find(&items).Error
 	return items, err
 }
 

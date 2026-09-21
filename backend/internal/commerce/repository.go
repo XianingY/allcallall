@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
 // Repository handles all data access operations for the commerce service.
@@ -367,10 +368,12 @@ func (r *Repository) DeleteUserBlock(ctx context.Context, blockerID, blockedUser
 		Delete(&models.UserBlock{}).Error
 }
 
-// ListUserBlocks retrieves all blocks by a user.
+// ListUserBlocks retrieves blocks by a user. A defensive MaxLimit cap keeps the
+// query bounded even if a blocker accumulates an unusually large block list.
 func (r *Repository) ListUserBlocks(ctx context.Context, blockerID uint64) ([]models.UserBlock, error) {
 	var blocks []models.UserBlock
-	if err := r.db.WithContext(ctx).Where("blocker_id = ?", blockerID).Find(&blocks).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("blocker_id = ?", blockerID).
+		Limit(pagination.MaxLimit).Find(&blocks).Error; err != nil {
 		return nil, err
 	}
 	return blocks, nil

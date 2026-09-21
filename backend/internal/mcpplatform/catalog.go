@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
 func (s *Service) ListTools(ctx context.Context, organizationID, userID, installationID uint64) ([]models.MCPTool, error) {
@@ -26,7 +27,7 @@ func (s *Service) ListTools(ctx context.Context, organizationID, userID, install
 		}
 		query = query.Where("revision_id = ?", revision.ID)
 	}
-	err = query.Order("original_name ASC").Find(&tools).Error
+	err = query.Order("original_name ASC").Limit(pagination.MaxLimit).Find(&tools).Error
 	return tools, err
 }
 

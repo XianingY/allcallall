@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
 type ContactWithProfile struct {
@@ -85,6 +86,7 @@ func (r *Repository) ListContacts(ctx context.Context, ownerID uint64) ([]models
 		Joins("JOIN users ON contacts.contact_id = users.id").
 		Where("contacts.owner_id = ?", ownerID).
 		Order("users.display_name ASC").
+		Limit(pagination.MaxLimit).
 		Find(&users).Error
 	return users, err
 }
@@ -109,6 +111,7 @@ func (r *Repository) ListContactsWithProfiles(ctx context.Context, ownerID uint6
 		Joins("LEFT JOIN contact_profiles ON contact_profiles.owner_id = contacts.owner_id AND contact_profiles.contact_user_id = contacts.contact_id").
 		Where("contacts.owner_id = ?", ownerID).
 		Order("users.display_name ASC").
+		Limit(pagination.MaxLimit).
 		Find(&rows).Error
 	return rows, err
 }

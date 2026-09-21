@@ -30,32 +30,20 @@ import (
 // listFuncRe 匹配"列表类"函数名。
 var listFuncRe = regexp.MustCompile(`^(List|Search|Query|GetAll|FetchAll|FindAll)`)
 
-// allowlist 豁免存量未分页列表端点（已扫描确认的全部 21 处）。
-// 逐项治理后从名单移除；新增的未分页列表端点（不在名单中）会被严格模式拦截。
-// 注：ListRecordings 已示范完成分页（经 pagination.Scope 应用 Limit），
-// 由扫描器识别 .Scopes(...) 视为已分页，故不在此豁免名单中。
-var allowlist = map[string]bool{
-	"ListGroups":               true,
-	"ListReadReceipts":         true,
-	"ListConversations":        true,
-	"ListDeals":                true,
-	"ListDealActivities":       true,
-	"ListContacts":             true,
-	"ListContactsWithProfiles": true,
-	"ListSourcesInGroup":       true,
-	"ListVersionsBySource":     true,
-	"ListChunksByVersion":      true,
-	"ListTools":                true,
-	"ListInstallations":        true,
-	"ListSkills":               true,
-	"ListByOwner":              true,
-	"ListPushDevices":          true,
-	"ListPipelines":            true,
-	"ListOrganizationMembers":  true,
-	"ListOrganizationInvites":  true,
-	"ListTeamMembers":          true,
-	"ListUserBlocks":           true,
-}
+// allowlist 豁免存量未分页列表端点。
+//
+// 治理进度：经审计确认的全部 21 处面向用户的裸 .Find(&...) 列表端点已统一
+// 收敛为 .Limit(pagination.MaxLimit)（封顶 500，防止全表扫描 / OOM）；其中
+// 3 个高基数列表端点（ListConversations / ListDeals / ListOrganizationMembers）
+// 进一步接入了真实的 offset 分页信封（total/limit/offset/has_more），并由
+// web/mobile 客户端以 useInfiniteQuery / 追加 offset 的方式消费。
+//
+// 因此本 allowlist 当前为空：任何新增的、未在白名单内且未施加分页控制的列表
+// 函数都会被严格模式拦截，防止回归。
+//
+// 注：ListRecordings 经 pagination.Scope 应用 Limit，由扫描器识别 .Scopes(...)
+// 视为已分页，故不在此豁免名单中。
+var allowlist = map[string]bool{}
 
 type finding struct {
 	file string
