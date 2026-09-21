@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
+import { useTranslation } from "react-i18next";
+
 import { getWebRTCConfig } from "@/api/realtime";
 import { useAuth } from "@/auth/AuthContext";
 import { CallContext } from "@/calls/CallContext";
@@ -15,6 +17,7 @@ interface SignalMessage {
 }
 
 export function CallProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation();
   const { status: authStatus } = useAuth();
   const socket = useRef<TicketSocket<SignalMessage> | null>(null);
   const peer = useRef<RTCPeerConnection | null>(null);
@@ -42,10 +45,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     connection.onconnectionstatechange = () => {
       if (connection.connectionState === "connected") useCallStore.getState().patch({ status: "connected" });
       if (connection.connectionState === "disconnected") useCallStore.getState().patch({ status: "reconnecting" });
-      if (connection.connectionState === "failed") useCallStore.getState().patch({ status: "failed", error: "媒体连接失败" });
+      if (connection.connectionState === "failed") useCallStore.getState().patch({ status: "failed", error: t("call.error.mediaFailed") });
     };
     return connection;
-  }, [send]);
+  }, [send, t]);
 
   const localMedia = useCallback(async (video = false, deviceId?: string) => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: deviceId ? { deviceId: { exact: deviceId } } : true, video });
@@ -72,12 +75,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       } else if (message.type === "call.reject" || message.type === "call.end") {
         cleanup();
       } else if (message.type === "call.error") {
-        state.patch({ status: "failed", error: String((message.payload as Record<string, unknown> | undefined)?.reason ?? "通话失败") });
+        state.patch({ status: "failed", error: String((message.payload as Record<string, unknown> | undefined)?.reason ?? t("call.error.callFailed")) });
       }
     } catch (error) {
-      state.patch({ status: "failed", error: error instanceof Error ? error.message : "通话状态异常" });
+      state.patch({ status: "failed", error: error instanceof Error ? error.message : t("call.error.invalidState") });
     }
-  }, [cleanup, send]);
+  }, [cleanup, send, t]);
 
   useEffect(() => {
     if (authStatus !== "authenticated") return;
@@ -92,8 +95,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const stream = await localMedia(false); const connection = await createPeer(); stream.getTracks().forEach((track) => connection.addTrack(track, stream));
       const description = await connection.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true }); await connection.setLocalDescription(description);
       pendingTarget.current = email; useCallStore.getState().patch({ status: "outgoing", peerEmail: email }); send({ type: "call.invite", to: email, payload: { type: description.type, sdp: description.sdp } });
-    } catch (error) { useCallStore.getState().patch({ status: "failed", error: error instanceof Error ? error.message : "无法访问麦克风" }); }
-  }, [createPeer, localMedia, send]);
+    } catch (error) { useCallStore.getState().patch({ status: "failed", error: error instanceof Error ? error.message : t("call.error.micUnavailable") }); }
+  }, [createPeer, localMedia, send, t]);
 
   const accept = useCallback(async () => {
     const state = useCallStore.getState(); if (!offer.current || state.status !== "incoming") return;
@@ -101,8 +104,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const stream = await localMedia(false); const connection = await createPeer(); stream.getTracks().forEach((track) => connection.addTrack(track, stream)); await connection.setRemoteDescription(offer.current);
       for (const candidate of pendingCandidates.current.splice(0)) await connection.addIceCandidate(candidate);
       const answer = await connection.createAnswer(); await connection.setLocalDescription(answer); send({ type: "call.accept", call_id: state.callId, to: state.peerEmail, payload: { type: answer.type, sdp: answer.sdp } }); state.patch({ status: "connecting" });
-    } catch (error) { state.patch({ status: "failed", error: error instanceof Error ? error.message : "无法接听" }); }
-  }, [createPeer, localMedia, send]);
+    } catch (error) { state.patch({ status: "failed", error: error instanceof Error ? error.message : t("call.error.acceptFailed") }); }
+  }, [createPeer, localMedia, send, t]);
 
   const end = useCallback(() => { const state = useCallStore.getState(); if (state.peerEmail) send({ type: "call.end", call_id: state.callId, to: state.peerEmail }); cleanup(); }, [cleanup, send]);
   const reject = useCallback(() => { const state = useCallStore.getState(); send({ type: "call.reject", call_id: state.callId, to: state.peerEmail }); cleanup(); }, [cleanup, send]);
