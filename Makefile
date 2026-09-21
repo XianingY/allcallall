@@ -318,7 +318,7 @@ web-performance-check:
 verify:
 	@echo "Running verification suite..."
 	cd backend && go test ./...
-	cd web && npm run tsc -- --noEmit
+	cd web && npm run typecheck
 	cd mobile && npx tsc --noEmit
 	cd allcallall-agent-runtime/services/agent-runtime && pytest
 	cd allcallall-agent-runtime/services/rag-runtime && pytest

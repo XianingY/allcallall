@@ -23,6 +23,7 @@ Backend:
 
 Web:
   cd web && npm run dev
+  cd web && npm run typecheck   # tsc -p tsconfig.app.json --noEmit (bare `tsc --noEmit` is a no-op on the solution tsconfig)
   cd web && npx vitest run
 
 Mobile:
@@ -32,8 +33,9 @@ Mobile:
 Desktop:
   cd desktop && npm run dev
 
-Root Makefile (there is NO `make typecheck` target; use the per-module `tsc`
-commands above for type checking):
+Root Makefile (`make verify` runs backend tests + `cd web && npm run typecheck` + mobile tsc +
+Python pytest). The web project uses a solution tsconfig, so a bare `tsc --noEmit` is a
+no-op there — always use `cd web && npm run typecheck`):
   make fmt                 # gofmt -w on backend/
   make lint                # go vet (backend) + npm run lint (web)
   make test-backend        # cd backend && go test ./...
