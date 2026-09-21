@@ -9,54 +9,66 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
-func (s *Service) ListConversations(ctx context.Context, organizationID, userID uint64, filter string, contactID *uint64) ([]ConversationSummary, error) {
+func (s *Service) ListConversations(ctx context.Context, organizationID, userID uint64, filter string, contactID *uint64, page pagination.Page) (pagination.Result[ConversationSummary], error) {
 	if _, _, err := s.ResolveOrganization(ctx, userID, organizationID); err != nil {
-		return nil, err
+		return pagination.Result[ConversationSummary]{}, err
 	}
-	query := s.db.WithContext(ctx).
-		Table("conversations").
-		Joins("JOIN conversation_members ON conversation_members.conversation_id = conversations.id").
-		Where("conversations.organization_id = ? AND conversation_members.user_id = ?", organizationID, userID)
+	np := page.Normalize()
+	// buildQuery returns a fresh, filter-applied query so the same predicate
+	// set drives both the COUNT and the paged FIND without duplication.
+	buildQuery := func() *gorm.DB {
+		q := s.db.WithContext(ctx).
+			Table("conversations").
+			Joins("JOIN conversation_members ON conversation_members.conversation_id = conversations.id").
+			Where("conversations.organization_id = ? AND conversation_members.user_id = ?", organizationID, userID)
+		switch strings.TrimSpace(strings.ToLower(filter)) {
+		case "", "all":
+		case "my":
+			q = q.Where("conversations.assignee_user_id = ?", userID)
+		case models.ConversationStatusOpen, models.ConversationStatusPending, models.ConversationStatusResolved:
+			q = q.Where("conversations.status = ?", filter)
+		case "channels":
+			q = q.Where("conversations.type = ?", models.ConversationTypeChannel)
+		}
+		if contactID != nil && *contactID != 0 {
+			q = q.Where("conversations.contact_id = ?", *contactID)
+		}
+		return q
+	}
 
-	switch strings.TrimSpace(strings.ToLower(filter)) {
-	case "", "all":
-	case "my":
-		query = query.Where("conversations.assignee_user_id = ?", userID)
-	case models.ConversationStatusOpen, models.ConversationStatusPending, models.ConversationStatusResolved:
-		query = query.Where("conversations.status = ?", filter)
-	case "channels":
-		query = query.Where("conversations.type = ?", models.ConversationTypeChannel)
-	}
-	if contactID != nil && *contactID != 0 {
-		query = query.Where("conversations.contact_id = ?", *contactID)
+	var total int64
+	if err := buildQuery().Count(&total).Error; err != nil {
+		return pagination.Result[ConversationSummary]{}, err
 	}
 
 	var convs []models.Conversation
-	if err := query.
+	if err := buildQuery().
 		Order("conversations.last_message_at DESC, conversations.updated_at DESC").
+		Scopes(np.Scope).
 		Find(&convs).Error; err != nil {
-		return nil, err
+		return pagination.Result[ConversationSummary]{}, err
 	}
 	result := make([]ConversationSummary, 0, len(convs))
 	if len(convs) == 0 {
-		return result, nil
+		return pagination.NewResult(result, total, np), nil
 	}
 	// Batch-load every peer/assignee user up front so the per-conversation
 	// summary loop performs no per-row JOIN to the users table (N+1 fix).
 	users, peerByConv, err := s.loadConversationSummaryUsers(ctx, convs, userID)
 	if err != nil {
-		return nil, err
+		return pagination.Result[ConversationSummary]{}, err
 	}
 	for _, conv := range convs {
 		item, err := s.buildConversationSummaryWithUsers(ctx, conv, userID, users, peerByConv)
 		if err != nil {
-			return nil, err
+			return pagination.Result[ConversationSummary]{}, err
 		}
 		result = append(result, item)
 	}
-	return result, nil
+	return pagination.NewResult(result, total, np), nil
 }
 func (s *Service) GetConversation(ctx context.Context, organizationID, userID, conversationID uint64) (*ConversationDetail, error) {
 	if err := s.ensureConversationMember(ctx, organizationID, userID, conversationID); err != nil {

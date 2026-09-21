@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
 // maxTeamsPerPage 限制单次列出的团队数，避免组织规模增长后端点退化为慢查询。
@@ -188,6 +189,7 @@ func (s *Service) ListTeamMembers(ctx context.Context, organizationID, userID, t
 		Joins("JOIN teams ON teams.id = team_members.team_id").
 		Where("teams.organization_id = ? AND team_members.team_id = ?", organizationID, teamID).
 		Order("users.display_name ASC, users.email ASC").
+		Limit(pagination.MaxLimit).
 		Find(&members).Error
 	return members, err
 }

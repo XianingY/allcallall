@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/allcallall/backend/internal/collaboration"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
 func (h *CollaborationHandler) handleListPipelines(c *gin.Context) {
@@ -30,16 +31,28 @@ func (h *CollaborationHandler) handleListDeals(c *gin.Context) {
 	if !ok {
 		return
 	}
-	items, err := h.service.ListDeals(c.Request.Context(), orgID, claims.UserID)
+	page := pagination.Page{
+		Limit:  atoiDefault(c.Query("limit"), pagination.DefaultLimit),
+		Offset: atoiDefault(c.Query("offset"), 0),
+	}
+	result, err := h.service.ListDeals(c.Request.Context(), orgID, claims.UserID, page)
 	if err != nil {
 		JSONError(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	response := make([]dealResponse, 0, len(items))
-	for _, item := range items {
+	response := make([]dealResponse, 0, len(result.Items))
+	for _, item := range result.Items {
 		response = append(response, toDealResponse(item))
 	}
-	JSONSuccess(c, http.StatusOK, gin.H{"deals": response})
+	JSONSuccess(c, http.StatusOK, gin.H{
+		"deals": response,
+		"pagination": gin.H{
+			"total":    result.Total,
+			"limit":    result.Limit,
+			"offset":   result.Offset,
+			"has_more": result.HasMore,
+		},
+	})
 }
 
 func (h *CollaborationHandler) handleCreateDeal(c *gin.Context) {

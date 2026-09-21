@@ -11,6 +11,7 @@ import (
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
 func (h *CollaborationHandler) handleCreateOrganization(c *gin.Context) {
@@ -120,16 +121,28 @@ func (h *CollaborationHandler) handleListOrganizationMembers(c *gin.Context) {
 	if !ok {
 		return
 	}
-	items, err := h.service.ListOrganizationMembers(c.Request.Context(), orgID, claims.UserID)
+	page := pagination.Page{
+		Limit:  atoiDefault(c.Query("limit"), pagination.DefaultLimit),
+		Offset: atoiDefault(c.Query("offset"), 0),
+	}
+	result, err := h.service.ListOrganizationMembers(c.Request.Context(), orgID, claims.UserID, page)
 	if err != nil {
 		JSONError(c, http.StatusForbidden, err.Error())
 		return
 	}
-	response := make([]organizationMemberResponse, 0, len(items))
-	for _, item := range items {
+	response := make([]organizationMemberResponse, 0, len(result.Items))
+	for _, item := range result.Items {
 		response = append(response, toOrganizationMemberResponse(item))
 	}
-	JSONSuccess(c, http.StatusOK, gin.H{"members": response})
+	JSONSuccess(c, http.StatusOK, gin.H{
+		"members": response,
+		"pagination": gin.H{
+			"total":    result.Total,
+			"limit":    result.Limit,
+			"offset":   result.Offset,
+			"has_more": result.HasMore,
+		},
+	})
 }
 
 func (h *CollaborationHandler) handleUpdateOrganizationMember(c *gin.Context) {

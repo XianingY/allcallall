@@ -10,6 +10,7 @@ import (
 
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/collaboration"
+	"github.com/allcallall/backend/internal/pagination"
 	"github.com/allcallall/backend/internal/search"
 )
 
@@ -27,17 +28,29 @@ func (h *CollaborationHandler) handleListConversations(c *gin.Context) {
 		}
 		contactID = &parsed
 	}
-	items, err := h.service.ListConversations(c.Request.Context(), orgID, claims.UserID, c.Query("filter"), contactID)
+	page := pagination.Page{
+		Limit:  atoiDefault(c.Query("limit"), pagination.DefaultLimit),
+		Offset: atoiDefault(c.Query("offset"), 0),
+	}
+	result, err := h.service.ListConversations(c.Request.Context(), orgID, claims.UserID, c.Query("filter"), contactID, page)
 	if err != nil {
 		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Uint64("organization_id", orgID).Msg("list conversations failed")
 		JSONError(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	response := make([]conversationResponse, 0, len(items))
-	for _, item := range items {
+	response := make([]conversationResponse, 0, len(result.Items))
+	for _, item := range result.Items {
 		response = append(response, toConversationResponse(item))
 	}
-	JSONSuccess(c, http.StatusOK, gin.H{"conversations": response})
+	JSONSuccess(c, http.StatusOK, gin.H{
+		"conversations": response,
+		"pagination": gin.H{
+			"total":    result.Total,
+			"limit":    result.Limit,
+			"offset":   result.Offset,
+			"has_more": result.HasMore,
+		},
+	})
 }
 
 func (h *CollaborationHandler) handleCreateConversation(c *gin.Context) {

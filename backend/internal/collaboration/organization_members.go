@@ -10,11 +10,17 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
-func (s *Service) ListOrganizationMembers(ctx context.Context, organizationID, userID uint64) ([]OrganizationMemberView, error) {
+func (s *Service) ListOrganizationMembers(ctx context.Context, organizationID, userID uint64, page pagination.Page) (pagination.Result[OrganizationMemberView], error) {
 	if _, _, err := s.ResolveOrganization(ctx, userID, organizationID); err != nil {
-		return nil, err
+		return pagination.Result[OrganizationMemberView]{}, err
+	}
+	np := page.Normalize()
+	var total int64
+	if err := s.db.WithContext(ctx).Table("organization_members").Where("organization_members.organization_id = ?", organizationID).Count(&total).Error; err != nil {
+		return pagination.Result[OrganizationMemberView]{}, err
 	}
 	var members []OrganizationMemberView
 	err := s.db.WithContext(ctx).
@@ -23,11 +29,12 @@ func (s *Service) ListOrganizationMembers(ctx context.Context, organizationID, u
 		Joins("JOIN users ON users.id = organization_members.user_id").
 		Where("organization_members.organization_id = ?", organizationID).
 		Order("CASE organization_members.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, users.display_name ASC, users.email ASC").
+		Scopes(np.Scope).
 		Find(&members).Error
 	if err != nil {
-		return nil, err
+		return pagination.Result[OrganizationMemberView]{}, err
 	}
-	return members, nil
+	return pagination.NewResult(members, total, np), nil
 }
 
 func (s *Service) UpdateOrganizationMember(ctx context.Context, organizationID, actorID, targetUserID uint64, input OrganizationMemberUpdateInput) (*OrganizationMemberView, error) {
@@ -108,7 +115,7 @@ func (s *Service) ListOrganizationInvites(ctx context.Context, organizationID, u
 		return nil, err
 	}
 	var invites []models.OrganizationInvite
-	err := s.db.WithContext(ctx).Where("organization_id = ?", organizationID).Order("created_at DESC").Find(&invites).Error
+	err := s.db.WithContext(ctx).Where("organization_id = ?", organizationID).Order("created_at DESC").Limit(pagination.MaxLimit).Find(&invites).Error
 	return invites, err
 }
 

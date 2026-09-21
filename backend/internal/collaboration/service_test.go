@@ -17,6 +17,7 @@ import (
 
 	"github.com/allcallall/backend/internal/media"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 	"github.com/allcallall/backend/internal/storage"
 	"github.com/allcallall/backend/internal/testutil"
 	"github.com/allcallall/backend/internal/transcription"
@@ -338,12 +339,12 @@ func TestServiceOrganizationAdminLifecycle(t *testing.T) {
 	addOrgMember(t, db, org.ID, admin.ID, models.OrganizationRoleAdmin)
 	addOrgMember(t, db, org.ID, member.ID, models.OrganizationRoleMember)
 
-	members, err := svc.ListOrganizationMembers(ctx, org.ID, member.ID)
+	members, err := svc.ListOrganizationMembers(ctx, org.ID, member.ID, pagination.Page{})
 	if err != nil {
 		t.Fatalf("member should list org members: %v", err)
 	}
-	if len(members) != 3 {
-		t.Fatalf("expected 3 members, got %d", len(members))
+	if len(members.Items) != 3 {
+		t.Fatalf("expected 3 members, got %d", len(members.Items))
 	}
 	if _, err := svc.UpdateOrganizationMember(ctx, org.ID, member.ID, admin.ID, OrganizationMemberUpdateInput{Role: models.OrganizationRoleMember}); !errors.Is(err, ErrOrganizationAccessDenied) {
 		t.Fatalf("expected member role update denied, got %v", err)
@@ -650,20 +651,20 @@ func TestServiceUpdateConversationAndNotes(t *testing.T) {
 		t.Fatal("expected at least one note")
 	}
 
-	myItems, err := svc.ListConversations(ctx, org.ID, agent.ID, "my", nil)
+	myItems, err := svc.ListConversations(ctx, org.ID, agent.ID, "my", nil, pagination.Page{})
 	if err != nil {
 		t.Fatalf("list my conversations failed: %v", err)
 	}
-	if len(myItems) != 1 {
-		t.Fatalf("expected 1 my conversation, got %d", len(myItems))
+	if len(myItems.Items) != 1 {
+		t.Fatalf("expected 1 my conversation, got %d", len(myItems.Items))
 	}
 
-	resolvedItems, err := svc.ListConversations(ctx, org.ID, agent.ID, "resolved", nil)
+	resolvedItems, err := svc.ListConversations(ctx, org.ID, agent.ID, "resolved", nil, pagination.Page{})
 	if err != nil {
 		t.Fatalf("list resolved conversations failed: %v", err)
 	}
-	if len(resolvedItems) != 0 {
-		t.Fatalf("expected 0 resolved conversations, got %d", len(resolvedItems))
+	if len(resolvedItems.Items) != 0 {
+		t.Fatalf("expected 0 resolved conversations, got %d", len(resolvedItems.Items))
 	}
 
 	contactID := uint64(42)
@@ -677,12 +678,12 @@ func TestServiceUpdateConversationAndNotes(t *testing.T) {
 		t.Fatal("expected contact to be bound")
 	}
 
-	linkedItems, err := svc.ListConversations(ctx, org.ID, agent.ID, "all", &contactID)
+	linkedItems, err := svc.ListConversations(ctx, org.ID, agent.ID, "all", &contactID, pagination.Page{})
 	if err != nil {
 		t.Fatalf("list conversations by contact failed: %v", err)
 	}
-	if len(linkedItems) != 1 {
-		t.Fatalf("expected 1 linked conversation, got %d", len(linkedItems))
+	if len(linkedItems.Items) != 1 {
+		t.Fatalf("expected 1 linked conversation, got %d", len(linkedItems.Items))
 	}
 }
 
