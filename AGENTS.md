@@ -27,19 +27,29 @@ Web:
   cd web && npx vitest run
 
 Mobile:
-  cd mobile && npx tsc --noEmit
-  cd mobile && npm run test:unit
+  cd mobile && npm run typecheck   # tsc --noEmit
+  cd mobile && npm test            # alias for npm run test:unit
+
+  Test scope: `test:unit` runs an explicit file list on the Node test runner.
+  Files that (transitively) import `react-native` cannot be transformed outside
+  Metro, so they are intentionally excluded: `src/api/__tests__/`,
+  `src/context/signaling/__tests__/` and
+  `src/services/translation/OnlineTranslationService.test.ts`. They need a
+  Metro/Jest preset to execute. Add new pure-logic tests to the `test:unit`
+  list, otherwise they will silently never run.
 
 Desktop:
   cd desktop && npm run dev
 
 Root Makefile (`make verify` runs backend tests + `cd web && npm run typecheck` + mobile tsc +
-Python pytest). The web project uses a solution tsconfig, so a bare `tsc --noEmit` is a
+Python pytest; the Python steps are skipped with a notice when the sibling
+`allcallall-agent-runtime` checkout is absent). The web project uses a solution tsconfig, so a bare `tsc --noEmit` is a
 no-op there — always use `cd web && npm run typecheck`):
   make fmt                 # gofmt -w on backend/
-  make lint                # go vet (backend) + npm run lint (web)
+  make lint                # go vet + check-unbounded-find (backend) + npm run lint (web)
+  make test                # backend + web + mobile test suites
   make test-backend        # cd backend && go test ./...
-  make verify              # backend tests + web/mobile tsc + python pytest
+  make verify              # backend tests + web/mobile typecheck + python pytest
   make web-contract-check  # web OpenAPI contract check
 
 ## Conventions
