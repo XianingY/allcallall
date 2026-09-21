@@ -108,10 +108,13 @@ type ChunkSpec struct {
 	Keywords    string
 }
 
+// NewService builds a knowledge Service backed by the default GORM repository.
 func NewService(db *gorm.DB) *Service {
 	return NewServiceWithRepository(NewRepository(db))
 }
 
+// NewServiceWithRepository builds a Service over an explicit repository and wires
+// the event outbox plus a reranker derived from the process environment.
 func NewServiceWithRepository(repo *Repository) *Service {
 	reranker, _ := search.NewRerankerFromEnv()
 	return &Service{
@@ -122,6 +125,8 @@ func NewServiceWithRepository(repo *Repository) *Service {
 	}
 }
 
+// WithOutbox overrides the event outbox used to publish knowledge events.
+// A nil outbox is ignored so callers can pass a possibly-unset dependency.
 func (s *Service) WithOutbox(outbox *events.Store) *Service {
 	if outbox != nil {
 		s.outbox = outbox
@@ -129,21 +134,26 @@ func (s *Service) WithOutbox(outbox *events.Store) *Service {
 	return s
 }
 
+// WithChunkIndexer attaches the vector index used to upsert and query chunk embeddings.
 func (s *Service) WithChunkIndexer(indexer ChunkIndexer) *Service {
 	s.indexer = indexer
 	return s
 }
 
+// WithEmbeddingProvider attaches the provider used to vectorize chunks and queries.
 func (s *Service) WithEmbeddingProvider(provider EmbeddingProvider) *Service {
 	s.embedder = provider
 	return s
 }
 
+// WithReranker attaches the reranker applied to candidate chunks before they are returned.
 func (s *Service) WithReranker(reranker search.Reranker) *Service {
 	s.reranker = reranker
 	return s
 }
 
+// ListRAGDeadLetters returns the outbox events whose RAG processing exhausted its
+// retries. The caller must be a member of the organization.
 func (s *Service) ListRAGDeadLetters(ctx context.Context, organizationID, userID uint64) ([]models.EventOutbox, error) {
 	if err := s.ensureOrganizationMember(ctx, organizationID, userID); err != nil {
 		return nil, err
@@ -151,6 +161,8 @@ func (s *Service) ListRAGDeadLetters(ctx context.Context, organizationID, userID
 	return s.repo.ListRAGDeadLetters(ctx)
 }
 
+// RetryDeadLetter moves a dead-lettered event back to pending so the RAG pipeline
+// processes it again. The event payload must belong to the caller's organization.
 func (s *Service) RetryDeadLetter(ctx context.Context, organizationID, userID, eventID uint64) error {
 	if err := s.ensureOrganizationMember(ctx, organizationID, userID); err != nil {
 		return err
@@ -242,6 +254,8 @@ func extractPDFText(data []byte) (string, error) {
 	return string(raw), nil
 }
 
+// ExtractHTMLText strips script, style and markup tags from raw HTML and returns
+// the remaining text in normalized form.
 func ExtractHTMLText(raw string) string {
 	value := raw
 	value = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`).ReplaceAllString(value, " ")
@@ -250,15 +264,21 @@ func ExtractHTMLText(raw string) string {
 	return NormalizeText(html.UnescapeString(value))
 }
 
+// HashText returns the hex encoded SHA-256 of the normalized input. It is used to
+// detect identical chunks so they are indexed only once.
 func HashText(input string) string {
 	sum := sha256.Sum256([]byte(NormalizeText(input)))
 	return hex.EncodeToString(sum[:])
 }
 
+// KnowledgeDocumentID returns the vector store document identifier for a knowledge chunk.
 func KnowledgeDocumentID(chunkID uint64) string {
 	return fmt.Sprintf("knowledge:%d", chunkID)
 }
 
+// ChunkText splits normalized text into overlapping chunks of at most chunkSize runes,
+// skipping chunks whose content hash was already emitted. Non-positive chunkSize and
+// out-of-range overlap fall back to the package defaults.
 func ChunkText(input string, chunkSize, overlap int) []ChunkSpec {
 	input = NormalizeText(input)
 	if input == "" {
