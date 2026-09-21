@@ -4,6 +4,8 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/rs/zerolog"
+
 	"github.com/allcallall/backend/internal/alerting"
 	"github.com/allcallall/backend/internal/models"
 )
@@ -19,11 +21,18 @@ type QuotaService struct {
 	repo        *OrgRepository
 	entitlement *EntitlementService
 	alerter     *alerting.Service
+	logger      zerolog.Logger
 }
 
 // NewQuotaService builds a QuotaService.
 func NewQuotaService(repo *OrgRepository, entitlement *EntitlementService) *QuotaService {
-	return &QuotaService{repo: repo, entitlement: entitlement}
+	return &QuotaService{repo: repo, entitlement: entitlement, logger: zerolog.Nop()}
+}
+
+// WithLogger attaches a structured logger used for best-effort warnings.
+func (s *QuotaService) WithLogger(logger zerolog.Logger) *QuotaService {
+	s.logger = logger
+	return s
 }
 
 // WithAlerter 接入告警服务。配额熔断（org_quota_exceeded）时按 P2 上报，
@@ -125,7 +134,7 @@ func (s *QuotaService) emitQuotaBreach(orgID, userID uint64, feature string, lim
 			"feature":   feature,
 		},
 	}); err != nil {
-		// 告警失败不应阻断主流程；Emit 已内部记录。
-		_ = err
+		// 告警失败不应阻断主流程，但必须可观测：Emit 只返回错误、不自行落日志。
+		s.logger.Warn().Err(err).Str("feature", feature).Uint64("org_id", orgID).Uint64("user_id", userID).Msg("failed to emit tenant quota exceeded alert")
 	}
 }

@@ -368,7 +368,9 @@ func (s *Service) LeaveRoom(ctx context.Context, organizationID, userID, roomID 
 		return nil, err
 	}
 	if s.media != nil {
-		_ = s.media.LeaveRoomParticipant(strconv.FormatUint(roomID, 10), strconv.FormatUint(userID, 10))
+		if err := s.media.LeaveRoomParticipant(strconv.FormatUint(roomID, 10), strconv.FormatUint(userID, 10)); err != nil {
+			s.logger.Warn().Err(err).Uint64("room_id", roomID).Uint64("user_id", userID).Msg("failed to release room participant media state")
+		}
 	}
 	state, err := s.GetRoomState(ctx, organizationID, userID, roomID)
 	if err != nil {

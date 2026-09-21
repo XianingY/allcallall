@@ -63,13 +63,12 @@ func (s *BillingWebhookService) HandleRevenueCatWebhook(ctx context.Context, pay
 	}
 
 	return s.repo.RunInTransaction(ctx, func(tx *gorm.DB) error {
-		existingEvent, err := s.repo.GetBillingWebhookEvent(ctx, eventID)
+		_, err := s.repo.GetBillingWebhookEvent(ctx, eventID)
 		if err == nil {
 			return ErrWebhookAlreadyProcessed
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
-		_ = existingEvent
 
 		if err := s.repo.CreateBillingWebhookEvent(ctx, eventRecord); err != nil {
 			return err

@@ -340,14 +340,13 @@ func (s *FollowUpService) generateFollowupForUser(ctx context.Context, call mode
 		peerName = call.CallerDisplayName
 	}
 
-	existing, err := s.repo.GetCallFollowup(ctx, call.CallID, userID)
+	_, err := s.repo.GetCallFollowup(ctx, call.CallID, userID)
 	if err == nil && !force {
 		return nil
 	}
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	_ = existing
 
 	wasAnswered := call.AnsweredAt != nil
 	var transcriptSegments []models.CallTranscriptSegment
@@ -504,14 +503,13 @@ func (s *FollowUpService) generateFollowupForUser(ctx context.Context, call mode
 }
 
 func (s *FollowUpService) ensureDefaultFollowupTask(ctx context.Context, call models.CallSession, userID, peerID uint64, taskType, title, description string, dueAt time.Time) error {
-	existing, err := s.repo.GetFollowUpTaskByCallAndType(ctx, call.CallID, userID, taskType)
+	_, err := s.repo.GetFollowUpTaskByCallAndType(ctx, call.CallID, userID, taskType)
 	if err == nil {
 		return nil
 	}
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	_ = existing
 	task := &models.FollowUpTask{
 		UserID:       userID,
 		PeerUserID:   peerID,

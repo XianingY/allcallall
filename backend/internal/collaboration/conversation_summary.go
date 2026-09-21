@@ -3,6 +3,7 @@ package collaboration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"gorm.io/gorm"
@@ -110,12 +111,14 @@ func (s *Service) buildConversationSummaryWithUsers(ctx context.Context, conv mo
 		if peer.ID == 0 {
 			// Fallback to a direct query (single-conversation callers and any
 			// cache miss). Errors are non-fatal: we simply skip the title.
-			_ = s.db.WithContext(ctx).
+			if err := s.db.WithContext(ctx).
 				Table("conversation_members").
 				Select("users.*").
 				Joins("JOIN users ON users.id = conversation_members.user_id").
 				Where("conversation_members.conversation_id = ? AND conversation_members.user_id <> ?", conv.ID, userID).
-				Take(&peer).Error
+				Take(&peer).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				s.logger.Warn().Err(err).Uint64("conversation_id", conv.ID).Uint64("user_id", userID).Msg("failed to resolve direct conversation peer")
+			}
 		}
 		if peer.ID != 0 {
 			if strings.TrimSpace(peer.DisplayName) != "" {
@@ -131,7 +134,9 @@ func (s *Service) buildConversationSummaryWithUsers(ctx context.Context, conv mo
 			assignee = u
 		}
 		if assignee.ID == 0 {
-			_ = s.db.WithContext(ctx).Select("email, display_name").Where("id = ?", *conv.AssigneeUserID).Take(&assignee).Error
+			if err := s.db.WithContext(ctx).Select("email, display_name").Where("id = ?", *conv.AssigneeUserID).Take(&assignee).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				s.logger.Warn().Err(err).Uint64("conversation_id", conv.ID).Uint64("assignee_user_id", *conv.AssigneeUserID).Msg("failed to load conversation assignee")
+			}
 		}
 		if assignee.ID != 0 {
 			item.AssigneeEmail = assignee.Email
@@ -265,7 +270,9 @@ func (s *Service) latestConversationFollowup(ctx context.Context, conversationID
 	}
 	var actionItems []string
 	if strings.TrimSpace(followup.ActionItemsJSON) != "" {
-		_ = json.Unmarshal([]byte(followup.ActionItemsJSON), &actionItems)
+		if err := json.Unmarshal([]byte(followup.ActionItemsJSON), &actionItems); err != nil {
+			s.logger.Warn().Err(err).Str("call_id", callID).Msg("failed to decode follow-up action items")
+		}
 	}
 	return &ConversationFollowupSummary{
 		CallID:      callID,
