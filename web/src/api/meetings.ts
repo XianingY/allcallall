@@ -1,5 +1,7 @@
 import type { components } from "@allcallall/api-types";
 import { apiDownload, apiRequest } from "@/api/http";
+import { buildQuery } from "@/api/query";
+import type { PageRequest, Pagination } from "@/api/pagination";
 
 export type Room = components["schemas"]["Room"];
 export type RoomMember = components["schemas"]["RoomMember"];
@@ -20,8 +22,8 @@ export const updateRoomMedia = (id: number, input: { audio_enabled?: boolean; vi
 export const startRecording = (id: number) => apiRequest<{ recording: Recording }>(`/rooms/${id}/recording/start`, { method: "POST" }).then((value) => value.recording);
 export const stopRecording = (id: number) => apiRequest<{ recording: Recording }>(`/rooms/${id}/recording/stop`, { method: "POST" }).then((value) => value.recording);
 
-export const listRecordings = () => apiRequest<{ recordings: Recording[] }>("/recordings").then((value) => value.recordings);
+export const listRecordings = (page?: PageRequest) => apiRequest<{ recordings: Recording[]; pagination: Pagination }>(`/recordings${buildQuery({ limit: page?.limit, offset: page?.offset })}`);
 export const getRecording = (id: number) => apiRequest<{ recording: Recording }>(`/recordings/${id}`).then((value) => value.recording);
-export const getTranscript = (id: number, afterId?: number) => apiRequest<TranscriptPage>(`/recordings/${id}/transcript?limit=100${afterId ? `&after_id=${afterId}` : ""}`);
+export const getTranscript = (id: number, afterId?: number) => apiRequest<TranscriptPage>(`/recordings/${id}/transcript${buildQuery({ limit: 100, after_id: afterId })}`);
 export const retryTranscription = (id: number) => apiRequest<{ transcription: RecordingTranscription }>(`/recordings/${id}/transcription/retry`, { method: "POST" }).then((value) => value.transcription);
 export const downloadRecording = (recordingId: number, fileId: number) => apiDownload(`/recordings/${recordingId}/files/${fileId}`);

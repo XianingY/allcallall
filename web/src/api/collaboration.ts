@@ -1,5 +1,7 @@
 import type { components } from "@allcallall/api-types";
 import { apiRequest } from "@/api/http";
+import { buildQuery } from "@/api/query";
+import type { PageRequest, Pagination } from "@/api/pagination";
 
 export type Conversation = components["schemas"]["Conversation"];
 export type ConversationDetail = components["schemas"]["ConversationDetail"];
@@ -16,20 +18,15 @@ export type Deal = components["schemas"]["Deal"];
 export type DealActivity = components["schemas"]["DealActivity"];
 export type CallHistory = components["schemas"]["CallHistory"];
 
-const query = (values: Record<string, string | number | undefined>) => {
-  const params = new URLSearchParams();
-  Object.entries(values).forEach(([key, value]) => { if (value !== undefined && value !== "") params.set(key, String(value)); });
-  const encoded = params.toString();
-  return encoded ? `?${encoded}` : "";
-};
+export interface ConversationPage { conversations: Conversation[]; pagination: Pagination }
 
-export const listConversations = (filter = "") => apiRequest<{ conversations: Conversation[] }>(`/conversations${query({ filter })}`).then((value) => value.conversations);
+export const listConversations = (filter = "", page?: PageRequest) => apiRequest<ConversationPage>(`/conversations${buildQuery({ filter, limit: page?.limit, offset: page?.offset })}`);
 export const getConversation = (id: number) => apiRequest<{ conversation: ConversationDetail }>(`/conversations/${id}`).then((value) => value.conversation);
 export const createConversation = (input: { type: string; title?: string; topic?: string; member_ids?: number[] }) => apiRequest<{ conversation: Conversation }>("/conversations", { method: "POST", body: JSON.stringify(input) }).then((value) => value.conversation);
 export const updateConversation = (id: number, input: { status?: string; priority?: string; assignee_user_id?: number | null; contact_id?: number | null }) => apiRequest<{ conversation: Conversation }>(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify(input) }).then((value) => value.conversation);
 export interface MessagePage { messages: Message[]; next_before_id?: number | null; next_after_id?: number | null; has_more_prev?: boolean; has_more_next?: boolean }
 export interface SendMessageInput { body: string; type?: string; reply_to_message_id?: number; attachment_ids?: number[] }
-export const listMessages = (id: number, cursor: { beforeId?: number; afterId?: number; limit?: number } = {}) => apiRequest<MessagePage>(`/conversations/${id}/messages${query({ before_id: cursor.beforeId, after_id: cursor.afterId, limit: cursor.limit ?? 50 })}`);
+export const listMessages = (id: number, cursor: { beforeId?: number; afterId?: number; limit?: number } = {}) => apiRequest<MessagePage>(`/conversations/${id}/messages${buildQuery({ before_id: cursor.beforeId, after_id: cursor.afterId, limit: cursor.limit ?? 50 })}`);
 export const sendMessage = (id: number, input: string | SendMessageInput, type = "text") => {
   const body = typeof input === "string" ? { body: input, type } : { type: "text", ...input };
   return apiRequest<{ message: Message }>(`/conversations/${id}/messages`, { method: "POST", body: JSON.stringify(body) }).then((value) => value.message);
@@ -57,10 +54,12 @@ export const createInvitation = (input: { target_email: string; note?: string; e
 export const listFollowUps = () => apiRequest<{ items: FollowUpItem[] }>("/follow-ups").then((value) => value.items);
 export const createFollowUp = (input: { peer_user_id: number; type: string; title: string; description?: string; due_at?: string | null; reminder_mode?: string }) => apiRequest<{ task: FollowUpTask }>("/follow-ups", { method: "POST", body: JSON.stringify(input) }).then((value) => value.task);
 export const updateFollowUp = (id: number, input: { status?: string; description?: string; due_at?: string | null; reminder_mode?: string }) => apiRequest<{ task: FollowUpTask }>(`/follow-ups/${id}`, { method: "PATCH", body: JSON.stringify(input) }).then((value) => value.task);
-export const listCallHistory = (days = 30) => apiRequest<{ calls: CallHistory[] }>(`/calls/history${query({ days })}`).then((value) => value.calls);
+export const listCallHistory = (days = 30) => apiRequest<{ calls: CallHistory[] }>(`/calls/history${buildQuery({ days })}`).then((value) => value.calls);
 
 export const listPipelines = () => apiRequest<{ pipelines: Pipeline[] }>("/pipelines").then((value) => value.pipelines);
-export const listDeals = () => apiRequest<{ deals: Deal[] }>("/deals").then((value) => value.deals);
+export interface DealPage { deals: Deal[]; pagination: Pagination }
+
+export const listDeals = (page?: PageRequest) => apiRequest<DealPage>(`/deals${buildQuery({ limit: page?.limit, offset: page?.offset })}`);
 export const getDeal = (id: number) => apiRequest<{ deal: Deal }>(`/deals/${id}`).then((value) => value.deal);
 export const createDeal = (input: { title: string; description?: string; value_cents?: number; currency?: string; stage_id?: number }) => apiRequest<{ deal: Deal }>("/deals", { method: "POST", body: JSON.stringify(input) }).then((value) => value.deal);
 export const updateDeal = (id: number, input: Partial<{ title: string; description: string; value_cents: number; currency: string; stage_id: number; status: string }>) => apiRequest<{ deal: Deal }>(`/deals/${id}`, { method: "PATCH", body: JSON.stringify(input) }).then((value) => value.deal);

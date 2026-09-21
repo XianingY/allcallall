@@ -1,6 +1,7 @@
 import type { components } from "@allcallall/api-types";
 import { apiRequest, getAccessToken, getOrganizationId } from "@/api/http";
 import { runtimeConfig } from "@/lib/runtime-config";
+import { buildQuery } from "@/api/query";
 
 export type AgentRun = components["schemas"]["AgentRun"];
 export type AgentRunResult = components["schemas"]["AgentRunResult"];
@@ -12,17 +13,15 @@ export type WorkflowTask = components["schemas"]["WorkflowTask"];
 export type ToolApproval = components["schemas"]["ToolApproval"];
 export type WorkflowResult = components["schemas"]["WorkflowResult"];
 
-const query = (values: Record<string, string | number | undefined>) => { const params = new URLSearchParams(); Object.entries(values).forEach(([key, value]) => { if (value !== undefined && value !== "") params.set(key, String(value)); }); return params.toString() ? `?${params}` : ""; };
-
 export const createAgentRun = (conversationId: number, goal: string) => apiRequest<AgentRunResult>("/agent/runs", { method: "POST", body: JSON.stringify({ conversation_id: conversationId, goal }) });
 export const getAgentRun = (id: number) => apiRequest<AgentRunResult>(`/agent/runs/${id}`);
 export const submitAgentToolOutputs = (id: number, toolCallId: string, action: "approve" | "reject") => apiRequest<AgentRunResult>(`/agent/runs/${id}/submit-tool-outputs`, { method: "POST", body: JSON.stringify({ outputs: [{ tool_call_id: toolCallId, action }] }) });
 export const getAgentRunEvents = (id: number) => apiRequest<{ events: Array<Record<string, unknown>> }>(`/agent/runs/${id}/events`).then((value) => value.events ?? []);
 export const createWorkflow = (conversationId: number, goal: string, preset: string) => apiRequest<WorkflowResult>("/agent/workflows", { method: "POST", body: JSON.stringify({ conversation_id: conversationId, goal, preset }) });
-export const listWorkflows = (conversationId?: number) => apiRequest<{ workflows: WorkflowResult[] }>(`/agent/workflows${query({ conversation_id: conversationId, limit: 25 })}`).then((value) => value.workflows ?? []);
+export const listWorkflows = (conversationId?: number) => apiRequest<{ workflows: WorkflowResult[] }>(`/agent/workflows${buildQuery({ conversation_id: conversationId, limit: 25 })}`).then((value) => value.workflows ?? []);
 export const getWorkflow = (id: number) => apiRequest<WorkflowResult>(`/agent/workflows/${id}`);
 export const processWorkflow = (id: number) => apiRequest<WorkflowResult>(`/agent/workflows/${id}/process`, { method: "POST", body: "{}" });
-export const listApprovals = (status?: string) => apiRequest<{ approvals: ToolApproval[] }>(`/agent/approvals${query({ status })}`).then((value) => value.approvals ?? []);
+export const listApprovals = (status?: string) => apiRequest<{ approvals: ToolApproval[] }>(`/agent/approvals${buildQuery({ status })}`).then((value) => value.approvals ?? []);
 export const decideApproval = (id: number, decision: "approve" | "reject") => apiRequest<WorkflowResult>(`/agent/approvals/${id}/decision`, { method: "POST", body: JSON.stringify({ decision }) });
 
 export async function streamAgentRun(id: number, signal: AbortSignal, onEvent: (event: Record<string, unknown>) => void) {

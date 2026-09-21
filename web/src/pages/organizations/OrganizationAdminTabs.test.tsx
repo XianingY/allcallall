@@ -1,10 +1,10 @@
-import type { UseQueryResult } from "@tanstack/react-query";
+import type { InfiniteData, UseInfiniteQueryResult, UseQueryResult } from "@tanstack/react-query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { Organization, OrganizationAdminSummary, OrganizationMember, OrganizationTeam } from "@/api/identity";
+import type { Organization, OrganizationAdminSummary, OrganizationMember, OrganizationMemberPage, OrganizationTeam } from "@/api/identity";
 import { MembersTab, Overview } from "@/pages/organizations/OrganizationAdminTabs";
 
 const active: Organization = {
@@ -102,7 +102,16 @@ const query = (data: OrganizationAdminSummary | undefined, state: "success" | "l
   refetch: vi.fn(),
 }) as unknown as UseQueryResult<OrganizationAdminSummary>;
 
-const memberQuery = (data: OrganizationMember[]) => ({ data, error: null, isError: false, isLoading: false, refetch: vi.fn() }) as unknown as UseQueryResult<OrganizationMember[]>;
+const memberQuery = (data: OrganizationMember[]) => ({
+  data: { pages: [{ members: data, pagination: { total: data.length, limit: data.length, offset: 0, has_more: false } }] },
+  error: null,
+  isError: false,
+  isLoading: false,
+  isFetchingNextPage: false,
+  hasNextPage: false,
+  fetchNextPage: vi.fn(),
+  refetch: vi.fn(),
+}) as unknown as UseInfiniteQueryResult<InfiniteData<OrganizationMemberPage, unknown>, Error>;
 
 afterEach(() => cleanup());
 

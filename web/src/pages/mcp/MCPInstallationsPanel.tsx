@@ -31,7 +31,7 @@ export function MCPInstallationsPanel({ organizationId, organizationRole, select
   const [secretsOpen, setSecretsOpen] = useState(false); const [renameOpen, setRenameOpen] = useState(false);
   const installations = useQuery({ queryKey: ["organizations", organizationId, "mcp", "installations"], queryFn: listMCPInstallations, enabled: Boolean(organizationId) });
   const conversations = useQuery({ queryKey: ["organizations", organizationId, "conversations", "mcp-tools"], queryFn: () => listConversations("open"), enabled: Boolean(organizationId) });
-  const conversationId = conversations.data?.[0]?.id ?? 0;
+  const conversationId = (conversations.data?.conversations ?? [])[0]?.id ?? 0;
   const visible = useMemo(() => (installations.data ?? []).filter((item) => {
     const matchesScope = scope === "all" || item.scope === scope;
     return matchesScope && item.display_name.toLowerCase().includes(search.trim().toLowerCase());

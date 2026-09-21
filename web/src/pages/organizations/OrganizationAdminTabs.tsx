@@ -1,4 +1,4 @@
-import { useMutation, type UseQueryResult } from "@tanstack/react-query";
+import { useMutation, type InfiniteData, type UseInfiniteQueryResult, type UseQueryResult } from "@tanstack/react-query";
 import { Building2, FileAudio, MailPlus, MessageSquare, Plus, RefreshCw, Shield, ShieldCheck, Trash2, Users, X } from "lucide-react";
 import { useState } from "react";
 
@@ -18,6 +18,7 @@ import {
   type OrganizationAuditEvent,
   type OrganizationInvite,
   type OrganizationMember,
+  type OrganizationMemberPage,
   type OrganizationTeam,
 } from "@/api/identity";
 import { FormError } from "@/components/AuthLayout";
@@ -67,15 +68,15 @@ export function Overview({ active, canManage, members, teams, currentUserId, sum
   </div>;
 }
 
-export function MembersTab({ orgId, canManage, currentUserId, members, refresh }: { orgId: number; canManage: boolean; currentUserId?: number; members: UseQueryResult<OrganizationMember[]>; refresh(): void }) {
+export function MembersTab({ orgId, canManage, currentUserId, members, onLoadMore, refresh }: { orgId: number; canManage: boolean; currentUserId?: number; members: UseInfiniteQueryResult<InfiniteData<OrganizationMemberPage, unknown>, Error>; onLoadMore?(): void; refresh(): void }) {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const role = useMutation({ mutationFn: ({ userId, value }: { userId: number; value: string }) => updateOrganizationMember(orgId, userId, value), onSuccess: refresh });
   const remove = useMutation({ mutationFn: (userId: number) => removeOrganizationMember(orgId, userId), onSuccess: refresh });
   if (members.isLoading) return <PageLoading />;
   if (members.isError) return <PageError error={members.error} retry={() => void members.refetch()} />;
-  const visible = filterMembers(members.data ?? [], search, roleFilter);
-  return <div className="form-stack"><FormError error={role.error || remove.error} /><AdminTableToolbar search={search} onSearch={setSearch} filter={roleFilter} onFilter={setRoleFilter} filterLabel="角色" resultCount={visible.length} options={[{ label: "全部", value: "" }, { label: "owner", value: "owner" }, { label: "admin", value: "admin" }, { label: "member", value: "member" }]} /><div className="list-stack">{visible.slice(0, ADMIN_WINDOW).map((member) => <div className="data-row" key={member.user_id}><div><strong>{member.display_name || member.email}</strong><small>{member.email}</small><small>{member.status} · joined {dateOnly(member.joined_at)}</small></div><div className="button-row"><select className="field compact-field" value={member.role} disabled={!canManage || member.user_id === currentUserId} onChange={(event) => role.mutate({ userId: member.user_id, value: event.target.value })}><option value="owner">owner</option><option value="admin">admin</option><option value="member">member</option></select><button className="icon-button text-danger" disabled={!canManage || member.user_id === currentUserId} onClick={() => remove.mutate(member.user_id)}><Trash2 size={16} /></button></div></div>)}</div>{visible.length > ADMIN_WINDOW && <EmptyPanel>已显示前 {ADMIN_WINDOW} 条，请继续搜索缩小范围</EmptyPanel>}{!visible.length && <EmptyPanel>没有匹配成员</EmptyPanel>}</div>;
+  const visible = filterMembers((members.data?.pages ?? []).flatMap((page) => page.members), search, roleFilter);
+  return <div className="form-stack"><FormError error={role.error || remove.error} /><AdminTableToolbar search={search} onSearch={setSearch} filter={roleFilter} onFilter={setRoleFilter} filterLabel="角色" resultCount={visible.length} options={[{ label: "全部", value: "" }, { label: "owner", value: "owner" }, { label: "admin", value: "admin" }, { label: "member", value: "member" }]} /><div className="list-stack">{visible.slice(0, ADMIN_WINDOW).map((member) => <div className="data-row" key={member.user_id}><div><strong>{member.display_name || member.email}</strong><small>{member.email}</small><small>{member.status} · joined {dateOnly(member.joined_at)}</small></div><div className="button-row"><select className="field compact-field" value={member.role} disabled={!canManage || member.user_id === currentUserId} onChange={(event) => role.mutate({ userId: member.user_id, value: event.target.value })}><option value="owner">owner</option><option value="admin">admin</option><option value="member">member</option></select><button className="icon-button text-danger" disabled={!canManage || member.user_id === currentUserId} onClick={() => remove.mutate(member.user_id)}><Trash2 size={16} /></button></div></div>)}</div>{visible.length > ADMIN_WINDOW && <EmptyPanel>已显示前 {ADMIN_WINDOW} 条，请继续搜索缩小范围</EmptyPanel>}{!visible.length && <EmptyPanel>没有匹配成员</EmptyPanel>}{members.hasNextPage ? <button className="button-secondary mt-2" disabled={members.isFetchingNextPage} onClick={onLoadMore}>加载更多成员</button> : null}</div>;
 }
 
 export function InvitesTab({ orgId, canManage, invites, teams, refresh }: { orgId: number; canManage: boolean; invites: UseQueryResult<OrganizationInvite[]>; teams: OrganizationTeam[]; refresh(): void }) {
