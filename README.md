@@ -22,13 +22,25 @@ Realtime translation code is still present for compatibility, but the mobile UI 
 ## Repository Map
 
 ```text
-backend/     Go backend: API, auth, collaboration, Agent adapters, search, storage, workers
-web/         Primary React + Vite + TypeScript Web application
-mobile/      Expo React Native app for native Android/iOS
-desktop/     Electron shell wrapping the Web client
-infra/       Docker Compose local stack and optional interview infra profiles
-scripts/     Development, smoke, seed, and benchmark scripts
-docs/        Current docs, interview docs, deployment notes, and selected references
+backend/                          Go (Gin) backend — API server + extractable workers
+  cmd/                           24 entrypoints (server, user-service, *-worker, mcp-tool-server, beta-seed, eval/bench harnesses)
+  internal/                      ~50 cohesive domain packages (see backend/README.md "Backend Module Map")
+    server · handlers · auth     API surface, routing, JWT/refresh-session, middleware
+    config · models · database    config loading, Gorm models, MySQL access
+    collaboration · chat · presence   realtime collaboration, durable WS replay, presence
+    agent · mcpplatform · knowledge   AI Agent runs, MCP tool wrapping, RAG/knowledge
+    media · signaling · transcription · translation   WebRTC / recording / transcription
+    commerce · settlement · tenant · user · contact · invitation   org / commerce / tenancy
+    compliance · messagecrypto · events   privacy, envelope encryption, outbox eventing
+    runtime · migrations · sandbox · tasksched · metrics · trace · cache · mq   runtime/infra
+web/                             Primary React + Vite + TypeScript Web application
+mobile/                          Expo React Native app for native Android/iOS
+desktop/                         Electron shell wrapping the Web client
+packages/                        Shared TS: api-types (OpenAPI-generated), signaling-core
+infra/                           Docker Compose local stack + optional interview/microservice profiles
+scripts/                         Development, smoke, seed, and benchmark scripts
+contracts/                       Legacy JSON fixtures only; canonical schemas live in allcallall-agent-runtime
+docs/                            Maintained docs, interview docs, deployment notes, references
 ```
 
 The Python Agent/RAG runtime source has been split into

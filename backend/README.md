@@ -30,6 +30,55 @@ cmd/mcp-tool-server MCP-compatible stdio tool server for read-only Agent tools.
 cmd/beta-seed       Idempotent small-team Beta demo data seed.
 ```
 
+## Backend Module Map
+
+`internal/` holds ~50 cohesive packages. They are grouped below by responsibility;
+the dominant dependency direction is `handlers` → domain services → `models`/`database`/`cache`/`mq`.
+
+**API & transport**
+- `server` — Gin router, middleware (`RequireTLS`), process wiring.
+- `handlers` — HTTP handlers (auth, push, webhooks, etc.).
+- `auth` — JWT access tokens, HttpOnly refresh-session, realtime ticket.
+- `ratelimit` — request rate limiting.
+
+**Config & persistence**
+- `config`, `models`, `database` — config loading, Gorm models, MySQL access.
+- `pagination` — bounded `Limit/Offset` helper that defends list endpoints from unbounded `Find`.
+- `cache` (Redis), `mq` (Kafka-compatible).
+
+**Realtime collaboration & social**
+- `collaboration` — chat hubs, retention/recall/erasure, moderation, audit retention, search minimization.
+- `chat`, `presence`, `contact`, `user`, `usergrpc`, `tenant`, `invitation`.
+- `commerce`, `settlement` — entitlements, billing webhooks, settlement pipeline.
+
+**AI Agent & RAG**
+- `agent` — ReAct runs, workflow/DAG execution, tool calls, approvals, memory, grounding, citations.
+- `mcpplatform` — MCP-compatible tool wrapping/registry (read-only Agent tools).
+- `knowledge`, `search` — knowledge sources, Elasticsearch indexing/read model.
+- `evals`, `resumeeval`, `interviewbench` — deterministic eval harnesses.
+
+**Media & meetings**
+- `media`, `signaling` — WebRTC signaling, room state, recording lifecycle.
+- `transcription`, `translation`, `fcm` — ASR, realtime translation (UI hidden), push.
+
+**Compliance & messaging safety**
+- `compliance`, `messagecrypto` — policy assembly, envelope (AES-256-GCM) encryption.
+- `events` — MySQL outbox (claim/lease/retry/idempotency) decoupling writes from workers.
+
+**Cross-cutting runtime & ops**
+- `runtime` — `ApplyPrivacyPolicies`, migration bootstrapping; `migrations`.
+- `sandbox`, `sandboxsupervisor` — isolated tool execution.
+- `tasksched`, `opsjobs`, `alerting`, `metrics`, `trace`, `logger`, `apperror`, `async`, `mail`, `kms`, `storage`, `infra`, `integration`, `version`, `testutil`.
+
+**Entrypoint roles (`cmd/`, 24 total)**
+- API + signaling: `server` (embedded workers by default).
+- Extracted workers (7): `user-service`, `agent-worker`, `outbox-worker`, `data-worker`, `search-worker`, `cleanup-worker`, `mcp-tool-server`.
+- Ops CLIs (3): `allcallallctl`, `migrate`, `opsaudit`.
+- Sandbox / media (3): `sandbox-service`, `sandbox-supervisor`, `media-node`.
+- Seeds & eval/bench harnesses (10): `beta-seed`, `agent-eval`, `rag-eval`, `interview-bench`, `interview-seed`, `realtime-replay-bench`, `chat-ws-replay-bench`, `translation-smoke`, `mail-test`, `check-unbounded-find`.
+
+
+
 ## Common Commands
 
 ```bash
