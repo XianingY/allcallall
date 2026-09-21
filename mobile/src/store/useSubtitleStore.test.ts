@@ -1,8 +1,11 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
 import { useSubtitleStore } from "./useSubtitleStore";
 
-// Lightweight pseudo-test helper for environments without Jest wiring.
-// Execute manually when needed.
-export const runUseSubtitleStorePseudoTest = (): boolean => {
+// Regression cover for the subtitle store: a later revision must replace the
+// interim result for the same segment, and pruneExpired must drop stale entries.
+test("upsertSubtitle replaces the interim result for the same segment", () => {
   const store = useSubtitleStore.getState();
   store.clearSubtitles();
 
@@ -15,7 +18,6 @@ export const runUseSubtitleStorePseudoTest = (): boolean => {
     translated: "hel",
     timestamp: 1000,
   });
-
   store.upsertSubtitle({
     segmentId: "seg-1",
     revision: 2,
@@ -26,12 +28,24 @@ export const runUseSubtitleStorePseudoTest = (): boolean => {
     timestamp: 1200,
   });
 
-  const afterUpsert = useSubtitleStore.getState().subtitles;
-  if (afterUpsert.length !== 1) return false;
-  if (afterUpsert[0].translated !== "hello") return false;
-  if (!afterUpsert[0].isFinal) return false;
+  const subtitles = useSubtitleStore.getState().subtitles;
+  assert.equal(subtitles.length, 1, "revisions collapse onto one segment");
+  assert.equal(subtitles[0].translated, "hello");
+  assert.equal(subtitles[0].isFinal, true);
+});
+
+test("pruneExpired drops subtitles older than the retention window", () => {
+  useSubtitleStore.getState().clearSubtitles();
+  useSubtitleStore.getState().upsertSubtitle({
+    segmentId: "seg-2",
+    revision: 1,
+    isFinal: true,
+    source: "online",
+    original: "你好",
+    translated: "hello",
+    timestamp: 1200,
+  });
 
   useSubtitleStore.getState().pruneExpired(10_000_000);
-  const afterPrune = useSubtitleStore.getState().subtitles;
-  return afterPrune.length === 0;
-};
+  assert.equal(useSubtitleStore.getState().subtitles.length, 0);
+});
