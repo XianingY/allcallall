@@ -1,10 +1,11 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleDollarSign, Plus, X } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { createDeal, listDeals, listPipelines, updateDeal } from "@/api/collaboration";
+import { PAGE_SIZE } from "@/api/pagination";
 import { FormError } from "@/components/AuthLayout";
 import { PageError, PageLoading } from "@/components/PageState";
 import { useOrganization } from "@/organizations/OrganizationContext";
@@ -14,11 +15,19 @@ const money = (cents: number, currency: string) => new Intl.NumberFormat(undefin
 export function DealsPage() {
   const { activeOrganization } = useOrganization(); const queryClient = useQueryClient(); const orgId = activeOrganization?.id; const [open, setOpen] = useState(false);
   const pipelines = useQuery({ queryKey: ["organizations", orgId, "pipelines"], queryFn: listPipelines, enabled: Boolean(orgId) });
-  const deals = useQuery({ queryKey: ["organizations", orgId, "deals"], queryFn: listDeals, enabled: Boolean(orgId) });
+  const deals = useInfiniteQuery({
+    queryKey: ["organizations", orgId, "deals"],
+    queryFn: ({ pageParam }) => listDeals({ limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0 as number,
+    getNextPageParam: (lastPage) => (lastPage.pagination.has_more ? lastPage.pagination.offset + lastPage.pagination.limit : undefined),
+    maxPages: 20,
+    enabled: Boolean(orgId),
+  });
   const move = useMutation({ mutationFn: ({ id, stage_id }: { id: number; stage_id: number }) => updateDeal(id, { stage_id }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["organizations", orgId, "deals"] }) });
   const stages = pipelines.data?.find((item) => item.is_default)?.stages ?? pipelines.data?.[0]?.stages ?? [];
   return <div className="page page-wide"><header className="page-header"><div><p className="eyebrow">Pipeline</p><h1>商机</h1><p>按阶段推进商机，并保留会话、联系人和活动轨迹。</p></div><button className="button-primary" onClick={() => setOpen(true)}><Plus size={17} />新建商机</button></header>
-    {pipelines.isLoading || deals.isLoading ? <PageLoading /> : pipelines.isError || deals.isError ? <PageError error={pipelines.error || deals.error} /> : <div className="deal-board">{stages.map((stage) => { const items = deals.data?.filter((deal) => deal.stage_id === stage.id) ?? []; return <section className="deal-column" key={stage.id}><header><h2>{stage.name}</h2><span>{items.length}</span></header><div>{items.map((deal) => <article className="panel deal-card" key={deal.id}><Link to={`/deals/${deal.id}`}><h3>{deal.title}</h3><p>{deal.description || "暂无描述"}</p><strong>{money(deal.value_cents, deal.currency)}</strong></Link><select aria-label={`移动 ${deal.title}`} value={deal.stage_id ?? ""} onChange={(event) => move.mutate({ id: deal.id, stage_id: Number(event.target.value) })}>{stages.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></article>)}</div></section>; })}</div>}
+    {pipelines.isLoading || deals.isLoading ? <PageLoading /> : pipelines.isError || deals.isError ? <PageError error={pipelines.error || deals.error} /> : <div className="deal-board">{stages.map((stage) => { const items = (deals.data?.pages ?? []).flatMap((page) => page.deals).filter((deal) => deal.stage_id === stage.id); return <section className="deal-column" key={stage.id}><header><h2>{stage.name}</h2><span>{items.length}</span></header><div>{items.map((deal) => <article className="panel deal-card" key={deal.id}><Link to={`/deals/${deal.id}`}><h3>{deal.title}</h3><p>{deal.description || "暂无描述"}</p><strong>{money(deal.value_cents, deal.currency)}</strong></Link><select aria-label={`移动 ${deal.title}`} value={deal.stage_id ?? ""} onChange={(event) => move.mutate({ id: deal.id, stage_id: Number(event.target.value) })}>{stages.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></article>)}</div></section>; })}    </div>}
+    {deals.data?.pages?.length ? <div className="conversation-list-footer"><span>共 {(deals.data.pages[deals.data.pages.length - 1]?.pagination.total ?? 0)} 个商机</span>{deals.hasNextPage ? <button className="button-secondary" disabled={deals.isFetchingNextPage} onClick={() => void deals.fetchNextPage()}>加载更多</button> : null}</div> : null}
     <NewDealDialog open={open} onOpenChange={setOpen} stages={stages} orgId={orgId} />
   </div>;
 }

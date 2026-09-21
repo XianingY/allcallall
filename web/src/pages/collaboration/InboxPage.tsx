@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PAGE_SIZE } from "@/api/pagination";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import {
@@ -67,7 +68,14 @@ export function InboxPage() {
   const typingTimer = useRef<number>();
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const conversations = useQuery({ queryKey: ["organizations", orgId, "conversations", filter], queryFn: () => listConversations(filter), enabled: Boolean(orgId) });
+  const conversations = useInfiniteQuery({
+    queryKey: ["organizations", orgId, "conversations", filter],
+    queryFn: ({ pageParam }) => listConversations(filter, { limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0 as number,
+    getNextPageParam: (lastPage) => (lastPage.pagination.has_more ? lastPage.pagination.offset + lastPage.pagination.limit : undefined),
+    maxPages: 20,
+    enabled: Boolean(orgId),
+  });
   const detail = useQuery({ queryKey: ["organizations", orgId, "conversations", selectedId], queryFn: () => getConversation(selectedId!), enabled: Boolean(orgId && selectedId) });
   const messages = useInfiniteQuery({
     queryKey: messageQueryKey(orgId, selectedId),
@@ -156,7 +164,8 @@ export function InboxPage() {
       <header className="workspace-pane-header"><div><span className="eyebrow">Workspace</span><h1>Inbox</h1></div><NewConversationDialog open={creating} onOpenChange={setCreating} orgId={orgId} onCreated={(id) => navigate(`/conversations/${id}`)} /></header>
       <div className="search-field"><Search size={16} /><input aria-label="搜索会话" placeholder="搜索会话" value={filter} onChange={(event) => setFilter(event.target.value)} /></div>
       <div className="filter-tabs"><button className={!filter ? "active" : ""} onClick={() => setFilter("")}>全部</button><button className={filter === "unread" ? "active" : ""} onClick={() => setFilter("unread")}>未读</button><button className={filter === "open" ? "active" : ""} onClick={() => setFilter("open")}>处理中</button></div>
-      {conversations.isLoading ? <PageLoading /> : conversations.isError ? <PageError error={conversations.error} /> : <div className="conversation-items">{conversations.data?.map((item) => <Link key={item.id} to={`/conversations/${item.id}`} className={`conversation-item ${selectedId === item.id ? "conversation-item-active" : ""}`}><div className="conversation-avatar">{item.title.slice(0, 1).toUpperCase()}</div><div className="conversation-copy"><div><strong>{item.title}</strong><time>{formatTime(item.last_message_at)}</time></div><p>{item.last_message_preview || item.topic || "暂无消息"}</p><span>{item.priority}</span></div>{item.unread_count > 0 && <b className="unread-count">{item.unread_count}</b>}</Link>)}</div>}
+      {conversations.isLoading ? <PageLoading /> : conversations.isError ? <PageError error={conversations.error} /> : <div className="conversation-items">{(conversations.data?.pages ?? []).flatMap((page) => page.conversations).map((item) => <Link key={item.id} to={`/conversations/${item.id}`} className={`conversation-item ${selectedId === item.id ? "conversation-item-active" : ""}`}><div className="conversation-avatar">{item.title.slice(0, 1).toUpperCase()}</div><div className="conversation-copy"><div><strong>{item.title}</strong><time>{formatTime(item.last_message_at)}</time></div><p>{item.last_message_preview || item.topic || "暂无消息"}</p><span>{item.priority}</span></div>{item.unread_count > 0 && <b className="unread-count">{item.unread_count}</b>}</Link>)}</div>}
+      {conversations.data?.pages?.length ? <div className="conversation-list-footer"><span>共 {(conversations.data.pages[conversations.data.pages.length - 1]?.pagination.total ?? 0)} 个会话</span>{conversations.hasNextPage ? <button className="button-secondary" disabled={conversations.isFetchingNextPage} onClick={() => void conversations.fetchNextPage()}>加载更多</button> : null}</div> : null}
     </aside>
     <main className="message-pane">
       {!selectedId ? <div className="pane-empty"><MessageSquarePlus size={28} /><strong>选择一个会话</strong><span>消息、备注和 Agent 上下文会在这里显示</span></div> : detail.isLoading ? <PageLoading /> : detail.isError ? <PageError error={detail.error} /> : <>

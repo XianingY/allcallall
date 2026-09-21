@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 
@@ -10,6 +10,7 @@ import {
   listOrganizationMembers,
   listOrganizationTeams,
 } from "@/api/identity";
+import { PAGE_SIZE } from "@/api/pagination";
 import { useAuth } from "@/auth/AuthContext";
 import { FormError } from "@/components/AuthLayout";
 import { PageLoading } from "@/components/PageState";
@@ -28,7 +29,14 @@ export function OrganizationsPage() {
   const canManage = activeOrganization?.role === "owner" || activeOrganization?.role === "admin";
   const submit = async () => { setError(undefined); try { await create(name); setName(""); } catch (caught) { setError(caught); } };
 
-  const members = useQuery({ queryKey: ["organizations", orgId, "members"], queryFn: () => listOrganizationMembers(orgId!), enabled: Boolean(orgId) });
+  const members = useInfiniteQuery({
+    queryKey: ["organizations", orgId, "members"],
+    queryFn: ({ pageParam }) => listOrganizationMembers(orgId!, { limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0 as number,
+    getNextPageParam: (lastPage) => (lastPage.pagination.has_more ? lastPage.pagination.offset + lastPage.pagination.limit : undefined),
+    maxPages: 20,
+    enabled: Boolean(orgId),
+  });
   const invites = useQuery({ queryKey: ["organizations", orgId, "invites"], queryFn: () => listOrganizationInvites(orgId!), enabled: Boolean(orgId) });
   const teams = useQuery({ queryKey: ["organizations", orgId, "teams"], queryFn: () => listOrganizationTeams(orgId!), enabled: Boolean(orgId) });
   const policy = useQuery({ queryKey: ["organizations", orgId, "policy"], queryFn: () => getOrganizationPolicy(orgId!), enabled: Boolean(orgId) });
@@ -49,7 +57,7 @@ export function OrganizationsPage() {
       </aside>
       <main className="panel panel-body org-admin-main">
         <div className="org-tabs">{organizationTabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{tabLabel(item)}</button>)}</div>
-        {!orgId ? <div className="pane-empty">请选择组织</div> : tab === "overview" ? <Overview active={activeOrganization} canManage={canManage} members={members.data ?? []} teams={teams.data ?? []} currentUserId={user?.id} summary={summary} /> : tab === "members" ? <MembersTab orgId={orgId} canManage={canManage} currentUserId={user?.id} members={members} refresh={refreshOrgAdmin} /> : tab === "invites" ? <InvitesTab orgId={orgId} canManage={canManage} invites={invites} teams={teams.data ?? []} refresh={refreshOrgAdmin} /> : tab === "teams" ? <TeamsTab orgId={orgId} canManage={canManage} members={members.data ?? []} teams={teams} refresh={refreshOrgAdmin} /> : tab === "policies" ? <PoliciesTab orgId={orgId} canManage={canManage} policy={policy} refresh={refreshOrgAdmin} /> : <AuditTab audit={audit} />}
+        {!orgId ? <div className="pane-empty">请选择组织</div> : tab === "overview" ? <Overview active={activeOrganization} canManage={canManage} members={(members.data?.pages ?? []).flatMap((page) => page.members)} teams={teams.data ?? []} currentUserId={user?.id} summary={summary} /> : tab === "members" ? <MembersTab orgId={orgId} canManage={canManage} currentUserId={user?.id} members={members} onLoadMore={() => void members.fetchNextPage()} refresh={refreshOrgAdmin} /> : tab === "invites" ? <InvitesTab orgId={orgId} canManage={canManage} invites={invites} teams={teams.data ?? []} refresh={refreshOrgAdmin} /> : tab === "teams" ? <TeamsTab orgId={orgId} canManage={canManage} members={(members.data?.pages ?? []).flatMap((page) => page.members)} teams={teams} refresh={refreshOrgAdmin} /> : tab === "policies" ? <PoliciesTab orgId={orgId} canManage={canManage} policy={policy} refresh={refreshOrgAdmin} /> : <AuditTab audit={audit} />}
       </main>
     </div>
   </div>;
