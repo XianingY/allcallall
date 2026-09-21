@@ -20,6 +20,7 @@ import {
 import {
   MediaUpdatePayload,
   SdpRenegotiationPayload,
+  SessionDescriptionPayload,
   SubtitlePayload,
   SignalMessage
 } from "../api/signaling";
@@ -325,9 +326,9 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
     if (disconnectDeadlineRef.current) clearTimeout(disconnectDeadlineRef.current);
 
     if (peerRef.current) {
-      (peerRef.current as any).onicecandidate = null;
-      (peerRef.current as any).ontrack = null;
-      (peerRef.current as any).onconnectionstatechange = null;
+      peerRef.current.onicecandidate = null;
+      peerRef.current.ontrack = null;
+      peerRef.current.onconnectionstatechange = null;
       peerRef.current.close();
       peerRef.current = null;
     }
@@ -561,7 +562,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       iceEpochRef.current
     );
     try {
-      const offer = await pc.createOffer({ iceRestart: true } as any);
+      const offer = await pc.createOffer({ iceRestart: true });
       await pc.setLocalDescription(offer);
       sendMessage({ type: "call.sdp.offer", call_id: current.callId, to: current.peerEmail, payload: { sdp: offer.sdp, type: offer.type, iceEpoch: iceEpochRef.current } as SdpRenegotiationPayload });
     } catch {
@@ -594,22 +595,22 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [status, setVideoSenderMaxBitrate, updateNetworkQualityFromReport]);
 
   const createPeerConnection = useCallback(() => {
-    const pc = new RTCPeerConnection({ iceServers, bundlePolicy: "max-bundle" } as any);
-    (pc as any).onicecandidate = (event: any) => {
+    const pc = new RTCPeerConnection({ iceServers, bundlePolicy: "max-bundle" });
+    pc.onicecandidate = (event) => {
       if (!event.candidate) return;
       const candidateInit = { candidate: event.candidate.candidate, sdpMid: event.candidate.sdpMid, sdpMLineIndex: event.candidate.sdpMLineIndex, iceEpoch: iceEpochRef.current };
       const current = sessionRef.current;
-      if (current?.callId) sendMessage({ type: "ice.candidate", call_id: current.callId, to: current.peerEmail, payload: candidateInit as any });
+      if (current?.callId) sendMessage({ type: "ice.candidate", call_id: current.callId, to: current.peerEmail, payload: candidateInit as IceCandidatePayload });
       else pendingLocalCandidates.current.push(candidateInit);
     };
-    (pc as any).oniceconnectionstatechange = () => {
+    pc.oniceconnectionstatechange = () => {
       const current = sessionRef.current;
       if (pc.iceConnectionState === "failed" && current && statusRef.current === "in_call") {
         if (current.direction === "outgoing") startIceRestartAsCaller();
         else requestIceRestart(current.callId, current.peerEmail, "ice_failed");
       }
     };
-    (pc as any).ontrack = (event: any) => {
+    pc.ontrack = (event) => {
       try {
         const tracks = collectRemoteTracks<MediaTrack>({
           track: event?.track,
@@ -626,7 +627,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("[SignalingContext] ontrack handler failed:", error);
       }
     };
-    (pc as any).ondatachannel = (event: any) => {
+    pc.ondatachannel = (event) => {
       if (event.channel?.label === 'subtitles') {
         attachSubtitlesDataChannel(event.channel);
       } else if (event.channel?.label === 'e2ee-key-exchange') {
@@ -641,7 +642,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         };
       }
     };
-    (pc as any).onconnectionstatechange = () => {
+    pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
       const current = sessionRef.current;
       if ((state === "failed" || state === "closed" || state === "disconnected") && current && statusRef.current === "in_call") {
@@ -689,25 +690,25 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
             if (pendingTarget.current) {
               const sess = { callId: msg.call_id ?? "", peerEmail: pendingTarget.current, direction: "outgoing" as CallDirection };
               setSession(sess); setStatus("connecting");
-              pendingLocalCandidates.current.forEach(c => sendMessage({ type: "ice.candidate", call_id: sess.callId, to: sess.peerEmail, payload: c as any }));
+              pendingLocalCandidates.current.forEach(c => sendMessage({ type: "ice.candidate", call_id: sess.callId, to: sess.peerEmail, payload: c as IceCandidatePayload }));
               pendingLocalCandidates.current = [];
               pendingTarget.current = null;
             }
             break;
           case "call.invite":
-            setSession({ callId: msg.call_id ?? "", peerEmail: msg.from ?? "", direction: "incoming", offer: msg.payload as any });
+            setSession({ callId: msg.call_id ?? "", peerEmail: msg.from ?? "", direction: "incoming", offer: msg.payload as SessionDescriptionPayload });
             setStatus("incoming");
             break;
           case "call.accept":
-            if (peerRef.current && (msg.payload as any)?.sdp) {
-              await peerRef.current.setRemoteDescription(new RTCSessionDescription(msg.payload as any));
+            if (peerRef.current && (msg.payload as SessionDescriptionPayload | undefined)?.sdp) {
+              await peerRef.current.setRemoteDescription(new RTCSessionDescription(msg.payload as SessionDescriptionPayload));
               await flushRemoteCandidatesForCurrentEpoch();
             }
             setStatus("in_call");
             sendMediaUpdate(msg.call_id ?? "", msg.from ?? "", { audioEnabled: isAudioEnabledRef.current, videoEnabled: isVideoEnabledRef.current });
             break;
           case "call.media_update": {
-            const p = msg.payload as any;
+            const p = msg.payload as MediaUpdatePayload | undefined;
             if (typeof p?.videoEnabled === "boolean") setIsRemoteVideoEnabled(p.videoEnabled);
             if (typeof p?.audioEnabled === "boolean") setIsRemoteAudioEnabled(p.audioEnabled);
             break;
@@ -737,8 +738,8 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
             break;
           case "call.sdp.offer":
             if (peerRef.current && statusRef.current === "in_call") {
-              const payload = msg.payload as any;
-              const nextEpoch = typeof payload.iceEpoch === "number" ? payload.iceEpoch : 0;
+              const payload = msg.payload as SdpRenegotiationPayload | undefined;
+              const nextEpoch = payload && typeof payload.iceEpoch === "number" ? payload.iceEpoch : 0;
               if (nextEpoch > iceEpochRef.current) {
                 iceEpochRef.current = nextEpoch;
                 pendingRemoteCandidates.current = discardStaleRemoteCandidates(
@@ -750,12 +751,12 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
               await flushRemoteCandidatesForCurrentEpoch();
               const answer = await peerRef.current.createAnswer();
               await peerRef.current.setLocalDescription(answer);
-              sendMessage({ type: "call.sdp.answer", call_id: sessionRef.current?.callId ?? "", to: msg.from ?? "", payload: { sdp: answer.sdp, type: answer.type, iceEpoch: iceEpochRef.current } as any });
+              sendMessage({ type: "call.sdp.answer", call_id: sessionRef.current?.callId ?? "", to: msg.from ?? "", payload: { sdp: answer.sdp, type: answer.type, iceEpoch: iceEpochRef.current } as SdpRenegotiationPayload });
             }
             break;
           case "call.sdp.answer":
             if (peerRef.current && statusRef.current === "in_call") {
-              const payload = msg.payload as any;
+              const payload = msg.payload as SdpRenegotiationPayload | undefined;
               const nextEpoch = typeof payload?.iceEpoch === "number" ? payload.iceEpoch : 0;
               if (nextEpoch > iceEpochRef.current) {
                 iceEpochRef.current = nextEpoch;
@@ -776,10 +777,12 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           case "ice.candidate":
             await queueOrApplyRemoteIceCandidate(msg.payload as IceCandidatePayload);
             break;
-          case "call.error":
-            Alert.alert("Call error", (msg.payload as any)?.reason ?? "Error");
+          case "call.error": {
+            const reason = (msg.payload as Record<string, unknown> | undefined)?.reason;
+            Alert.alert("Call error", typeof reason === "string" && reason ? reason : "Error");
             resetCallState();
             break;
+          }
         }
       } catch (error) {
         console.error("[SignalingContext] failed to handle signaling message:", msg.type, error);
@@ -812,10 +815,10 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
       setLocalStream(stream); setIsVideoEnabled(settings.defaultVideoEnabled); setIsAudioEnabled(settings.defaultAudioEnabled); setCameraFacing(settings.cameraFacing);
       const pc = createPeerConnection();
       if (stream.getVideoTracks().length === 0) pc.addTransceiver("video", { direction: "sendrecv" });
-      const dc = (pc as any).createDataChannel?.('subtitles', { ordered: true });
+      const dc = pc.createDataChannel('subtitles', { ordered: true });
       if (dc) attachSubtitlesDataChannel(dc);
       if (E2EE_ENABLED) {
-        const e2eeDc = (pc as any).createDataChannel?.('e2ee-key-exchange', { ordered: true });
+        const e2eeDc = pc.createDataChannel('e2ee-key-exchange', { ordered: true });
         if (e2eeDc) {
           e2eeDataChannelRef.current = e2eeDc;
           e2eeDc.onopen = () => {
@@ -868,7 +871,7 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
           iceEpochRef.current
         );
       }
-      await pc.setRemoteDescription(new RTCSessionDescription(session.offer as any));
+      await pc.setRemoteDescription(new RTCSessionDescription(session.offer));
       await flushRemoteCandidatesForCurrentEpoch();
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);

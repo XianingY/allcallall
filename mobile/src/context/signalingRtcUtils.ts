@@ -5,9 +5,11 @@ export interface RemoteTrackLike {
   id?: string;
   muted?: boolean;
   readyState?: string;
-  onmute?: (() => void) | null;
-  onunmute?: (() => void) | null;
-  onended?: (() => void) | null;
+  // DOM MediaStreamTrack handlers receive an event argument while the
+  // react-native-webrtc track does not; accept either shape.
+  onmute?: ((event?: any) => void) | null;
+  onunmute?: ((event?: any) => void) | null;
+  onended?: ((event?: any) => void) | null;
 }
 
 export interface RemoteTrackState<TTrack extends RemoteTrackLike = RemoteTrackLike> {

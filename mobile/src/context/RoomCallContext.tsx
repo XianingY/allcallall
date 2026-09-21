@@ -287,7 +287,7 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
 
       await joinRoom(token, roomId);
       const iceServers = await loadIceServers();
-      const pc = new RTCPeerConnection({ iceServers: iceServers as RTCIceServer[] } as never);
+      const pc = new RTCPeerConnection({ iceServers });
       peerRef.current = pc;
 
       const stream = localStreamRef.current;
@@ -295,7 +295,7 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
         pc.addTrack(track, stream);
       });
 
-      (pc as any).onicecandidate = (event: any) => {
+      pc.onicecandidate = (event) => {
         if (!event.candidate) {
           return;
         }
@@ -306,7 +306,7 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
         });
       };
 
-      (pc as any).ontrack = (event: any) => {
+      pc.ontrack = (event) => {
         const stream = event.streams[0] ?? new MediaStream([event.track]);
         const key = buildRemoteStreamKey(stream.id, event.track?.kind, event.track?.id);
         const participantId = parseParticipantIdFromMediaIds(stream.id, event.track?.id);
@@ -323,7 +323,7 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
         syncRemoteStreams();
       };
 
-      (pc as any).onconnectionstatechange = () => {
+      pc.onconnectionstatechange = () => {
         const nextState = pc.connectionState;
         const nextConnectionState =
           nextState === "connected"
@@ -348,8 +348,8 @@ const RoomCallProvider: React.FC<{ children: React.ReactNode }> = ({ children })
         void syncRoomMediaState({ connectionState: nextConnectionState });
       };
 
-      (pc as any).oniceconnectionstatechange = () => {
-        const nextIceState = (pc as any).iceConnectionState as string;
+      pc.oniceconnectionstatechange = () => {
+        const nextIceState = pc.iceConnectionState;
         if (nextIceState === "connected" || nextIceState === "completed") {
           reconnectAttemptRef.current = 0;
           if (reconnectTimeoutRef.current) {

@@ -1,8 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import {
   RTCPeerConnection,
-  RTCSessionDescription,
-  RTCIceCandidate,
   MediaStream,
 } from 'react-native-webrtc';
 
@@ -39,17 +37,17 @@ export function useWebRTC(config: WebRTCConfig): WebRTCHook {
   useEffect(() => {
     const pc = new RTCPeerConnection({
       iceServers: config.iceServers,
-    } as any);
+    });
 
     // Handle ICE candidates
-    pc.addEventListener('icecandidate', (event: any) => {
+    pc.addEventListener('icecandidate', (event) => {
       if (event.candidate) {
         config.onIceCandidate(event.candidate);
       }
     });
 
     // Handle remote stream
-    pc.addEventListener('track', (event: any) => {
+    pc.addEventListener('track', (event) => {
       if (event.streams && event.streams[0]) {
         setRemoteStream(event.streams[0]);
         config.onRemoteStream?.(event.streams[0]);
