@@ -31,6 +31,10 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
   const { width } = useWindowDimensions();
   const [items, setItems] = useState<ConversationRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [convOffset, setConvOffset] = useState(0);
+  const [convHasMore, setConvHasMore] = useState(false);
+  const [convTotal, setConvTotal] = useState(0);
   const [channelName, setChannelName] = useState("");
   const [activeFilter, setActiveFilter] = useState<InboxFilter>("my");
   const isWideScreen = width >= 1100;
@@ -42,8 +46,11 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
     }
     try {
       setLoading(true);
-      const data = await listConversations(token, activeFilter);
-      setItems(data);
+      const data = await listConversations(token, activeFilter, undefined, { limit: 50, offset: 0 });
+      setItems(data.conversations);
+      setConvOffset(data.conversations.length);
+      setConvHasMore(data.pagination.has_more);
+      setConvTotal(data.pagination.total);
     } catch (error) {
       console.error("[ConversationsScreen] Failed to load conversations:", error);
       Alert.alert("加载失败", "无法加载协作线程。");
@@ -51,6 +58,25 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
       setLoading(false);
     }
   }, [activeFilter, currentOrganization, token]);
+
+  const loadMore = useCallback(async () => {
+    if (!token || !currentOrganization || loadingMore || !convHasMore) {
+      return;
+    }
+    try {
+      setLoadingMore(true);
+      const data = await listConversations(token, activeFilter, undefined, { limit: 50, offset: convOffset });
+      setItems((previous) => [...previous, ...data.conversations]);
+      setConvOffset((previous) => previous + data.conversations.length);
+      setConvHasMore(data.pagination.has_more);
+      setConvTotal(data.pagination.total);
+    } catch (error) {
+      console.error("[ConversationsScreen] Failed to load more conversations:", error);
+      Alert.alert("加载失败", "无法加载更多协作线程。");
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [activeFilter, convHasMore, convOffset, currentOrganization, loadingMore, token]);
 
   useEffect(() => {
     void loadData();
@@ -141,6 +167,28 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
             keyExtractor={(item) => String(item.id)}
             refreshing={loading}
             onRefresh={() => void loadData()}
+            onEndReached={() => {
+              if (convHasMore && !loadingMore) {
+                void loadMore();
+              }
+            }}
+            onEndReachedThreshold={0.2}
+            ListFooterComponent={
+              convTotal > 0 ? (
+                <View style={styles.footer}>
+                  <Text style={styles.footerText}>共 {convTotal} 个会话</Text>
+                  {convHasMore ? (
+                    <TouchableOpacity
+                      style={styles.footerButton}
+                      onPress={() => void loadMore()}
+                      disabled={loadingMore}
+                    >
+                      <Text style={styles.footerButtonText}>{loadingMore ? "加载中…" : "加载更多"}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ) : null
+            }
             renderItem={({ item }) => {
               const assignee = item.assignee_display_name || item.assignee_email || "未指派";
               return (
@@ -294,6 +342,26 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     color: "#64748b"
+  },
+  footer: {
+    alignItems: "center",
+    paddingVertical: 16,
+    gap: 8
+  },
+  footerText: {
+    color: "#64748b"
+  },
+  footerButton: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: "#fff"
+  },
+  footerButtonText: {
+    color: "#334155",
+    fontWeight: "600"
   }
 });
 

@@ -401,22 +401,47 @@ export const updateOrganizationPolicy = async (
   return response.data.policy;
 };
 
+export interface PageRequest {
+  limit?: number;
+  offset?: number;
+}
+
+export interface Pagination {
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+export interface ConversationPage {
+  conversations: ConversationRecord[];
+  pagination: Pagination;
+}
+
+export interface DealPage {
+  deals: DealRecord[];
+  pagination: Pagination;
+}
+
 export const listConversations = async (
   token: string,
   filter?: string,
   contactId?: number,
+  page?: PageRequest,
 ) => {
   const api = createApiClient(token);
-  const response = await api.get<{ conversations: ConversationRecord[] }>(
+  const response = await api.get<ConversationPage>(
     "/conversations",
     {
       params: {
         ...(filter ? { filter } : {}),
         ...(contactId ? { contact_id: contactId } : {}),
+        ...(page?.limit !== undefined ? { limit: page.limit } : {}),
+        ...(page?.offset !== undefined ? { offset: page.offset } : {}),
       },
     },
   );
-  return response.data.conversations;
+  return response.data;
 };
 
 export const fetchConversationDetail = async (
@@ -585,12 +610,20 @@ export const stopRoomRecording = async (token: string, roomId: number) => {
   return response.data.recording;
 };
 
-export const listRecordings = async (token: string) => {
+export interface RecordingPage {
+  recordings: RecordingRecord[];
+  pagination: Pagination;
+}
+
+export const listRecordings = async (token: string, page?: PageRequest) => {
   const api = createApiClient(token);
-  const response = await api.get<{ recordings: RecordingRecord[] }>(
-    "/recordings",
-  );
-  return response.data.recordings;
+  const response = await api.get<RecordingPage>("/recordings", {
+    params: {
+      ...(page?.limit !== undefined ? { limit: page.limit } : {}),
+      ...(page?.offset !== undefined ? { offset: page.offset } : {}),
+    },
+  });
+  return response.data;
 };
 
 export const fetchRecording = async (token: string, recordingId: number) => {
@@ -649,12 +682,31 @@ export const buildRecordingDownloadRequest = (
   };
 };
 
-export const listMessages = async (token: string, conversationId: number) => {
+export interface MessagePage {
+  messages: MessageRecord[];
+  next_before_id?: number | null;
+  next_after_id?: number | null;
+  has_more_prev?: boolean;
+  has_more_next?: boolean;
+}
+
+export const listMessages = async (
+  token: string,
+  conversationId: number,
+  cursor?: { beforeId?: number; afterId?: number; limit?: number },
+) => {
   const api = createApiClient(token);
-  const response = await api.get<{ messages: MessageRecord[] }>(
+  const response = await api.get<MessagePage>(
     `/conversations/${conversationId}/messages`,
+    {
+      params: {
+        ...(cursor?.beforeId !== undefined ? { before_id: cursor.beforeId } : {}),
+        ...(cursor?.afterId !== undefined ? { after_id: cursor.afterId } : {}),
+        ...(cursor?.limit !== undefined ? { limit: cursor.limit } : {}),
+      },
+    },
   );
-  return response.data.messages;
+  return response.data;
 };
 
 export interface CreateMessagePayload {
@@ -714,10 +766,15 @@ export const listPipelines = async (token: string) => {
   return response.data.pipelines;
 };
 
-export const listDeals = async (token: string) => {
+export const listDeals = async (token: string, page?: PageRequest) => {
   const api = createApiClient(token);
-  const response = await api.get<{ deals: DealRecord[] }>("/deals");
-  return response.data.deals;
+  const response = await api.get<DealPage>("/deals", {
+    params: {
+      ...(page?.limit !== undefined ? { limit: page.limit } : {}),
+      ...(page?.offset !== undefined ? { offset: page.offset } : {}),
+    },
+  });
+  return response.data;
 };
 
 export interface CreateDealPayload {

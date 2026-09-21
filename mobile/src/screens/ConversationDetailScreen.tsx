@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
   useWindowDimensions,
 } from "react-native";
@@ -130,6 +131,8 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const [contacts, setContacts] = useState<User[]>([]);
   const [notes, setNotes] = useState<ConversationNoteRecord[]>([]);
   const [messages, setMessages] = useState<MessageRecord[]>([]);
+  const [loadingMorePrev, setLoadingMorePrev] = useState(false);
+  const [hasMorePrev, setHasMorePrev] = useState(false);
   const [latestRecording, setLatestRecording] =
     useState<RecordingRecord | null>(null);
   const [draft, setDraft] = useState("");
@@ -185,7 +188,8 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       setDetail(nextDetail);
       setContacts(nextContacts);
       setNotes(nextNotes);
-      setMessages(nextMessages);
+      setMessages(nextMessages.messages);
+      setHasMorePrev(Boolean(nextMessages.has_more_prev));
       setLatestRecording(nextRecording);
       setActiveWorkflow(
         nextWorkflows[0] ?? null,
@@ -201,6 +205,45 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       setLoading(false);
     }
   }, [conversationId, token]);
+
+  const loadMorePrev = useCallback(async () => {
+    if (!token || loadingMorePrev || !hasMorePrev || messages.length === 0) {
+      return;
+    }
+    try {
+      setLoadingMorePrev(true);
+      const oldestId = messages[0].id;
+      const page = await listMessages(token, conversationId, {
+        beforeId: oldestId,
+        limit: 50,
+      });
+      setMessages((previous) => [...page.messages, ...previous]);
+      setHasMorePrev(Boolean(page.has_more_prev));
+    } catch (error) {
+      console.error(
+        "[ConversationDetailScreen] Failed to load earlier messages:",
+        error,
+      );
+      Alert.alert("加载失败", "无法加载更早的消息。");
+    } finally {
+      setLoadingMorePrev(false);
+    }
+  }, [conversationId, hasMorePrev, loadingMorePrev, messages, token]);
+
+  // Append a message in place (oldest→newest order is preserved by the list).
+  // Dedupe by id so the realtime echo of a message we already have is ignored,
+  // and skip messages that belong to a different conversation in the same org.
+  const appendMessage = useCallback((incoming: MessageRecord) => {
+    if (incoming.conversation_id !== conversationId) {
+      return;
+    }
+    setMessages((previous) => {
+      if (previous.some((item) => item.id === incoming.id)) {
+        return previous;
+      }
+      return [...previous, incoming];
+    });
+  }, [conversationId]);
 
   useEffect(() => {
     void loadData();
@@ -228,9 +271,14 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         );
         return;
       }
+      if (event.event === "message.created") {
+        // Append in place instead of full reload so any "load earlier" history
+        // the user scrolled into is preserved; dedupe by id guards the echo.
+        appendMessage(event.payload as MessageRecord);
+        return;
+      }
       if (
         [
-          "message.created",
           "conversation.note.created",
           "room.recording.updated",
           "room.state.updated",
@@ -362,14 +410,16 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const handleSend = useCallback(async () => {
     if (!token || !draft.trim()) return;
     try {
-      await createMessage(token, conversationId, { body: draft.trim() });
+      const created = await createMessage(token, conversationId, { body: draft.trim() });
       setDraft("");
-      void loadData();
+      // Append rather than full-reload: preserves any "load earlier" history and
+      // avoids flicker. The realtime echo of this message is deduped by id.
+      appendMessage(created);
     } catch (e) {
       console.error(e);
       Alert.alert("发送失败");
     }
-  }, [token, draft, conversationId, loadData]);
+  }, [token, draft, conversationId, appendMessage]);
 
   const runMeetingAgent = useCallback(
     async (input: {
@@ -1214,6 +1264,19 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       onRefresh={() => void loadData()}
       contentContainerStyle={styles.listContent}
       renderItem={renderMessage}
+      ListHeaderComponent={
+        hasMorePrev ? (
+          <TouchableOpacity
+            style={styles.loadEarlier}
+            onPress={() => void loadMorePrev()}
+            disabled={loadingMorePrev}
+          >
+            <Text style={styles.loadEarlierText}>
+              {loadingMorePrev ? "加载中…" : "加载更早的消息"}
+            </Text>
+          </TouchableOpacity>
+        ) : null
+      }
       ListFooterComponent={
         <View>
           <View style={styles.composer}>
@@ -1622,6 +1685,14 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 24,
+  },
+  loadEarlier: {
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  loadEarlierText: {
+    color: "#2563eb",
+    fontWeight: "600",
   },
   messageBubble: {
     borderRadius: 16,

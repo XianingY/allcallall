@@ -90,7 +90,7 @@ const ContactDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         last_followup_state: remoteProfile.last_followup_state ?? "",
         note: remoteProfile.note ?? ""
       });
-      setLinkedConversations(conversations);
+      setLinkedConversations(conversations.conversations);
       const contactCalls = calls.filter((item) => item.caller_email === contact.email || item.callee_email === contact.email);
       if (contactCalls.length > 0) {
         setLastCall(contactCalls[0].started_at);

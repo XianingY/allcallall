@@ -16,6 +16,10 @@ const DealsScreen: React.FC<Props> = ({ navigation }) => {
   const { currentOrganization } = useOrganization();
   const [items, setItems] = useState<DealRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [dealOffset, setDealOffset] = useState(0);
+  const [dealHasMore, setDealHasMore] = useState(false);
+  const [dealTotal, setDealTotal] = useState(0);
   const [title, setTitle] = useState("");
 
   const loadDeals = useCallback(async () => {
@@ -25,8 +29,11 @@ const DealsScreen: React.FC<Props> = ({ navigation }) => {
     }
     try {
       setLoading(true);
-      const data = await listDeals(token);
-      setItems(data);
+      const data = await listDeals(token, { limit: 50, offset: 0 });
+      setItems(data.deals);
+      setDealOffset(data.deals.length);
+      setDealHasMore(data.pagination.has_more);
+      setDealTotal(data.pagination.total);
     } catch (error) {
       console.error("[DealsScreen] Failed to load deals:", error);
       Alert.alert("加载失败", "无法加载商机列表。");
@@ -34,6 +41,25 @@ const DealsScreen: React.FC<Props> = ({ navigation }) => {
       setLoading(false);
     }
   }, [currentOrganization, token]);
+
+  const loadMoreDeals = useCallback(async () => {
+    if (!token || !currentOrganization || loadingMore || !dealHasMore) {
+      return;
+    }
+    try {
+      setLoadingMore(true);
+      const data = await listDeals(token, { limit: 50, offset: dealOffset });
+      setItems((previous) => [...previous, ...data.deals]);
+      setDealOffset((previous) => previous + data.deals.length);
+      setDealHasMore(data.pagination.has_more);
+      setDealTotal(data.pagination.total);
+    } catch (error) {
+      console.error("[DealsScreen] Failed to load more deals:", error);
+      Alert.alert("加载失败", "无法加载更多商机。");
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [currentOrganization, dealHasMore, dealOffset, loadingMore, token]);
 
   useEffect(() => {
     void loadDeals();
@@ -72,6 +98,28 @@ const DealsScreen: React.FC<Props> = ({ navigation }) => {
         keyExtractor={(item) => String(item.id)}
         refreshing={loading}
         onRefresh={() => void loadDeals()}
+        onEndReached={() => {
+          if (dealHasMore && !loadingMore) {
+            void loadMoreDeals();
+          }
+        }}
+        onEndReachedThreshold={0.2}
+        ListFooterComponent={
+          dealTotal > 0 ? (
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>共 {dealTotal} 个商机</Text>
+              {dealHasMore ? (
+                <TouchableOpacity
+                  style={styles.footerButton}
+                  onPress={() => void loadMoreDeals()}
+                  disabled={loadingMore}
+                >
+                  <Text style={styles.footerButtonText}>{loadingMore ? "加载中…" : "加载更多"}</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null
+        }
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.card} onPress={() => navigation.navigate("DealDetail", { deal: item })}>
             <Text style={styles.title}>{item.title}</Text>
@@ -133,6 +181,26 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     color: "#64748b"
+  },
+  footer: {
+    alignItems: "center",
+    paddingVertical: 16,
+    gap: 8
+  },
+  footerText: {
+    color: "#64748b"
+  },
+  footerButton: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: "#fff"
+  },
+  footerButtonText: {
+    color: "#334155",
+    fontWeight: "600"
   }
 });
 

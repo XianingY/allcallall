@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, FlatList, StyleSheet, Text, View } from "react-native";
+import { Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { buildRecordingDownloadRequest, listRecordings, type RecordingRecord } from "../api/collaboration";
@@ -10,10 +10,16 @@ import type { RootStackParamList } from "../navigation/AppNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Recordings">;
 
+const RECORDING_PAGE_SIZE = 50;
+
 const RecordingsScreen: React.FC<Props> = ({ navigation }) => {
   const { token } = useAuthContext();
   const [items, setItems] = useState<RecordingRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [recOffset, setRecOffset] = useState(0);
+  const [recHasMore, setRecHasMore] = useState(false);
+  const [recTotal, setRecTotal] = useState(0);
 
   const loadData = useCallback(async () => {
     if (!token) {
@@ -22,8 +28,11 @@ const RecordingsScreen: React.FC<Props> = ({ navigation }) => {
     }
     try {
       setLoading(true);
-      const data = await listRecordings(token);
-      setItems(data);
+      const data = await listRecordings(token, { limit: RECORDING_PAGE_SIZE, offset: 0 });
+      setItems(data.recordings);
+      setRecOffset(data.recordings.length);
+      setRecHasMore(data.pagination.has_more);
+      setRecTotal(data.pagination.total);
     } catch (error) {
       console.error("[RecordingsScreen] Failed to load recordings:", error);
       Alert.alert("加载失败", "无法加载录音存档列表。");
@@ -31,6 +40,25 @@ const RecordingsScreen: React.FC<Props> = ({ navigation }) => {
       setLoading(false);
     }
   }, [token]);
+
+  const loadMoreRecordings = useCallback(async () => {
+    if (!token || loadingMore || !recHasMore) {
+      return;
+    }
+    try {
+      setLoadingMore(true);
+      const data = await listRecordings(token, { limit: RECORDING_PAGE_SIZE, offset: recOffset });
+      setItems((previous) => [...previous, ...data.recordings]);
+      setRecOffset((previous) => previous + data.recordings.length);
+      setRecHasMore(data.pagination.has_more);
+      setRecTotal(data.pagination.total);
+    } catch (error) {
+      console.error("[RecordingsScreen] Failed to load more recordings:", error);
+      Alert.alert("加载失败", "无法加载更多录音存档。");
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, recHasMore, recOffset, token]);
 
   const handleDownload = useCallback(async (recordingId: number, fileId: number, fileName: string) => {
     if (!token) {
@@ -62,6 +90,28 @@ const RecordingsScreen: React.FC<Props> = ({ navigation }) => {
         keyExtractor={(item) => String(item.session.id)}
         refreshing={loading}
         onRefresh={() => void loadData()}
+        onEndReached={() => {
+          if (recHasMore && !loadingMore) {
+            void loadMoreRecordings();
+          }
+        }}
+        onEndReachedThreshold={0.2}
+        ListFooterComponent={
+          recTotal > 0 ? (
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>共 {recTotal} 个录音存档</Text>
+              {recHasMore ? (
+                <TouchableOpacity
+                  style={styles.footerButton}
+                  onPress={() => void loadMoreRecordings()}
+                  disabled={loadingMore}
+                >
+                  <Text style={styles.footerButtonText}>{loadingMore ? "加载中…" : "加载更多"}</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null
+        }
         renderItem={({ item }) => (
           <View style={styles.card}>
             <Text style={styles.title}>会议 #{item.session.room_id}</Text>
@@ -164,6 +214,26 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     color: "#64748b"
+  },
+  footer: {
+    alignItems: "center",
+    paddingVertical: 16,
+    gap: 8
+  },
+  footerText: {
+    color: "#64748b"
+  },
+  footerButton: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: "#fff"
+  },
+  footerButtonText: {
+    color: "#334155",
+    fontWeight: "600"
   }
 });
 

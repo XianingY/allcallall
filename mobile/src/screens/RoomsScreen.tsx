@@ -44,7 +44,7 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
       setLoading(true);
       const [rooms, recordingItems, followUps] = await Promise.all([
         listRooms(token),
-        listRecordings(token),
+        listRecordings(token).then((page) => page.recordings),
         fetchFollowUps(token),
       ]);
       const summaryCandidates = rooms

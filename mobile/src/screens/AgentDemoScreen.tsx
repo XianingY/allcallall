@@ -262,7 +262,8 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
       setSelectedConversationId(null);
       return;
     }
-    const items = await listConversations(token, "open");
+    const page = await listConversations(token, "open");
+    const items = page.conversations;
     setConversations(items);
     setSelectedConversationId((current) => {
       if (current && items.some((item) => item.id === current)) return current;
@@ -280,7 +281,7 @@ const AgentDemoScreen: React.FC<Props> = ({ navigation, route }) => {
       listMessages(token, selectedConversationId),
       listConversationNotes(token, selectedConversationId),
     ]);
-    setMessages(nextMessages);
+    setMessages(nextMessages.messages);
     setNotes(nextNotes);
   }, [selectedConversationId, token]);
 
