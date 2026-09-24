@@ -101,6 +101,7 @@ paths:
   /users/change-password:
     post:
       operationId: changePassword
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ChangePasswordRequest' } } } }
       responses: { '200': { $ref: '#/components/responses/Success' } }
   /users/blocks:
     get:
@@ -469,6 +470,598 @@ paths:
     delete:
       operationId: deleteAgentSkill
       responses: { '204': { description: Agent skill deleted } }
+  /users/search:
+    get:
+      operationId: searchUsers
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Users matching the query.
+          content: { application/json: { schema: { type: object, required: [results], properties: { results: { type: array, items: { $ref: '#/components/schemas/User' } } } } } }
+  /users/contacts:
+    get:
+      operationId: listContacts
+      responses:
+        '200':
+          description: The current user's contacts.
+          content: { application/json: { schema: { type: object, required: [contacts], properties: { contacts: { type: array, items: { $ref: '#/components/schemas/User' } } } } } }
+    post:
+      operationId: addContact
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email], properties: { email: { type: string, format: email } } } } } }
+      responses: { '201': { $ref: '#/components/responses/Success' } }
+  /users/contacts/{contactId}:
+    delete:
+      operationId: removeContact
+      parameters:
+        - { name: contactId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /users/contacts/{contactId}/profile:
+    get:
+      operationId: fetchContactProfile
+      parameters:
+        - { name: contactId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Contact profile.
+          content: { application/json: { schema: { type: object, required: [profile], properties: { profile: { $ref: '#/components/schemas/ContactProfile' } } } } }
+    put:
+      operationId: saveContactProfile
+      parameters:
+        - { name: contactId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ContactProfile' } } } }
+      responses:
+        '200':
+          description: Contact profile saved.
+          content: { application/json: { schema: { type: object, required: [profile], properties: { profile: { $ref: '#/components/schemas/ContactProfile' } } } } }
+  /users/presence:
+    get:
+      operationId: fetchPresence
+      parameters:
+        - { name: emails, in: query, required: true, schema: { type: string }, description: Comma-separated list of emails. }
+      responses:
+        '200':
+          description: Presence records for the requested emails.
+          content: { application/json: { schema: { type: object, required: [presence], properties: { presence: { type: array, items: { $ref: '#/components/schemas/PresenceRecord' } } } } } }
+  /users/fcm-token:
+    post:
+      operationId: saveFCMToken
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SavePushTokenRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /invitations:
+    post:
+      operationId: createInvitation
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateInvitationRequest' } } } }
+      responses:
+        '201':
+          description: Invitation created.
+          content: { application/json: { schema: { type: object, required: [invitation], properties: { invitation: { $ref: '#/components/schemas/Invitation' } } } } }
+  /invitations/{code}:
+    get:
+      security: []
+      operationId: fetchInvitation
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Invitation detail.
+          content: { application/json: { schema: { type: object, required: [invitation], properties: { invitation: { $ref: '#/components/schemas/Invitation' } } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /invitations/{code}/accept:
+    post:
+      operationId: acceptInvitation
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Invitation accepted.
+          content: { application/json: { schema: { type: object, required: [invitation], properties: { invitation: { $ref: '#/components/schemas/Invitation' } } } } }
+  /calls/history:
+    get:
+      operationId: fetchCallHistory
+      parameters:
+        - { name: days, in: query, required: false, schema: { type: integer, default: 30 } }
+      responses:
+        '200':
+          description: Recent calls.
+          content: { application/json: { schema: { type: object, required: [calls], properties: { calls: { type: array, items: { $ref: '#/components/schemas/CallHistory' } } } } } }
+  /calls/{callId}/followup:
+    get:
+      operationId: fetchCallFollowup
+      parameters:
+        - { name: callId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Follow-up summary and its tasks.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [followup, tasks]
+                properties:
+                  followup: { $ref: '#/components/schemas/CallFollowup' }
+                  tasks: { type: array, items: { $ref: '#/components/schemas/FollowUpTask' } }
+  /calls/{callId}/followup/generate:
+    post:
+      operationId: generateCallFollowup
+      parameters:
+        - { name: callId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Generated follow-up summary and tasks.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [followup, tasks]
+                properties:
+                  followup: { $ref: '#/components/schemas/CallFollowup' }
+                  tasks: { type: array, items: { $ref: '#/components/schemas/FollowUpTask' } }
+  /calls/{callId}/followup/regenerate:
+    post:
+      operationId: regenerateCallFollowup
+      parameters:
+        - { name: callId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Regenerated follow-up summary and tasks.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [followup, tasks]
+                properties:
+                  followup: { $ref: '#/components/schemas/CallFollowup' }
+                  tasks: { type: array, items: { $ref: '#/components/schemas/FollowUpTask' } }
+  /follow-ups:
+    get:
+      operationId: listFollowUps
+      responses:
+        '200':
+          description: Follow-up items.
+          content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/FollowUpItem' } } } } } }
+    post:
+      operationId: createFollowUpTask
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateFollowUpTaskRequest' } } } }
+      responses:
+        '201':
+          description: Task created.
+          content: { application/json: { schema: { type: object, required: [task], properties: { task: { $ref: '#/components/schemas/FollowUpTask' } } } } }
+  /follow-ups/{taskId}:
+    patch:
+      operationId: updateFollowUpTask
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateFollowUpTaskRequest' } } } }
+      responses:
+        '200':
+          description: Task updated.
+          content: { application/json: { schema: { type: object, required: [task], properties: { task: { $ref: '#/components/schemas/FollowUpTask' } } } } }
+  /knowledge/sources:
+    get:
+      operationId: listKnowledgeSources
+      parameters:
+        - { name: conversation_id, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: status, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Knowledge sources.
+          content: { application/json: { schema: { type: object, required: [sources], properties: { sources: { type: array, items: { $ref: '#/components/schemas/KnowledgeSource' } } } } } }
+    post:
+      operationId: createKnowledgeSource
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/CreateKnowledgeSourceRequest' } }
+          multipart/form-data:
+            schema:
+              type: object
+              required: [kind, title]
+              properties:
+                kind: { type: string, enum: [manual_text, url, file] }
+                title: { type: string }
+                text: { type: string }
+                url: { type: string }
+                file: { type: string, format: binary }
+                conversation_id: { type: integer, format: int64 }
+      responses:
+        '201':
+          description: Source created.
+          content: { application/json: { schema: { type: object, required: [source], properties: { source: { $ref: '#/components/schemas/KnowledgeSource' } } } } }
+  /knowledge/sources/{sourceId}:
+    get:
+      operationId: fetchKnowledgeSource
+      parameters:
+        - { name: sourceId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Source with its versions and chunks.
+          content: { application/json: { schema: { $ref: '#/components/schemas/KnowledgeSourceDetail' } } }
+  /knowledge/sources/{sourceId}/reingest:
+    post:
+      operationId: reingestKnowledgeSource
+      parameters:
+        - { name: sourceId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /knowledge/dead-letters:
+    get:
+      operationId: listKnowledgeDeadLetters
+      responses:
+        '200':
+          description: Ingestion dead letters.
+          content: { application/json: { schema: { type: object, required: [dead_letters], properties: { dead_letters: { type: array, items: { $ref: '#/components/schemas/DeadLetter' } } } } } }
+  /knowledge/dead-letters/{deadLetterId}/retry:
+    post:
+      operationId: retryKnowledgeDeadLetter
+      parameters:
+        - { name: deadLetterId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /knowledge/source-groups:
+    get:
+      operationId: listKnowledgeSourceGroups
+      responses:
+        '200':
+          description: Source groups.
+          content: { application/json: { schema: { type: object, required: [source_groups], properties: { source_groups: { type: array, items: { $ref: '#/components/schemas/SourceGroup' } } } } } }
+  /knowledge/source-groups/{groupId}:
+    get:
+      operationId: fetchKnowledgeSourceGroup
+      parameters:
+        - { name: groupId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Source group with its member sources.
+          content: { application/json: { schema: { $ref: '#/components/schemas/SourceGroupDetail' } } }
+  /knowledge/source-groups/{groupId}/canonical:
+    post:
+      operationId: setKnowledgeSourceGroupCanonical
+      parameters:
+        - { name: groupId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [source_id], properties: { source_id: { type: integer, format: int64 } } } } } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /knowledge/duplicate-candidates:
+    get:
+      operationId: listKnowledgeDuplicateCandidates
+      responses:
+        '200':
+          description: Duplicate candidates awaiting review.
+          content: { application/json: { schema: { type: object, required: [duplicate_candidates], properties: { duplicate_candidates: { type: array, items: { $ref: '#/components/schemas/DuplicateCandidate' } } } } } }
+  /knowledge/duplicate-candidates/{duplicateId}/decision:
+    post:
+      operationId: decideKnowledgeDuplicateCandidate
+      parameters:
+        - { name: duplicateId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [decision], properties: { decision: { type: string, enum: [confirm, reject] } } } } } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /signaling/poll:
+    get:
+      operationId: pollSignaling
+      parameters:
+        - { name: timeout_ms, in: query, required: false, schema: { type: integer, default: 25000 } }
+      responses:
+        '200':
+          description: The next signaling message for the caller.
+          content: { application/json: { schema: { $ref: '#/components/schemas/SignalMessage' } } }
+        '204': { description: Long poll timed out with no messages. }
+  /signaling/send:
+    post:
+      operationId: sendSignaling
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SignalMessage' } } } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /organizations/{organizationId}/policy:
+    get:
+      operationId: fetchOrganizationPolicy
+      parameters:
+        - { name: organizationId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Organization recording policy.
+          content: { application/json: { schema: { type: object, required: [policy], properties: { policy: { $ref: '#/components/schemas/OrganizationPolicy' } } } } }
+    put:
+      operationId: updateOrganizationPolicy
+      parameters:
+        - { name: organizationId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateOrganizationPolicyRequest' } } } }
+      responses:
+        '200':
+          description: Organization recording policy updated.
+          content: { application/json: { schema: { type: object, required: [policy], properties: { policy: { $ref: '#/components/schemas/OrganizationPolicy' } } } } }
+  /conversations:
+    get:
+      operationId: listConversations
+      parameters:
+        - { name: filter, in: query, required: false, schema: { type: string } }
+        - { name: contact_id, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: limit, in: query, required: false, schema: { type: integer } }
+        - { name: offset, in: query, required: false, schema: { type: integer } }
+      responses:
+        '200':
+          description: Conversations page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [conversations, pagination]
+                properties:
+                  conversations: { type: array, items: { $ref: '#/components/schemas/Conversation' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+    post:
+      operationId: createConversation
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateConversationRequest' } } } }
+      responses:
+        '201':
+          description: Conversation created.
+          content: { application/json: { schema: { type: object, required: [conversation], properties: { conversation: { $ref: '#/components/schemas/Conversation' } } } } }
+  /conversations/{conversationId}:
+    get:
+      operationId: fetchConversationDetail
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Conversation detail with workspace context.
+          content: { application/json: { schema: { type: object, required: [conversation], properties: { conversation: { $ref: '#/components/schemas/ConversationDetail' } } } } }
+    patch:
+      operationId: updateConversation
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateConversationRequest' } } } }
+      responses:
+        '200':
+          description: Conversation updated.
+          content: { application/json: { schema: { type: object, required: [conversation], properties: { conversation: { $ref: '#/components/schemas/Conversation' } } } } }
+  /conversations/{conversationId}/rooms:
+    post:
+      operationId: createConversationRoom
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { title: { type: string } } } } } }
+      responses:
+        '201':
+          description: Room created for the conversation.
+          content: { application/json: { schema: { type: object, required: [room], properties: { room: { $ref: '#/components/schemas/Room' } } } } }
+  /conversations/{conversationId}/messages:
+    get:
+      operationId: listMessages
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: before_id, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: after_id, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: limit, in: query, required: false, schema: { type: integer } }
+      responses:
+        '200':
+          description: Message page.
+          content: { application/json: { schema: { $ref: '#/components/schemas/MessagePage' } } }
+    post:
+      operationId: createMessage
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateMessageRequest' } } } }
+      responses:
+        '201':
+          description: Message created.
+          content: { application/json: { schema: { type: object, required: [message], properties: { message: { $ref: '#/components/schemas/Message' } } } } }
+  /conversations/{conversationId}/read:
+    post:
+      operationId: markConversationRead
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /conversations/{conversationId}/notes:
+    get:
+      operationId: listConversationNotes
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Internal notes.
+          content: { application/json: { schema: { type: object, required: [notes], properties: { notes: { type: array, items: { $ref: '#/components/schemas/ConversationNote' } } } } } }
+    post:
+      operationId: createConversationNote
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [body], properties: { body: { type: string } } } } } }
+      responses:
+        '201':
+          description: Note created.
+          content: { application/json: { schema: { type: object, required: [note], properties: { note: { $ref: '#/components/schemas/ConversationNote' } } } } }
+  /rooms:
+    get:
+      operationId: listRooms
+      responses:
+        '200':
+          description: Meeting rooms.
+          content: { application/json: { schema: { type: object, required: [rooms], properties: { rooms: { type: array, items: { $ref: '#/components/schemas/Room' } } } } } }
+    post:
+      operationId: createRoom
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateRoomRequest' } } } }
+      responses:
+        '201':
+          description: Room created.
+          content: { application/json: { schema: { type: object, required: [room], properties: { room: { $ref: '#/components/schemas/Room' } } } } }
+  /rooms/{roomId}/state:
+    get:
+      operationId: fetchRoomState
+      parameters:
+        - { name: roomId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Room state.
+          content: { application/json: { schema: { type: object, required: [room], properties: { room: { $ref: '#/components/schemas/Room' } } } } }
+  /rooms/{roomId}/join:
+    post:
+      operationId: joinRoom
+      parameters:
+        - { name: roomId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Joined room.
+          content: { application/json: { schema: { type: object, required: [room], properties: { room: { $ref: '#/components/schemas/Room' } } } } }
+  /rooms/{roomId}/offer:
+    post:
+      operationId: sendRoomOffer
+      parameters:
+        - { name: roomId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [sdp], properties: { sdp: { type: string } } } } } }
+      responses:
+        '200':
+          description: SDP answer for the submitted offer.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [room, answer]
+                properties:
+                  room: { $ref: '#/components/schemas/Room' }
+                  answer: { $ref: '#/components/schemas/RoomOfferAnswer' }
+  /rooms/{roomId}/ice:
+    post:
+      operationId: addRoomIceCandidate
+      parameters:
+        - { name: roomId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RoomIceCandidateRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /rooms/{roomId}/media:
+    post:
+      operationId: updateRoomMediaState
+      parameters:
+        - { name: roomId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RoomMediaStateRequest' } } } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /rooms/{roomId}/leave:
+    post:
+      operationId: leaveRoom
+      parameters:
+        - { name: roomId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Left room.
+          content: { application/json: { schema: { type: object, required: [room], properties: { room: { $ref: '#/components/schemas/Room' } } } } }
+  /rooms/{roomId}/recording/start:
+    post:
+      operationId: startRoomRecording
+      parameters:
+        - { name: roomId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Recording started.
+          content: { application/json: { schema: { type: object, required: [recording], properties: { recording: { $ref: '#/components/schemas/Recording' } } } } }
+  /rooms/{roomId}/recording/stop:
+    post:
+      operationId: stopRoomRecording
+      parameters:
+        - { name: roomId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Recording stopped.
+          content: { application/json: { schema: { type: object, required: [recording], properties: { recording: { $ref: '#/components/schemas/Recording' } } } } }
+  /recordings:
+    get:
+      operationId: listRecordings
+      parameters:
+        - { name: limit, in: query, required: false, schema: { type: integer } }
+        - { name: offset, in: query, required: false, schema: { type: integer } }
+      responses:
+        '200':
+          description: Recordings page.
+          content: { application/json: { schema: { $ref: '#/components/schemas/RecordingPage' } } }
+  /recordings/{recordingId}:
+    get:
+      operationId: fetchRecording
+      parameters:
+        - { name: recordingId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Recording detail.
+          content: { application/json: { schema: { type: object, required: [recording], properties: { recording: { $ref: '#/components/schemas/Recording' } } } } }
+  /recordings/{recordingId}/transcript:
+    get:
+      operationId: fetchRecordingTranscript
+      parameters:
+        - { name: recordingId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: after_id, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, default: 100 } }
+      responses:
+        '200':
+          description: Transcript page.
+          content: { application/json: { schema: { $ref: '#/components/schemas/RecordingTranscriptPage' } } }
+  /recordings/{recordingId}/transcription/retry:
+    post:
+      operationId: retryRecordingTranscription
+      parameters:
+        - { name: recordingId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Transcription restarted.
+          content: { application/json: { schema: { type: object, required: [transcription], properties: { transcription: { $ref: '#/components/schemas/RecordingTranscription' } } } } }
+  /recordings/{recordingId}/files/{fileId}:
+    get:
+      operationId: downloadRecordingFile
+      parameters:
+        - { name: recordingId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: fileId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Recording file bytes.
+          content: { application/octet-stream: { schema: { type: string, format: binary } } }
+  /pipelines:
+    get:
+      operationId: listPipelines
+      responses:
+        '200':
+          description: Deal pipelines.
+          content: { application/json: { schema: { type: object, required: [pipelines], properties: { pipelines: { type: array, items: { $ref: '#/components/schemas/Pipeline' } } } } } }
+  /deals:
+    get:
+      operationId: listDeals
+      parameters:
+        - { name: limit, in: query, required: false, schema: { type: integer } }
+        - { name: offset, in: query, required: false, schema: { type: integer } }
+      responses:
+        '200':
+          description: Deals page.
+          content: { application/json: { schema: { $ref: '#/components/schemas/DealPage' } } }
+    post:
+      operationId: createDeal
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateDealRequest' } } } }
+      responses:
+        '201':
+          description: Deal created.
+          content: { application/json: { schema: { type: object, required: [deal], properties: { deal: { $ref: '#/components/schemas/Deal' } } } } }
+  /deals/{dealId}:
+    get:
+      operationId: fetchDeal
+      parameters:
+        - { name: dealId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Deal detail.
+          content: { application/json: { schema: { type: object, required: [deal], properties: { deal: { $ref: '#/components/schemas/Deal' } } } } }
+    patch:
+      operationId: updateDeal
+      parameters:
+        - { name: dealId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateDealRequest' } } } }
+      responses:
+        '200':
+          description: Deal updated.
+          content: { application/json: { schema: { type: object, required: [deal], properties: { deal: { $ref: '#/components/schemas/Deal' } } } } }
+  /deals/{dealId}/contacts:
+    post:
+      operationId: addDealContact
+      parameters:
+        - { name: dealId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [contact_id], properties: { contact_id: { type: integer, format: int64 } } } } } }
+      responses: { '201': { $ref: '#/components/responses/Success' } }
+  /deals/{dealId}/activities:
+    get:
+      operationId: listDealActivities
+      parameters:
+        - { name: dealId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Deal activity feed.
+          content: { application/json: { schema: { type: object, required: [activities], properties: { activities: { type: array, items: { $ref: '#/components/schemas/DealActivity' } } } } } }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -862,19 +1455,25 @@ components:
       properties:
         conversation: { $ref: '#/components/schemas/Conversation' }
         latest_note: { oneOf: [{ $ref: '#/components/schemas/ConversationNote' }, { type: 'null' }] }
-        latest_followup: { type: [object, 'null'], additionalProperties: true }
+        latest_room: { oneOf: [{ $ref: '#/components/schemas/RoomListItem' }, { type: 'null' }] }
+        latest_followup: { oneOf: [{ $ref: '#/components/schemas/ConversationFollowup' }, { type: 'null' }] }
         workspace:
           type: object
           required: [agent_context, status, priority]
           properties:
-            latest_recording: { type: [object, 'null'], additionalProperties: true }
-            meeting_summary: { type: [object, 'null'], additionalProperties: true }
+            latest_meeting: { oneOf: [{ $ref: '#/components/schemas/RoomListItem' }, { type: 'null' }] }
+            latest_recording: { oneOf: [{ $ref: '#/components/schemas/Recording' }, { type: 'null' }] }
+            meeting_summary: { oneOf: [{ $ref: '#/components/schemas/MeetingSummary' }, { type: 'null' }] }
             latest_note: { oneOf: [{ $ref: '#/components/schemas/ConversationNote' }, { type: 'null' }] }
             agent_context:
               type: object
               required: [transcript_segment_count]
               properties:
+                latest_call_id: { type: string }
+                latest_transcript_at: { type: [string, 'null'], format: date-time }
                 transcript_segment_count: { type: integer }
+                last_workflow_id: { type: [integer, 'null'], format: int64 }
+                last_workflow_preset: { type: string }
                 meeting_transcription_status: { type: string }
                 meeting_transcription_error: { type: string }
                 meeting_transcript_segment_count: { type: integer }
@@ -932,6 +1531,8 @@ components:
       required: [task, is_overdue]
       properties:
         task: { $ref: '#/components/schemas/FollowUpTask' }
+        call: { $ref: '#/components/schemas/CallHistory' }
+        followup: { $ref: '#/components/schemas/CallFollowup' }
         peer: { oneOf: [{ $ref: '#/components/schemas/User' }, { type: 'null' }] }
         contact: { oneOf: [{ $ref: '#/components/schemas/ContactProfile' }, { type: 'null' }] }
         is_overdue: { type: boolean }
@@ -1063,7 +1664,7 @@ components:
             created_at: { type: string, format: date-time }
             updated_at: { type: string, format: date-time }
         members: { type: array, items: { $ref: '#/components/schemas/RoomMember' } }
-        events: { type: array, items: { type: object, additionalProperties: true } }
+        events: { type: array, items: { $ref: '#/components/schemas/RoomEvent' } }
         active_recording: { oneOf: [{ $ref: '#/components/schemas/RecordingSession' }, { type: 'null' }] }
         conversation_id: { type: [integer, 'null'], format: int64 }
         conversation_title: { type: string }
@@ -1670,3 +2271,265 @@ components:
         last_error: { type: string }
         available_at: { type: [string, 'null'], format: date-time }
         updated_at: { type: string, format: date-time }
+    Pagination:
+      type: object
+      required: [total, limit, offset, has_more]
+      properties:
+        total: { type: integer, format: int64 }
+        limit: { type: integer }
+        offset: { type: integer }
+        has_more: { type: boolean }
+    PresenceRecord:
+      type: object
+      required: [email, online]
+      properties:
+        email: { type: string }
+        online: { type: boolean }
+        last_seen: { type: [string, 'null'], format: date-time }
+    SavePushTokenRequest:
+      type: object
+      required: [fcm_token]
+      properties:
+        fcm_token: { type: string }
+        provider: { type: string }
+        platform: { type: string }
+        device_name: { type: string }
+        app_version: { type: string }
+    CreateInvitationRequest:
+      type: object
+      required: [target_email]
+      properties:
+        target_email: { type: string, format: email }
+        default_source_lang: { type: string }
+        default_target_lang: { type: string }
+        note: { type: string }
+        expires_at: { type: string, format: date-time }
+    Invitation:
+      type: object
+      required: [code, inviter_id, inviter_email, inviter_display_name, target_email, default_source_lang, default_target_lang, note, status, expires_at, created_at, share_url, app_url]
+      properties:
+        code: { type: string }
+        inviter_id: { type: integer, format: int64 }
+        inviter_email: { type: string }
+        inviter_display_name: { type: string }
+        target_email: { type: string }
+        default_source_lang: { type: string }
+        default_target_lang: { type: string }
+        note: { type: string }
+        status: { type: string }
+        accepted_user_id: { type: [integer, 'null'], format: int64 }
+        accepted_at: { type: [string, 'null'], format: date-time }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        share_url: { type: string }
+        app_url: { type: string }
+    ChangePasswordRequest:
+      type: object
+      required: [old_password, new_password, confirm_password]
+      properties:
+        old_password: { type: string }
+        new_password: { type: string }
+        confirm_password: { type: string }
+    CallFollowup:
+      type: object
+      required: [id, call_id, user_id, peer_user_id, status, source, key_points, action_items, risk_flags, transcript_count]
+      properties:
+        id: { type: integer, format: int64 }
+        call_id: { type: string }
+        user_id: { type: integer, format: int64 }
+        peer_user_id: { type: integer, format: int64 }
+        status: { type: string }
+        source: { type: string }
+        summary_cn: { type: string }
+        summary_en: { type: string }
+        key_points: { type: array, items: { type: string } }
+        action_items: { type: array, items: { type: string } }
+        next_step: { type: string }
+        risk_flags: { type: array, items: { type: string } }
+        followup_draft_cn: { type: string }
+        followup_draft_en: { type: string }
+        generated_at: { type: [string, 'null'], format: date-time }
+        transcript_count: { type: integer }
+    CreateFollowUpTaskRequest:
+      type: object
+      required: [peer_user_id, type, title]
+      properties:
+        peer_user_id: { type: integer, format: int64 }
+        call_id: { type: string }
+        type: { type: string }
+        title: { type: string }
+        description: { type: string }
+        due_at: { type: [string, 'null'], format: date-time }
+        reminder_mode: { type: string }
+    UpdateFollowUpTaskRequest:
+      type: object
+      properties:
+        status: { type: string }
+        description: { type: string }
+        due_at: { type: [string, 'null'], format: date-time }
+        reminder_mode: { type: string }
+    CreateKnowledgeSourceRequest:
+      type: object
+      required: [kind, title]
+      properties:
+        kind: { type: string, enum: [manual_text, url, file] }
+        title: { type: string }
+        text: { type: string }
+        url: { type: string }
+        conversation_id: { type: integer, format: int64 }
+    SourceGroupDetail:
+      type: object
+      required: [source_group, sources]
+      properties:
+        source_group: { $ref: '#/components/schemas/SourceGroup' }
+        sources: { type: array, items: { $ref: '#/components/schemas/KnowledgeSource' } }
+    SignalMessage:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string }
+        call_id: { type: string }
+        from: { type: string }
+        to: { type: string }
+        payload: { type: object, additionalProperties: true }
+    UpdateOrganizationPolicyRequest:
+      type: object
+      required: [recording_mode, recording_storage_days, recording_export_allowed]
+      properties:
+        recording_mode: { type: string }
+        recording_storage_days: { type: integer }
+        recording_export_allowed: { type: boolean }
+    CreateConversationRequest:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        topic: { type: string }
+        member_ids: { type: array, items: { type: integer, format: int64 } }
+        team_id: { type: integer, format: int64 }
+    UpdateConversationRequest:
+      type: object
+      properties:
+        status: { type: string }
+        assignee_user_id: { type: [integer, 'null'], format: int64 }
+        priority: { type: string }
+        contact_id: { type: [integer, 'null'], format: int64 }
+    MessagePage:
+      type: object
+      required: [messages]
+      properties:
+        messages: { type: array, items: { $ref: '#/components/schemas/Message' } }
+        next_before_id: { type: [integer, 'null'], format: int64 }
+        next_after_id: { type: [integer, 'null'], format: int64 }
+        has_more_prev: { type: boolean }
+        has_more_next: { type: boolean }
+    CreateMessageRequest:
+      type: object
+      required: [body]
+      properties:
+        type: { type: string }
+        body: { type: string }
+        metadata: { type: object, additionalProperties: true }
+    CreateRoomRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        participant_ids: { type: array, items: { type: integer, format: int64 } }
+        team_id: { type: integer, format: int64 }
+        conversation_id: { type: integer, format: int64 }
+    RoomOfferAnswer:
+      type: object
+      required: [type, sdp]
+      properties:
+        type: { type: string }
+        sdp: { type: string }
+    RoomIceCandidateRequest:
+      type: object
+      properties:
+        candidate: { type: string }
+        sdpMid: { type: [string, 'null'] }
+        sdpMLineIndex: { type: [integer, 'null'] }
+    RoomMediaStateRequest:
+      type: object
+      properties:
+        audio_enabled: { type: boolean }
+        video_enabled: { type: boolean }
+        connection_state: { type: string }
+    RecordingPage:
+      type: object
+      required: [recordings, pagination]
+      properties:
+        recordings: { type: array, items: { $ref: '#/components/schemas/Recording' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    DealPage:
+      type: object
+      required: [deals, pagination]
+      properties:
+        deals: { type: array, items: { $ref: '#/components/schemas/Deal' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    CreateDealRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        value_cents: { type: integer, format: int64 }
+        currency: { type: string }
+        stage_id: { type: integer, format: int64 }
+    UpdateDealRequest:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: string }
+        value_cents: { type: integer, format: int64 }
+        currency: { type: string }
+        stage_id: { type: integer, format: int64 }
+        status: { type: string }
+    RoomListItem:
+      type: object
+      required: [id, organization_id, title, status, created_by, created_at, updated_at, participant_count, is_active, has_recording]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        team_id: { type: [integer, 'null'], format: int64 }
+        conversation_id: { type: [integer, 'null'], format: int64 }
+        conversation_title: { type: string }
+        title: { type: string }
+        status: { type: string }
+        created_by: { type: integer, format: int64 }
+        started_at: { type: [string, 'null'], format: date-time }
+        ended_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        participant_count: { type: integer }
+        is_active: { type: boolean }
+        has_recording: { type: boolean }
+        latest_recording_id: { type: [integer, 'null'], format: int64 }
+    ConversationFollowup:
+      type: object
+      properties:
+        call_id: { type: string }
+        summary_cn: { type: string }
+        summary_en: { type: string }
+        action_items: { type: array, items: { type: string } }
+        next_step: { type: string }
+    RoomEvent:
+      type: object
+      required: [id, room_id, user_id, type, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        room_id: { type: integer, format: int64 }
+        user_id: { type: integer, format: int64 }
+        type: { type: string }
+        payload_json: { type: string }
+        created_at: { type: string, format: date-time }
+    MeetingSummary:
+      type: object
+      required: [summary]
+      properties:
+        summary: { type: string }
+        action_items: { type: array, items: { type: string } }
+        next_step: { type: string }
+        assignee: { type: string }

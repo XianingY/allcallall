@@ -1,20 +1,18 @@
 # Mobile 手写 API 层 vs `openapi.yaml` 端点覆盖清单
 
 > 生成日期：2026-09-23 · 任务 #22 的前置产物
+> **2026-09-25 更新：第 2 节列出的 5 个缺口域已全部补入 spec 并完成迁移，详见第 6 节。**
 > 数据来源：`docs/api/openapi.yaml`（顶层 path 项）与 `mobile/src/api/*.ts` 中的端点字符串字面量。
 > 归一化规则：mobile 的模板插值 `${foo}` 等价映射为 OpenAPI 的 `{foo}`。
 
 ## 1. 总量
 
-| 指标 | 数量 |
-|---|---|
-| `openapi.yaml` 顶层 path | **48** |
-| `mobile/src/api/` 引用到的端点字面量 | **91** |
-| ✅ 已被 spec 覆盖（可安全改用生成类型） | **38** |
-| ❌ spec 缺失（无法生成，必须保留手写） | **53** |
-| ⚠️ spec 中有但 mobile api 层未调用 | **10** |
-
-**结论：mobile 调用的端点中约 58%（53/91）在 spec 里完全没有定义。**
+| 指标 | 2026-09-23 | 2026-09-25 |
+|---|---|---|
+| `openapi.yaml` 顶层 path | 48 | **101** |
+| ✅ 已被 spec 覆盖 | 38 | **全部（第 2 节 5 个域已补入）** |
+| ❌ spec 缺失 | 53 | **0** |
+| ⚠️ spec 中有但 mobile api 层未调用 | 10 | 10 |
 
 ## 2. ❌ spec 缺失的 53 个端点（按域分组）
 
@@ -88,3 +86,39 @@
 2. 对 spec 缺失域加显式 `TODO(#22)` 标注，说明"待 spec 补全后迁移"，避免后来者误以为已对齐。
 3. spec 补全（后续）：以 `backend/internal/handlers` 的路由定义为事实来源，逐域补齐 collaboration → knowledge → rooms/recordings → commercial → users/signaling。
 4. 每补齐一个域，删除对应手写模块并全量走 `npm run typecheck` + `npm run lint` + 测试。
+
+## 6. 2026-09-25：第 2 节 5 个缺口域已补齐并迁移
+
+`openapi.yaml` 顶层 path 由 48 增至 **101**，第 2 节的 collaboration / knowledge / users /
+commercial / signaling 五个域全部纳入 spec，对应 mobile 客户端改为引用
+`@allcallall/api-types` 生成的共享契约，`TODO(#22)` 标注已移除。
+
+### 做法
+
+1. **补 spec**：新增约 53 个 path 与所需 schema（`Invitation`、`PresenceRecord`、
+   `CallFollowup`、`SourceGroupDetail`、`Pagination`、`RoomListItem`、`RoomEvent`、
+   `MeetingSummary`、`ConversationFollowup`、`SignalMessage` 及各请求体 schema）。
+   发现多数**实体 schema 早已存在**（`Conversation` / `Room` / `Recording` / `Deal` /
+   `Pipeline` / `CallHistory` / `KnowledgeSource` …），缺的只是 path，故工作量主要在 path。
+2. **重新生成**：`cd web && npm run generate:api`（openapi-typescript → `schema.d.ts`）。
+3. **迁移客户端**：`knowledge.ts` / `users.ts` / `commercial.ts` / `collaboration.ts`
+   的记录类型改为生成类型别名；`signalingPoll.ts` 的**线上报文**用 `operations` 类型，
+   `SignalMessage` 仍保留为 `./signaling` 的应用内领域类型（被 SignalingContext 与
+   signalingTransports 共用），仅在收发边界转换。
+4. **以 typecheck 为纠错器**迭代：迁移暴露了 spec 里若干过松的定义——`ConversationDetail`
+   的 `latest_recording` / `meeting_summary` 原是 `additionalProperties: true` 自由对象、
+   `Room.events` 是自由对象数组、且缺 `latest_room` / `latest_meeting`。已收紧为
+   `$ref` 并补齐字段（`RoomEvent` 等），而不是在 client 侧放宽。
+
+### 验证
+
+mobile `typecheck` 0 · `lint` 0 error / 4 warning（预存基线）· `test:unit` 33/33 ·
+`test:jest` 13/13；web `contract:check` "OpenAPI contract is in sync" · `typecheck` 0。
+
+### 遗留
+
+- 本次 schema 是**以 mobile 客户端现有字段为依据**补写的（保证 client 可编译、行为不变），
+  并非以 `backend/internal/handlers` 为事实来源生成。第 5 节第 1 条的顾虑依然成立：
+  后续应以后端 handler 复核这些 schema，消除把 client 假设固化进契约的风险。
+- `mcpPlatform` 的动态 action 段（`/agent/mcp/installations/{id}/{action}`）在 spec 中
+  仍拆为 `activate` / `publish` / `validate` 三个具体 path，属有意设计，非缺口。

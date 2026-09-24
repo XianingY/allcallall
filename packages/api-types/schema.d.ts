@@ -778,6 +778,854 @@ export interface paths {
         patch: operations["updateAgentSkill"];
         trace?: never;
     };
+    "/users/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["searchUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listContacts"];
+        put?: never;
+        post: operations["addContact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/contacts/{contactId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["removeContact"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/contacts/{contactId}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fetchContactProfile"];
+        put: operations["saveContactProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/presence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fetchPresence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/fcm-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["saveFCMToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/invitations/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fetchInvitation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/invitations/{code}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["acceptInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calls/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fetchCallHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calls/{callId}/followup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fetchCallFollowup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calls/{callId}/followup/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["generateCallFollowup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calls/{callId}/followup/regenerate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["regenerateCallFollowup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/follow-ups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listFollowUps"];
+        put?: never;
+        post: operations["createFollowUpTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/follow-ups/{taskId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateFollowUpTask"];
+        trace?: never;
+    };
+    "/knowledge/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listKnowledgeSources"];
+        put?: never;
+        post: operations["createKnowledgeSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/knowledge/sources/{sourceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fetchKnowledgeSource"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/knowledge/sources/{sourceId}/reingest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reingestKnowledgeSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/knowledge/dead-letters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listKnowledgeDeadLetters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/knowledge/dead-letters/{deadLetterId}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retryKnowledgeDeadLetter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/knowledge/source-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listKnowledgeSourceGroups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/knowledge/source-groups/{groupId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fetchKnowledgeSourceGroup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/knowledge/source-groups/{groupId}/canonical": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["setKnowledgeSourceGroupCanonical"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/knowledge/duplicate-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listKnowledgeDuplicateCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/knowledge/duplicate-candidates/{duplicateId}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["decideKnowledgeDuplicateCandidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signaling/poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["pollSignaling"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signaling/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["sendSignaling"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organizationId}/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fetchOrganizationPolicy"];
+        put: operations["updateOrganizationPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listConversations"];
+        put?: never;
+        post: operations["createConversation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fetchConversationDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateConversation"];
+        trace?: never;
+    };
+    "/conversations/{conversationId}/rooms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createConversationRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listMessages"];
+        put?: never;
+        post: operations["createMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["markConversationRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listConversationNotes"];
+        put?: never;
+        post: operations["createConversationNote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRooms"];
+        put?: never;
+        post: operations["createRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fetchRoomState"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["joinRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/offer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["sendRoomOffer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/ice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["addRoomIceCandidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["updateRoomMediaState"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["leaveRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/recording/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["startRoomRecording"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rooms/{roomId}/recording/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stopRoomRecording"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recordings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRecordings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recordings/{recordingId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fetchRecording"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recordings/{recordingId}/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fetchRecordingTranscript"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recordings/{recordingId}/transcription/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retryRecordingTranscription"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recordings/{recordingId}/files/{fileId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["downloadRecordingFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pipelines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPipelines"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listDeals"];
+        put?: never;
+        post: operations["createDeal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deals/{dealId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fetchDeal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateDeal"];
+        trace?: never;
+    };
+    "/deals/{dealId}/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["addDealContact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deals/{dealId}/activities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listDealActivities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1205,19 +2053,21 @@ export interface components {
         ConversationDetail: {
             conversation: components["schemas"]["Conversation"];
             latest_note?: components["schemas"]["ConversationNote"] | null;
-            latest_followup?: {
-                [key: string]: unknown;
-            } | null;
+            latest_room?: components["schemas"]["RoomListItem"] | null;
+            latest_followup?: components["schemas"]["ConversationFollowup"] | null;
             workspace: {
-                latest_recording?: {
-                    [key: string]: unknown;
-                } | null;
-                meeting_summary?: {
-                    [key: string]: unknown;
-                } | null;
+                latest_meeting?: components["schemas"]["RoomListItem"] | null;
+                latest_recording?: components["schemas"]["Recording"] | null;
+                meeting_summary?: components["schemas"]["MeetingSummary"] | null;
                 latest_note?: components["schemas"]["ConversationNote"] | null;
                 agent_context: {
+                    latest_call_id?: string;
+                    /** Format: date-time */
+                    latest_transcript_at?: string | null;
                     transcript_segment_count: number;
+                    /** Format: int64 */
+                    last_workflow_id?: number | null;
+                    last_workflow_preset?: string;
                     meeting_transcription_status?: string;
                     meeting_transcription_error?: string;
                     meeting_transcript_segment_count?: number;
@@ -1280,6 +2130,8 @@ export interface components {
         };
         FollowUpItem: {
             task: components["schemas"]["FollowUpTask"];
+            call?: components["schemas"]["CallHistory"];
+            followup?: components["schemas"]["CallFollowup"];
             peer?: components["schemas"]["User"] | null;
             contact?: components["schemas"]["ContactProfile"] | null;
             is_overdue: boolean;
@@ -1439,9 +2291,7 @@ export interface components {
                 updated_at: string;
             };
             members: components["schemas"]["RoomMember"][];
-            events: {
-                [key: string]: unknown;
-            }[];
+            events: components["schemas"]["RoomEvent"][];
             active_recording?: components["schemas"]["RecordingSession"] | null;
             /** Format: int64 */
             conversation_id?: number | null;
@@ -2190,6 +3040,263 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        Pagination: {
+            /** Format: int64 */
+            total: number;
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        PresenceRecord: {
+            email: string;
+            online: boolean;
+            /** Format: date-time */
+            last_seen?: string | null;
+        };
+        SavePushTokenRequest: {
+            fcm_token: string;
+            provider?: string;
+            platform?: string;
+            device_name?: string;
+            app_version?: string;
+        };
+        CreateInvitationRequest: {
+            /** Format: email */
+            target_email: string;
+            default_source_lang?: string;
+            default_target_lang?: string;
+            note?: string;
+            /** Format: date-time */
+            expires_at?: string;
+        };
+        Invitation: {
+            code: string;
+            /** Format: int64 */
+            inviter_id: number;
+            inviter_email: string;
+            inviter_display_name: string;
+            target_email: string;
+            default_source_lang: string;
+            default_target_lang: string;
+            note: string;
+            status: string;
+            /** Format: int64 */
+            accepted_user_id?: number | null;
+            /** Format: date-time */
+            accepted_at?: string | null;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: date-time */
+            created_at: string;
+            share_url: string;
+            app_url: string;
+        };
+        ChangePasswordRequest: {
+            old_password: string;
+            new_password: string;
+            confirm_password: string;
+        };
+        CallFollowup: {
+            /** Format: int64 */
+            id: number;
+            call_id: string;
+            /** Format: int64 */
+            user_id: number;
+            /** Format: int64 */
+            peer_user_id: number;
+            status: string;
+            source: string;
+            summary_cn?: string;
+            summary_en?: string;
+            key_points: string[];
+            action_items: string[];
+            next_step?: string;
+            risk_flags: string[];
+            followup_draft_cn?: string;
+            followup_draft_en?: string;
+            /** Format: date-time */
+            generated_at?: string | null;
+            transcript_count: number;
+        };
+        CreateFollowUpTaskRequest: {
+            /** Format: int64 */
+            peer_user_id: number;
+            call_id?: string;
+            type: string;
+            title: string;
+            description?: string;
+            /** Format: date-time */
+            due_at?: string | null;
+            reminder_mode?: string;
+        };
+        UpdateFollowUpTaskRequest: {
+            status?: string;
+            description?: string;
+            /** Format: date-time */
+            due_at?: string | null;
+            reminder_mode?: string;
+        };
+        CreateKnowledgeSourceRequest: {
+            /** @enum {string} */
+            kind: "manual_text" | "url" | "file";
+            title: string;
+            text?: string;
+            url?: string;
+            /** Format: int64 */
+            conversation_id?: number;
+        };
+        SourceGroupDetail: {
+            source_group: components["schemas"]["SourceGroup"];
+            sources: components["schemas"]["KnowledgeSource"][];
+        };
+        SignalMessage: {
+            type: string;
+            call_id?: string;
+            from?: string;
+            to?: string;
+            payload?: {
+                [key: string]: unknown;
+            };
+        };
+        UpdateOrganizationPolicyRequest: {
+            recording_mode: string;
+            recording_storage_days: number;
+            recording_export_allowed: boolean;
+        };
+        CreateConversationRequest: {
+            type: string;
+            title?: string;
+            topic?: string;
+            member_ids?: number[];
+            /** Format: int64 */
+            team_id?: number;
+        };
+        UpdateConversationRequest: {
+            status?: string;
+            /** Format: int64 */
+            assignee_user_id?: number | null;
+            priority?: string;
+            /** Format: int64 */
+            contact_id?: number | null;
+        };
+        MessagePage: {
+            messages: components["schemas"]["Message"][];
+            /** Format: int64 */
+            next_before_id?: number | null;
+            /** Format: int64 */
+            next_after_id?: number | null;
+            has_more_prev?: boolean;
+            has_more_next?: boolean;
+        };
+        CreateMessageRequest: {
+            type?: string;
+            body: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        CreateRoomRequest: {
+            title: string;
+            participant_ids?: number[];
+            /** Format: int64 */
+            team_id?: number;
+            /** Format: int64 */
+            conversation_id?: number;
+        };
+        RoomOfferAnswer: {
+            type: string;
+            sdp: string;
+        };
+        RoomIceCandidateRequest: {
+            candidate?: string;
+            sdpMid?: string | null;
+            sdpMLineIndex?: number | null;
+        };
+        RoomMediaStateRequest: {
+            audio_enabled?: boolean;
+            video_enabled?: boolean;
+            connection_state?: string;
+        };
+        RecordingPage: {
+            recordings: components["schemas"]["Recording"][];
+            pagination: components["schemas"]["Pagination"];
+        };
+        DealPage: {
+            deals: components["schemas"]["Deal"][];
+            pagination: components["schemas"]["Pagination"];
+        };
+        CreateDealRequest: {
+            title: string;
+            description?: string;
+            /** Format: int64 */
+            value_cents?: number;
+            currency?: string;
+            /** Format: int64 */
+            stage_id?: number;
+        };
+        UpdateDealRequest: {
+            title?: string;
+            description?: string;
+            /** Format: int64 */
+            value_cents?: number;
+            currency?: string;
+            /** Format: int64 */
+            stage_id?: number;
+            status?: string;
+        };
+        RoomListItem: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            team_id?: number | null;
+            /** Format: int64 */
+            conversation_id?: number | null;
+            conversation_title?: string;
+            title: string;
+            status: string;
+            /** Format: int64 */
+            created_by: number;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            ended_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            participant_count: number;
+            is_active: boolean;
+            has_recording: boolean;
+            /** Format: int64 */
+            latest_recording_id?: number | null;
+        };
+        ConversationFollowup: {
+            call_id?: string;
+            summary_cn?: string;
+            summary_en?: string;
+            action_items?: string[];
+            next_step?: string;
+        };
+        RoomEvent: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            room_id: number;
+            /** Format: int64 */
+            user_id: number;
+            type: string;
+            payload_json?: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        MeetingSummary: {
+            summary: string;
+            action_items?: string[];
+            next_step?: string;
+            assignee?: string;
+        };
     };
     responses: {
         /** @description Authenticated. */
@@ -2436,7 +3543,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
         responses: {
             200: components["responses"]["Success"];
         };
@@ -3433,6 +4544,1547 @@ export interface operations {
                 content: {
                     "application/json": {
                         skill: components["schemas"]["AgentSkill"];
+                    };
+                };
+            };
+        };
+    };
+    searchUsers: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Users matching the query. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        results: components["schemas"]["User"][];
+                    };
+                };
+            };
+        };
+    };
+    listContacts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current user's contacts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        contacts: components["schemas"]["User"][];
+                    };
+                };
+            };
+        };
+    };
+    addContact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: email */
+                    email: string;
+                };
+            };
+        };
+        responses: {
+            201: components["responses"]["Success"];
+        };
+    };
+    removeContact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contactId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["Success"];
+        };
+    };
+    fetchContactProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contactId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Contact profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        profile: components["schemas"]["ContactProfile"];
+                    };
+                };
+            };
+        };
+    };
+    saveContactProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contactId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContactProfile"];
+            };
+        };
+        responses: {
+            /** @description Contact profile saved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        profile: components["schemas"]["ContactProfile"];
+                    };
+                };
+            };
+        };
+    };
+    fetchPresence: {
+        parameters: {
+            query: {
+                /** @description Comma-separated list of emails. */
+                emails: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Presence records for the requested emails. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        presence: components["schemas"]["PresenceRecord"][];
+                    };
+                };
+            };
+        };
+    };
+    saveFCMToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavePushTokenRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["Success"];
+        };
+    };
+    createInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Invitation created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        invitation: components["schemas"]["Invitation"];
+                    };
+                };
+            };
+        };
+    };
+    fetchInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invitation detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        invitation: components["schemas"]["Invitation"];
+                    };
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    acceptInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invitation accepted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        invitation: components["schemas"]["Invitation"];
+                    };
+                };
+            };
+        };
+    };
+    fetchCallHistory: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recent calls. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        calls: components["schemas"]["CallHistory"][];
+                    };
+                };
+            };
+        };
+    };
+    fetchCallFollowup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                callId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Follow-up summary and its tasks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        followup: components["schemas"]["CallFollowup"];
+                        tasks: components["schemas"]["FollowUpTask"][];
+                    };
+                };
+            };
+        };
+    };
+    generateCallFollowup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                callId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Generated follow-up summary and tasks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        followup: components["schemas"]["CallFollowup"];
+                        tasks: components["schemas"]["FollowUpTask"][];
+                    };
+                };
+            };
+        };
+    };
+    regenerateCallFollowup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                callId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Regenerated follow-up summary and tasks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        followup: components["schemas"]["CallFollowup"];
+                        tasks: components["schemas"]["FollowUpTask"][];
+                    };
+                };
+            };
+        };
+    };
+    listFollowUps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Follow-up items. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["FollowUpItem"][];
+                    };
+                };
+            };
+        };
+    };
+    createFollowUpTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateFollowUpTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Task created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        task: components["schemas"]["FollowUpTask"];
+                    };
+                };
+            };
+        };
+    };
+    updateFollowUpTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateFollowUpTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Task updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        task: components["schemas"]["FollowUpTask"];
+                    };
+                };
+            };
+        };
+    };
+    listKnowledgeSources: {
+        parameters: {
+            query?: {
+                conversation_id?: number;
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Knowledge sources. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        sources: components["schemas"]["KnowledgeSource"][];
+                    };
+                };
+            };
+        };
+    };
+    createKnowledgeSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateKnowledgeSourceRequest"];
+                "multipart/form-data": {
+                    /** @enum {string} */
+                    kind: "manual_text" | "url" | "file";
+                    title: string;
+                    text?: string;
+                    url?: string;
+                    /** Format: binary */
+                    file?: string;
+                    /** Format: int64 */
+                    conversation_id?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Source created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        source: components["schemas"]["KnowledgeSource"];
+                    };
+                };
+            };
+        };
+    };
+    fetchKnowledgeSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sourceId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Source with its versions and chunks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeSourceDetail"];
+                };
+            };
+        };
+    };
+    reingestKnowledgeSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sourceId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["Success"];
+        };
+    };
+    listKnowledgeDeadLetters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ingestion dead letters. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        dead_letters: components["schemas"]["DeadLetter"][];
+                    };
+                };
+            };
+        };
+    };
+    retryKnowledgeDeadLetter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deadLetterId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["Success"];
+        };
+    };
+    listKnowledgeSourceGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Source groups. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        source_groups: components["schemas"]["SourceGroup"][];
+                    };
+                };
+            };
+        };
+    };
+    fetchKnowledgeSourceGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                groupId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Source group with its member sources. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceGroupDetail"];
+                };
+            };
+        };
+    };
+    setKnowledgeSourceGroupCanonical: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                groupId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: int64 */
+                    source_id: number;
+                };
+            };
+        };
+        responses: {
+            200: components["responses"]["Success"];
+        };
+    };
+    listKnowledgeDuplicateCandidates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Duplicate candidates awaiting review. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        duplicate_candidates: components["schemas"]["DuplicateCandidate"][];
+                    };
+                };
+            };
+        };
+    };
+    decideKnowledgeDuplicateCandidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                duplicateId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    decision: "confirm" | "reject";
+                };
+            };
+        };
+        responses: {
+            200: components["responses"]["Success"];
+        };
+    };
+    pollSignaling: {
+        parameters: {
+            query?: {
+                timeout_ms?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The next signaling message for the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignalMessage"];
+                };
+            };
+            /** @description Long poll timed out with no messages. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sendSignaling: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignalMessage"];
+            };
+        };
+        responses: {
+            200: components["responses"]["Success"];
+        };
+    };
+    fetchOrganizationPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Organization recording policy. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        policy: components["schemas"]["OrganizationPolicy"];
+                    };
+                };
+            };
+        };
+    };
+    updateOrganizationPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOrganizationPolicyRequest"];
+            };
+        };
+        responses: {
+            /** @description Organization recording policy updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        policy: components["schemas"]["OrganizationPolicy"];
+                    };
+                };
+            };
+        };
+    };
+    listConversations: {
+        parameters: {
+            query?: {
+                filter?: string;
+                contact_id?: number;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Conversations page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        conversations: components["schemas"]["Conversation"][];
+                        pagination: components["schemas"]["Pagination"];
+                    };
+                };
+            };
+        };
+    };
+    createConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateConversationRequest"];
+            };
+        };
+        responses: {
+            /** @description Conversation created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        conversation: components["schemas"]["Conversation"];
+                    };
+                };
+            };
+        };
+    };
+    fetchConversationDetail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Conversation detail with workspace context. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        conversation: components["schemas"]["ConversationDetail"];
+                    };
+                };
+            };
+        };
+    };
+    updateConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateConversationRequest"];
+            };
+        };
+        responses: {
+            /** @description Conversation updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        conversation: components["schemas"]["Conversation"];
+                    };
+                };
+            };
+        };
+    };
+    createConversationRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    title?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Room created for the conversation. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        room: components["schemas"]["Room"];
+                    };
+                };
+            };
+        };
+    };
+    listMessages: {
+        parameters: {
+            query?: {
+                before_id?: number;
+                after_id?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                conversationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Message page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessagePage"];
+                };
+            };
+        };
+    };
+    createMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Message created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: components["schemas"]["Message"];
+                    };
+                };
+            };
+        };
+    };
+    markConversationRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["Success"];
+        };
+    };
+    listConversationNotes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Internal notes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        notes: components["schemas"]["ConversationNote"][];
+                    };
+                };
+            };
+        };
+    };
+    createConversationNote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    body: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Note created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        note: components["schemas"]["ConversationNote"];
+                    };
+                };
+            };
+        };
+    };
+    listRooms: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Meeting rooms. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        rooms: components["schemas"]["Room"][];
+                    };
+                };
+            };
+        };
+    };
+    createRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRoomRequest"];
+            };
+        };
+        responses: {
+            /** @description Room created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        room: components["schemas"]["Room"];
+                    };
+                };
+            };
+        };
+    };
+    fetchRoomState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roomId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Room state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        room: components["schemas"]["Room"];
+                    };
+                };
+            };
+        };
+    };
+    joinRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roomId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Joined room. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        room: components["schemas"]["Room"];
+                    };
+                };
+            };
+        };
+    };
+    sendRoomOffer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roomId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    sdp: string;
+                };
+            };
+        };
+        responses: {
+            /** @description SDP answer for the submitted offer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        room: components["schemas"]["Room"];
+                        answer: components["schemas"]["RoomOfferAnswer"];
+                    };
+                };
+            };
+        };
+    };
+    addRoomIceCandidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roomId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomIceCandidateRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["Success"];
+        };
+    };
+    updateRoomMediaState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roomId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomMediaStateRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["Success"];
+        };
+    };
+    leaveRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roomId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Left room. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        room: components["schemas"]["Room"];
+                    };
+                };
+            };
+        };
+    };
+    startRoomRecording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roomId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recording started. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        recording: components["schemas"]["Recording"];
+                    };
+                };
+            };
+        };
+    };
+    stopRoomRecording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roomId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recording stopped. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        recording: components["schemas"]["Recording"];
+                    };
+                };
+            };
+        };
+    };
+    listRecordings: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recordings page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingPage"];
+                };
+            };
+        };
+    };
+    fetchRecording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recordingId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recording detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        recording: components["schemas"]["Recording"];
+                    };
+                };
+            };
+        };
+    };
+    fetchRecordingTranscript: {
+        parameters: {
+            query?: {
+                after_id?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                recordingId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Transcript page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingTranscriptPage"];
+                };
+            };
+        };
+    };
+    retryRecordingTranscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recordingId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Transcription restarted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        transcription: components["schemas"]["RecordingTranscription"];
+                    };
+                };
+            };
+        };
+    };
+    downloadRecordingFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recordingId: number;
+                fileId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recording file bytes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+        };
+    };
+    listPipelines: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deal pipelines. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        pipelines: components["schemas"]["Pipeline"][];
+                    };
+                };
+            };
+        };
+    };
+    listDeals: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deals page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealPage"];
+                };
+            };
+        };
+    };
+    createDeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDealRequest"];
+            };
+        };
+        responses: {
+            /** @description Deal created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        deal: components["schemas"]["Deal"];
+                    };
+                };
+            };
+        };
+    };
+    fetchDeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dealId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deal detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        deal: components["schemas"]["Deal"];
+                    };
+                };
+            };
+        };
+    };
+    updateDeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dealId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDealRequest"];
+            };
+        };
+        responses: {
+            /** @description Deal updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        deal: components["schemas"]["Deal"];
+                    };
+                };
+            };
+        };
+    };
+    addDealContact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dealId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: int64 */
+                    contact_id: number;
+                };
+            };
+        };
+        responses: {
+            201: components["responses"]["Success"];
+        };
+    };
+    listDealActivities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dealId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deal activity feed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        activities: components["schemas"]["DealActivity"][];
                     };
                 };
             };
