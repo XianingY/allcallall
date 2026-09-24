@@ -1,9 +1,22 @@
-// TODO(#22): /signaling/poll 与 /signaling/send 在 openapi.yaml 中缺失，故仍保留手写实现。
-// 待 spec 补全后迁移到共享契约。端点覆盖清单见 docs/api/mobile-endpoint-coverage.md。
+// #22：/signaling/poll 与 /signaling/send 已纳入 openapi.yaml，线上报文形状改用
+// @allcallall/api-types 生成的共享契约描述。SignalMessage 仍是 ./signaling 中的应用内
+// 领域类型（被 SignalingContext / signalingTransports 共用），故仅在收发边界做转换。
 import mitt from "mitt";
 
+import type { operations } from "@allcallall/api-types";
 import { createApiClient } from "./client";
 import type { SignalMessage } from "./signaling";
+
+type PollResponse =
+  operations["pollSignaling"]["responses"][200]["content"]["application/json"];
+type SendRequestBody =
+  operations["sendSignaling"]["requestBody"]["content"]["application/json"];
+
+const fromWireMessage = (payload: PollResponse): SignalMessage =>
+  payload as unknown as SignalMessage;
+
+const toWireMessage = (message: SignalMessage): SendRequestBody =>
+  message as unknown as SendRequestBody;
 
 type Events = {
   open: undefined;
@@ -65,7 +78,7 @@ export class PollingSignalingClient {
 
       const data = typeof resp.data === "string" ? resp.data : "";
       if (data) {
-        const parsed = JSON.parse(data) as SignalMessage;
+        const parsed = fromWireMessage(JSON.parse(data) as PollResponse);
         this.emitter.emit("message", parsed);
       }
       this.flushPending();
@@ -88,7 +101,7 @@ export class PollingSignalingClient {
     for (let index = 0; index < queue.length; index += 1) {
       const message = queue[index];
       try {
-        await api.post("/signaling/send", message);
+        await api.post("/signaling/send", toWireMessage(message));
       } catch (error) {
         this.emitter.emit("error", error as Error);
         const remaining = queue.slice(index);

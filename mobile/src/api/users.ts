@@ -1,8 +1,5 @@
-// TODO(#22): 以下端点未纳入 openapi.yaml（/invitations/*、/users/contacts/*、/users/fcm-token、
-// /users/presence、/users/search），故这几个域仍保留手写实现。
-// 已迁移：User（基础字段取自生成契约，客户端额外字段在此补齐）。
-// 注意：/users/change-password 在 spec 中未声明 requestBody，请求类型暂无法迁移。
-// 端点覆盖清单见 docs/api/mobile-endpoint-coverage.md。
+// #22：/invitations/*、/users/contacts/*、/users/fcm-token、/users/presence、/users/search
+// 已纳入 openapi.yaml，相关类型改为引用 @allcallall/api-types 生成的共享契约。
 import type { components } from "@allcallall/api-types";
 
 import { createApiClient } from "./client";
@@ -17,43 +14,11 @@ export type User = APISchemas["User"] & {
   profile?: ContactProfile;
 };
 
-export interface ContactProfile {
-  company?: string;
-  role?: string;
-  timezone?: string;
-  default_source_lang?: string;
-  default_target_lang?: string;
-  relationship_status?: string;
-  preferred_contact_start?: string;
-  preferred_contact_end?: string;
-  preferred_contact_days?: string;
-  last_followup_state?: string;
-  note?: string;
-}
+export type ContactProfile = APISchemas["ContactProfile"];
 
-export interface Invitation {
-  code: string;
-  inviter_id: number;
-  inviter_email: string;
-  inviter_display_name: string;
-  target_email: string;
-  default_source_lang: string;
-  default_target_lang: string;
-  note: string;
-  status: string;
-  accepted_user_id?: number | null;
-  accepted_at?: string | null;
-  expires_at: string;
-  created_at: string;
-  share_url: string;
-  app_url: string;
-}
+export type Invitation = APISchemas["Invitation"];
 
-export interface PresenceRecord {
-  email: string;
-  online: boolean;
-  last_seen: string | null;
-}
+export type PresenceRecord = APISchemas["PresenceRecord"];
 
 export const fetchMe = async (token: string) => {
   const api = createApiClient(token);
@@ -85,13 +50,7 @@ export const removeContact = async (token: string, contactId: number) => {
   await api.delete(`/users/contacts/${contactId}`);
 };
 
-export interface CreateInvitationPayload {
-  target_email: string;
-  default_source_lang?: string;
-  default_target_lang?: string;
-  note?: string;
-  expires_at?: string;
-}
+export type CreateInvitationPayload = APISchemas["CreateInvitationRequest"];
 
 export const createInvitation = async (token: string, payload: CreateInvitationPayload) => {
   const api = createApiClient(token);
@@ -136,15 +95,9 @@ export const fetchPresence = async (token: string, emails: string[]) => {
   return response.data.presence;
 };
 
-export interface ChangePasswordRequest {
-  old_password: string;
-  new_password: string;
-  confirm_password: string;
-}
+export type ChangePasswordRequest = APISchemas["ChangePasswordRequest"];
 
-export interface ChangePasswordResponse {
-  message: string;
-}
+export type ChangePasswordResponse = { message: string };
 
 export const changePassword = async (token: string, data: ChangePasswordRequest) => {
   const api = createApiClient(token);
@@ -152,12 +105,7 @@ export const changePassword = async (token: string, data: ChangePasswordRequest)
   return response.data;
 };
 
-export interface SavePushTokenPayload {
-  provider?: string;
-  platform?: string;
-  device_name?: string;
-  app_version?: string;
-}
+export type SavePushTokenPayload = Omit<APISchemas["SavePushTokenRequest"], "fcm_token">;
 
 export const saveFCMToken = async (token: string, fcmToken: string, metadata?: SavePushTokenPayload) => {
   const api = createApiClient(token);

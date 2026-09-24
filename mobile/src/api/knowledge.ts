@@ -1,121 +1,23 @@
-// TODO(#22): 整个 /knowledge 域（sources、source-groups、dead-letters、duplicate-candidates）
-// 在 openapi.yaml 中缺失，故仍保留手写实现。待 spec 补全后迁移到共享契约。
-// 端点覆盖清单见 docs/api/mobile-endpoint-coverage.md。
+// #22：/knowledge 域（sources、source-groups、dead-letters、duplicate-candidates）已纳入
+// openapi.yaml，记录类型改为引用 @allcallall/api-types 生成的共享契约。
 import axios from "axios";
 
+import type { components } from "@allcallall/api-types";
 import { API_BASE_URL } from "../config";
 import { createApiClient, getActiveOrganizationHeader } from "./client";
 
+type APISchemas = components["schemas"];
+
 export type KnowledgeSourceKind = "manual_text" | "url" | "file";
 
-export interface KnowledgeSourceRecord {
-  id: number;
-  organization_id: number;
-  conversation_id?: number | null;
-  created_by: number;
-  source_group_id?: number | null;
-  canonical_source_id?: number | null;
-  kind: KnowledgeSourceKind | string;
-  title: string;
-  uri?: string;
-  file_name?: string;
-  content_type?: string;
-  authority_score?: number;
-  authority_label?: string;
-  dedupe_status?: string;
-  status: string;
-  active_version_id?: number | null;
-  last_error?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface KnowledgeSourceVersionRecord {
-  id: number;
-  source_id: number;
-  version: number;
-  content_hash: string;
-  normalized_hash?: string;
-  simhash64?: number;
-  status: string;
-  chunk_count: number;
-  last_error?: string;
-  created_at: string;
-  updated_at: string;
-  activated_at?: string | null;
-}
-
-export interface RAGChunkRecord {
-  id: number;
-  source_id: number;
-  source_version_id: number;
-  conversation_id?: number | null;
-  chunk_index: number;
-  start_offset: number;
-  end_offset: number;
-  content_hash: string;
-  snippet: string;
-  index_status: string;
-  last_error?: string;
-  indexed_at?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface KnowledgeSourceDetail {
-  source: KnowledgeSourceRecord;
-  versions: KnowledgeSourceVersionRecord[];
-  chunks: RAGChunkRecord[];
-}
-
-export interface SourceGroupRecord {
-  id: number;
-  organization_id: number;
-  canonical_source_id?: number | null;
-  title: string;
-  status: string;
-  authority_score: number;
-  authority_label?: string;
-  created_by: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface SourceGroupDetail {
-  source_group: SourceGroupRecord;
-  sources: KnowledgeSourceRecord[];
-}
-
-export interface DuplicateCandidateRecord {
-  id: number;
-  organization_id: number;
-  source_group_id?: number | null;
-  source_id: number;
-  candidate_source_id: number;
-  duplicate_kind: string;
-  similarity: number;
-  status: string;
-  decided_by?: number | null;
-  decision?: string;
-  created_at: string;
-  updated_at: string;
-  decided_at?: string | null;
-}
-
-export interface DeadLetterRecord {
-  id: number;
-  aggregate_type: string;
-  aggregate_id: number;
-  event: string;
-  payload_json: string;
-  idempotency_key: string;
-  request_id?: string;
-  status: string;
-  attempts: number;
-  last_error?: string;
-  available_at?: string | null;
-  updated_at: string;
-}
+export type KnowledgeSourceRecord = APISchemas["KnowledgeSource"];
+export type KnowledgeSourceVersionRecord = APISchemas["KnowledgeSourceVersion"];
+export type RAGChunkRecord = APISchemas["RAGChunk"];
+export type KnowledgeSourceDetail = APISchemas["KnowledgeSourceDetail"];
+export type SourceGroupRecord = APISchemas["SourceGroup"];
+export type SourceGroupDetail = APISchemas["SourceGroupDetail"];
+export type DuplicateCandidateRecord = APISchemas["DuplicateCandidate"];
+export type DeadLetterRecord = APISchemas["DeadLetter"];
 
 export interface CreateManualKnowledgeSourceInput {
   title: string;

@@ -1,77 +1,22 @@
-// TODO(#22): 本模块多数端点（/conversations、/deals、/rooms、/recordings、/pipelines、
-// /organizations/{id}/policy）在 openapi.yaml 中尚未定义，故仍保留手写实现。
-// 待 spec 以 backend handler 为事实来源补全后，再迁移到 @allcallall/api-types 生成的共享契约。
-// 端点覆盖清单见 docs/api/mobile-endpoint-coverage.md。
+// #22：/conversations、/deals、/rooms、/recordings、/pipelines、/organizations/{id}/policy
+// 已纳入 openapi.yaml，记录类型改为引用 @allcallall/api-types 生成的共享契约。
 import { createApiClient, getActiveOrganizationHeader } from "./client";
+import type { components } from "@allcallall/api-types";
 import { API_BASE_URL } from "../config";
 
-export interface OrganizationRecord {
-  id: number;
-  name: string;
-  slug: string;
-  description?: string;
-  role: string;
-}
+type APISchemas = components["schemas"];
 
-export interface OrganizationPolicyRecord {
-  id: number;
-  organization_id: number;
-  recording_mode: string;
-  recording_storage_days: number;
-  recording_export_allowed: boolean;
-}
+export type OrganizationRecord = APISchemas["Organization"];
 
-export interface ConversationRecord {
-  id: number;
-  organization_id: number;
-  team_id?: number | null;
-  room_id?: number | null;
-  type: string;
-  title: string;
-  topic?: string;
-  status: string;
-  assignee_user_id?: number | null;
-  assignee_email?: string;
-  assignee_display_name?: string;
-  priority: string;
-  contact_id?: number | null;
-  last_internal_note_at?: string | null;
-  last_message_at?: string | null;
-  last_message_preview?: string;
-  last_message_type?: string;
-  unread_count: number;
-  active_room_id?: number | null;
-  active_room_title?: string;
-  latest_room_id?: number | null;
-  latest_room_title?: string;
-  latest_recording_id?: number | null;
-}
+export type OrganizationPolicyRecord = APISchemas["OrganizationPolicy"];
 
-export interface ConversationNoteRecord {
-  id: number;
-  organization_id: number;
-  conversation_id: number;
-  author_id: number;
-  author_email: string;
-  author_display_name: string;
-  body: string;
-  created_at: string;
-}
+export type ConversationRecord = APISchemas["Conversation"];
 
-export interface ConversationFollowupRecord {
-  call_id?: string;
-  summary_cn?: string;
-  summary_en?: string;
-  action_items?: string[];
-  next_step?: string;
-}
+export type ConversationNoteRecord = APISchemas["ConversationNote"];
 
-export interface MeetingSummaryCard {
-  summary: string;
-  action_items?: string[];
-  next_step?: string;
-  assignee?: string;
-}
+export type ConversationFollowupRecord = APISchemas["ConversationFollowup"];
+
+export type MeetingSummaryCard = APISchemas["MeetingSummary"];
 
 export interface ConversationWorkspaceRecord {
   latest_meeting?: RoomListItemRecord | null;
@@ -100,175 +45,31 @@ export interface ConversationWorkspaceRecord {
   priority: string;
 }
 
-export interface ConversationDetailRecord {
-  conversation: ConversationRecord;
-  latest_note?: ConversationNoteRecord | null;
-  latest_room?: RoomListItemRecord | null;
-  latest_followup?: ConversationFollowupRecord | null;
-  workspace: ConversationWorkspaceRecord;
-}
+export type ConversationDetailRecord = APISchemas["ConversationDetail"];
 
-export interface MessageRecord {
-  id: number;
-  organization_id: number;
-  conversation_id: number;
-  sender_id: number;
-  sender_email: string;
-  sender_display_name: string;
-  type: string;
-  body: string;
-  metadata?: Record<string, unknown>;
-  created_at: string;
-}
+export type MessageRecord = APISchemas["Message"];
 
-export interface RoomMemberRecord {
-  id: number;
-  room_id: number;
-  user_id: number;
-  role: string;
-  user_email?: string;
-  user_display_name?: string;
-  joined?: boolean;
-  left?: boolean;
-  audio_enabled?: boolean;
-  video_enabled?: boolean;
-  connection_state?: string;
-  is_host?: boolean;
-  joined_at?: string | null;
-  left_at?: string | null;
-}
+export type RoomMemberRecord = APISchemas["RoomMember"];
 
-export interface RoomEventRecord {
-  id: number;
-  room_id: number;
-  user_id: number;
-  type: string;
-  payload_json?: string;
-  created_at: string;
-}
+export type RoomEventRecord = APISchemas["RoomEvent"];
 
-export interface RecordingSessionRecord {
-  id: number;
-  organization_id: number;
-  room_id: number;
-  started_by: number;
-  status: string;
-  started_at?: string | null;
-  stopped_at?: string | null;
-  created_at: string;
-  updated_at: string;
-}
+export type RecordingSessionRecord = APISchemas["RecordingSession"];
 
-export interface RecordingFileRecord {
-  id: number;
-  recording_session_id: number;
-  storage_driver: string;
-  storage_bucket?: string;
-  object_key: string;
-  etag?: string;
-  content_type: string;
-  retention_until?: string | null;
-  deleted_at?: string | null;
-  duration_seconds: number;
-  metadata_json?: string;
-  created_at: string;
-  download_url: string;
-  file_name: string;
-  file_size_bytes: number;
-  recording_kind: string;
-}
+export type RecordingFileRecord = APISchemas["RecordingFile"];
 
-export interface RecordingTranscriptionRecord {
-  id: number;
-  status: string;
-  provider?: string;
-  segment_count: number;
-  error_message?: string;
-  started_at?: string | null;
-  completed_at?: string | null;
-  created_at: string;
-  updated_at: string;
-}
+export type RecordingTranscriptionRecord = APISchemas["RecordingTranscription"];
 
-export interface RecordingRecord {
-  session: RecordingSessionRecord;
-  files: RecordingFileRecord[];
-  transcription?: RecordingTranscriptionRecord | null;
-}
+export type RecordingRecord = APISchemas["Recording"];
 
-export interface MeetingTranscriptSegmentRecord {
-  id: number;
-  organization_id: number;
-  conversation_id: number;
-  room_id: number;
-  recording_session_id: number;
-  recording_file_id: number;
-  speaker_user_id?: number | null;
-  track_key?: string;
-  source: string;
-  provider?: string;
-  language?: string;
-  text: string;
-  start_ms: number;
-  end_ms: number;
-  confidence: number;
-  created_at: string;
-}
+export type MeetingTranscriptSegmentRecord = APISchemas["MeetingTranscriptSegment"];
 
-export interface RecordingTranscriptPage {
-  transcription?: RecordingTranscriptionRecord | null;
-  segments: MeetingTranscriptSegmentRecord[];
-  next_after_id?: number | null;
-}
+export type RecordingTranscriptPage = APISchemas["RecordingTranscriptPage"];
 
-export interface RoomRecord {
-  room: {
-    id: number;
-    organization_id: number;
-    team_id?: number | null;
-    conversation_id?: number | null;
-    title: string;
-    status: string;
-    created_by: number;
-    started_at?: string | null;
-    ended_at?: string | null;
-    created_at: string;
-    updated_at: string;
-  };
-  members: RoomMemberRecord[];
-  events: RoomEventRecord[];
-  active_recording?: RecordingSessionRecord | null;
-  conversation_id?: number | null;
-  conversation_title?: string;
-  participant_count: number;
-  is_active: boolean;
-  has_recording: boolean;
-  latest_recording_id?: number | null;
-}
+export type RoomRecord = APISchemas["Room"];
 
-export interface RoomListItemRecord {
-  id: number;
-  organization_id: number;
-  team_id?: number | null;
-  conversation_id?: number | null;
-  conversation_title?: string;
-  title: string;
-  status: string;
-  created_by: number;
-  started_at?: string | null;
-  ended_at?: string | null;
-  created_at: string;
-  updated_at: string;
-  participant_count: number;
-  is_active: boolean;
-  has_recording: boolean;
-  latest_recording_id?: number | null;
-}
+export type RoomListItemRecord = APISchemas["RoomListItem"];
 
-export interface RoomOfferAnswer {
-  type: string;
-  sdp: string;
-}
+export type RoomOfferAnswer = APISchemas["RoomOfferAnswer"];
 
 export interface MeetingJoinOptions {
   audioEnabled: boolean;
@@ -305,50 +106,13 @@ export interface MeetingControlState {
     | "failed";
 }
 
-export interface PipelineStageRecord {
-  id: number;
-  pipeline_id: number;
-  name: string;
-  position: number;
-  is_closed: boolean;
-}
+export type PipelineStageRecord = APISchemas["PipelineStage"];
 
-export interface PipelineRecord {
-  id: number;
-  organization_id: number;
-  name: string;
-  is_default: boolean;
-  stages: PipelineStageRecord[];
-}
+export type PipelineRecord = APISchemas["Pipeline"];
 
-export interface DealRecord {
-  id: number;
-  organization_id: number;
-  pipeline_id: number;
-  stage_id?: number | null;
-  stage_name?: string;
-  owner_id: number;
-  title: string;
-  description?: string;
-  status: string;
-  value_cents: number;
-  currency: string;
-  created_at: string;
-  updated_at: string;
-}
+export type DealRecord = APISchemas["Deal"];
 
-export interface DealActivityRecord {
-  id: number;
-  organization_id: number;
-  deal_id: number;
-  type: string;
-  reference_type: string;
-  reference_id: string;
-  summary: string;
-  metadata_json?: string;
-  created_by: number;
-  created_at: string;
-}
+export type DealActivityRecord = APISchemas["DealActivity"];
 
 export const listOrganizations = async (token: string) => {
   const api = createApiClient(token);
@@ -410,22 +174,14 @@ export interface PageRequest {
   offset?: number;
 }
 
-export interface Pagination {
-  total: number;
-  limit: number;
-  offset: number;
-  has_more: boolean;
-}
+export type Pagination = APISchemas["Pagination"];
 
 export interface ConversationPage {
   conversations: ConversationRecord[];
   pagination: Pagination;
 }
 
-export interface DealPage {
-  deals: DealRecord[];
-  pagination: Pagination;
-}
+export type DealPage = APISchemas["DealPage"];
 
 export const listConversations = async (
   token: string,
@@ -459,13 +215,7 @@ export const fetchConversationDetail = async (
   return response.data.conversation;
 };
 
-export interface CreateConversationPayload {
-  type: string;
-  title?: string;
-  topic?: string;
-  member_ids?: number[];
-  team_id?: number;
-}
+export type CreateConversationPayload = APISchemas["CreateConversationRequest"];
 
 export const createConversation = async (
   token: string,
@@ -479,12 +229,7 @@ export const createConversation = async (
   return response.data.conversation;
 };
 
-export interface UpdateConversationPayload {
-  status?: string;
-  assignee_user_id?: number | null;
-  priority?: string;
-  contact_id?: number | null;
-}
+export type UpdateConversationPayload = APISchemas["UpdateConversationRequest"];
 
 export const updateConversation = async (
   token: string,
@@ -499,12 +244,7 @@ export const updateConversation = async (
   return response.data.conversation;
 };
 
-export interface CreateRoomPayload {
-  title: string;
-  participant_ids?: number[];
-  team_id?: number;
-  conversation_id?: number;
-}
+export type CreateRoomPayload = APISchemas["CreateRoomRequest"];
 
 export const listRooms = async (token: string) => {
   const api = createApiClient(token);
@@ -560,17 +300,9 @@ export const sendRoomOffer = async (
   return response.data;
 };
 
-export interface RoomIceCandidatePayload {
-  candidate?: string;
-  sdpMid?: string | null;
-  sdpMLineIndex?: number | null;
-}
+export type RoomIceCandidatePayload = APISchemas["RoomIceCandidateRequest"];
 
-export interface RoomMediaStatePayload {
-  audio_enabled?: boolean;
-  video_enabled?: boolean;
-  connection_state?: string;
-}
+export type RoomMediaStatePayload = APISchemas["RoomMediaStateRequest"];
 
 export const addRoomIceCandidate = async (
   token: string,
@@ -614,10 +346,7 @@ export const stopRoomRecording = async (token: string, roomId: number) => {
   return response.data.recording;
 };
 
-export interface RecordingPage {
-  recordings: RecordingRecord[];
-  pagination: Pagination;
-}
+export type RecordingPage = APISchemas["RecordingPage"];
 
 export const listRecordings = async (token: string, page?: PageRequest) => {
   const api = createApiClient(token);
@@ -686,13 +415,7 @@ export const buildRecordingDownloadRequest = (
   };
 };
 
-export interface MessagePage {
-  messages: MessageRecord[];
-  next_before_id?: number | null;
-  next_after_id?: number | null;
-  has_more_prev?: boolean;
-  has_more_next?: boolean;
-}
+export type MessagePage = APISchemas["MessagePage"];
 
 export const listMessages = async (
   token: string,
@@ -713,11 +436,7 @@ export const listMessages = async (
   return response.data;
 };
 
-export interface CreateMessagePayload {
-  type?: string;
-  body: string;
-  metadata?: Record<string, unknown>;
-}
+export type CreateMessagePayload = APISchemas["CreateMessageRequest"];
 
 export const createMessage = async (
   token: string,
@@ -781,13 +500,7 @@ export const listDeals = async (token: string, page?: PageRequest) => {
   return response.data;
 };
 
-export interface CreateDealPayload {
-  title: string;
-  description?: string;
-  value_cents?: number;
-  currency?: string;
-  stage_id?: number;
-}
+export type CreateDealPayload = APISchemas["CreateDealRequest"];
 
 export const createDeal = async (token: string, payload: CreateDealPayload) => {
   const api = createApiClient(token);
