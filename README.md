@@ -36,7 +36,7 @@ backend/                          Go (Gin) backend — API server + extractable 
 web/                             Primary React + Vite + TypeScript Web application
 mobile/                          Expo React Native app for native Android/iOS
 desktop/                         Electron shell wrapping the Web client
-packages/                        Shared TS: api-types (OpenAPI-generated), signaling-core
+packages/                        Shared TS: api-types (OpenAPI-generated)
 infra/                           Docker Compose local stack + optional interview/microservice profiles
 scripts/                         Development, smoke, seed, and benchmark scripts
 contracts/                       Legacy JSON fixtures only; canonical schemas live in allcallall-agent-runtime

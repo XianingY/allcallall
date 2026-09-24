@@ -64,8 +64,8 @@
 
 | 严重度 | 位置 | 问题 | 建议 |
 |--------|------|------|------|
-| P1 | `.github/workflows/{ci,backend-ci,frontend-ci}.yml` | actions 仅 `@vN` 未引脚 SHA | 引脚 commit SHA（或接受 `@vN` 并加 `permissions:`） |
-| P1 | 同上三文件 | 缺顶层 `permissions:` 块 | 显式 `permissions: contents: read` |
+| P1 | `.github/workflows/{ci,backend-ci}.yml` | actions 仅 `@vN` 未引脚 SHA | 引脚 commit SHA（或接受 `@vN` 并加 `permissions:`） |
+| P1 | 同上两文件 | 缺顶层 `permissions:` 块 | 显式 `permissions: contents: read` |
 | P1 | 全仓 | 无 Dependabot/Renovate | 新增 `.github/dependabot.yml` |
 | P2 | CI | 无 `govulncheck` / `npm audit` / CodeQL | 补齐依赖与代码扫描 |
 | P2 | `backend/cmd/interview-seed/main.go:93` | 硬编码默认口令 `Interview1234` | 移除默认，强制 env 或随机生成 |

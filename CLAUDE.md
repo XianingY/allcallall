@@ -40,7 +40,7 @@ commands above.
   `ApplyPrivacyPolicies` so policy stays consistent across API and workers.
 - All secrets/keys come from environment variables; never hardcode credentials or tokens.
 - Do not commit `.env`, `.omo`, `.workbuddy`, or `output/`.
-- Keep `ci.yml`, `backend-ci.yml`, `frontend-ci.yml`, `platform-ci.yml` green. Push over SSH.
+- Keep `ci.yml`, `backend-ci.yml`, `platform-ci.yml` green. Push over SSH.
 
 ## Docs
 

@@ -64,7 +64,7 @@ errors in this environment.
 
 - `ci.yml` — main pipeline: backend + integration + web + mobile + desktop + e2e
 - `backend-ci.yml` — backend tests, `go vet`, coverage artifact
-- `frontend-ci.yml` — web `test:coverage` + mobile `test:unit`
+- `ci.yml` also runs web `test:coverage` (with a threshold gate) and mobile `test:unit` — the old `frontend-ci.yml` was merged into it
 - `platform-ci.yml` — Python runtime jobs (checked out from
   `allcallall-agent-runtime`), sandbox-go, helm, image scans
 

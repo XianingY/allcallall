@@ -29,14 +29,26 @@ Web:
 Mobile:
   cd mobile && npm run typecheck   # tsc --noEmit
   cd mobile && npm test            # alias for npm run test:unit
+  cd mobile && npm run test:jest   # jest-expo: the React-Native-dependent suites
 
-  Test scope: `test:unit` runs an explicit file list on the Node test runner.
-  Files that (transitively) import `react-native` cannot be transformed outside
-  Metro, so they are intentionally excluded: `src/api/__tests__/`,
-  `src/context/signaling/__tests__/` and
-  `src/services/translation/OnlineTranslationService.test.ts`. They need a
-  Metro/Jest preset to execute. Add new pure-logic tests to the `test:unit`
-  list, otherwise they will silently never run.
+  Two runners, by design:
+  - `test:unit` runs an explicit file list on the Node test runner (tsx --test).
+    Use it for pure-logic tests that do NOT import react-native.
+  - `test:jest` runs jest with the `jest-expo` preset. It covers the three
+    suites that transitively import react-native and cannot be transformed
+    outside Metro: `src/api/__tests__/signaling.test.ts`,
+    `src/context/signaling/__tests__/useWebRTC.test.ts` and
+    `src/services/translation/OnlineTranslationService.test.ts`. The scope is
+    pinned via `jest.testMatch` in package.json. jest needs the
+    `jest-shims/expo-virtual-env.js` shim, mapped from the Metro-only virtual
+    module `expo/virtual/env` (babel-preset-expo rewrites `process.env.EXPO_PUBLIC_*`
+    into a named import from it).
+  Add new pure-logic tests to the `test:unit` list; add new RN-dependent tests
+  under one of the jest `testMatch` globs. An unlisted test silently never runs.
+
+  `.npmrc` sets `legacy-peer-deps=true`: `@testing-library/react-hooks@8`
+  declares a `react@^16||^17` peer while the app is on React 18.2. This is the
+  standard Expo 51 workaround and keeps both `npm ci` and local installs green.
 
 Desktop:
   cd desktop && npm run dev
@@ -55,8 +67,11 @@ no-op there — always use `cd web && npm run typecheck`):
 ## Conventions
 
 - Write clear, descriptive commit messages.
-- CI runs four workflows: `ci.yml`, `backend-ci.yml`, `frontend-ci.yml`,
-  `platform-ci.yml`. Keep all four green before merging.
+- CI runs three workflows: `ci.yml`, `backend-ci.yml`,
+  `platform-ci.yml`. Keep all three green before merging. Web and mobile
+  checks (including the web `test:coverage` gate, coverage artifact upload
+  and `npm audit`) live in `ci.yml`; the retired `frontend-ci.yml` was merged
+  into it to stop running web/mobile twice on every push and PR.
 - Push over SSH.
 - Never commit `.env`, `.omo`, `.workbuddy`, or `output/`.
 

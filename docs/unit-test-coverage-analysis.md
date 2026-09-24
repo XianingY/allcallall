@@ -58,7 +58,7 @@ AllCallAll 逻辑上是一个系统，但拆成两个独立 git 仓库协同工�
 
 | 工作流 | 问题 |
 |--------|------|
-| `frontend-ci.yml` | web-ci / mobile-ci **只做 typecheck + lint，从不运行测试**（真实缺陷） |
+| `ci.yml` (web/mobile) | web runs `test:coverage` with a vite threshold gate and uploads `web/coverage`; mobile runs `test:unit` — the retired `frontend-ci.yml` was merged in so these no longer run twice |
 | `backend-ci.yml` | 运行测试但**不生成覆盖率报告、无门禁证据、无 artifact** |
 | `ci.yml` | 已覆盖 web/mobile 测试，但 `checkout@v5`，版本落后于 `platform-ci.yml` 的 `@v7` |
 | 一致性 | action 版本 `@v5` vs `@v7` 混用 |
