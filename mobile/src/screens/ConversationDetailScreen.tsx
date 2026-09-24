@@ -1,17 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Alert,
-  FlatList,
-  Linking,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-  useWindowDimensions,
-} from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Linking, ScrollView, View, useWindowDimensions } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
 
@@ -35,8 +23,6 @@ import { listContacts, type User } from "../api/users";
 import { useAuthContext } from "../context/AuthContext";
 import { useOrganization } from "../context/OrganizationContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
-import PrimaryButton from "../components/PrimaryButton";
-import TextField from "../components/TextField";
 import fileDownloadAdapter from "../platform/fileDownload";
 import ChatRealtimeService from "../services/ChatRealtimeService";
 import {
@@ -60,68 +46,23 @@ import {
 } from "../services/conversationRealtimeReducer";
 import { buildConversationShareLinks } from "../utils/invitations";
 import {
-  approvalPreview,
-  citationModeLabel,
   meetingTranscriptStatusLabel,
-  MEETING_PRESETS,
-  PRIORITY_OPTIONS,
+  workflowStatusLabel,
   STATUS_OPTIONS,
+  PRIORITY_OPTIONS,
   WORKFLOW_TASK_ORDER,
   WORKFLOW_TERMINAL_STATUSES,
-  workflowStatusLabel,
 } from "./conversationDetailUtils";
+import {
+  WorkspacePane,
+  MessagePane,
+  KnowledgePreviewModal,
+  CitationPreviewModal,
+  WorkflowDebugModal,
+  styles,
+} from "./conversationDetail";
 
 type Props = NativeStackScreenProps<RootStackParamList, "ConversationDetail">;
-
-interface MessageRowProps {
-  item: MessageRecord;
-  currentUserId?: number | string;
-  onOpenTranscript: (recordingId: number) => void;
-}
-
-// 提取为 memo 行组件，避免列表整体重渲染；日期字符串在 memo 内 useMemo 预计算，
-// 不在渲染体里反复 new Date().toLocaleString()。
-const MessageRow = React.memo<MessageRowProps>(
-  ({ item, currentUserId, onOpenTranscript }) => {
-    const isMine = item.sender_id === currentUserId;
-    const isSystem = item.type === "system";
-    const timeLabel = useMemo(
-      () => new Date(item.created_at).toLocaleString(),
-      [item.created_at]
-    );
-    const eventType = item.metadata?.event_type;
-    const recordingId =
-      eventType === "meeting.transcription.ready" &&
-      typeof item.metadata?.recording_id === "number"
-        ? (item.metadata.recording_id as number)
-        : undefined;
-
-    return (
-      <View
-        style={[
-          styles.messageBubble,
-          isSystem ? styles.systemBubble : isMine ? styles.mine : styles.theirs,
-        ]}
-      >
-        <Text style={styles.sender}>
-          {item.sender_display_name || item.sender_email}
-        </Text>
-        <Text style={styles.body}>{item.body || item.type}</Text>
-        {eventType ? (
-          <Text style={styles.systemMeta}>{String(eventType)}</Text>
-        ) : null}
-        {recordingId !== undefined ? (
-          <PrimaryButton
-            title="查看会议转写"
-            onPress={() => onOpenTranscript(recordingId)}
-            style={styles.systemAction}
-          />
-        ) : null}
-        <Text style={styles.time}>{timeLabel}</Text>
-      </View>
-    );
-  }
-);
 
 const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const { token, user } = useAuthContext();
@@ -206,6 +147,42 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     }
   }, [conversationId, token]);
 
+  // #25：增量刷新——note / recording 事件只重拉对应的单个端点，不再触发 5 路全量重载。
+  // loadData() 保留为全量兜底（首次加载、以及会改变会话状态本身的事件）。
+  const refreshNotes = useCallback(async () => {
+    if (!token) return;
+    try {
+      setNotes(await listConversationNotes(token, conversationId));
+    } catch (error) {
+      console.error(
+        "[ConversationDetailScreen] Failed to refresh notes:",
+        error,
+      );
+    }
+  }, [conversationId, token]);
+
+  // 用 ref 持有最新 recording id：避免把它放进订阅 effect 的依赖里，
+  // 否则每次 detail 变化都会重新订阅实时通道。
+  const recordingIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    // RecordingRecord 的 id 在 session 上而非顶层，这里直接用会话上的
+    // latest_recording_id（与 loadData 的取数路径一致）。
+    recordingIdRef.current = detail?.conversation.latest_recording_id ?? null;
+  }, [detail]);
+
+  const refreshRecording = useCallback(async () => {
+    const recordingId = recordingIdRef.current;
+    if (!token || !recordingId) return;
+    try {
+      setLatestRecording(await fetchRecording(token, recordingId));
+    } catch (error) {
+      console.error(
+        "[ConversationDetailScreen] Failed to refresh recording:",
+        error,
+      );
+    }
+  }, [token]);
+
   const loadMorePrev = useCallback(async () => {
     if (!token || loadingMorePrev || !hasMorePrev || messages.length === 0) {
       return;
@@ -277,14 +254,16 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         appendMessage(event.payload as MessageRecord);
         return;
       }
-      if (
-        [
-          "conversation.note.created",
-          "room.recording.updated",
-          "room.state.updated",
-          "room.ended",
-        ].includes(event.event)
-      ) {
+      // 窄事件只做定点增量刷新（#25）；会改变会话状态本身的事件仍走全量兜底。
+      if (event.event === "conversation.note.created") {
+        void refreshNotes();
+        return;
+      }
+      if (event.event === "room.recording.updated") {
+        void refreshRecording();
+        return;
+      }
+      if (["room.state.updated", "room.ended"].includes(event.event)) {
         void loadData();
       }
     };
@@ -295,11 +274,21 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       ChatRealtimeService.off("open", handleOpen);
       ChatRealtimeService.off("event", handleEvent);
     };
-  }, [conversationId, currentOrganization, loadData, token]);
+  }, [
+    conversationId,
+    currentOrganization,
+    loadData,
+    refreshNotes,
+    refreshRecording,
+    token,
+  ]);
 
   const activeWorkflowId = activeWorkflow?.workflow.id;
   const activeWorkflowStatus = activeWorkflow?.workflow.status;
 
+  // Workflow progress is pushed over the websocket as `workflow.updated` — the
+  // backend publishes it synchronously on every lifecycle transition — so this
+  // screen no longer polls fetchWorkflowRun every 1.5s.
   useEffect(() => {
     if (!token || !activeWorkflowId || !activeWorkflowStatus) {
       return;
@@ -308,7 +297,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       return;
     }
     let cancelled = false;
-    const timer = setInterval(() => {
+    const refreshWorkflow = () => {
       void fetchWorkflowRun(token, activeWorkflowId)
         .then((next) => {
           if (cancelled) return;
@@ -319,21 +308,38 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         })
         .catch((error) => {
           console.error(
-            "[ConversationDetailScreen] Workflow polling failed:",
+            "[ConversationDetailScreen] Workflow refresh failed:",
             error,
           );
         });
-    }, 1500);
+    };
+    const handleWorkflowEvent = (event: {
+      event: string;
+      organization_id: number;
+      payload: unknown;
+    }) => {
+      if (event.event !== "workflow.updated") return;
+      const payload = event.payload as
+        | {
+            workflow_run_id?: number | string;
+            conversation_id?: number | string;
+          }
+        | undefined;
+      if (payload?.workflow_run_id != null) {
+        if (String(payload.workflow_run_id) !== String(activeWorkflowId)) return;
+      } else if (payload?.conversation_id != null) {
+        if (String(payload.conversation_id) !== String(conversationId)) return;
+      } else {
+        return;
+      }
+      refreshWorkflow();
+    };
+    ChatRealtimeService.on("event", handleWorkflowEvent);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      ChatRealtimeService.off("event", handleWorkflowEvent);
     };
-  }, [
-    activeWorkflowId,
-    activeWorkflowStatus,
-    loadData,
-    token,
-  ]);
+  }, [activeWorkflowId, activeWorkflowStatus, conversationId, loadData, token]);
 
   const assigneeLabel = useMemo(() => {
     if (conversation.assignee_user_id === user?.id) {
@@ -746,564 +752,66 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     }
   };
 
-  const workspacePane = (
-    <>
-      <Text style={styles.heading}>{conversation.title || "协作线程"}</Text>
-
-      <View style={styles.summaryCard}>
-        <Text style={styles.summaryText}>
-          负责人 {detail?.workspace.assignee_label || assigneeLabel}
-        </Text>
-        <Text style={styles.summaryText}>
-          状态 {detail?.workspace.status || conversation.status}
-        </Text>
-        <Text style={styles.summaryText}>
-          优先级 {detail?.workspace.priority || conversation.priority}
-        </Text>
-        <Text style={styles.summaryText}>
-          关联联系人{" "}
-          {boundContact?.display_name || boundContact?.email || "未绑定"}
-        </Text>
-        <PrimaryButton
-          title="复制线程 Web 链接"
-          onPress={() => void handleCopyConversationLink()}
-          style={styles.inlineButtonSecondary}
-        />
-        {detail?.latest_room ? (
-          <PrimaryButton
-            title="进入当前会议"
-            onPress={() =>
-              navigation.navigate("PreJoin", {
-                roomId: detail.latest_room?.id ?? 0,
-                title: detail.latest_room?.title ?? "Meeting",
-                conversationId: detail.latest_room?.conversation_id ?? null,
-                joinOptions: {
-                  audioEnabled: true,
-                  videoEnabled: true,
-                  cameraFacing: "front",
-                  speakerOn: true,
-                },
-              })
-            }
-            style={styles.inlineButton}
-          />
-        ) : (
-          <PrimaryButton
-            title="升级为会议"
-            onPress={handleCreateMeeting}
-            style={styles.inlineButton}
-          />
-        )}
-      </View>
-
-      <View style={styles.buttonRow}>
-        <PrimaryButton
-          title="指派给我"
-          onPress={handleAssignSelf}
-          style={styles.button}
-        />
-        <PrimaryButton
-          title="清空负责人"
-          onPress={handleUnassign}
-          style={styles.buttonSecondary}
-        />
-      </View>
-
-      <View style={styles.infoCard}>
-        <View style={styles.agentHeader}>
-          <View>
-            <Text style={styles.infoTitle}>Meeting Agent</Text>
-            <Text style={styles.infoMeta}>{transcriptStatusText}</Text>
-          </View>
-          <View style={styles.agentStatusBadge}>
-            <Text style={styles.agentStatusText}>{agentStatusLabel}</Text>
-          </View>
-        </View>
-        <View style={styles.agentContextGrid}>
-          <Text style={styles.agentContextItem}>
-            Call {agentContext?.latest_call_id || "-"}
-          </Text>
-          <Text style={styles.agentContextItem}>
-            Knowledge {agentContext?.knowledge_source_count ?? 0}
-          </Text>
-          <Text style={styles.agentContextItem}>
-            Approvals {agentContext?.pending_approval_count ?? pendingApprovals.length}
-          </Text>
-          <Text style={styles.agentContextItem}>
-            Workflow {agentContext?.last_workflow_id ?? activeWorkflow?.workflow.id ?? "-"}
-          </Text>
-        </View>
-        {agentContext?.latest_transcript_at ? (
-          <Text style={styles.infoMeta}>
-            Latest transcript{" "}
-            {new Date(agentContext.latest_transcript_at).toLocaleString()}
-          </Text>
-        ) : null}
-        {agentContext?.last_agent_run_at ? (
-          <Text style={styles.infoMeta}>
-            Last workflow {agentContext.last_agent_status || "-"} ·{" "}
-            {agentContext.last_workflow_preset || activeWorkflow?.workflow.preset || "custom"} ·{" "}
-            {new Date(agentContext.last_agent_run_at).toLocaleString()}
-          </Text>
-        ) : null}
-        {activeWorkflow ? (
-          <Text style={styles.infoMeta}>
-            Progress {completedTaskCount}/{activeWorkflow.tasks.length} tasks ·
-            write-back executed {executedApprovalCount}
-            {rejectedApprovalCount ? ` · rejected ${rejectedApprovalCount}` : ""}
-          </Text>
-        ) : null}
-        {agentContext?.latest_memory_keys?.length ? (
-          <View style={styles.memoryChipRow}>
-            {agentContext.latest_memory_keys.map((key) => (
-              <Text key={key} style={styles.memoryChip}>
-                {key}
-              </Text>
-            ))}
-          </View>
-        ) : null}
-        <View style={styles.optionRow}>
-          {MEETING_PRESETS.map((preset) => (
-            <PrimaryButton
-              key={preset.key}
-              title={preset.label}
-              onPress={() => void runMeetingAgent({ preset: preset.key })}
-              disabled={
-                workflowLoading ||
-                (preset.key === "meeting_brief" && !meetingTranscriptReady)
-              }
-              style={styles.option}
-            />
-          ))}
-        </View>
-        <View style={styles.buttonRow}>
-          <PrimaryButton
-            title="Knowledge Center"
-            onPress={() => navigation.navigate("KnowledgeCenter")}
-            style={styles.button}
-          />
-          <PrimaryButton
-            title="Workflow Debug"
-            onPress={() => setWorkflowDebugVisible(true)}
-            disabled={!activeWorkflow}
-            style={styles.buttonSecondary}
-          />
-        </View>
-        {activeWorkflow?.workflow?.summary ? (
-          <View style={styles.agentResultBox}>
-            <Text style={styles.citationTitle}>会议摘要</Text>
-            <Text style={styles.infoBody}>{activeWorkflow.workflow.summary}</Text>
-          </View>
-        ) : (
-          <Text style={styles.infoMeta}>
-            基于 final transcript、follow-up、memory 和线程上下文生成 grounded
-            结果。
-          </Text>
-        )}
-        {activeWorkflow?.workflow?.next_step ? (
-          <Text style={styles.infoMeta}>
-            下一步 {activeWorkflow.workflow.next_step}
-          </Text>
-        ) : null}
-        {activeWorkflow?.workflow?.action_items?.length ? (
-          <Text style={styles.infoMeta}>
-            行动项 {activeWorkflow.workflow.action_items.join(" / ")}
-          </Text>
-        ) : null}
-        {activeWorkflow?.workflow?.risk_flags?.length ? (
-          <Text style={styles.infoMeta}>
-            风险点 {activeWorkflow.workflow.risk_flags.join(" / ")}
-          </Text>
-        ) : null}
-        {activeWorkflow?.citations?.length ? (
-          <View style={styles.citationList}>
-            {activeWorkflow.citations.slice(0, 4).map((citation, index) => (
-              <Pressable
-                key={`${citation.source_type}:${citation.source_id}:${index}`}
-                style={styles.citationItem}
-                onPress={() => void handleCitationPress(citation)}
-              >
-                <View style={styles.citationHeader}>
-                  <Text style={styles.citationTitle}>{citation.title}</Text>
-                  <Text style={styles.citationBadge}>
-                    {citationModeLabel(citation.retrieval_mode)}
-                  </Text>
-                </View>
-                <Text style={styles.citationMeta}>
-                  {citation.source_type} · score {citation.score}
-                </Text>
-                <Text style={styles.citationSnippet}>{citation.snippet}</Text>
-              </Pressable>
-            ))}
-          </View>
-        ) : null}
-        {pendingApprovals.length ? (
-          <View style={styles.citationList}>
-            <Text style={styles.infoMeta}>
-              Pending approvals{" "}
-              {pendingApprovals.map((item) => item.tool_name).join(" / ")}
-            </Text>
-            {pendingApprovals.map((approval) => (
-              <View key={approval.id} style={styles.approvalItem}>
-                <Text style={styles.citationTitle}>
-                  {approvalPreview(approval).title}
-                </Text>
-                {approvalPreview(approval).lines.map((line) => (
-                  <Text key={line} style={styles.citationSnippet}>
-                    {line}
-                  </Text>
-                ))}
-                {approval.mcp_revision_id && approval.mcp_revision_id > 0 ? (
-                  <Text style={styles.citationMeta}>
-                    {approval.mcp_installation_id
-                      ? `MCP Installation #${approval.mcp_installation_id}`
-                      : "MCP"}{" "}
-                    · Revision #{approval.mcp_revision_id}
-                  </Text>
-                ) : null}
-                <Text style={styles.citationMeta}>
-                  Schema {approval.tool_schema_version || "-"}
-                  {approval.approval_request_id
-                    ? ` · Approval ${approval.approval_request_id} · checkpoint v${approval.approval_checkpoint_version}`
-                    : ""}
-                </Text>
-                <View style={styles.inlineActionRow}>
-                  <Pressable
-                    style={styles.approveChip}
-                    onPress={() =>
-                      void handleApprovalDecision(approval, "approve")
-                    }
-                  >
-                    <Text style={styles.approveChipText}>Approve</Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.rejectChip}
-                    onPress={() =>
-                      void handleApprovalDecision(approval, "reject")
-                    }
-                  >
-                    <Text style={styles.rejectChipText}>Reject</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ))}
-          </View>
-        ) : null}
-      </View>
-
-      <Text style={styles.sectionTitle}>状态</Text>
-      <View style={styles.optionRow}>
-        {STATUS_OPTIONS.map((status) => (
-          <PrimaryButton
-            key={status}
-            title={status}
-            onPress={() => handleUpdateStatus(status)}
-            style={
-              conversation.status === status
-                ? styles.optionActive
-                : styles.option
-            }
-          />
-        ))}
-      </View>
-
-      <Text style={styles.sectionTitle}>优先级</Text>
-      <View style={styles.optionRow}>
-        {PRIORITY_OPTIONS.map((priority) => (
-          <PrimaryButton
-            key={priority}
-            title={priority}
-            onPress={() => handleUpdatePriority(priority)}
-            style={
-              conversation.priority === priority
-                ? styles.optionActive
-                : styles.option
-            }
-          />
-        ))}
-      </View>
-
-      <Text style={styles.sectionTitle}>联系人绑定</Text>
-      {boundContact ? (
-        <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>
-            {boundContact.display_name || boundContact.email}
-          </Text>
-          <Text style={styles.infoMeta}>{boundContact.email}</Text>
-          {boundContact.profile?.company ? (
-            <Text style={styles.infoMeta}>
-              公司 {boundContact.profile.company}
-            </Text>
-          ) : null}
-          {boundContact.profile?.role ? (
-            <Text style={styles.infoMeta}>
-              角色 {boundContact.profile.role}
-            </Text>
-          ) : null}
-          {boundContact.profile?.timezone ? (
-            <Text style={styles.infoMeta}>
-              时区 {boundContact.profile.timezone}
-            </Text>
-          ) : null}
-          {boundContact.profile?.default_source_lang ||
-          boundContact.profile?.default_target_lang ? (
-            <Text style={styles.infoMeta}>
-              默认语言 {boundContact.profile?.default_source_lang || "-"} →{" "}
-              {boundContact.profile?.default_target_lang || "-"}
-            </Text>
-          ) : null}
-          <View style={styles.buttonRow}>
-            <PrimaryButton
-              title="查看联系人"
-              onPress={() =>
-                navigation.navigate("ContactDetail", { contact: boundContact })
-              }
-              style={styles.button}
-            />
-            <PrimaryButton
-              title="解除绑定"
-              onPress={() => handleBindContact(null)}
-              style={styles.buttonSecondary}
-            />
-          </View>
-        </View>
-      ) : (
-        <View style={styles.contactList}>
-          {contacts.slice(0, 4).map((contact) => (
-            <PrimaryButton
-              key={contact.id}
-              title={`绑定 ${contact.display_name || contact.email}`}
-              onPress={() => handleBindContact(contact.id)}
-              style={styles.contactButton}
-            />
-          ))}
-        </View>
-      )}
-
-      {detail?.workspace ? (
-        <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>顶部工作区</Text>
-          {detail.workspace.latest_meeting ? (
-            <Text style={styles.infoMeta}>
-              最近会议 {detail.workspace.latest_meeting.title}
-            </Text>
-          ) : null}
-          {detail.workspace.latest_recording ? (
-            <Text style={styles.infoMeta}>
-              最近录音资产 #{detail.workspace.latest_recording.session.id}
-              {detail.workspace.latest_recording.transcription
-                ? ` · 转写 ${detail.workspace.latest_recording.transcription.status}`
-                : ""}
-            </Text>
-          ) : null}
-          {detail.workspace.meeting_summary?.summary ? (
-            <Text style={styles.infoBody}>
-              {detail.workspace.meeting_summary.summary}
-            </Text>
-          ) : null}
-          {detail.workspace.meeting_summary?.action_items?.length ? (
-            <Text style={styles.infoMeta}>
-              Action items{" "}
-              {detail.workspace.meeting_summary.action_items.join(" / ")}
-            </Text>
-          ) : null}
-          {detail.workspace.meeting_summary?.next_step ? (
-            <Text style={styles.infoMeta}>
-              Next step {detail.workspace.meeting_summary.next_step}
-            </Text>
-          ) : null}
-          {detail.workspace.latest_note ? (
-            <Text style={styles.infoMeta}>
-              最近备注{" "}
-              {detail.workspace.latest_note.author_display_name ||
-                detail.workspace.latest_note.author_email}{" "}
-              ·{" "}
-              {new Date(
-                detail.workspace.latest_note.created_at,
-              ).toLocaleString()}
-            </Text>
-          ) : null}
-        </View>
-      ) : null}
-
-      {notes.length > 0 ? (
-        <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>最近三条内部备注</Text>
-          {notes.slice(0, 3).map((note) => (
-            <View key={note.id} style={styles.noteRow}>
-              <Text style={styles.noteBody}>{note.body}</Text>
-              <Text style={styles.infoMeta}>
-                {note.author_display_name || note.author_email} ·{" "}
-                {new Date(note.created_at).toLocaleString()}
-              </Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
-
-      {detail?.latest_followup ? (
-        <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>最近会议/通话摘要</Text>
-          <Text style={styles.infoBody}>
-            {detail.workspace.meeting_summary?.summary ||
-              detail.latest_followup.summary_cn ||
-              detail.latest_followup.summary_en ||
-              "暂无摘要"}
-          </Text>
-          {detail.workspace.meeting_summary?.next_step ||
-          detail.latest_followup.next_step ? (
-            <Text style={styles.infoMeta}>
-              下一步{" "}
-              {detail.workspace.meeting_summary?.next_step ||
-                detail.latest_followup.next_step}
-            </Text>
-          ) : null}
-        </View>
-      ) : null}
-
-      {latestRecording ? (
-        <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>最近录音资产</Text>
-          <Text style={styles.infoMeta}>
-            录音会话 #{latestRecording.session.id}
-          </Text>
-          <Text style={styles.infoMeta}>
-            状态 {latestRecording.session.status}
-          </Text>
-          <Text style={styles.infoMeta}>
-            文件数 {latestRecording.files.length}
-          </Text>
-          <Text style={styles.infoMeta}>
-            转写 {latestRecording.transcription?.status ?? "not_requested"}
-            {latestRecording.transcription?.segment_count
-              ? ` · ${latestRecording.transcription.segment_count} segments`
-              : ""}
-          </Text>
-          {latestRecording.transcription ? (
-            <PrimaryButton
-              title="查看会议转写"
-              onPress={() =>
-                navigation.navigate("RecordingTranscript", {
-                  recordingId: latestRecording.session.id,
-                })
-              }
-              style={styles.recordingButton}
-            />
-          ) : null}
-          {latestRecording.files.slice(0, 2).map((file) => (
-            <View key={file.id} style={styles.recordingFileRow}>
-              <Text style={styles.recordingFileTitle}>{file.file_name}</Text>
-              <Text style={styles.infoMeta}>
-                {file.recording_kind} · {file.file_size_bytes} bytes ·{" "}
-                {file.duration_seconds}s
-              </Text>
-              <PrimaryButton
-                title="下载最近录音"
-                onPress={() =>
-                  void handleDownloadRecording(
-                    latestRecording.session.id,
-                    file.id,
-                    file.file_name,
-                  )
-                }
-                style={styles.recordingButton}
-              />
-            </View>
-          ))}
-          <PrimaryButton
-            title="查看全部录音资产"
-            onPress={() => navigation.navigate("Recordings")}
-            style={styles.recordingLinkButton}
-          />
-        </View>
-      ) : null}
-
-      <TextField
-        label="内部备注"
-        value={noteDraft}
-        onChangeText={setNoteDraft}
-        placeholder="记录交接说明、风险点或下一步动作"
-      />
-      <PrimaryButton
-        title="添加内部备注"
-        onPress={handleAddNote}
-        disabled={!noteDraft.trim()}
-        style={styles.createNoteButton}
-      />
-    </>
-  );
-
   const handleOpenTranscript = useCallback(
     (recordingId: number) => {
       navigation.navigate("RecordingTranscript", { recordingId });
     },
-    [navigation]
+    [navigation],
   );
 
-  const renderMessage = useCallback(
-    ({ item }: { item: MessageRecord }) => (
-      <MessageRow
-        item={item}
-        currentUserId={user?.id}
-        onOpenTranscript={handleOpenTranscript}
-      />
-    ),
-    [user?.id, handleOpenTranscript]
-  );
+  const workspacePaneProps = {
+    conversation,
+    workspace: detail?.workspace,
+    latestRoom: detail?.latest_room,
+    latestFollowup: detail?.latest_followup,
+    assigneeLabel,
+    boundContact,
+    agentContext,
+    contacts,
+    notes,
+    latestRecording,
+    activeWorkflow,
+    pendingApprovals,
+    completedTaskCount,
+    executedApprovalCount,
+    rejectedApprovalCount,
+    transcriptStatusText,
+    agentStatusLabel,
+    meetingTranscriptReady,
+    workflowLoading,
+    navigation,
+    onCopyLink: handleCopyConversationLink,
+    onCreateMeeting: handleCreateMeeting,
+    onAssignSelf: handleAssignSelf,
+    onUnassign: handleUnassign,
+    onRunMeetingAgent: runMeetingAgent,
+    onOpenWorkflowDebug: () => setWorkflowDebugVisible(true),
+    onCitationPress: handleCitationPress,
+    onApprovalDecision: handleApprovalDecision,
+    onUpdateStatus: handleUpdateStatus,
+    onUpdatePriority: handleUpdatePriority,
+    onBindContact: handleBindContact,
+    onDownloadRecording: handleDownloadRecording,
+    noteDraft,
+    onNoteDraftChange: setNoteDraft,
+    onAddNote: handleAddNote,
+  };
 
-  const messageKeyExtractor = useCallback(
-    (item: MessageRecord) => String(item.id),
-    []
-  );
-
-  const messagePane = (
-    <FlatList
-      data={messages}
-      keyExtractor={messageKeyExtractor}
-      refreshing={loading}
-      onRefresh={() => void loadData()}
-      contentContainerStyle={styles.listContent}
-      renderItem={renderMessage}
-      ListHeaderComponent={
-        hasMorePrev ? (
-          <TouchableOpacity
-            style={styles.loadEarlier}
-            onPress={() => void loadMorePrev()}
-            disabled={loadingMorePrev}
-          >
-            <Text style={styles.loadEarlierText}>
-              {loadingMorePrev ? "加载中…" : "加载更早的消息"}
-            </Text>
-          </TouchableOpacity>
-        ) : null
-      }
-      ListFooterComponent={
-        <View>
-          <View style={styles.composer}>
-            <TextField
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="输入线程消息，或输入自定义 Agent goal"
-            />
-            <View style={styles.buttonRow}>
-              <PrimaryButton
-                title="发送消息"
-                onPress={handleSend}
-                disabled={!draft.trim()}
-                style={styles.button}
-              />
-              <PrimaryButton
-                title="Run Agent"
-                onPress={() => void handleAskAgent()}
-                disabled={workflowLoading}
-                style={styles.buttonSecondary}
-              />
-            </View>
-          </View>
-        </View>
-      }
-    />
-  );
+  const messagePaneProps = {
+    messages,
+    loading,
+    hasMorePrev,
+    loadingMorePrev,
+    draft,
+    workflowLoading,
+    currentUserId: user?.id,
+    onRefresh: () => void loadData(),
+    onLoadMorePrev: loadMorePrev,
+    onDraftChange: setDraft,
+    onSend: handleSend,
+    onAskAgent: handleAskAgent,
+    onOpenTranscript: handleOpenTranscript,
+  };
 
   return (
     <View style={styles.container}>
@@ -1313,551 +821,38 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
             style={styles.workspaceColumn}
             contentContainerStyle={styles.workspaceColumnContent}
           >
-            {workspacePane}
+            <WorkspacePane {...workspacePaneProps} />
           </ScrollView>
-          <View style={styles.messageColumn}>{messagePane}</View>
+          <View style={styles.messageColumn}>
+            <MessagePane {...messagePaneProps} />
+          </View>
         </View>
       ) : (
         <>
-          {workspacePane}
-
-          {messagePane}
+          <WorkspacePane {...workspacePaneProps} />
+          <MessagePane {...messagePaneProps} />
         </>
       )}
 
-      <Modal
-        visible={knowledgePreview !== null}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setKnowledgePreview(null)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>
-              {knowledgePreview?.source.title || "Knowledge Preview"}
-            </Text>
-            {knowledgePreview ? (
-              <ScrollView style={styles.modalScroll}>
-                <Text style={styles.infoMeta}>
-                  {knowledgePreview.source.kind} · versions{" "}
-                  {knowledgePreview.versions.length} · chunks{" "}
-                  {knowledgePreview.chunks.length}
-                </Text>
-                {knowledgePreview.source.uri ? (
-                  <Pressable
-                    style={styles.linkRow}
-                    onPress={() =>
-                      void Linking.openURL(knowledgePreview.source.uri || "")
-                    }
-                  >
-                    <Text style={styles.linkText}>Open origin URL</Text>
-                  </Pressable>
-                ) : null}
-                {knowledgePreview.chunks.slice(0, 8).map((chunk) => (
-                  <View key={chunk.id} style={styles.modalSection}>
-                    <Text style={styles.citationTitle}>
-                      Chunk {chunk.chunk_index}
-                    </Text>
-                    <Text style={styles.citationMeta}>
-                      {chunk.index_status} · offsets {chunk.start_offset}-
-                      {chunk.end_offset}
-                    </Text>
-                    <Text style={styles.citationSnippet}>{chunk.snippet}</Text>
-                  </View>
-                ))}
-              </ScrollView>
-            ) : null}
-            <PrimaryButton
-              title="Close"
-              onPress={() => setKnowledgePreview(null)}
-              style={styles.modalButton}
-            />
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={citationPreview !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setCitationPreview(null)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>
-              {citationPreview?.source_title ||
-                citationPreview?.title ||
-                "Citation"}
-            </Text>
-            {citationPreview ? (
-              <>
-                <Text style={styles.infoMeta}>
-                  {citationPreview.source_type} ·{" "}
-                  {citationPreview.retrieval_mode || "context"} · score{" "}
-                  {citationPreview.score}
-                </Text>
-                <Text style={styles.citationSnippet}>
-                  {citationPreview.snippet}
-                </Text>
-              </>
-            ) : null}
-            <PrimaryButton
-              title="Close"
-              onPress={() => setCitationPreview(null)}
-              style={styles.modalButton}
-            />
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
+      <KnowledgePreviewModal
+        knowledgePreview={knowledgePreview}
+        onClose={() => setKnowledgePreview(null)}
+      />
+      <CitationPreviewModal
+        citationPreview={citationPreview}
+        onClose={() => setCitationPreview(null)}
+      />
+      <WorkflowDebugModal
         visible={workflowDebugVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setWorkflowDebugVisible(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.debugDrawer}>
-            <Text style={styles.modalTitle}>Workflow Debug</Text>
-            <Text style={styles.infoMeta}>
-              {activeWorkflow?.workflow.workflow_version || "-"} ·{" "}
-              {activeWorkflow?.workflow.status || "no workflow"}
-            </Text>
-            <ScrollView style={styles.modalScroll}>
-              <Text style={styles.debugHeader}>Tasks</Text>
-              {orderedWorkflowTasks.map((task) => (
-                <View key={task.id} style={styles.modalSection}>
-                  <Text style={styles.citationTitle}>
-                    {task.name} · {task.status}
-                  </Text>
-                  <Text style={styles.citationMeta}>
-                    {task.role} · attempts {task.attempts}
-                  </Text>
-                  {task.error_message ? (
-                    <Text style={styles.errorText}>{task.error_message}</Text>
-                  ) : null}
-                </View>
-              ))}
-              <Text style={styles.debugHeader}>History</Text>
-              {(activeWorkflow?.history ?? []).map((event) => (
-                <View key={event.id} style={styles.modalSection}>
-                  <Text style={styles.citationTitle}>{event.event_type}</Text>
-                  <Text style={styles.citationMeta}>
-                    {event.ref_type || "workflow"} ·{" "}
-                    {new Date(event.created_at).toLocaleString()}
-                  </Text>
-                </View>
-              ))}
-              <Text style={styles.debugHeader}>Signals & Timers</Text>
-              {(activeWorkflow?.signals ?? []).map((signal) => (
-                <View key={`signal-${signal.id}`} style={styles.modalSection}>
-                  <Text style={styles.citationTitle}>
-                    {signal.signal_name} · {signal.status}
-                  </Text>
-                </View>
-              ))}
-              {(activeWorkflow?.timers ?? []).map((timer) => (
-                <View key={`timer-${timer.id}`} style={styles.modalSection}>
-                  <Text style={styles.citationTitle}>
-                    {timer.timer_name} · {timer.status}
-                  </Text>
-                  <Text style={styles.citationMeta}>
-                    due {new Date(timer.fire_at).toLocaleString()}
-                  </Text>
-                </View>
-              ))}
-              <Text style={styles.debugHeader}>Agent Messages</Text>
-              {(activeWorkflow?.messages ?? []).map((message) => (
-                <View key={message.id} style={styles.modalSection}>
-                  <Text style={styles.citationTitle}>
-                    {message.from_role} → {message.to_role}
-                  </Text>
-                  <Text style={styles.citationMeta}>
-                    {message.message_type}
-                  </Text>
-                  <Text style={styles.citationSnippet}>
-                    {message.content_json}
-                  </Text>
-                </View>
-              ))}
-            </ScrollView>
-            <View style={styles.buttonRow}>
-              <PrimaryButton
-                title="Close"
-                onPress={() => setWorkflowDebugVisible(false)}
-                style={styles.button}
-              />
-              <PrimaryButton
-                title="Process"
-                onPress={() => void handleProcessCurrentWorkflow()}
-                disabled={!activeWorkflow || workflowLoading || !token}
-                style={styles.buttonSecondary}
-              />
-            </View>
-          </View>
-        </View>
-      </Modal>
+        activeWorkflow={activeWorkflow}
+        orderedTasks={orderedWorkflowTasks}
+        workflowLoading={workflowLoading}
+        token={token}
+        onClose={() => setWorkflowDebugVisible(false)}
+        onProcess={handleProcessCurrentWorkflow}
+      />
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f8fafc",
-    padding: 16,
-  },
-  desktopLayout: {
-    flex: 1,
-    flexDirection: "row",
-    gap: 18,
-  },
-  workspaceColumn: {
-    flex: 0.95,
-  },
-  workspaceColumnContent: {
-    paddingBottom: 24,
-  },
-  messageColumn: {
-    flex: 1.1,
-  },
-  heading: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#0f172a",
-    marginBottom: 12,
-  },
-  summaryCard: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  summaryText: {
-    color: "#334155",
-    marginTop: 4,
-  },
-  inlineButton: {
-    marginTop: 12,
-  },
-  inlineButtonSecondary: {
-    marginTop: 12,
-    backgroundColor: "#334155",
-  },
-  buttonRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 12,
-  },
-  button: {
-    flex: 1,
-  },
-  buttonSecondary: {
-    flex: 1,
-    backgroundColor: "#475569",
-  },
-  sectionTitle: {
-    marginTop: 16,
-    marginBottom: 8,
-    color: "#0f172a",
-    fontWeight: "700",
-  },
-  optionRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  option: {
-    backgroundColor: "#64748b",
-  },
-  optionActive: {
-    backgroundColor: "#0f172a",
-  },
-  infoCard: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 14,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  infoTitle: {
-    fontWeight: "700",
-    color: "#0f172a",
-  },
-  agentHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  agentStatusBadge: {
-    backgroundColor: "#0f172a",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  agentStatusText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 12,
-  },
-  agentContextGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 12,
-  },
-  agentContextItem: {
-    color: "#334155",
-    backgroundColor: "#f1f5f9",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    fontSize: 12,
-    overflow: "hidden",
-  },
-  memoryChipRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 12,
-  },
-  memoryChip: {
-    color: "#1e293b",
-    backgroundColor: "#e0f2fe",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    fontSize: 12,
-    overflow: "hidden",
-  },
-  agentResultBox: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#e2e8f0",
-  },
-  infoBody: {
-    color: "#334155",
-    marginTop: 8,
-  },
-  infoMeta: {
-    color: "#64748b",
-    marginTop: 8,
-  },
-  errorText: {
-    color: "#b91c1c",
-    marginTop: 8,
-  },
-  createNoteButton: {
-    marginBottom: 12,
-  },
-  recordingButton: {
-    marginTop: 12,
-    backgroundColor: "#0f172a",
-  },
-  systemAction: {
-    marginTop: 8,
-    paddingVertical: 9,
-    backgroundColor: "#0f766e",
-  },
-  recordingLinkButton: {
-    marginTop: 12,
-    backgroundColor: "#334155",
-  },
-  recordingFileRow: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#e2e8f0",
-  },
-  recordingFileTitle: {
-    color: "#0f172a",
-    fontWeight: "600",
-  },
-  contactList: {
-    gap: 8,
-  },
-  contactButton: {
-    backgroundColor: "#1d4ed8",
-  },
-  listContent: {
-    paddingBottom: 24,
-  },
-  loadEarlier: {
-    alignItems: "center",
-    paddingVertical: 12,
-  },
-  loadEarlierText: {
-    color: "#2563eb",
-    fontWeight: "600",
-  },
-  messageBubble: {
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 12,
-    maxWidth: "92%",
-  },
-  mine: {
-    backgroundColor: "#dbeafe",
-    alignSelf: "flex-end",
-  },
-  theirs: {
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    alignSelf: "flex-start",
-  },
-  systemBubble: {
-    backgroundColor: "#ede9fe",
-    alignSelf: "stretch",
-  },
-  sender: {
-    fontWeight: "600",
-    color: "#1e293b",
-    marginBottom: 6,
-  },
-  body: {
-    color: "#0f172a",
-  },
-  systemMeta: {
-    color: "#6d28d9",
-    fontSize: 12,
-    marginTop: 8,
-  },
-  time: {
-    color: "#64748b",
-    fontSize: 12,
-    marginTop: 8,
-  },
-  noteRow: {
-    borderTopWidth: 1,
-    borderTopColor: "#e2e8f0",
-    paddingTop: 10,
-    marginTop: 10,
-  },
-  noteBody: {
-    color: "#334155",
-  },
-  citationList: {
-    marginTop: 12,
-    gap: 10,
-  },
-  citationItem: {
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: "#e2e8f0",
-  },
-  citationHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  citationBadge: {
-    color: "#075985",
-    backgroundColor: "#e0f2fe",
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    fontSize: 11,
-    fontWeight: "700",
-    overflow: "hidden",
-  },
-  approvalItem: {
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: "#e2e8f0",
-  },
-  inlineActionRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 10,
-  },
-  approveChip: {
-    backgroundColor: "#166534",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  approveChipText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-  rejectChip: {
-    backgroundColor: "#991b1b",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  rejectChipText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-  citationTitle: {
-    color: "#0f172a",
-    fontWeight: "600",
-  },
-  citationMeta: {
-    color: "#475569",
-    marginTop: 4,
-    fontSize: 12,
-  },
-  citationSnippet: {
-    color: "#334155",
-    marginTop: 6,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.45)",
-    justifyContent: "center",
-    padding: 18,
-  },
-  modalCard: {
-    backgroundColor: "#fff",
-    borderRadius: 18,
-    padding: 18,
-    maxHeight: "80%",
-  },
-  debugDrawer: {
-    backgroundColor: "#fff",
-    borderRadius: 18,
-    padding: 18,
-    maxHeight: "88%",
-  },
-  modalTitle: {
-    color: "#0f172a",
-    fontWeight: "700",
-    fontSize: 18,
-  },
-  modalScroll: {
-    marginTop: 12,
-  },
-  modalSection: {
-    paddingTop: 12,
-    marginTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#e2e8f0",
-  },
-  modalButton: {
-    marginTop: 16,
-  },
-  linkRow: {
-    marginTop: 12,
-  },
-  linkText: {
-    color: "#2563eb",
-    fontWeight: "600",
-  },
-  debugHeader: {
-    marginTop: 16,
-    color: "#0f172a",
-    fontWeight: "700",
-  },
-  composer: {
-    marginTop: 12,
-  },
-});
 
 export default ConversationDetailScreen;
