@@ -9,6 +9,9 @@ import (
 
 const (
 	EventWorkflowRunRequested = "workflow.run.requested"
+	// EventWorkflowUpdated 广播工作流状态变化（开始/推进/待审批/完成/失败），
+	// 客户端订阅该事件后即可实时刷新工作流面板，取代轮询 fetchWorkflowRun。
+	EventWorkflowUpdated = "workflow.updated"
 
 	workflowRunMaxAttempts   = 3
 	workflowRunLeaseDuration = 5 * time.Minute

@@ -162,6 +162,31 @@ func (s *Service) StartWorkflowAgent(ctx context.Context, organizationID, userID
 	return s.buildWorkflowResult(ctx, workflow)
 }
 
+// publishWorkflowUpdatedFromHistory 在工作流生命周期的关键节点把 workflow.updated
+// 写入 outbox，由 outbox worker 转成会话内实时事件投递给成员，从而取代客户端轮询。
+//
+// 只挑选运行级别的状态变化（开始 / 任务完成 / 待审批 / 完成 / 失败）：若按任务逐条
+// task_scheduled 也广播，一次启动就会产生近十条事件造成事件风暴。
+// 该函数是 best-effort 的：enqueue 失败不应回滚或阻塞主流程。
+func (s *Service) publishWorkflowUpdatedFromHistory(ctx context.Context, run models.WorkflowRun, eventType string) {
+	switch eventType {
+	case models.WorkflowHistoryEventWorkflowStarted,
+		models.WorkflowHistoryEventTaskCompleted,
+		models.WorkflowHistoryEventApprovalRequested,
+		models.WorkflowHistoryEventWorkflowCompleted,
+		models.WorkflowHistoryEventWorkflowFailed:
+	default:
+		return
+	}
+	if s.workflowRealtime == nil {
+		return
+	}
+	// 同步投递以获得实时延迟：outbox worker 默认 30s 轮询一次，比客户端当前的
+	// 1.5s 轮询还慢，无法用于取代轮询。代价是若所在事务随后回滚，会多投递一次；
+	// 但客户端收到后只是重新拉取权威状态，因此"可能多投"是可接受的。
+	s.workflowRealtime.PublishWorkflowUpdated(ctx, run.OrganizationID, run.ConversationID, run.ID, eventType)
+}
+
 func (s *Service) findWorkflowByIdempotencyKey(ctx context.Context, organizationID, userID, conversationID uint64, key string) (*models.WorkflowRun, error) {
 	var run models.WorkflowRun
 	if err := s.db.WithContext(ctx).

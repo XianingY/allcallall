@@ -443,6 +443,16 @@ func (s *Service) PublishMessageCreatedFromOutbox(ctx context.Context, messageID
 	return nil
 }
 
+// PublishWorkflowUpdated 把 workflow.updated 作为会话内实时事件投递给所有成员，
+// 客户端订阅该事件后即可刷新工作流面板，无需再轮询 fetchWorkflowRun。
+func (s *Service) PublishWorkflowUpdated(ctx context.Context, organizationID, conversationID, workflowRunID uint64, change string) {
+	s.publishConversationEvent(ctx, organizationID, conversationID, "workflow.updated", map[string]any{
+		"workflow_run_id": workflowRunID,
+		"conversation_id": conversationID,
+		"change":          change,
+	})
+}
+
 func reverseMessages(items []MessageRecord) {
 	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
 		items[i], items[j] = items[j], items[i]

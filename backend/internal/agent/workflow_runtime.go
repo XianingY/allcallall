@@ -24,10 +24,15 @@ func (s *Service) appendWorkflowHistoryTx(ctx context.Context, tx *gorm.DB, run 
 	if err := tx.WithContext(ctx).Create(&history).Error; err != nil {
 		return err
 	}
-	return tx.WithContext(ctx).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
+	if err := tx.WithContext(ctx).Model(&models.WorkflowRun{}).Where("id = ?", run.ID).Updates(map[string]any{
 		"last_event_id": history.ID,
 		"updated_at":    time.Now().UTC(),
-	}).Error
+	}).Error; err != nil {
+		return err
+	}
+	// 关键生命周期节点广播 workflow.updated，客户端订阅后即可实时刷新，不必轮询。
+	s.publishWorkflowUpdatedFromHistory(ctx, run, eventType)
+	return nil
 }
 
 func (s *Service) appendWorkflowHistory(ctx context.Context, run models.WorkflowRun, eventType, refType string, refID *uint64, attributes any) error {

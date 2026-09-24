@@ -47,11 +47,19 @@ type ToolCapabilityProvider interface {
 	IssueForRun(ctx context.Context, organizationID, userID, conversationID uint64, runRef string) (string, error)
 }
 
+// WorkflowRealtimePublisher 同步把 workflow.updated 投递给会话成员，客户端据此刷新
+// 工作流面板而无需轮询。collaboration.Service 实现了该接口。
+type WorkflowRealtimePublisher interface {
+	PublishWorkflowUpdated(ctx context.Context, organizationID, conversationID, workflowRunID uint64, change string)
+}
+
 type Service struct {
-	db                 *gorm.DB
-	metrics            metrics.Recorder
-	planner            Planner
-	outbox             *events.Store
+	db      *gorm.DB
+	metrics metrics.Recorder
+	planner Planner
+	outbox  *events.Store
+	// workflowRealtime 未注入时降级：不发实时事件，客户端仍可轮询获取最新状态。
+	workflowRealtime   WorkflowRealtimePublisher
 	indexer            ChunkIndexer
 	knowledgeRetriever KnowledgeRetriever
 	reranker           search.Reranker
@@ -163,6 +171,12 @@ func (s *Service) WithReranker(r search.Reranker) *Service {
 func (s *Service) WithOutbox(outbox *events.Store) {
 	if outbox != nil {
 		s.outbox = outbox
+	}
+}
+
+func (s *Service) WithWorkflowRealtimePublisher(p WorkflowRealtimePublisher) {
+	if p != nil {
+		s.workflowRealtime = p
 	}
 }
 

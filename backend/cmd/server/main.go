@@ -151,6 +151,8 @@ func main() {
 		agentSvc.WithMCPPlatform(mcpSvc)
 	}
 	agentSvc.WithOutbox(outboxStore)
+	// 工作流状态变化实时投递给会话成员（workflow.updated），客户端据此刷新而不再轮询。
+	agentSvc.WithWorkflowRealtimePublisher(collaborationSvc)
 	knowledgeSvc := knowledge.NewService(db).WithOutbox(outboxStore)
 	agentSvc.WithKnowledgeRetriever(knowledgeSvc)
 	agentPlanner, err := agent.NewPlanner(os.Getenv("AGENT_PROVIDER"))
