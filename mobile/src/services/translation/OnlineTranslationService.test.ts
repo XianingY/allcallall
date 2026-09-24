@@ -4,9 +4,7 @@ import OnlineTranslationService, {
   OnlineTranslationStartParams,
 } from "./OnlineTranslationService";
 
-// Lightweight pseudo-test helper for environments without Jest wiring.
-// Execute manually when needed.
-export const buildOnlineTranslationContracts = () => {
+describe("OnlineTranslationService contract", () => {
   const startParams: OnlineTranslationStartParams = {
     token: "token",
     callId: "call-1",
@@ -16,22 +14,28 @@ export const buildOnlineTranslationContracts = () => {
     chunkMs: 400,
   };
 
-  const status: OnlineTranslationStatus = "connecting";
-  const result: OnlineTranslationResult = {
-    sessionId: "session-1",
-    segmentId: "seg-1",
-    revision: 1,
-    isFinal: false,
-    originalText: "你好",
-    translatedText: "hello",
-    timestampMs: Date.now(),
-    latencyMs: 500,
-  };
+  it("reports a not-connected boolean state before start", () => {
+    expect(typeof OnlineTranslationService.isConnected()).toBe("boolean");
+    expect(OnlineTranslationService.isConnected()).toBe(false);
+  });
 
-  return {
-    serviceReadyFlag: OnlineTranslationService.isConnected(),
-    startParams,
-    status,
-    result,
-  };
-};
+  it("accepts a well-formed start/status/result payload", () => {
+    const status: OnlineTranslationStatus = "connecting";
+    const result: OnlineTranslationResult = {
+      sessionId: "session-1",
+      segmentId: "seg-1",
+      revision: 1,
+      isFinal: false,
+      originalText: "你好",
+      translatedText: "hello",
+      timestampMs: Date.now(),
+      latencyMs: 500,
+    };
+
+    expect(status).toBe("connecting");
+    expect(result.translatedText).toBe("hello");
+    expect(result.segmentId).toBe("seg-1");
+    expect(startParams.sourceLang).toBe("zh");
+    expect(startParams.targetLang).toBe("en");
+  });
+});

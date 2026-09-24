@@ -1,17 +1,22 @@
 import { renderHook, act } from '@testing-library/react-hooks';
 import { useWebRTC } from '../useWebRTC';
 
-// Mock react-native-webrtc
+const mockClose = jest.fn();
+const mockCreateOffer = jest.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-sdp' });
+const mockSetLocalDescription = jest.fn().mockResolvedValue(undefined);
+const mockAddEventListener = jest.fn();
+const mockRemoveEventListener = jest.fn();
+
 jest.mock('react-native-webrtc', () => ({
-  RTCPeerConnection: jest.fn(() => ({
-    createOffer: jest.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-sdp' }),
+  RTCPeerConnection: jest.fn().mockImplementation(() => ({
+    createOffer: mockCreateOffer,
     createAnswer: jest.fn().mockResolvedValue({ type: 'answer', sdp: 'mock-sdp' }),
-    setLocalDescription: jest.fn().mockResolvedValue(undefined),
+    setLocalDescription: mockSetLocalDescription,
     setRemoteDescription: jest.fn().mockResolvedValue(undefined),
     addIceCandidate: jest.fn().mockResolvedValue(undefined),
-    addEventListener: jest.fn(),
-    removeEventListener: jest.fn(),
-    close: jest.fn(),
+    addEventListener: mockAddEventListener,
+    removeEventListener: mockRemoveEventListener,
+    close: mockClose,
     getStats: jest.fn().mockResolvedValue(new Map()),
   })),
   RTCSessionDescription: jest.fn(),
@@ -19,52 +24,46 @@ jest.mock('react-native-webrtc', () => ({
   MediaStream: jest.fn(),
 }));
 
-describe('useWebRTC', () => {
-  it('creates peer connection on mount', () => {
-    const { result } = renderHook(() => useWebRTC({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-      onOfferCreated: jest.fn(),
-      onAnswerCreated: jest.fn(),
-      onIceCandidate: jest.fn(),
-    }));
+const baseConfig = {
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+  onOfferCreated: jest.fn(),
+  onAnswerCreated: jest.fn(),
+  onIceCandidate: jest.fn(),
+  onRemoteStream: jest.fn(),
+  onConnectionStateChange: jest.fn(),
+};
 
-    expect(result.current.peerConnection!.getSenders().length).toBeGreaterThan(0);
-    expect(result.current.localStream).toBeNull();
-    expect(result.current.remoteStream).toBeNull();
+describe('useWebRTC', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
-  it('creates offer successfully', async () => {
-    const onOfferCreated = jest.fn();
-    
-    const { result } = renderHook(() => useWebRTC({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-      onOfferCreated,
-      onAnswerCreated: jest.fn(),
-      onIceCandidate: jest.fn(),
-    }));
+  it('creates a peer connection on mount', () => {
+    const { RTCPeerConnection } = require('react-native-webrtc');
+    renderHook(() => useWebRTC(baseConfig));
+
+    expect(RTCPeerConnection).toHaveBeenCalledTimes(1);
+    expect(mockAddEventListener).toHaveBeenCalledWith('icecandidate', expect.any(Function));
+    expect(mockAddEventListener).toHaveBeenCalledWith('track', expect.any(Function));
+  });
+
+  it('creates an offer and forwards it to onOfferCreated', async () => {
+    const { result } = renderHook(() => useWebRTC(baseConfig));
 
     await act(async () => {
       await result.current.createOffer();
     });
 
-    expect(onOfferCreated).toHaveBeenCalledWith({
-      type: 'offer',
-      sdp: 'mock-sdp',
-    });
+    expect(mockCreateOffer).toHaveBeenCalled();
+    expect(mockSetLocalDescription).toHaveBeenCalledWith({ type: 'offer', sdp: 'mock-sdp' });
+    expect(baseConfig.onOfferCreated).toHaveBeenCalledWith({ type: 'offer', sdp: 'mock-sdp' });
   });
 
-  it('cleans up on unmount', () => {
-    const { result, unmount } = renderHook(() => useWebRTC({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-      onOfferCreated: jest.fn(),
-      onAnswerCreated: jest.fn(),
-      onIceCandidate: jest.fn(),
-    }));
+  it('cleans up the peer connection on unmount', () => {
+    const { unmount } = renderHook(() => useWebRTC(baseConfig));
 
-    const peerConnection = result.current.peerConnection;
-    
     unmount();
 
-    expect(peerConnection!.close).toHaveBeenCalled();
+    expect(mockClose).toHaveBeenCalled();
   });
 });

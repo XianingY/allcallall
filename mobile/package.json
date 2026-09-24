@@ -17,8 +17,21 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run test:unit",
     "test:unit": "tsx --test src/utils/linking.test.ts src/services/chatRealtimeCursor.test.ts src/services/conversationRealtimeReducer.test.ts src/services/roomMediaMapping.test.ts src/services/roomRemoteStreamRegistry.test.ts src/services/roomRealtimeReducer.test.ts src/context/signalingRtcUtils.test.ts src/screens/mcpPlatformUtils.test.ts src/store/useSubtitleStore.test.ts",
+    "test:jest": "jest",
     "lint": "eslint . --ext .ts,.tsx",
     "postinstall": "patch-package"
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "testMatch": [
+      "<rootDir>/src/api/__tests__/**/*.test.ts",
+      "<rootDir>/src/context/signaling/__tests__/**/*.test.ts",
+      "<rootDir>/src/services/translation/OnlineTranslationService.test.ts"
+    ],
+    "moduleNameMapper": {
+      "^~/(.*)$": "<rootDir>/src/$1",
+      "^expo/virtual/env$": "<rootDir>/jest-shims/expo-virtual-env.js"
+    }
   },
   "dependencies": {
     "@allcallall/api-types": "*",
@@ -67,11 +80,16 @@
     "@types/react-test-renderer": "~18.0.0",
     "@typescript-eslint/eslint-plugin": "^8.58.1",
     "@typescript-eslint/parser": "^8.58.1",
+    "babel-jest": "^29.7.0",
     "babel-plugin-module-resolver": "^5.0.2",
+    "babel-preset-expo": "56.0.15",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
+    "jest": "^29.7.0",
+    "jest-expo": "^51.0.4",
     "patch-package": "^8.0.0",
     "playwright": "^1.60.0",
+    "react-test-renderer": "^18.2.0",
     "tsx": "^4.22.4",
     "typescript": "^5.2.2"
   }
