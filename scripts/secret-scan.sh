@@ -36,26 +36,27 @@ echo "Scanning staged files for secrets..."
 # "${VAR}" and "${VAR:?required}" are NOT flagged. Comment lines are skipped.
 # ---------------------------------------------------------------------------
 selfref_tmp="$(mktemp)"
+content_tmp="$(mktemp)"
 while IFS= read -r f; do
   [ -z "$f" ] && continue
-  content="$(git show ":$f" 2>/dev/null || true)"
-  [ -z "$content" ] && continue
-  lineno=0
-  printf '%s\n' "$content" | while IFS= read -r line; do
-    lineno=$((lineno + 1))
-    # Skip comment lines (YAML #, shell/py #, go //, sql --, ini ;, go doc *).
-    case "$line" in
-      ''|'#'*|'//'*|';'*|'--'*|'*'*) continue ;;
-      ' '#*|\ \ '#*|\ \ \ '#*) continue ;;
-    esac
-    if printf '%s\n' "$line" | grep -qE '\$\{[A-Za-z_]+:[?-][^}]*(PASSWORD|SECRET|KEY|TOKEN)[^}]*\}'; then
-      echo "  SELF-REFERENTIAL SECRET DEFAULT in $f:$lineno"
-      echo "    $line" >> "$selfref_tmp"
-    fi
-  done
+  git show ":$f" > "$content_tmp" 2>/dev/null || continue
+  [ -s "$content_tmp" ] || continue
+  # One awk process per file. The previous implementation piped the file into a
+  # `while read` loop and spawned a `grep -qE` process for EVERY line, which
+  # hung for minutes once large generated files (schema.d.ts, ~6k lines) were
+  # staged. awk keeps identical semantics: skip blank lines and comment lines
+  # (YAML/shell #, go //, sql --, ini ;, go doc *), then match the pattern.
+  awk -v F="$f" '
+    /^[[:space:]]*$/ { next }
+    /^[[:space:]]*(#|\/\/|;|--|\*)/ { next }
+    $0 ~ /[$][{][A-Za-z_]+:[-?][^}]*(PASSWORD|SECRET|KEY|TOKEN)[^}]*[}]/ {
+      print F ":" FNR ": " $0
+    }
+  ' "$content_tmp" >> "$selfref_tmp"
 done <<EOF
 $STAGED
 EOF
+rm -f "$content_tmp"
 if [ -s "$selfref_tmp" ]; then
   cat "$selfref_tmp"
   rm -f "$selfref_tmp"
@@ -73,16 +74,15 @@ rm -f "$selfref_tmp"
 # NOTE: patterns are written so they do NOT match their own definition inside
 # this script (e.g. AKIA is followed by a regex class, not 16 real alphanumerics).
 # ---------------------------------------------------------------------------
-staged_content=""
+prov_src="$(mktemp)"
 while IFS= read -r f; do
   [ -z "$f" ] && continue
-  c="$(git show ":$f" 2>/dev/null || true)"
-  [ -n "$c" ] && staged_content="$staged_content$c
-"
+  git show ":$f" >> "$prov_src" 2>/dev/null || true
 done <<EOF
 $STAGED
 EOF
-prov_hit="$(printf '%s\n' "$staged_content" | grep -nE 'AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|sk-[A-Za-z0-9]{32,}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN (RSA|EC|OPENSSH|PRIVATE) PRIVATE KEY-----' || true)"
+prov_hit="$(grep -nE 'AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|sk-[A-Za-z0-9]{32,}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN (RSA|EC|OPENSSH|PRIVATE) PRIVATE KEY-----' "$prov_src" || true)"
+rm -f "$prov_src"
 if [ -n "$prov_hit" ]; then
   echo ""
   echo "Blocked: high-signal secret pattern detected in staged changes:"
