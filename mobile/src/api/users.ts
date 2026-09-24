@@ -1,13 +1,21 @@
+// TODO(#22): 以下端点未纳入 openapi.yaml（/invitations/*、/users/contacts/*、/users/fcm-token、
+// /users/presence、/users/search），故这几个域仍保留手写实现。
+// 已迁移：User（基础字段取自生成契约，客户端额外字段在此补齐）。
+// 注意：/users/change-password 在 spec 中未声明 requestBody，请求类型暂无法迁移。
+// 端点覆盖清单见 docs/api/mobile-endpoint-coverage.md。
+import type { components } from "@allcallall/api-types";
+
 import { createApiClient } from "./client";
 
-export interface User {
-  id: number;
-  email: string;
-  display_name: string;
+type APISchemas = components["schemas"];
+
+// #22：基础字段（id / email / display_name）取自生成契约；
+// status / deleted_at / profile 是客户端额外使用的字段，spec 未包含，故在此补上。
+export type User = APISchemas["User"] & {
   status?: string;
   deleted_at?: string | null;
   profile?: ContactProfile;
-}
+};
 
 export interface ContactProfile {
   company?: string;

@@ -1,21 +1,28 @@
+import type { components } from "@allcallall/api-types";
 import axios, { AxiosError } from "axios";
 import { API_BASE_URL, REQUEST_TIMEOUT } from "../config";
+
+type APISchemas = components["schemas"];
+type APIResponses = components["responses"];
+
+// #22：改用 openapi.yaml 生成的共享契约，删除手写请求/响应类型。
+// purpose 的取值（register / password_reset / account_deletion）直接取自 spec 枚举，
+// 避免与后端漂移。
+export type VerificationPurpose =
+  APISchemas["VerificationCodeRequest"]["purpose"];
+
+export type VerificationCodeResponse =
+  APIResponses["Success"]["content"]["application/json"];
+
+// 保留旧导出名，使既有引用无需改动。
+export type SendVerificationCodeResponse = VerificationCodeResponse;
+export type VerifyCodeResponse = VerificationCodeResponse;
 
 // API 响应类型定义
 export interface ApiResponse<T> {
   data?: T;
   message?: string;
 }
-
-export interface SendVerificationCodeResponse {
-  message: string;
-}
-
-export interface VerifyCodeResponse {
-  message: string;
-}
-
-export type VerificationPurpose = "register" | "password_reset" | "account_deletion";
 
 // 创建 API 实例
 const apiClient = axios.create({

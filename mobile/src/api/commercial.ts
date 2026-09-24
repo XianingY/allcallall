@@ -1,13 +1,14 @@
+// TODO(#22): /calls/* 与 /follow-ups/* 在 openapi.yaml 中缺失，故这两个域保留手写实现；
+// 已覆盖的 legal / entitlements / usage / users.blocks / password-reset 可单独迁移到共享契约。
+// 端点覆盖清单见 docs/api/mobile-endpoint-coverage.md。
+import type { components } from "@allcallall/api-types";
+
 import { createApiClient } from "./client";
 
-export interface LegalInfo {
-  terms_version: string;
-  privacy_version: string;
-  terms_url: string;
-  privacy_policy_url: string;
-  support_email: string;
-  account_deletion_url: string;
-}
+type APISchemas = components["schemas"];
+
+// #22：LegalInfo 与 spec 完全对齐，直接改用生成契约（保留旧导出名）。
+export type LegalInfo = APISchemas["LegalInfo"];
 
 export interface CallHistoryRecord {
   id: number;
@@ -89,16 +90,10 @@ export interface FollowUpListItem {
   is_overdue: boolean;
 }
 
-export interface UserBlockRecord {
-  id: number;
+// #22：字段取自生成契约；blocker_id 是客户端额外使用的字段，spec 未包含，故在此补上。
+export type UserBlockRecord = APISchemas["UserBlock"] & {
   blocker_id: number;
-  blocked_user_id: number;
-  blocked_user_email?: string;
-  blocked_user_display_name?: string;
-  blocked_user_status?: string;
-  blocked_user_deleted_at?: string | null;
-  created_at: string;
-}
+};
 
 export interface AbuseReportPayload {
   reported_user_id: number;
@@ -106,25 +101,16 @@ export interface AbuseReportPayload {
   details?: string;
 }
 
-export interface EntitlementRecord {
-  id: number;
-  entitlement: string;
-  tier: string;
+// #22：字段取自生成契约；spec 的 product_id 不声明 null，这里保留客户端原有的可空性。
+export type EntitlementRecord = Omit<
+  APISchemas["UserEntitlement"],
+  "product_id"
+> & {
   product_id?: string | null;
-  status: string;
-  expires_at?: string | null;
-  source: string;
-}
+};
 
-export interface UsageRecord {
-  feature: string;
-  period_key: string;
-  unit: string;
-  used_units: number;
-  limit_units: number;
-  unlimited: boolean;
-  remaining_units: number;
-}
+// #22：UsageSnapshot 与手写结构完全一致。
+export type UsageRecord = APISchemas["UsageSnapshot"];
 
 export interface RevenueCatConfig {
   apiKey: string;

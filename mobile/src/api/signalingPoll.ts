@@ -1,3 +1,5 @@
+// TODO(#22): /signaling/poll 与 /signaling/send 在 openapi.yaml 中缺失，故仍保留手写实现。
+// 待 spec 补全后迁移到共享契约。端点覆盖清单见 docs/api/mobile-endpoint-coverage.md。
 import mitt from "mitt";
 
 import { createApiClient } from "./client";

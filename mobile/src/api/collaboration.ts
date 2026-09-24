@@ -1,3 +1,7 @@
+// TODO(#22): 本模块多数端点（/conversations、/deals、/rooms、/recordings、/pipelines、
+// /organizations/{id}/policy）在 openapi.yaml 中尚未定义，故仍保留手写实现。
+// 待 spec 以 backend handler 为事实来源补全后，再迁移到 @allcallall/api-types 生成的共享契约。
+// 端点覆盖清单见 docs/api/mobile-endpoint-coverage.md。
 import { createApiClient, getActiveOrganizationHeader } from "./client";
 import { API_BASE_URL } from "../config";
 

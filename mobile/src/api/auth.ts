@@ -1,35 +1,22 @@
+import type { components } from "@allcallall/api-types";
+
 import { createApiClient } from "./client";
 
-export interface AuthResponse {
-  user: {
-    id: number;
-    email: string;
-    display_name: string;
-  };
-  access_token: string;
-}
+type APISchemas = components["schemas"];
 
-export interface RegisterPayload {
-  email: string;
-  password: string;
-  display_name: string;
-  accept_current_legal: boolean;
-}
+// #22：改用 openapi.yaml 生成的共享契约，删除手写请求/响应类型。
+// 保留旧导出名，使既有引用无需改动。
+export type AuthResponse = APISchemas["AuthResponse"];
 
-export interface RefreshSessionRecord {
-  id: number;
+export type RegisterPayload = APISchemas["RegisterRequest"];
+
+// spec 里 status 是 string，这里保留客户端原有的窄联合，避免放宽下游的等值判断。
+export type RefreshSessionRecord = Omit<
+  APISchemas["RefreshSession"],
+  "status"
+> & {
   status: "active" | "expired" | "revoked";
-  current: boolean;
-  user_agent: string;
-  ip_address: string;
-  expires_at: string;
-  last_used_at?: string | null;
-  revoked_at?: string | null;
-  invalid_use_count: number;
-  last_invalid_use_at?: string | null;
-  created_at: string;
-  updated_at: string;
-}
+};
 
 export const register = async (payload: RegisterPayload) => {
   const api = createApiClient();

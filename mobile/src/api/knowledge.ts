@@ -1,3 +1,6 @@
+// TODO(#22): 整个 /knowledge 域（sources、source-groups、dead-letters、duplicate-candidates）
+// 在 openapi.yaml 中缺失，故仍保留手写实现。待 spec 补全后迁移到共享契约。
+// 端点覆盖清单见 docs/api/mobile-endpoint-coverage.md。
 import axios from "axios";
 
 import { API_BASE_URL } from "../config";
