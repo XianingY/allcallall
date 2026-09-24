@@ -1,0 +1,75 @@
+# Consolidated security workflow.
+#
+# Replaces the previous two standalone workflows:
+#   - secret-scan.yml  -> gitleaks on every PR/push (gate that fails when a PR adds a leak)
+#   - security-scan.yml -> Trivy filesystem scan on a weekly schedule (awareness, never blocks)
+#
+# Keeping them in ONE file with two conditionally-dispatched jobs avoids duplicating
+# the checkout/permissions boilerplate and makes the security surface easy to audit.
+# `quarterly-pentest.yml`, `compliance-annual.yml`, and the Trivy *image* scan inside
+# `platform-ci.yml` are intentionally kept separate (different cadence / artifact scope).
+
+name: Security
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, Monday 02:17 UTC — offset to avoid the top-of-hour rush.
+    - cron: "17 2 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  gitleaks:
+    name: gitleaks detect
+    # Only meaningful on PR/push diffs; on a schedule we don't want to scan all history.
+    if: ${{ github.event_name != 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          GITLEAKS_ENABLE_COMMENTS: "false"
+
+  trivy-fs:
+    name: Trivy filesystem scan
+    # Awareness only — surfaces new CVEs WITHOUT blocking PR merges. Runs on the
+    # weekly schedule and on manual dispatch.
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Go module dependencies (backend).
+      - name: Scan backend (Go modules)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: backend
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      # Frontend dependencies (web npm workspace).
+      - name: Scan web (npm)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: web
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
