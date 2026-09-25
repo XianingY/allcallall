@@ -3,9 +3,12 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 func resetLoadState() {
@@ -232,6 +235,258 @@ func TestPostProcessRejectsInvalidWebRTCJSON(t *testing.T) {
 	cfg := Config{}
 	if err := cfg.postProcess(); err == nil {
 		t.Fatal("expected invalid ICE JSON error")
+	}
+}
+
+func TestExpandEnv(t *testing.T) {
+	lookup := func(env map[string]string) func(string) (string, bool) {
+		return func(name string) (string, bool) {
+			value, ok := env[name]
+			return value, ok
+		}
+	}
+
+	t.Run("required variable is resolved", func(t *testing.T) {
+		got, err := expandEnv([]byte(`dsn: "user:${MYSQL_PASSWORD}@tcp"`), lookup(map[string]string{"MYSQL_PASSWORD": "p@ss"}))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(got) != `dsn: "user:p@ss@tcp"` {
+			t.Fatalf("unexpected expansion: %s", got)
+		}
+	})
+
+	t.Run("missing required variable fails fast and lists every name", func(t *testing.T) {
+		content := []byte("a: \"${MISSING_B}\"\nb: \"${MISSING_A}\"\nc: \"${MISSING_A}\"\n")
+		_, err := expandEnv(content, lookup(map[string]string{}))
+		if err == nil {
+			t.Fatal("expected an error for unresolved variables")
+		}
+		// 去重后按字典序，便于一次性补齐所有缺失变量。
+		if !strings.Contains(err.Error(), "MISSING_A, MISSING_B") {
+			t.Fatalf("error should list de-duplicated sorted names, got: %v", err)
+		}
+	})
+
+	t.Run("optional placeholder falls back to default", func(t *testing.T) {
+		got, err := expandEnv([]byte(`tz: "${TZ:-UTC}"`), lookup(map[string]string{}))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(got) != `tz: "UTC"` {
+			t.Fatalf("unexpected expansion: %s", got)
+		}
+	})
+
+	t.Run("empty default yields empty string", func(t *testing.T) {
+		got, err := expandEnv([]byte(`password: "${REDIS_PASSWORD:-}"`), lookup(map[string]string{}))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(got) != `password: ""` {
+			t.Fatalf("unexpected expansion: %s", got)
+		}
+	})
+
+	t.Run("explicit empty env beats the default", func(t *testing.T) {
+		got, err := expandEnv([]byte(`tz: "${TZ:-UTC}"`), lookup(map[string]string{"TZ": ""}))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(got) != `tz: ""` {
+			t.Fatalf("explicit empty value should win over default, got: %s", got)
+		}
+	})
+
+	t.Run("content without placeholders is untouched", func(t *testing.T) {
+		content := []byte("jwt:\n  issuer: allcallall\n")
+		got, err := expandEnv(content, lookup(map[string]string{}))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(got) != string(content) {
+			t.Fatalf("content mutated: %s", got)
+		}
+	})
+
+	t.Run("placeholder inside a comment is ignored", func(t *testing.T) {
+		// 注释里出现的占位符只是文档示例，不能让服务启动失败。
+		content := []byte("# 例如 password: \"${EXAMPLE}\nreal: \"${REAL}\"\n")
+		got, err := expandEnv(content, lookup(map[string]string{"REAL": "v"}))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := "# 例如 password: \"${EXAMPLE}\nreal: \"v\"\n"
+		if string(got) != want {
+			t.Fatalf("comment must be preserved:\n got=%q\nwant=%q", got, want)
+		}
+	})
+
+	t.Run("non-conforming forms are left alone", func(t *testing.T) {
+		content := []byte(`a: "$NOT_BRACED" b: "${lower_case_still_ok:-}" c: "${}"`)
+		got, err := expandEnv(content, lookup(map[string]string{"lower_case_still_ok": "yes"}))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(got) != `a: "$NOT_BRACED" b: "yes" c: "${}"` {
+			t.Fatalf("unexpected expansion: %s", got)
+		}
+	})
+}
+
+// TestExpandEnvIsSafeAgainstYAMLInjection 锁定 D-09 的副作用面：展开发生在
+// Unmarshal 之前，若不转义，环境变量值可以闭合 YAML 标量并注入任意配置项。
+func TestExpandEnvIsSafeAgainstYAMLInjection(t *testing.T) {
+	const hostile = `p@ss"\n  admin: true\n  mode: "production`
+	content := []byte("jwt:\n  secret: \"${JWT_SECRET}\"\n")
+
+	expanded, err := expandEnv(content, func(name string) (string, bool) {
+		if name == "JWT_SECRET" {
+			return hostile, true
+		}
+		return "", false
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := yaml.Unmarshal(expanded, &parsed); err != nil {
+		t.Fatalf("expanded content must stay valid YAML: %v\ncontent:\n%s", err, expanded)
+	}
+
+	if len(parsed) != 1 {
+		t.Fatalf("YAML injection: expected exactly one top-level key, got %v", parsed)
+	}
+	jwt, ok := parsed["jwt"].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected structure: %v", parsed)
+	}
+	if len(jwt) != 1 {
+		t.Fatalf("YAML injection: unexpected keys under jwt: %v", jwt)
+	}
+	if jwt["secret"] != hostile {
+		t.Fatalf("secret round-trip mismatch:\n got=%q\nwant=%q", jwt["secret"], hostile)
+	}
+}
+
+func TestExpandEnvNewlineInValue(t *testing.T) {
+	content := []byte("mail:\n  password: \"${MAIL_PASSWORD}\"\n")
+	expanded, err := expandEnv(content, func(name string) (string, bool) {
+		if name == "MAIL_PASSWORD" {
+			return "line1\nline2", true
+		}
+		return "", false
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := yaml.Unmarshal(expanded, &parsed); err != nil {
+		t.Fatalf("expanded content must stay valid YAML: %v\ncontent:\n%s", err, expanded)
+	}
+	mail := parsed["mail"].(map[string]any)
+	if mail["password"] != "line1\nline2" {
+		t.Fatalf("unexpected value: %q", mail["password"])
+	}
+}
+
+func TestLoadFailsFastOnUnresolvedPlaceholder(t *testing.T) {
+	resetLoadState()
+	t.Cleanup(resetLoadState)
+
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	content := []byte("jwt:\n  secret: \"${JWT_SECRET}\"\n")
+	if err := os.WriteFile(cfgPath, content, 0o600); err != nil {
+		t.Fatalf("write config failed: %v", err)
+	}
+	t.Setenv("CONFIG_PATH", cfgPath)
+
+	// 必须处于"未设置"状态（而非空串）才能命中占位符未解析这条路径；
+	// 若宿主环境恰好导出了该变量，先摘除并在测试结束后恢复，保证断言确定性。
+	if prev, existed := os.LookupEnv("JWT_SECRET"); existed {
+		if err := os.Unsetenv("JWT_SECRET"); err != nil {
+			t.Fatalf("unset JWT_SECRET failed: %v", err)
+		}
+		t.Cleanup(func() { _ = os.Setenv("JWT_SECRET", prev) })
+	}
+
+	// 修复前这里会成功，Secret 变成字面量 "${JWT_SECRET}" 并绕过非空校验，
+	// 服务拿着一个可预测的字符串当 JWT 签名密钥启动。
+	if _, err := Load(); err == nil {
+		t.Fatal("expected load to fail when JWT_SECRET is unset")
+	} else if !strings.Contains(err.Error(), "JWT_SECRET") {
+		t.Fatalf("error should name the missing variable, got: %v", err)
+	}
+}
+
+// TestRepositoryDefaultConfigLoads 用仓库自带的 configs/config.yaml 做端到端校验。
+// 只要有人新增了必需的 ${VAR} 占位符却漏配部署环境，这个测试会第一时间失败，
+// 而不是等到服务启动连不上依赖、或拿着字面量去当 JWT 密钥时才暴露。
+func TestRepositoryDefaultConfigLoads(t *testing.T) {
+	resetLoadState()
+	t.Cleanup(resetLoadState)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd failed: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	// 回到 backend 根，让 Load 走默认的 ./configs/config.yaml。
+	if err := os.Chdir("../.."); err != nil {
+		t.Fatalf("chdir failed: %v", err)
+	}
+
+	// configs/config.yaml 中标记为必需（无默认值）的两个变量。
+	t.Setenv("MYSQL_PASSWORD", "smoke-db-pass")
+	t.Setenv("JWT_SECRET", "smoke-jwt-secret")
+	t.Setenv("CONFIG_PATH", "")
+
+	// 其余变量在本测试里要模拟"部署环境未注入"的场景，但开发机上常常导出过
+	// 真实凭据（如 VOLC_AST_APP_KEY），因此先摘除并在结束时恢复，保证结果确定。
+	for _, name := range []string{
+		"REDIS_PASSWORD", "MAIL_PASSWORD",
+		"VOLC_AST_APP_KEY", "VOLC_AST_ACCESS_KEY", "VOLC_AST_RESOURCE_ID", "VOLC_AST_APP_ID",
+	} {
+		if prev, existed := os.LookupEnv(name); existed {
+			if err := os.Unsetenv(name); err != nil {
+				t.Fatalf("unset %s failed: %v", name, err)
+			}
+			t.Cleanup(func() { _ = os.Setenv(name, prev) })
+		}
+	}
+
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("repository default config failed to load: %v", err)
+	}
+
+	for name, value := range map[string]string{
+		"Database.DSN":   got.Database.DSN,
+		"JWT.Secret":     got.JWT.Secret,
+		"Redis.Password": got.Redis.Password,
+		"Mail.Password":  got.Mail.Password,
+		"VolcAST.AppKey": got.Translation.VolcAST.AppKey,
+		"VolcAST.AppID":  got.Translation.VolcAST.AppID,
+	} {
+		if strings.Contains(value, "${") {
+			t.Fatalf("%s still holds an unresolved placeholder: %q", name, value)
+		}
+	}
+
+	if !strings.Contains(got.Database.DSN, "smoke-db-pass") {
+		t.Fatalf("expected DSN to embed MYSQL_PASSWORD, got %q", got.Database.DSN)
+	}
+	if got.JWT.Secret != "smoke-jwt-secret" {
+		t.Fatalf("unexpected JWT secret: %q", got.JWT.Secret)
+	}
+	// 采用 ${VAR:-} 形式且未注入环境变量时，应当回落为空串而非字面量。
+	if got.Redis.Password != "" {
+		t.Fatalf("optional Redis password should fall back to empty, got %q", got.Redis.Password)
+	}
+	if got.Translation.VolcAST.AppKey != "" {
+		t.Fatalf("optional VolcAST key should fall back to empty, got %q", got.Translation.VolcAST.AppKey)
 	}
 }
 

@@ -15,14 +15,17 @@ database:
 redis:
   addr: "redis:6379"
   username: ""
-  password: "${REDIS_PASSWORD}"  # 这里也可以使用环境变量
+  # ${VAR:-default} 表示可缺省：无密码的 Redis 是合法部署形态。
+  # 写成 ${VAR}（无默认值）则表示必需，缺失时服务拒绝启动。
+  password: "${REDIS_PASSWORD:-}"
   db: 0
 
 mail:
   host: "smtp.qq.com"
   port: 587
   username: "1569297330@qq.com"  # QQ邮箱SMTP登录必须使用完整邮箱地址
-  password: "${MAIL_PASSWORD}"
+  # 邮件功能未启用时可缺省。
+  password: "${MAIL_PASSWORD:-}"
   from: "1569297330@qq.com"
   from_name: "AllCallAll"
   max_retries: 3
@@ -48,10 +51,11 @@ translation:
   max_sessions_per_user: 2
   volc_ast:
     ws_url: "wss://openspeech.bytedance.com/api/v4/ast/v2/translate"
-    app_key: "${VOLC_AST_APP_KEY}"
-    access_key: "${VOLC_AST_ACCESS_KEY}"
-    resource_id: "${VOLC_AST_RESOURCE_ID}"
-    app_id: "${VOLC_AST_APP_ID}"
+    # translation.enabled=false 时不会用到这些凭据，因此全部设为可缺省。
+    app_key: "${VOLC_AST_APP_KEY:-}"
+    access_key: "${VOLC_AST_ACCESS_KEY:-}"
+    resource_id: "${VOLC_AST_RESOURCE_ID:-}"
+    app_id: "${VOLC_AST_APP_ID:-}"
 
 logging:
   level: "info"
