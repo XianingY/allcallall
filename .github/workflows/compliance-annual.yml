@@ -15,21 +15,28 @@ jobs:
         with:
           go-version: "1.25.x"
 
-      # 注入生产合规环境变量（来自仓库 Secrets / Environment），供
-      # opsjobs.RunAnnualAudit 评估态势与到期项。
+      # 供 opsjobs.RunAnnualAudit 评估态势与到期项。
+      #
+      # 这些开关必须从真实来源读取（仓库 / 环境 variables），不能在这里写死。
+      # 此前它们被硬编码为 "true"，而 AssessPosture 只读环境变量，导致审计
+      # 恒为达标、fail 分支不可达 —— 年检变成了自证通过的空转。
+      # 未配置的 variable 展开为空字符串，对应控制项如实报 disabled。
+      #
+      # 注意：本作业是「配置自检」，反映部署环境声明的开关状态，
+      # 不等同于第三方审计或备案已完成。
       - name: Run annual compliance self-audit
         working-directory: backend
         env:
-          SECURITY_REQUIRE_TLS: "true"
-          MESSAGE_RETENTION_ENABLED: "true"
-          MESSAGE_ENCRYPTION_ENABLED: "true"
-          MESSAGE_RECALL_ENABLED: "true"
-          SEARCH_INDEX_ENABLED: "true"
-          CONTENT_MODERATION_ENABLED: "true"
-          MESSAGE_ERASURE_ENABLED: "true"
-          REALNAME_VERIFICATION_ENABLED: "true"
-          AIGC_LABELING_ENABLED: "true"
-          KMS_PROVIDER: "cloud"
+          SECURITY_REQUIRE_TLS: ${{ vars.SECURITY_REQUIRE_TLS }}
+          MESSAGE_RETENTION_ENABLED: ${{ vars.MESSAGE_RETENTION_ENABLED }}
+          MESSAGE_ENCRYPTION_ENABLED: ${{ vars.MESSAGE_ENCRYPTION_ENABLED }}
+          MESSAGE_RECALL_ENABLED: ${{ vars.MESSAGE_RECALL_ENABLED }}
+          SEARCH_INDEX_ENABLED: ${{ vars.SEARCH_INDEX_ENABLED }}
+          CONTENT_MODERATION_ENABLED: ${{ vars.CONTENT_MODERATION_ENABLED }}
+          MESSAGE_ERASURE_ENABLED: ${{ vars.MESSAGE_ERASURE_ENABLED }}
+          REALNAME_VERIFICATION_ENABLED: ${{ vars.REALNAME_VERIFICATION_ENABLED }}
+          AIGC_LABELING_ENABLED: ${{ vars.AIGC_LABELING_ENABLED }}
+          KMS_PROVIDER: ${{ vars.KMS_PROVIDER }}
           ICP_LICENSE_NUMBER: ${{ secrets.ICP_LICENSE_NUMBER }}
           AI_ALGORITHM_FILING_NUMBER: ${{ secrets.AI_ALGORITHM_FILING_NUMBER }}
           TLS_CERT_EXPIRY_DATE: ${{ secrets.TLS_CERT_EXPIRY_DATE }}

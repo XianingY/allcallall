@@ -1,6 +1,7 @@
 package compliance
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -108,5 +109,38 @@ func TestAssessPostureReflectsEnv(t *testing.T) {
 	}
 	if p.ReadinessPct <= 0 || p.ReadinessPct > 100 {
 		t.Fatalf("invalid readiness pct: %d", p.ReadinessPct)
+	}
+}
+
+// TestAssessPostureDoesNotSelfCertify 锁定一个曾经真实存在过的坑：
+// .github/workflows/compliance-annual.yml 曾把九个开关硬编码为 "true" 注入，
+// 而 AssessPosture 只读环境变量，于是年检恒为达标、fail 分支不可达。
+// 开关未配置时，态势必须如实反映为不达标。
+func TestAssessPostureDoesNotSelfCertify(t *testing.T) {
+	for _, name := range []string{
+		"MESSAGE_RETENTION_ENABLED", "MESSAGE_ENCRYPTION_ENABLED", "MESSAGE_RECALL_ENABLED",
+		"SEARCH_INDEX_ENABLED", "CONTENT_MODERATION_ENABLED", "MESSAGE_ERASURE_ENABLED",
+		"REALNAME_VERIFICATION_ENABLED", "SECURITY_REQUIRE_TLS", "AIGC_LABELING_ENABLED",
+		"KMS_PROVIDER", "MESSAGE_ENCRYPTION_MASTER_KEY", "ICP_LICENSE_NUMBER",
+	} {
+		if prev, existed := os.LookupEnv(name); existed {
+			if err := os.Unsetenv(name); err != nil {
+				t.Fatalf("unset %s failed: %v", name, err)
+			}
+			t.Cleanup(func() { _ = os.Setenv(name, prev) })
+		}
+	}
+
+	p := AssessPosture()
+	for _, c := range p.Controls {
+		if c.Status == ControlEnabled {
+			t.Fatalf("control %s must not read as enabled with nothing configured", c.ID)
+		}
+	}
+	if p.ReadinessPct != 0 {
+		t.Fatalf("expected 0%% readiness when unconfigured, got %d", p.ReadinessPct)
+	}
+	if p.GAReady {
+		t.Fatal("posture must not self-certify GA readiness when unconfigured")
 	}
 }
