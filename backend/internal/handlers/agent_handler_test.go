@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
@@ -56,6 +57,7 @@ func newAgentHandlerTestEnv(t *testing.T) (*AgentHandler, *gorm.DB, models.Conve
 		&models.ToolPolicy{},
 		&models.ToolApproval{},
 		&models.EventOutbox{},
+		&models.OrganizationMember{},
 	); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)
 	}
@@ -86,6 +88,15 @@ func newAgentHandlerTestEnv(t *testing.T) (*AgentHandler, *gorm.DB, models.Conve
 		Body:           "Need next call scheduling and owner confirmation.",
 	}).Error; err != nil {
 		t.Fatalf("create message failed: %v", err)
+	}
+	// 用户 7 必须是组织成员，否则 handler 入口的组织级校验会把所有用例挡掉。
+	if err := db.Create(&models.OrganizationMember{
+		OrganizationID: conversation.OrganizationID,
+		UserID:         7,
+		Role:           models.OrganizationRoleMember,
+		JoinedAt:       time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatalf("create organization member failed: %v", err)
 	}
 
 	return NewAgentHandler(zerolog.Nop(), agent.NewService(db)), db, conversation
@@ -435,6 +446,37 @@ func TestAgentHandlerRejectsConversationOutsideMembership(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{"conversation_id": conversation.ID})
 	rec := performRequestWithOrganization(t, router, http.MethodPost, "/api/v1/agent/runs", body, conversation.OrganizationID)
 	expectHandlerStatus(t, rec, http.StatusForbidden)
+}
+
+// TestAgentHandlerRequiresOrganizationMembership 锁定组织层这一道防线。
+// 用户 88 是该 conversation 的成员，能通过 service 层的 conversation 成员校验，
+// 但不是组织成员 —— 必须在 handler 入口就被组织级校验拦下。
+// 修复前该用例会返回 201（conversation 校验通过即放行）。
+func TestAgentHandlerRequiresOrganizationMembership(t *testing.T) {
+	handler, db, conversation := newAgentHandlerTestEnv(t)
+	if err := db.Create(&models.ConversationMember{
+		ConversationID: conversation.ID,
+		UserID:         88,
+		Role:           models.OrganizationRoleMember,
+	}).Error; err != nil {
+		t.Fatalf("create conversation member failed: %v", err)
+	}
+	router := newRouterWithClaims(&auth.Claims{UserID: 88, Email: "conversation-only@example.com"}, handler.RegisterProtectedRoutes)
+
+	body, _ := json.Marshal(map[string]any{
+		"conversation_id": conversation.ID,
+		"goal":            "summarize current support handoff",
+	})
+	rec := performRequestWithOrganization(t, router, http.MethodPost, "/api/v1/agent/runs", body, conversation.OrganizationID)
+	expectHandlerStatus(t, rec, http.StatusForbidden)
+
+	var response struct {
+		Code string `json:"code"`
+	}
+	decodeBody(t, rec.Body.Bytes(), &response)
+	if response.Code != "ORGANIZATION_ACCESS_DENIED" {
+		t.Fatalf("unexpected error code: %+v", response)
+	}
 }
 
 func performRequestWithOrganization(t *testing.T, router http.Handler, method, path string, body []byte, organizationID uint64) *httptest.ResponseRecorder {

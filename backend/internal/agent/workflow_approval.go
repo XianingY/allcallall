@@ -393,6 +393,23 @@ func (s *Service) organizationRole(ctx context.Context, organizationID, userID u
 	return member.Role, nil
 }
 
+// EnsureOrganizationMember 校验请求者确实是目标组织的成员。
+//
+// 这是 agent 域的纵深防御：X-Organization-ID 由客户端提供，service 层各方法虽然
+// 都带 userID 维度的过滤（conversation 成员 JOIN 或 organizationRole 校验），
+// 但那是逐方法保证的第二道防线。这里在 handler 入口补上组织这一层，
+// 让"不属于该组织"的请求在进入业务逻辑之前就被拒绝，也避免未来新增方法
+// 漏掉 userID 过滤时直接形成跨租户越权。
+func (s *Service) EnsureOrganizationMember(ctx context.Context, organizationID, userID uint64) error {
+	if _, err := s.organizationRole(ctx, organizationID, userID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrOrganizationAccessDenied
+		}
+		return err
+	}
+	return nil
+}
+
 func (s *Service) countPendingWorkflowApprovals(ctx context.Context, workflowRunID uint64) (int64, error) {
 	var count int64
 	err := s.db.WithContext(ctx).Model(&models.ToolApproval{}).

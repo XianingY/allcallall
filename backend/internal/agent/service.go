@@ -19,6 +19,9 @@ import (
 var (
 	ErrConversationAccessDenied = errors.New("conversation access denied")
 	ErrAgentRunNotFound         = errors.New("agent run not found")
+	// ErrOrganizationAccessDenied 请求者不是该组织的成员。
+	// 组织归属不能只依赖客户端传入的 X-Organization-ID，必须在服务端确认成员身份。
+	ErrOrganizationAccessDenied = errors.New("organization access denied")
 )
 
 func isDeferredRunExecution(err error) bool {

@@ -10,6 +10,11 @@ import (
 	"github.com/allcallall/backend/internal/auth"
 )
 
+// requireAgentContext 解析认证主体与组织归属。
+//
+// X-Organization-ID 由客户端提供，用于多组织切换，但绝不能因此被采信：
+// 这里在 handler 入口就确认请求者确实是该组织的成员，service 层的
+// conversation 成员校验只是第二道防线（见 agent.Service.EnsureOrganizationMember）。
 func (h *AgentHandler) requireAgentContext(c *gin.Context) (*auth.Claims, uint64, bool) {
 	claims, err := auth.GetClaimsFromContext(c)
 	if err != nil {
@@ -19,6 +24,19 @@ func (h *AgentHandler) requireAgentContext(c *gin.Context) (*auth.Claims, uint64
 	organizationID, err := parseUintHeader(c.GetHeader("X-Organization-ID"))
 	if err != nil || organizationID == 0 {
 		JSONError(c, http.StatusBadRequest, "invalid X-Organization-ID")
+		return nil, 0, false
+	}
+	if h.service == nil {
+		JSONErrorWithCode(c, http.StatusServiceUnavailable, "AGENT_SERVICE_UNAVAILABLE", "agent service unavailable")
+		return nil, 0, false
+	}
+	if err := h.service.EnsureOrganizationMember(c.Request.Context(), organizationID, claims.UserID); err != nil {
+		if errors.Is(err, agent.ErrOrganizationAccessDenied) {
+			JSONErrorWithCode(c, http.StatusForbidden, "ORGANIZATION_ACCESS_DENIED", "organization access denied")
+			return nil, 0, false
+		}
+		h.logger.Error().Err(err).Msg("agent organization membership check failed")
+		JSONErrorWithCode(c, http.StatusInternalServerError, "AGENT_RUN_FAILED", "agent request failed")
 		return nil, 0, false
 	}
 	return claims, organizationID, true
