@@ -3,12 +3,31 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
+const BASE_WEB_URL = process.env.ALLCALLALL_WEB_URL || "http://localhost:5173";
+
+const { createRouteHelpers } = require("./route-utils.cjs");
+
+const {
+  isInternalWebURL,
+  normalizeRouteTarget,
+  routeURL,
+} = createRouteHelpers(BASE_WEB_URL);
+
+// Vite 开发服务器会向页面注入 inline 脚本，因此只有在目标是本机开发服务器时才放宽
+// script-src；一旦指向生产 Web 资源即自动收紧，避免把 dev 期的妥协带进线上。
+function isLoopbackTarget(target) {
+  try {
+    const { hostname } = new URL(target);
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
 // 给所有渲染进程响应加上 CSP 头（默认同源，禁止 unsafe-eval/外部源）。
-// 桌面端默认加载 Vite 开发服务器时会注入 inline 脚本，故 script-src 暂保留
-// 'unsafe-inline'；生产构建加载静态资源后可移除该关键字收紧。
 const DESKTOP_CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  isLoopbackTarget(BASE_WEB_URL) ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
@@ -25,15 +44,22 @@ session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
   });
 });
 
-const { createRouteHelpers } = require("./route-utils.cjs");
-
-const {
-  isInternalWebURL,
-  normalizeRouteTarget,
-  routeURL,
-} = createRouteHelpers(process.env.ALLCALLALL_WEB_URL || "http://localhost:5173");
 const DOWNLOADS_DIR = process.env.ALLCALLALL_DOWNLOAD_DIR || path.join(os.homedir(), "Downloads", "AllCallAll");
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
+
+// 会议是桌面端的一等公民（默认窗口就加载 /meetings），麦克风/摄像头必须可用。
+// Electron/Chromium 对音视频设备的 permission 值主要是 "media"，个别路径会落到
+// "microphone"/"camera"，一并接受；屏幕捕获（display-capture）暂不放行——它属于
+// 更高风险面，确认产品需要时按同样范式追加到该集合即可。
+const ALLOWED_MEDIA_PERMISSIONS = new Set(["media", "microphone", "camera"]);
+
+// 双重判定：请求来源必须是本应用已信任的 Web 资源，且权限类型在媒体白名单内。
+function isTrustedMediaRequest(requestingURL, permission) {
+  if (!ALLOWED_MEDIA_PERMISSIONS.has(permission)) {
+    return false;
+  }
+  return typeof requestingURL === "string" && isInternalWebURL(requestingURL);
+}
 
 let mainWindow = null;
 let pendingRouteTarget = null;
@@ -79,9 +105,18 @@ function createWindow() {
 
   mainWindow.loadURL(routeURL("/meetings"));
 
-  // 默认拒绝所有权限请求（麦克风/摄像头/地理位置等），按需在此放开白名单。
-  mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    callback(false);
+  // 按"请求来源 + 权限类型"白名单放行：只有来自本应用 Web 资源的音视频请求才通过，
+  // 其余（定位、通知、剪贴板读取、屏幕捕获等）一律拒绝。
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const requestingURL =
+      details && typeof details.requestingUrl === "string" && details.requestingUrl
+        ? details.requestingUrl
+        : webContents.getURL();
+    callback(isTrustedMediaRequest(requestingURL, permission));
+  });
+
+  mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission, origin) => {
+    return isTrustedMediaRequest(origin || webContents.getURL(), permission);
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
