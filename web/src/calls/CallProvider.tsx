@@ -6,6 +6,7 @@ import { getWebRTCConfig } from "@/api/realtime";
 import { useAuth } from "@/auth/AuthContext";
 import { CallContext } from "@/calls/CallContext";
 import { useCallStore } from "@/calls/callStore";
+import { attachIceRecovery } from "@/lib/webrtcRecovery";
 import { TicketSocket } from "@/realtime/TicketSocket";
 
 interface SignalMessage {
@@ -24,9 +25,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const offer = useRef<RTCSessionDescriptionInit | null>(null);
   const pendingTarget = useRef("");
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
+  const recovery = useRef<{ detach: () => void } | null>(null);
 
   const send = useCallback((message: SignalMessage) => socket.current?.send(message) ?? false, []);
   const cleanup = useCallback(() => {
+    recovery.current?.detach(); recovery.current = null;
     peer.current?.close(); peer.current = null; offer.current = null; pendingTarget.current = ""; pendingCandidates.current = [];
     const state = useCallStore.getState(); state.localStream?.getTracks().forEach((track) => track.stop()); state.remoteStream?.getTracks().forEach((track) => track.stop()); state.reset();
   }, []);
@@ -47,6 +50,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (connection.connectionState === "disconnected") useCallStore.getState().patch({ status: "reconnecting" });
       if (connection.connectionState === "failed") useCallStore.getState().patch({ status: "failed", error: t("call.error.mediaFailed") });
     };
+    // "reconnecting" used to be a dead end: nothing ever acted on it. No
+    // restart handler here because the 1:1 signalling channel has no
+    // sdp.offer message type yet - see backend signaling hub_dispatch.
+    // Recovery watches state, lets ICE heal if it can, and reports an honest
+    // failure at the deadline instead of hanging in "reconnecting".
+    recovery.current = attachIceRecovery(connection, {
+      role: "caller",
+      onRecovered: () => useCallStore.getState().patch({ status: "connected" }),
+      onFailed: () => useCallStore.getState().patch({ status: "failed", error: t("call.error.mediaFailed") }),
+    });
     return connection;
   }, [send, t]);
 

@@ -10,6 +10,7 @@ import {
   updateRoomMedia,
 } from "@/api/meetings";
 import { useOrganization } from "@/organizations/OrganizationContext";
+import { attachIceRecovery } from "@/lib/webrtcRecovery";
 import { TicketSocket } from "@/realtime/TicketSocket";
 import {
   interpretRoomRealtimeEvent,
@@ -26,6 +27,7 @@ interface MeetingOptions {
 export function useMeetingEngine(roomId: number, options: MeetingOptions) {
   const peer = useRef<RTCPeerConnection | null>(null);
   const localRef = useRef<MediaStream | null>(null);
+  const recovery = useRef<{ detach: () => void } | null>(null);
   const { activeOrganization } = useOrganization();
   const organizationId = activeOrganization?.id;
   const [blockedByOtherTab] = useState(() =>
@@ -117,6 +119,24 @@ export function useMeetingEngine(roomId: number, options: MeetingOptions) {
             connection_state: connection.connectionState,
           });
         };
+        // Without this a dropped connection stayed dropped until the user
+        // reloaded the page - the meeting never recovered on its own.
+        recovery.current = attachIceRecovery(connection, {
+          role: "caller",
+          restart: async () => {
+            const offer = await connection.createOffer({ iceRestart: true });
+            await connection.setLocalDescription(offer);
+            const response = await sendRoomOffer(roomId, offer.sdp ?? "");
+            if (response?.answer)
+              await connection.setRemoteDescription(response.answer);
+          },
+          onRecovering: () => setState("connecting"),
+          onRecovered: () => setState("connected"),
+          onFailed: () => {
+            setState("failed");
+            setError("网络连接已中断，请重新加入会议");
+          },
+        });
         const offer = await connection.createOffer();
         await connection.setLocalDescription(offer);
         const response = await sendRoomOffer(roomId, offer.sdp ?? "");
@@ -142,6 +162,8 @@ export function useMeetingEngine(roomId: number, options: MeetingOptions) {
     };
     void connect();
     const leave = () => {
+      recovery.current?.detach();
+      recovery.current = null;
       peer.current?.close();
       peer.current = null;
       localRef.current?.getTracks().forEach((track) => track.stop());
