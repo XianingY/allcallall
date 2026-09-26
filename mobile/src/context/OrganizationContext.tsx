@@ -16,6 +16,14 @@ interface OrganizationContextValue {
   organizations: OrganizationRecord[];
   currentOrganization: OrganizationRecord | null;
   loading: boolean;
+  /**
+   * Set when the organization list could not be loaded. Screens gate their
+   * own fetching on `currentOrganization`, so a failed request used to render
+   * as "you have no meetings / no conversations" - turning a network failure
+   * into something that looks like an empty account. Call
+   * refreshOrganizations() to retry.
+   */
+  error: Error | null;
   refreshOrganizations: () => Promise<void>;
   selectOrganization: (organizationId: number) => Promise<void>;
   createWorkspace: (name: string) => Promise<OrganizationRecord>;
@@ -28,6 +36,7 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [organizations, setOrganizations] = useState<OrganizationRecord[]>([]);
   const [currentOrganization, setCurrentOrganization] = useState<OrganizationRecord | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
   const applyOrganization = useCallback(async (items: OrganizationRecord[], preferredId?: number | null) => {
     if (items.length === 0) {
@@ -49,6 +58,7 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       setOrganizations([]);
       setCurrentOrganization(null);
       setActiveOrganizationHeader(null);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -60,11 +70,12 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       ]);
       const preferredId = storedId ? Number(storedId) : null;
       await applyOrganization(items, preferredId);
+      setError(null);
     } catch (error) {
       console.warn("[OrganizationContext] Failed to load organizations:", error);
-      setOrganizations([]);
-      setCurrentOrganization(null);
-      setActiveOrganizationHeader(null);
+      // Keep the previous list if there was one: wiping it turns a transient
+      // network failure into an app that looks emptied out.
+      setError(error instanceof Error ? error : new Error(String(error)));
     } finally {
       setLoading(false);
     }
@@ -98,10 +109,11 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     organizations,
     currentOrganization,
     loading,
+    error,
     refreshOrganizations,
     selectOrganization,
     createWorkspace
-  }), [organizations, currentOrganization, loading, refreshOrganizations, selectOrganization, createWorkspace]);
+  }), [organizations, currentOrganization, loading, error, refreshOrganizations, selectOrganization, createWorkspace]);
 
   return <OrganizationContext.Provider value={value}>{children}</OrganizationContext.Provider>;
 };

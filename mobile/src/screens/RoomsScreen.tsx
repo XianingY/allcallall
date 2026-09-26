@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
 
@@ -26,6 +26,11 @@ type Props = NativeStackScreenProps<RootStackParamList, "Rooms">;
 const RoomsScreen: React.FC<Props> = ({ navigation }) => {
   const { token } = useAuthContext();
   const { currentOrganization } = useOrganization();
+  // A failed load used to be a one-shot Alert with no way back: this is the
+  // landing screen, and in a native stack it does not remount when you
+  // navigate back, so the useEffect never re-ran. The only recovery was
+  // killing the app. Now the failure is a state with a retry.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const { width } = useWindowDimensions();
   const [items, setItems] = useState<RoomRecord[]>([]);
   const [recordings, setRecordings] = useState<RecordingRecord[]>([]);
@@ -70,9 +75,10 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
       setMeetingSummaries(
         Object.fromEntries(summaryEntries.filter((entry): entry is readonly [number, ConversationDetailRecord] => entry !== null))
       );
+      setLoadError(null);
     } catch (error) {
       console.error("[RoomsScreen] Failed to load rooms:", error);
-      Alert.alert("加载失败", "无法加载会议列表。");
+      setLoadError(error instanceof Error ? error.message : "无法加载会议列表");
     } finally {
       setLoading(false);
     }
@@ -244,14 +250,21 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
-        refreshControl={undefined}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void loadData()} />}
       >
         <View style={isWideScreen ? styles.desktopContent : undefined}>
           <View style={isWideScreen ? styles.primaryColumn : undefined}>
             <Text style={styles.sectionTitle}>Active / Upcoming</Text>
             {activeRooms.length > 0 ? activeRooms.map(renderRoomCard) : null}
             {upcomingRooms.length > 0 ? upcomingRooms.slice(0, 3).map(renderRoomCard) : null}
-            {recentRooms.length === 0 ? <Text style={styles.empty}>当前工作区还没有会议。</Text> : null}
+            {loadError ? (
+              <View style={styles.errorBlock}>
+                <Text style={styles.errorText}>加载失败：{loadError}</Text>
+                <PrimaryButton title="重试" onPress={() => void loadData()} />
+              </View>
+            ) : recentRooms.length === 0 ? (
+              <Text style={styles.empty}>当前工作区还没有会议。</Text>
+            ) : null}
             {!isWideScreen ? <Text style={styles.sectionTitle}>Recent</Text> : null}
             {!isWideScreen ? recentRooms.map(renderRoomCard) : null}
           </View>
@@ -508,6 +521,18 @@ const styles = StyleSheet.create({
     color: "#64748b",
     textAlign: "center",
     marginTop: 40,
+  },
+  errorBlock: {
+    marginTop: 40,
+    gap: 12,
+    padding: 16,
+    borderRadius: 10,
+    backgroundColor: "#fef2f2",
+  },
+  errorText: {
+    color: "#b91c1c",
+    fontSize: 14,
+    lineHeight: 20,
   },
 });
 
