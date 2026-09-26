@@ -1,6 +1,8 @@
 # AllCallAll secret-scanning configuration.
 # Used by `gitleaks` both in the local pre-commit hook (scripts/secret-scan.sh)
-# and in CI (.github/workflows/secret-scan.yml).
+# and in CI (.github/workflows/security.yml, job "gitleaks"). Note the job lives
+# in security.yml - there is no separate secret-scan.yml, that split was
+# abandoned and merged into security.yml.
 #
 # Extends gitleaks' built-in default rule set, then allowlists files that
 # intentionally contain only placeholders (never real credentials).
