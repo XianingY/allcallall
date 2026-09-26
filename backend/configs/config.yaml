@@ -34,7 +34,13 @@ mail:
 jwt:
   secret: "${JWT_SECRET}"
   issuer: "allcallall-backend"
-  access_token_ttl_minutes: 10080
+  # 访问令牌有效期。此前为 10080 分钟（7 天），与刷新令牌同为 7 天，
+  # 刷新机制因此形同虚设——令牌被盗后有整整一周的可用窗口，且无法通过
+  # 轮换缩短。改为 30 分钟后，客户端必须走刷新链路，这也是 web 端并发刷新
+  # 去重与 mobile 端 401 自动刷新拦截器存在的前提。
+  # 调优时注意：任何没有自动刷新的客户端都会在这个时长后被登出。
+  access_token_ttl_minutes: 30
+  # 刷新令牌有效期（7 天），与访问令牌拉开量级才有轮换意义。
   refresh_token_ttl_hours: 168
 
 webrtc:

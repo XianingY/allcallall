@@ -10,6 +10,7 @@ import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import * as authApi from "../api/auth";
+import { configureTokenRefresh, setAccessToken } from "../api/client";
 import { acceptInvitation, User } from "../api/users";
 import secureStorage from "../platform/secureStorage";
 import AnalyticsService from "../services/AnalyticsService";
@@ -80,6 +81,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     await secureStorage.save(KEYCHAIN_SERVICE, "user_session", secret);
   }, [authPromptTitle]);
+
+  // Keep the API client's token in sync so requests built for one call still
+  // use the newest token after a silent refresh.
+  useEffect(() => {
+    setAccessToken(state.token);
+  }, [state.token]);
+
+  // Let the API client renew an expired token on its own. Without this an
+  // expired access token just fails with 401 and the user has to log in again,
+  // which makes a short token TTL unusable.
+  useEffect(() => {
+    configureTokenRefresh(async () => {
+      try {
+        const refreshed = await authApi.refreshSession();
+        await persistState(refreshed.access_token, refreshed.user);
+        setAccessToken(refreshed.access_token);
+        return refreshed.access_token;
+      } catch (error) {
+        console.warn("[AuthContext] token refresh failed", error);
+        return null;
+      }
+    });
+    return () => configureTokenRefresh(null);
+  }, [persistState]);
 
   const bootstrap = useCallback(async () => {
     try {
