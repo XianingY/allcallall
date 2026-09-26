@@ -70,6 +70,32 @@ no-op there — always use `cd web && npm run typecheck`):
                            #   instead of silently skipping it.
   make web-contract-check  # web OpenAPI contract check
 
+## Architecture boundaries
+
+- Go backend (`backend/`) owns users, organizations, conversations, meetings,
+  transcripts, permissions, approvals, audit logs, and write execution.
+- Python runtime (`../allcallall-agent-runtime`) owns agent orchestration,
+  LangGraph workflows, RAG, rerank, grounding, traces, citations, tool
+  proposals, and evaluation.
+- `contracts/` in this repo holds legacy fixtures only; authoritative schemas
+  are generated and checked in the sibling repo via `make contracts-check`.
+
+## Security defaults
+
+- Production MUST use HTTPS; never serve the API over plain HTTP. Set
+  `SECURITY_REQUIRE_TLS=true` so the API rejects plaintext `/api/v1` traffic.
+  Health, readiness, status and metrics endpoints are registered on a route
+  group that does **not** apply this middleware, because kubelet probes talk
+  to the Pod IP without an `X-Forwarded-Proto` header.
+- Message privacy policies (retention TTL, envelope encryption, recall, search
+  minimization, erasure, moderation) are assembled in
+  `backend/internal/runtime/privacy.go`. Any new process must call
+  `ApplyPrivacyPolicies` so policy stays consistent across API and workers.
+- All secrets and keys come from environment variables; never hardcode
+  credentials or tokens. `configs/config.yaml` supports `${VAR}` (required,
+  fails startup when unset) and `${VAR:-default}` (optional).
+- Never commit `.env`, `.omo`, `.workbuddy`, or `output/`.
+
 ## Conventions
 
 - Write clear, descriptive commit messages.
@@ -85,5 +111,6 @@ no-op there — always use `cd web && npm run typecheck`):
 
 - `docs/README.md` — maintained documentation set.
 - `INDEX.md` — cross-repo index covering this repo and `allcallall-agent-runtime`.
-- `docs/reference/AGENTS.md` — compatibility pointer kept for old links; this
-  root file is the single source of truth.
+- `CLAUDE.md` and `docs/reference/AGENTS.md` — compatibility pointers kept for
+  old links and tooling conventions. **This root file is the single source of
+  truth**; anything the pointers say that conflicts with it is out of date.
