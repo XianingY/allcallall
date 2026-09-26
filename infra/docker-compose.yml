@@ -443,7 +443,7 @@ services:
       - allcallall_network
 
   nginx:
-    image: nginx:latest
+    image: nginx:1.29-alpine
     ports:
       - "80:80"
       - "443:443"
