@@ -1,9 +1,20 @@
-const { app, BrowserWindow, Menu, Notification, session, shell } = require("electron");
+const { app, BrowserWindow, dialog, Menu, Notification, session, shell } = require("electron");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
 const BASE_WEB_URL = process.env.ALLCALLALL_WEB_URL || "http://localhost:5173";
+
+// A packaged app that was built without ALLCALLALL_WEB_URL silently points at
+// the dev server on localhost and shows an empty white window, with nothing
+// in the UI explaining why. Say so at startup so the cause is visible.
+if (app.isPackaged && (BASE_WEB_URL.includes("localhost") || BASE_WEB_URL.includes("127.0.0.1"))) {
+  console.error(
+    "[AllCallAll] ALLCALLALL_WEB_URL is not set or still points at localhost (" +
+      BASE_WEB_URL + "). The packaged app will not be able to load. Set it to the " +
+      "production web origin at build time."
+  );
+}
 
 const { createRouteHelpers } = require("./route-utils.cjs");
 
@@ -103,7 +114,54 @@ function createWindow() {
     },
   });
 
-  mainWindow.loadURL(routeURL("/meetings"));
+  // Loading is the one failure path a React error boundary cannot catch: if
+  // the web origin is unreachable the window is simply blank. Retry with a
+  // short backoff first (covers a server that is still starting up), then ask
+  // the user, because a white window with no explanation is unrecoverable
+  // from the user's side.
+  let loadAttempt = 0;
+  const loadApp = () => {
+    loadAttempt += 1;
+    mainWindow.loadURL(routeURL("/meetings")).catch((error) => {
+      console.error("[AllCallAll] loadURL failed:", error);
+    });
+  };
+  loadApp();
+
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, _url, isMainFrame) => {
+    if (!isMainFrame) {
+      return;
+    }
+    // ERR_ABORTED (-3) happens on normal navigation away; not a failure.
+    if (errorCode === -3) {
+      return;
+    }
+    if (loadAttempt <= 3) {
+      const delay = loadAttempt * 1000;
+      console.warn(`[AllCallAll] load failed (${errorDescription}); retrying in ${delay}ms`);
+      setTimeout(loadApp, delay);
+      return;
+    }
+    dialog
+      .showMessageBox(mainWindow, {
+        type: "error",
+        title: "无法加载 AllCallAll",
+        message: `无法连接到 ${BASE_WEB_URL}`,
+        detail: `${errorDescription}（错误码 ${errorCode}）\n\n请确认 Web 服务可访问；若这是自建部署，检查 ALLCALLALL_WEB_URL 配置。`,
+        buttons: ["重试", "退出"],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        if (response === 0) {
+          loadAttempt = 0;
+          loadApp();
+          return;
+        }
+        app.quit();
+      })
+      .catch(() => {});
+  });
 
   // 按"请求来源 + 权限类型"白名单放行：只有来自本应用 Web 资源的音视频请求才通过，
   // 其余（定位、通知、剪贴板读取、屏幕捕获等）一律拒绝。
