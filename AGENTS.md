@@ -61,7 +61,13 @@ no-op there — always use `cd web && npm run typecheck`):
   make lint                # go vet + check-unbounded-find (backend) + npm run lint (web)
   make test                # backend + web + mobile test suites
   make test-backend        # cd backend && go test ./...
-  make verify              # backend tests + web/mobile typecheck + python pytest
+  make verify              # backend tests + web/mobile typecheck (+ python when the
+                           #   sibling repo is present). Quick, but NOT complete:
+                           #   no lint, no web/mobile test suites.
+  make verify-full         # what "ready to merge" means: build + vet + the pagination
+                           #   gate + every test suite + lint on all three clients +
+                           #   python pytest. Fails if the sibling repo is missing
+                           #   instead of silently skipping it.
   make web-contract-check  # web OpenAPI contract check
 
 ## Conventions

@@ -318,7 +318,10 @@ web-performance-check:
 	cd web && npm run build && npm run bundle:budget
 
 verify:
-	@echo "Running verification suite..."
+	@echo "Running verification suite (backend tests + typechecks)..."
+	@echo "NOTE: this does NOT run lint, the web/mobile test suites, or the"
+	@echo "      Python runtime tests. Use 'make verify-full' before declaring"
+	@echo "      a change ready - see AGENTS.md."
 	cd backend && go test ./...
 	cd web && npm run typecheck
 	cd mobile && npm run typecheck
@@ -326,9 +329,35 @@ verify:
 		cd allcallall-agent-runtime/services/agent-runtime && pytest; \
 		cd "$(CURDIR)/allcallall-agent-runtime/services/rag-runtime" && pytest; \
 	else \
-		echo "allcallall-agent-runtime not checked out; skipping Python runtime tests."; \
-		echo "Clone it as a sibling directory to include them (see AGENTS.md)."; \
+		echo "NOTICE: allcallall-agent-runtime is not checked out, so the Python"; \
+		echo "        runtime tests did NOT run. An all-green 'make verify' here"; \
+		echo "        is not a pass. Clone it as a sibling directory (AGENTS.md),"; \
+		echo "        or run 'make verify-full', which fails on the missing repo."; \
 	fi
+
+# verify-full is what "ready to merge" should mean: build, vet, the pagination
+# gate, every test suite, lint on all three clients, and the Python runtime
+# tests - with no silent skips.
+verify-full:
+	@echo "Running the FULL verification suite..."
+	cd backend && go build ./...
+	cd backend && go vet ./...
+	cd backend && go run ./cmd/check-unbounded-find
+	cd backend && go test ./internal/...
+	cd web && npm run typecheck
+	cd web && npm run lint
+	cd web && npx vitest run
+	cd mobile && npm run typecheck
+	cd mobile && npm run lint
+	cd mobile && npm test
+	@if [ ! -d allcallall-agent-runtime ]; then \
+		echo "ERROR: allcallall-agent-runtime is required for verify-full."; \
+		echo "       Clone it as a sibling directory (see AGENTS.md)."; \
+		exit 1; \
+	fi
+	cd allcallall-agent-runtime/services/agent-runtime && pytest
+	cd "$(CURDIR)/allcallall-agent-runtime/services/rag-runtime" && pytest
+	@echo "verify-full passed."
 
 # ===========================
 # Development Commands
