@@ -18,6 +18,7 @@ jobs:
   python-runtimes:
     name: Python (${{ matrix.runtime }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -55,6 +56,7 @@ jobs:
   mysql-checkpoint-contract:
     name: MySQL Checkpoint and Idempotency Contract
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       mysql:
         image: mysql:8.0
@@ -121,6 +123,7 @@ jobs:
   sandbox-go:
     name: Sandbox Control Plane (Go)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/checkout@v7
@@ -165,6 +168,7 @@ jobs:
   openapi-drift:
     name: OpenAPI Contract Drift
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
@@ -186,6 +190,7 @@ jobs:
   helm:
     name: Helm and Kubernetes Schema
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: azure/setup-helm@v5.0.1
@@ -314,6 +319,7 @@ jobs:
   images:
     name: Build and scan (${{ matrix.name }})
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

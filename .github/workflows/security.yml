@@ -31,6 +31,7 @@ jobs:
     # Only meaningful on PR/push diffs; on a schedule we don't want to scan all history.
     if: ${{ github.event_name != 'schedule' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
@@ -49,6 +50,7 @@ jobs:
     # weekly schedule and on manual dispatch.
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
 
