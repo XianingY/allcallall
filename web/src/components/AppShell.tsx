@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Blocks, Bot, Building2, CalendarDays, ContactRound, FileAudio, Inbox, LogOut, Menu, PhoneCall, Settings, Target, X, ListTodo, BookOpen } from "lucide-react";
+import { AlertCircle, Blocks, Bot, Building2, CalendarDays, ContactRound, FileAudio, Inbox, LogOut, Menu, PhoneCall, Settings, Target, X, ListTodo, BookOpen } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import clsx from "clsx";
@@ -11,17 +11,17 @@ import { PushNotificationBridge } from "@/platform/PushNotificationBridge";
 
 const nav = [
   ["/inbox", "nav.inbox", Inbox], ["/meetings", "nav.meetings", CalendarDays],
-  ["/agent-lab", "nav.agent", Bot], ["/agent-tools", "Agent 工具", Blocks], ["/knowledge", "nav.knowledge", BookOpen],
+  ["/agent-lab", "nav.agent", Bot], ["/agent-tools", "nav.agentTools", Blocks], ["/knowledge", "nav.knowledge", BookOpen],
   ["/contacts", "nav.contacts", ContactRound], ["/deals", "nav.deals", Target],
-  ["/recordings", "nav.recordings", FileAudio], ["/follow-ups", "nav.followups", ListTodo], ["/calls", "通话历史", PhoneCall],
-  ["/organizations", "组织", Building2], ["/settings", "nav.settings", Settings],
+  ["/recordings", "nav.recordings", FileAudio], ["/follow-ups", "nav.followups", ListTodo], ["/calls", "nav.callHistory", PhoneCall],
+  ["/organizations", "nav.organizations", Building2], ["/settings", "nav.settings", Settings],
 ] as const;
 
 export function AppShell() {
   const [open, setOpen] = useState(false);
   const { t } = useTranslation();
   const { user, logout } = useAuth();
-  const { organizations, activeOrganization, select } = useOrganization();
+  const { organizations, activeOrganization, select, error: organizationsError, retry: retryOrganizations } = useOrganization();
   const chatConnected = useChatConnected();
   return (
     <div className="min-h-screen bg-canvas text-ink">
@@ -36,14 +36,33 @@ export function AppShell() {
           <button className="icon-button lg:hidden" aria-label="关闭导航" onClick={() => setOpen(false)}><X size={19} /></button>
         </div>
         <div className="border-b border-line p-3">
-          <label className="workspace-picker"><span>当前组织</span><select aria-label="当前组织" value={activeOrganization?.id ?? ""} onChange={(event) => void select(Number(event.target.value))}>{organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          {organizationsError ? (
+            <p className="text-xs text-danger">组织列表加载失败</p>
+          ) : organizations.length === 0 ? (
+            <p className="text-xs text-muted">暂无组织</p>
+          ) : (
+            <label className="workspace-picker"><span>当前组织</span><select aria-label="当前组织" value={activeOrganization?.id ?? ""} onChange={(event) => void select(Number(event.target.value))}>{organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          )}
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto p-3" aria-label="主导航">
           {nav.map(([to, label, Icon]) => <NavLink key={to} to={to} onClick={() => setOpen(false)} className={({ isActive }) => clsx("nav-link", isActive && "nav-link-active")}><Icon size={18} /><span>{label.startsWith("nav.") ? t(label) : label}</span></NavLink>)}
         </nav>
         <div className="sidebar-account"><div className="account-avatar">{user?.display_name.slice(0, 1).toUpperCase()}</div><div className="min-w-0 flex-1"><strong>{user?.display_name}</strong><span>{user?.email}</span></div><button className="icon-button" title="退出" aria-label="退出" onClick={() => void logout()}><LogOut size={17} /></button></div>
       </aside>
-      <main className="min-h-screen pt-14 lg:ml-60 lg:pt-0"><Outlet /></main>
+      <main className="min-h-screen pt-14 lg:ml-60 lg:pt-0">
+        {/* Every page query is gated on the active organization, so a failed
+            organization request blanked out the whole app while the user was
+            still logged in - looking like "no data" instead of "request
+            failed". Surface it with a way out. */}
+        {organizationsError ? (
+          <div className="page-state text-danger" role="alert">
+            <AlertCircle size={18} />
+            <span>组织信息加载失败：{organizationsError.message}</span>
+            <button className="button-secondary" onClick={retryOrganizations}>重试</button>
+          </div>
+        ) : null}
+        <Outlet />
+      </main>
       <CallOverlay />
       <PushNotificationBridge />
     </div>

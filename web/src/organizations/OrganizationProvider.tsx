@@ -38,6 +38,12 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
     return organization;
   }, [queryClient, select]);
 
-  const value = useMemo(() => ({ organizations, activeOrganization, loading: query.isLoading, select, create }), [organizations, activeOrganization, query.isLoading, select, create]);
+  const retry = useCallback(() => {
+    void query.refetch();
+  }, [query]);
+
+  const error = query.error instanceof Error ? query.error : query.error ? new Error(String(query.error)) : null;
+
+  const value = useMemo(() => ({ organizations, activeOrganization, loading: query.isLoading, error, retry, select, create }), [organizations, activeOrganization, query.isLoading, error, retry, select, create]);
   return <OrganizationContext.Provider value={value}>{children}</OrganizationContext.Provider>;
 }

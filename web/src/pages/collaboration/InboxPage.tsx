@@ -41,7 +41,7 @@ import {
 } from "@/api/collaboration";
 import { createRoom } from "@/api/meetings";
 import { useAuth } from "@/auth/AuthContext";
-import { PageError, PageLoading } from "@/components/PageState";
+import { PageEmpty, PageError, PageLoading } from "@/components/PageState";
 import { useOrganization } from "@/organizations/OrganizationContext";
 import { formatTime } from "@/pages/collaboration/InboxFormat";
 import { MessageBubble, Metric, NewConversationDialog } from "@/pages/collaboration/InboxParts";
@@ -57,7 +57,19 @@ export function InboxPage() {
   const { user } = useAuth();
   const { activeOrganization } = useOrganization();
   const orgId = activeOrganization?.id;
-  const [filter, setFilter] = useState("");
+  // Two separate pieces of state, because `filter` is a server-side status
+  // enum (my/open/pending/resolved/channels - see collaboration
+  // conversation_service.go). It was previously shared with the search box,
+  // so typing in the box sent a free-text value the backend does not
+  // recognise, which silently degrades to "all" - search did nothing. The
+  // tabs also passed "unread", which is not in that enum either.
+  //
+  // `status` goes to the server; `keyword` and `unreadOnly` filter the loaded
+  // pages on the client, which also stops every keystroke from issuing a
+  // request.
+  const [status, setStatus] = useState("");
+  const [keyword, setKeyword] = useState("");
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [composer, setComposer] = useState("");
   const [note, setNote] = useState("");
   const [creating, setCreating] = useState(false);
@@ -69,8 +81,8 @@ export function InboxPage() {
   const fileInput = useRef<HTMLInputElement>(null);
 
   const conversations = useInfiniteQuery({
-    queryKey: ["organizations", orgId, "conversations", filter],
-    queryFn: ({ pageParam }) => listConversations(filter, { limit: PAGE_SIZE, offset: pageParam }),
+    queryKey: ["organizations", orgId, "conversations", status],
+    queryFn: ({ pageParam }) => listConversations(status, { limit: PAGE_SIZE, offset: pageParam }),
     initialPageParam: 0 as number,
     getNextPageParam: (lastPage) => (lastPage.pagination.has_more ? lastPage.pagination.offset + lastPage.pagination.limit : undefined),
     maxPages: 20,
@@ -86,6 +98,16 @@ export function InboxPage() {
   });
   const pins = useQuery({ queryKey: ["organizations", orgId, "conversations", selectedId, "pins"], queryFn: () => listPinnedMessages(selectedId!), enabled: Boolean(orgId && selectedId) });
   const notes = useQuery({ queryKey: ["organizations", orgId, "conversations", selectedId, "notes"], queryFn: () => listNotes(selectedId!), enabled: Boolean(orgId && selectedId) });
+
+  const visibleConversations = useMemo(() => {
+    const loaded = (conversations.data?.pages ?? []).flatMap((page) => page.conversations);
+    const needle = keyword.trim().toLowerCase();
+    return loaded.filter((item) => {
+      if (unreadOnly && !(item.unread_count > 0)) return false;
+      if (!needle) return true;
+      return `${item.title} ${item.last_message_preview ?? ""} ${item.topic ?? ""}`.toLowerCase().includes(needle);
+    });
+  }, [conversations.data?.pages, keyword, unreadOnly]);
 
   const messageItems = useMemo(() => {
     const pages = messages.data?.pages ?? [];
@@ -162,9 +184,18 @@ export function InboxPage() {
   return <div className={`inbox-layout ${selectedId ? "inbox-selected" : ""}`}>
     <aside className="conversation-list">
       <header className="workspace-pane-header"><div><span className="eyebrow">Workspace</span><h1>Inbox</h1></div><NewConversationDialog open={creating} onOpenChange={setCreating} orgId={orgId} onCreated={(id) => navigate(`/conversations/${id}`)} /></header>
-      <div className="search-field"><Search size={16} /><input aria-label="搜索会话" placeholder="搜索会话" value={filter} onChange={(event) => setFilter(event.target.value)} /></div>
-      <div className="filter-tabs"><button className={!filter ? "active" : ""} onClick={() => setFilter("")}>全部</button><button className={filter === "unread" ? "active" : ""} onClick={() => setFilter("unread")}>未读</button><button className={filter === "open" ? "active" : ""} onClick={() => setFilter("open")}>处理中</button></div>
-      {conversations.isLoading ? <PageLoading /> : conversations.isError ? <PageError error={conversations.error} /> : <div className="conversation-items">{(conversations.data?.pages ?? []).flatMap((page) => page.conversations).map((item) => <Link key={item.id} to={`/conversations/${item.id}`} className={`conversation-item ${selectedId === item.id ? "conversation-item-active" : ""}`}><div className="conversation-avatar">{item.title.slice(0, 1).toUpperCase()}</div><div className="conversation-copy"><div><strong>{item.title}</strong><time>{formatTime(item.last_message_at)}</time></div><p>{item.last_message_preview || item.topic || "暂无消息"}</p><span>{item.priority}</span></div>{item.unread_count > 0 && <b className="unread-count">{item.unread_count}</b>}</Link>)}</div>}
+      <div className="search-field"><Search size={16} /><input aria-label="搜索会话" placeholder="搜索会话" value={keyword} onChange={(event) => setKeyword(event.target.value)} /></div>
+      <div className="filter-tabs">
+        <button className={!status && !unreadOnly ? "active" : ""} onClick={() => { setStatus(""); setUnreadOnly(false); }}>全部</button>
+        {/* "未读" has no server-side equivalent, so it filters locally. */}
+        <button className={unreadOnly ? "active" : ""} onClick={() => { setUnreadOnly(true); setStatus(""); }}>未读</button>
+        <button className={status === "my" ? "active" : ""} onClick={() => { setStatus("my"); setUnreadOnly(false); }}>我的</button>
+        <button className={status === "open" ? "active" : ""} onClick={() => { setStatus("open"); setUnreadOnly(false); }}>处理中</button>
+        <button className={status === "pending" ? "active" : ""} onClick={() => { setStatus("pending"); setUnreadOnly(false); }}>待处理</button>
+        <button className={status === "resolved" ? "active" : ""} onClick={() => { setStatus("resolved"); setUnreadOnly(false); }}>已解决</button>
+        <button className={status === "channels" ? "active" : ""} onClick={() => { setStatus("channels"); setUnreadOnly(false); }}>频道</button>
+      </div>
+      {conversations.isLoading ? <PageLoading /> : conversations.isError ? <PageError error={conversations.error} /> : visibleConversations.length === 0 ? <PageEmpty label={keyword || unreadOnly ? "没有匹配的会话" : "还没有会话"} hint={keyword || unreadOnly ? "换个关键词，或清除筛选条件" : "新建会话开始协作，或邀请联系人加入组织"} action={keyword || unreadOnly ? <button className="button-secondary" onClick={() => { setKeyword(""); setUnreadOnly(false); setStatus(""); }}>清除筛选</button> : <button className="button-secondary" onClick={() => setCreating(true)}>新建会话</button>} /> : <div className="conversation-items">{visibleConversations.map((item) => <Link key={item.id} to={`/conversations/${item.id}`} className={`conversation-item ${selectedId === item.id ? "conversation-item-active" : ""}`}><div className="conversation-avatar">{item.title.slice(0, 1).toUpperCase()}</div><div className="conversation-copy"><div><strong>{item.title}</strong><time>{formatTime(item.last_message_at)}</time></div><p>{item.last_message_preview || item.topic || "暂无消息"}</p><span>{item.priority}</span></div>{item.unread_count > 0 && <b className="unread-count">{item.unread_count}</b>}</Link>)}</div>}
       {conversations.data?.pages?.length ? <div className="conversation-list-footer"><span>共 {(conversations.data.pages[conversations.data.pages.length - 1]?.pagination.total ?? 0)} 个会话</span>{conversations.hasNextPage ? <button className="button-secondary" disabled={conversations.isFetchingNextPage} onClick={() => void conversations.fetchNextPage()}>加载更多</button> : null}</div> : null}
     </aside>
     <main className="message-pane">

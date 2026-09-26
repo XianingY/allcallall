@@ -36,7 +36,10 @@
   .status-error { @apply rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800; }
   .status-success { @apply rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800; }
   .button-row { @apply flex flex-wrap items-center gap-2; }
-  .page-state { @apply flex min-h-32 items-center justify-center gap-2 text-sm text-muted; }
+  /* Empty/error/loading placeholder. `flex-col` so a hint can sit under the
+     label and an action under that, instead of one cramped line. */
+  .page-state { @apply flex min-h-32 flex-col items-center justify-center gap-2 text-sm text-muted; }
+  .page-state-hint { @apply text-xs text-muted/80; }
   .inline-empty { @apply rounded-md border border-dashed border-line p-6 text-center text-sm text-muted; }
 }
 
