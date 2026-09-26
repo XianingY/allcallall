@@ -619,9 +619,16 @@ func TestExecutionEnforcesTimeoutAndOutputLimit(t *testing.T) {
 		execution  func(context.Context, ExecutionRequest) (ExecutionResult, error)
 		wantError  error
 		wantStatus string
+		// Only the timeout case wants a tiny budget. The others assert a
+		// specific error and must not have the context expire first: under
+		// load (a full `go test ./internal/...` run) 5ms is easily spent
+		// before the sandbox call even starts, and the case fails with
+		// DeadlineExceeded instead of the error it is checking.
+		timeout time.Duration
 	}{
 		{
-			name: "timeout",
+			name:    "timeout",
+			timeout: 5 * time.Millisecond,
 			execution: func(ctx context.Context, _ ExecutionRequest) (ExecutionResult, error) {
 				<-ctx.Done()
 				return ExecutionResult{}, ctx.Err()
@@ -630,7 +637,8 @@ func TestExecutionEnforcesTimeoutAndOutputLimit(t *testing.T) {
 			wantStatus: models.MCPExecutionStatusTimedOut,
 		},
 		{
-			name: "oversized output",
+			name:    "oversized output",
+			timeout: 10 * time.Second,
 			execution: func(context.Context, ExecutionRequest) (ExecutionResult, error) {
 				return ExecutionResult{Output: map[string]any{"value": strings.Repeat("x", DefaultOutputLimit)}}, nil
 			},
@@ -638,7 +646,8 @@ func TestExecutionEnforcesTimeoutAndOutputLimit(t *testing.T) {
 			wantStatus: models.MCPExecutionStatusFailed,
 		},
 		{
-			name: "outcome unknown",
+			name:    "outcome unknown",
+			timeout: 10 * time.Second,
 			execution: func(context.Context, ExecutionRequest) (ExecutionResult, error) {
 				return ExecutionResult{
 					Status:       SandboxExecutionStatusOutcomeUnknown,
@@ -664,7 +673,7 @@ func TestExecutionEnforcesTimeoutAndOutputLimit(t *testing.T) {
 				t.Fatal(err)
 			}
 			sandbox.execute = testCase.execution
-			service.executionTimeout = 5 * time.Millisecond
+			service.executionTimeout = testCase.timeout
 			executionID := "execution-" + strings.ReplaceAll(testCase.name, " ", "-")
 			input := ExecuteInput{
 				ExecutionID:    executionID,
