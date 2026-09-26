@@ -17,6 +17,13 @@ CI (`platform-ci.yml`).
 
 ## Build & test commands
 
+**Dependency installs always run from the repository root.** This is an npm
+workspaces repo and the root `package-lock.json` is the single source of
+truth. `web/` and `mobile/` used to carry their own lockfiles; they were
+removed because nothing consumed them (CI runs `npm ci` at the root) and they
+had drifted out of sync with the root one — a workspace lock is worse than no
+lock when it disagrees.
+
 Backend:
   cd backend && go build ./...
   cd backend && go test ./internal/...
