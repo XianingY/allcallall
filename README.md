@@ -245,7 +245,7 @@ Message handling follows a WeChat-style "transit, not archive" model, aligned wi
 | Audit retention | `internal/collaboration/audit_retention.go` | A worker purges organization audit events older than `AUDIT_LOG_RETENTION_DAYS` in batches. |
 | Identity verification | `models.User.IdentityVerified` | When an organization sets `RequireIdentityVerification`, unverified users are rejected at invite acceptance with `ErrIdentityVerificationRequired`. |
 
-Related migrations: `000009_message_retention` through `000013_identity_binding`. Bump `currentSchemaVersion` in `internal/runtime/migrations.go` and the assertion in `migrations_test.go` whenever a migration is added.
+Related migrations: `000009_message_retention` through `000014_org_commerce`. Bump `currentSchemaVersion` in `internal/runtime/migrations.go` and the assertion in `migrations_test.go` whenever a migration is added.
 
 ## Documentation
 

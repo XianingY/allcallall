@@ -113,7 +113,11 @@ The Python runtime lives in `../allcallall-agent-runtime` (must be checked out a
 - Web config: production runtime `/config.js` generated from `PUBLIC_*`, `FIREBASE_*`, and `REVENUECAT_PUBLIC_API_KEY`.
 - Mobile native config: only `EXPO_PUBLIC_*`; `APP_ENV` is historical.
 - Push: `FCM_SERVICE_ACCOUNT_PATH` enables real Firebase Admin SDK delivery; Web Push additionally requires Firebase Web public config and VAPID key.
-- Kubernetes: intentionally not implemented in this stage.
+- Kubernetes: a Helm chart exists at `infra/helm/allcallall/` (backend, web,
+  sandbox runtimes, migration hook, HPA, PDB, NetworkPolicies). It passes
+  `helm lint` and renders cleanly, but has **not** been exercised against a
+  live cluster yet — treat it as reviewed-but-unproven. The older
+  `infra/k8s/` manifests are a separate, thinner path kept for reference.
 
 ## Documentation Maintenance Rules
 
@@ -124,5 +128,7 @@ The Python runtime lives in `../allcallall-agent-runtime` (must be checked out a
 - Do not describe FCM as a placeholder; it is real when `FCM_SERVICE_ACCOUNT_PATH` is configured.
 - Do not describe Expo Web as the primary Web client; `web/` is now authoritative for browser production.
 - Do not claim Kafka/Elasticsearch live smoke has run unless the optional Compose profiles were actually started.
+- Do not describe Kubernetes as unimplemented; the Helm chart exists. Do not describe it as production-proven until it has been deployed to a real cluster.
+- When adding a migration, update the range quoted in `README.md` (currently `000009` through `000014`).
 - When adding backend entrypoints, update `backend/README.md`, `docs/interview/worker-runtime.md`, and `docs/interview/api-surface.md`.
 - When adding models, outbox events, or Agent context sources, update `docs/api/database.md`, `docs/interview/system-design.md`, and `docs/interview/ai-agent-design.md`.
