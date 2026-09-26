@@ -34,6 +34,23 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const state = useCallStore.getState(); state.localStream?.getTracks().forEach((track) => track.stop()); state.remoteStream?.getTracks().forEach((track) => track.stop()); state.reset();
   }, []);
 
+  // Re-offer with a fresh ICE credential pair and send it to the peer. An ICE
+  // restart that stays local accomplishes nothing: the remote side has to
+  // learn the new offer, which is why this needs the call.sdp.offer message.
+  const restartIce = useCallback(async () => {
+    const connection = peer.current;
+    const state = useCallStore.getState();
+    if (!connection || !state.callId || !state.peerEmail) return;
+    const offer = await connection.createOffer({ iceRestart: true });
+    await connection.setLocalDescription(offer);
+    send({
+      type: "call.sdp.offer",
+      call_id: state.callId,
+      to: state.peerEmail,
+      payload: { type: offer.type, sdp: offer.sdp },
+    });
+  }, [send]);
+
   const createPeer = useCallback(async () => {
     const config = await getWebRTCConfig().catch(() => ({ ice_servers: [] as RTCIceServer[] }));
     const connection = new RTCPeerConnection({ iceServers: config.ice_servers });
@@ -50,18 +67,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (connection.connectionState === "disconnected") useCallStore.getState().patch({ status: "reconnecting" });
       if (connection.connectionState === "failed") useCallStore.getState().patch({ status: "failed", error: t("call.error.mediaFailed") });
     };
-    // "reconnecting" used to be a dead end: nothing ever acted on it. No
-    // restart handler here because the 1:1 signalling channel has no
-    // sdp.offer message type yet - see backend signaling hub_dispatch.
-    // Recovery watches state, lets ICE heal if it can, and reports an honest
-    // failure at the deadline instead of hanging in "reconnecting".
+    // "reconnecting" used to be a dead end: nothing ever acted on it.
+    // Now the caller performs a real ICE restart, twice at most, and reports
+    // an honest failure at the deadline instead of hanging in "reconnecting".
     recovery.current = attachIceRecovery(connection, {
       role: "caller",
+      restart: restartIce,
+      onRecovering: () => useCallStore.getState().patch({ status: "reconnecting" }),
       onRecovered: () => useCallStore.getState().patch({ status: "connected" }),
       onFailed: () => useCallStore.getState().patch({ status: "failed", error: t("call.error.mediaFailed") }),
     });
     return connection;
-  }, [send, t]);
+  }, [restartIce, send, t]);
 
   const localMedia = useCallback(async (video = false, deviceId?: string) => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: deviceId ? { deviceId: { exact: deviceId } } : true, video });
@@ -85,6 +102,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         const candidate = message.payload as RTCIceCandidateInit;
         if (peer.current?.remoteDescription) await peer.current.addIceCandidate(candidate);
         else pendingCandidates.current.push(candidate);
+      } else if (message.type === "call.sdp.offer" && peer.current) {
+        // Peer is renegotiating (usually an ICE restart). Answer it.
+        await peer.current.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
+        const answer = await peer.current.createAnswer();
+        await peer.current.setLocalDescription(answer);
+        send({
+          type: "call.sdp.answer",
+          call_id: message.call_id ?? state.callId,
+          to: message.from ?? state.peerEmail,
+          payload: { type: answer.type, sdp: answer.sdp },
+        });
+      } else if (message.type === "call.sdp.answer" && peer.current) {
+        await peer.current.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
+      } else if (message.type === "call.ice-restart.request") {
+        // Only the offerer can restart safely, so the callee asks us to do it.
+        await restartIce();
       } else if (message.type === "call.reject" || message.type === "call.end") {
         cleanup();
       } else if (message.type === "call.error") {
@@ -93,7 +126,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       state.patch({ status: "failed", error: error instanceof Error ? error.message : t("call.error.invalidState") });
     }
-  }, [cleanup, send, t]);
+  }, [cleanup, restartIce, send, t]);
 
   useEffect(() => {
     if (authStatus !== "authenticated") return;

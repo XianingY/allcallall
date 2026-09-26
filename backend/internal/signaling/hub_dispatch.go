@@ -223,6 +223,17 @@ func (h *Hub) applyProtocolRules(msg *SignalMessage) (*SignalMessage, error) {
 		if len(msg.Payload) == 0 {
 			return nil, fmt.Errorf("payload required for ice candidate message")
 		}
+	case TypeCallSdpOffer, TypeCallSdpAnswer:
+		if msg.CallID == "" {
+			return nil, fmt.Errorf("call_id required for message type %s", msg.Type)
+		}
+		if len(msg.Payload) == 0 {
+			return nil, fmt.Errorf("payload required for message type %s", msg.Type)
+		}
+	case TypeCallIceRestartRequest:
+		if msg.CallID == "" {
+			return nil, fmt.Errorf("call_id required for message type %s", msg.Type)
+		}
 	default:
 		// Legacy types (offer/answer/etc.) are still allowed without additional validation.
 	}

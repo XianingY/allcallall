@@ -56,9 +56,18 @@ const (
 	TypeCallEnd       = "call.end"
 	TypeCallError     = "call.error"
 	TypeIceCandidate  = "ice.candidate"
-	TypeClientPing    = "client.ping"
-	TypeServerPong    = "server.pong"
-	TypeServerPing    = "server.ping"
+	// Renegotiation used by ICE restart. The pair mirrors the mobile client's
+	// protocol (useSignalingPeerConnection / useSignalingInbound), so a web and
+	// a mobile peer can recover a call together. A new offer must be carried to
+	// the other side - an ICE restart that stays local does nothing.
+	TypeCallSdpOffer  = "call.sdp.offer"
+	TypeCallSdpAnswer = "call.sdp.answer"
+	// Sent by the callee to ask the caller to perform the restart, since only
+	// the side that created the offer can safely re-offer.
+	TypeCallIceRestartRequest = "call.ice-restart.request"
+	TypeClientPing            = "client.ping"
+	TypeServerPong            = "server.pong"
+	TypeServerPing            = "server.ping"
 )
 
 const (
