@@ -26,20 +26,44 @@ Then open:
 - Grafana: http://localhost:3000 (default admin/admin; override with
   `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`)
 - Prometheus: http://localhost:9090
-- Alertmanager: http://localhost:9093
+- Alertmanager: http://localhost:9093 — only when started with
+  `--profile alerting`, see below
 
 ## Alerting
+
+Alertmanager sits behind a Compose profile, because without a real
+notification channel it is worse than nothing: it looks like alerting is
+wired up while every alert is quietly discarded.
+
+```bash
+docker compose -f infra/docker-compose.production.yml \
+               -f infra/docker-compose.observability.yml \
+               --profile alerting up -d
+```
 
 Rules live in `infra/observability/alert.rules.yml` and are evaluated by
 Prometheus, which forwards firing alerts to Alertmanager. Routing and
 receivers live in `infra/observability/alertmanager.yml`.
 
-> **Alerting is not done until a receiver actually delivers.** The shipped
-> receivers read their webhook URL from the environment and fall back to a
-> placeholder that goes nowhere. Set `ALERTMANAGER_WEBHOOK_URL` (and the
-> `_CRITICAL` / `_SECURITY` variants) to a real endpoint, otherwise alerts are
-> evaluated and dropped — rules firing into a receiver nobody reads is the same
-> silence as having no rules.
+> **The container refuses to start without a webhook URL.** It checks
+> `ALERTMANAGER_WEBHOOK_URL`, `ALERTMANAGER_WEBHOOK_URL_CRITICAL` and
+> `ALERTMANAGER_WEBHOOK_URL_SECURITY` on boot and exits with an explanation
+> if any is empty. This is deliberate: the previous default pointed at
+> `http://localhost:9094/`, which started cleanly, passed config validation,
+> and delivered nothing — indistinguishable from having no alerting, except
+> the dashboard looked guarded.
+
+Any endpoint that accepts Alertmanager's JSON payload works:
+
+| Channel | What to put in the variable |
+|---|---|
+| Slack | an incoming webhook, or a relay that reshapes the payload for Slack |
+| PagerDuty | `https://events.pagerduty.com/v2/enqueue` plus routing in PagerDuty |
+| Email | not supported by `webhook_configs`; edit `alertmanager.yml` to use `email_configs` with SMTP settings instead |
+| Generic | your own receiver; verify it with the smoke test below |
+
+Set them in `.env` (see `.env.template`). Prometheus still runs without the
+profile — it just logs that it cannot reach Alertmanager.
 
 Available rules (all expressions use metrics the backend really publishes):
 
@@ -58,16 +82,29 @@ breakage. Tighten them once you have a few weeks of baseline.
 
 ### Verify the chain end to end
 
+Do this once before believing the alerting works. "Prometheus shows the alert
+as firing" only proves the rule evaluated — delivery is a separate hop.
+
 ```bash
+# 0. Alertmanager actually came up (it exits if a webhook URL is missing)
+docker compose -f infra/docker-compose.production.yml \
+               -f infra/docker-compose.observability.yml \
+               --profile alerting ps alertmanager
+
 # 1. Prometheus loaded the rules and sees Alertmanager
 curl -s http://localhost:9090/api/v1/rules | jq '.data.groups[].rules[].name'
 curl -s http://localhost:9090/api/v1/alertmanagers | jq .
 
-# 2. Fire a test alert and confirm it is delivered to your channel
+# 2. Fire a test alert and confirm it IS DELIVERED to your channel.
+#    Seeing it in http://localhost:9093 is not the finish line.
 curl -XPOST http://localhost:9093/api/v2/alerts \
   -H 'Content-Type: application/json' \
   -d '[{"labels":{"alertname":"SmokeTest","severity":"warning","instance":"manual"}}]'
 ```
+
+If step 2 shows up in the Alertmanager UI but nothing arrives in Slack/mail,
+the rules are fine and the receiver is not — fix the webhook URL, do not
+touch the rules.
 
 ### Runbooks
 
