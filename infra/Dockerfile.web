@@ -22,3 +22,15 @@ RUN apk upgrade --no-cache
 COPY infra/nginx.tls.conf /etc/nginx/conf.d/default.conf
 COPY infra/web-runtime-config.sh /docker-entrypoint.d/40-allcallall-config.sh
 COPY --from=build /src/web/dist /usr/share/nginx/html
+
+# nginx master runs as root here because this config binds 443 to terminate
+# TLS for the Compose deployment. The Kubernetes path does not use this file:
+# the chart mounts its own config listening on 8080 and runs the container
+# with runAsNonRoot / runAsUser 101, so it is already unprivileged. If you
+# terminate TLS at the ingress or load balancer instead, switch both to
+# nginxinc/nginx-unprivileged and the 8080 config to drop root entirely.
+#
+# /health is served over plain HTTP by nginx.tls.conf so probes do not have to
+# follow a redirect onto a certificate they cannot verify.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1/health || exit 1
