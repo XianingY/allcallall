@@ -169,7 +169,18 @@ func (s *Service) accessSkill(ctx context.Context, organizationID, userID, skill
 	return &skill, role, nil
 }
 
+// validateSkillTools checks every tool a skill wants to bind.
+//
+// This used to query once per tool inside the loop (Take, then
+// accessInstallation, which itself queried the role and the installation), so
+// validating N tools cost ~3N queries. It now issues three queries total:
+// tools by id, installations by id, and the caller's organization role - the
+// same batching catalog.go already does.
+//
+// Error semantics are unchanged: a missing or inactive tool is ErrNotFound,
+// anything wrong with the installation or the caller's access is ErrForbidden.
 func (s *Service) validateSkillTools(ctx context.Context, organizationID, userID uint64, skillScope string, toolIDs []uint64) error {
+	unique := make([]uint64, 0, len(toolIDs))
 	seen := make(map[uint64]struct{}, len(toolIDs))
 	for _, toolID := range toolIDs {
 		if toolID == 0 {
@@ -179,12 +190,53 @@ func (s *Service) validateSkillTools(ctx context.Context, organizationID, userID
 			continue
 		}
 		seen[toolID] = struct{}{}
-		var tool models.MCPTool
-		if err := s.db.WithContext(ctx).Where("id = ? AND status = 'active'", toolID).Take(&tool).Error; err != nil {
-			return ErrNotFound
+		unique = append(unique, toolID)
+	}
+	if len(unique) == 0 {
+		return nil
+	}
+
+	var tools []models.MCPTool
+	if err := s.db.WithContext(ctx).
+		Where("id IN ? AND status = 'active'", unique).
+		Find(&tools).Error; err != nil {
+		return ErrNotFound
+	}
+	if len(tools) != len(unique) {
+		// At least one id was missing or not active.
+		return ErrNotFound
+	}
+
+	// Same behaviour as accessInstallation: a failing role lookup is reported
+	// as forbidden rather than leaking a database error to the caller.
+	if _, err := s.organizationRole(ctx, organizationID, userID); err != nil {
+		return ErrForbidden
+	}
+
+	installationIDs := make([]uint64, 0, len(tools))
+	for _, tool := range tools {
+		installationIDs = append(installationIDs, tool.InstallationID)
+	}
+	var installations []models.MCPInstallation
+	if err := s.db.WithContext(ctx).
+		Where("id IN ? AND organization_id = ? AND deleted_at IS NULL", installationIDs, organizationID).
+		Find(&installations).Error; err != nil {
+		return ErrForbidden
+	}
+	byID := make(map[uint64]models.MCPInstallation, len(installations))
+	for _, installation := range installations {
+		byID[installation.ID] = installation
+	}
+
+	for _, tool := range tools {
+		installation, ok := byID[tool.InstallationID]
+		if !ok {
+			return ErrForbidden
 		}
-		installation, _, err := s.accessInstallation(ctx, organizationID, userID, tool.InstallationID, false)
-		if err != nil || installation.ActiveRevisionID == nil || *installation.ActiveRevisionID != tool.RevisionID {
+		if installation.Scope == models.MCPInstallationScopePersonal && installation.OwnerUserID != userID {
+			return ErrForbidden
+		}
+		if installation.ActiveRevisionID == nil || *installation.ActiveRevisionID != tool.RevisionID {
 			return ErrForbidden
 		}
 		if skillScope == models.MCPInstallationScopeOrganization && installation.Scope != models.MCPInstallationScopeOrganization {
