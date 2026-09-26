@@ -62,15 +62,31 @@ func (s *BillingWebhookService) HandleRevenueCatWebhook(ctx context.Context, pay
 		PayloadJSON: string(raw),
 	}
 
+	// Every statement below must go through `repo`, not `s.repo`. The methods
+	// on s.repo each take their own connection from the pool, so using them
+	// here would run the whole handler outside the transaction and any failure
+	// would roll back nothing - leaving a committed event row with a NULL
+	// processed_at that makes every retry report "already processed" and
+	// silently drop the purchase.
 	return s.repo.RunInTransaction(ctx, func(tx *gorm.DB) error {
-		_, err := s.repo.GetBillingWebhookEvent(ctx, eventID)
-		if err == nil {
-			return ErrWebhookAlreadyProcessed
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
+		repo := s.repo.WithTx(tx)
 
-		if err := s.repo.CreateBillingWebhookEvent(ctx, eventRecord); err != nil {
+		existingEvent, err := repo.GetBillingWebhookEvent(ctx, eventID)
+		switch {
+		case err == nil:
+			// Only a finished event blocks a retry. A row with a NULL
+			// processed_at is a half-finished attempt from before this handler
+			// was transactional: reprocessing it is what recovers purchases
+			// that were already lost.
+			if existingEvent.ProcessedAt != nil {
+				return ErrWebhookAlreadyProcessed
+			}
+			eventRecord = existingEvent
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			if err := repo.CreateBillingWebhookEvent(ctx, eventRecord); err != nil {
+				return err
+			}
+		default:
 			return err
 		}
 
@@ -132,7 +148,7 @@ func (s *BillingWebhookService) HandleRevenueCatWebhook(ctx context.Context, pay
 		}
 
 		if entitlementName != models.EntitlementFree && status != "" {
-			existing, err := s.repo.GetEntitlementByType(ctx, userID, entitlementName)
+			existing, err := repo.GetEntitlementByType(ctx, userID, entitlementName)
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				existing = &models.UserEntitlement{
 					UserID:      userID,
@@ -147,13 +163,13 @@ func (s *BillingWebhookService) HandleRevenueCatWebhook(ctx context.Context, pay
 			existing.Status = status
 			existing.ExpiresAt = expiresAt
 			existing.LastSyncedAt = &now
-			if err := s.repo.SaveEntitlement(ctx, existing); err != nil {
+			if err := repo.SaveEntitlement(ctx, existing); err != nil {
 				return err
 			}
 		}
 
 		eventRecord.ProcessedAt = &now
-		return s.repo.SaveBillingWebhookEvent(ctx, eventRecord)
+		return repo.SaveBillingWebhookEvent(ctx, eventRecord)
 	})
 }
 

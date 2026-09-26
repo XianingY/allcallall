@@ -21,6 +21,18 @@ func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{db: db}
 }
 
+// WithTx returns a repository whose statements run on the given transaction.
+//
+// This exists because the default methods each open their own connection via
+// r.db: calling them inside RunInTransaction while ignoring the tx argument
+// silently runs everything outside the transaction, so a failure rolls back
+// nothing. Use the returned repository for every statement in the closure.
+func (r *Repository) WithTx(tx *gorm.DB) *Repository {
+	bound := *r
+	bound.db = tx
+	return &bound
+}
+
 // ─── LegalAcceptance ─────────────────────────────────────────────────────────
 
 // GetLegalAcceptance retrieves the legal acceptance record for a user.
