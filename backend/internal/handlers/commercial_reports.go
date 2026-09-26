@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -156,7 +157,8 @@ func (h *CommercialHandler) handleRevenueCatWebhook(c *gin.Context) {
 		return
 	}
 	authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
-	if authHeader != "Bearer "+expectedToken {
+	// Constant-time: this token authorises granting paid entitlements.
+	if subtle.ConstantTimeCompare([]byte(authHeader), []byte("Bearer "+expectedToken)) != 1 {
 		JSONErrorWithCode(c, http.StatusUnauthorized, "REVENUECAT_WEBHOOK_UNAUTHORIZED", "unauthorized webhook request")
 		return
 	}
