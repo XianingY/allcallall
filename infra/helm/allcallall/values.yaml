@@ -222,6 +222,41 @@ migration:
     requests: {cpu: 100m, memory: 128Mi}
     limits: {cpu: 500m, memory: 512Mi}
 
+# Automated MySQL backups. Enabled by default because a backup that nobody
+# scheduled is the same as having no backup - the script has always existed,
+# it just never ran. Disable only if you ship dumps from elsewhere.
+backup:
+  enabled: true
+  # Daily at 03:00 UTC. `Forbid` concurrency means a slow run never overlaps.
+  schedule: "0 3 * * *"
+  timeZone: "UTC"
+  image:
+    repository: mysql
+    tag: "8.4"
+    pullPolicy: IfNotPresent
+  dir: /var/backups/allcallall
+  retainDays: 30
+  # Fail the job when the archive is suspiciously small - an empty dump that
+  # reports success is worse than no backup, because it only surfaces on restore.
+  minDumpBytes: 1024
+  # Optional offsite copy, e.g. "rclone copy %s remote:allcallall-backups".
+  # Non-fatal: a flaky object store must not fail an otherwise good backup.
+  offsiteCmd: ""
+  backoffLimit: 2
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  persistence:
+    enabled: true
+    size: 20Gi
+    accessModes: [ReadWriteOnce]
+    # Empty string uses the cluster default StorageClass.
+    storageClassName: ""
+  # Used for /tmp and for the backup volume when persistence is disabled.
+  ephemeralSizeLimit: 2Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 1Gi}
+
 networkPolicy:
   enabled: true
   ingressControllerNamespace: ingress-nginx

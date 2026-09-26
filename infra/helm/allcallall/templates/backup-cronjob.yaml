@@ -1,0 +1,89 @@
+{{- if .Values.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "allcallall.fullname" . }}-backup
+  labels:
+    {{- include "allcallall.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  timeZone: {{ .Values.backup.timeZone | quote }}
+  # Never overlap runs: two concurrent dumps against the same primary is pure
+  # load with no benefit, and rotation could delete a directory still in use.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.backup.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.backup.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.backup.backoffLimit }}
+      template:
+        metadata:
+          labels:
+            {{- include "allcallall.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "backup") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "allcallall.serviceAccountName" (dict "root" . "component" "backup") }}
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            seccompProfile: {type: RuntimeDefault}
+          {{- with .Values.global.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 8 }}
+          {{- end }}
+          containers:
+            - name: backup
+              # Only needs the MySQL client, gzip and tar - no custom image to
+              # build or keep patched.
+              image: "{{ .Values.backup.image.repository }}:{{ .Values.backup.image.tag }}"
+              imagePullPolicy: {{ .Values.backup.image.pullPolicy }}
+              command: ["/bin/bash", "/scripts/backup.sh"]
+              securityContext:
+                {{- include "allcallall.containerSecurityContext" . | nindent 16 }}
+              env:
+                - name: MYSQL_DSN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.external.mysql.secretName }}
+                      key: {{ .Values.external.mysql.dsnKey }}
+                - name: BACKUP_DIR
+                  value: {{ .Values.backup.dir | quote }}
+                - name: RETAIN_DAYS
+                  value: {{ .Values.backup.retainDays | quote }}
+                - name: MIN_DUMP_BYTES
+                  value: {{ .Values.backup.minDumpBytes | quote }}
+                {{- with .Values.backup.offsiteCmd }}
+                - name: OFFSITE_CMD
+                  value: {{ . | quote }}
+                {{- end }}
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+                - name: backups
+                  mountPath: {{ .Values.backup.dir | quote }}
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+          volumes:
+            - name: script
+              configMap:
+                name: {{ include "allcallall.fullname" . }}-backup-script
+                defaultMode: 0555
+            - name: backups
+              {{- if .Values.backup.persistence.enabled }}
+              persistentVolumeClaim:
+                claimName: {{ include "allcallall.fullname" . }}-backup
+              {{- else }}
+              emptyDir:
+                sizeLimit: {{ .Values.backup.ephemeralSizeLimit }}
+              {{- end }}
+            - name: tmp
+              emptyDir:
+                sizeLimit: {{ .Values.backup.ephemeralSizeLimit }}
+{{- end }}

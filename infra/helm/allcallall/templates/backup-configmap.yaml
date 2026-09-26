@@ -1,0 +1,15 @@
+{{- if .Values.backup.enabled }}
+# The script is mounted rather than baked into an image so the chart stays the
+# single source of truth (scripts/backup.sh in this chart). Baking it in would
+# mean two copies that inevitably drift apart.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "allcallall.fullname" . }}-backup-script
+  labels:
+    {{- include "allcallall.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+data:
+  backup.sh: |
+{{ .Files.Get "scripts/backup.sh" | indent 4 }}
+{{- end }}

@@ -1,0 +1,18 @@
+{{- if and .Values.backup.enabled .Values.backup.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "allcallall.fullname" . }}-backup
+  labels:
+    {{- include "allcallall.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  accessModes:
+    {{- toYaml .Values.backup.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.backup.persistence.size }}
+  {{- with .Values.backup.persistence.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+{{- end }}
