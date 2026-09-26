@@ -1,0 +1,69 @@
+# Alertmanager routing for AllCallAll.
+#
+# ⚠️  THIS FILE DOES NOT DELIVER ALERTS UNTIL YOU FILL IN A NOTIFICATION
+#     CHANNEL. Rules that fire into a receiver nobody reads are the same
+#     silence as having no rules at all - the dashboard just looks guarded.
+#
+# Fill in at least one receiver below (Slack webhook, email, PagerDuty,
+# webhook...), then verify end to end before calling monitoring done:
+#
+#   docker compose -f infra/docker-compose.observability.yml restart alertmanager
+#   curl -s http://localhost:9093/api/v2/status | jq .
+#   # fire a test alert:
+#   curl -XPOST http://localhost:9093/api/v2/alerts -H 'Content-Type: application/json' \
+#     -d '[{"labels":{"alertname":"SmokeTest","severity":"warning","instance":"manual"}}]'
+#
+# See docs/observability.md#alerting for channel-specific setup.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # Critical pages go out fast and keep repeating until acknowledged.
+    - receiver: critical
+      matchers:
+        - severity = "critical"
+      group_wait: 10s
+      repeat_interval: 1h
+    - receiver: security
+      matchers:
+        - component = "auth"
+      group_wait: 30s
+
+receivers:
+  # Replace the webhook URL with your real endpoint, or swap in a
+  # slack_configs / email_configs / pagerduty_configs block.
+  # The URL is injected from the environment so no endpoint is hardcoded here.
+  - name: default
+    webhook_configs:
+      - url: "{{ env \"ALERTMANAGER_WEBHOOK_URL\" }}"
+        send_resolved: true
+
+  - name: critical
+    webhook_configs:
+      - url: "{{ env \"ALERTMANAGER_WEBHOOK_URL_CRITICAL\" }}"
+        send_resolved: true
+
+  - name: security
+    webhook_configs:
+      - url: "{{ env \"ALERTMANAGER_WEBHOOK_URL_SECURITY\" }}"
+        send_resolved: true
+
+inhibit_rules:
+  # A critical backlog makes the warning-level backlog alert noise.
+  - source_matchers:
+      - alertname = "OutboxBacklogCritical"
+    target_matchers:
+      - alertname = "OutboxBacklogHigh"
+    equal: ["instance"]
+  # If the backend is down entirely, its own sub-alerts are redundant.
+  - source_matchers:
+      - alertname = "BackendDown"
+    target_matchers:
+      - severity = "warning"
+    equal: ["instance"]

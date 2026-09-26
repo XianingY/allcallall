@@ -2,6 +2,19 @@ global:
   scrape_interval: 30s
   evaluation_interval: 30s
 
+# Alerting rules are evaluated by Prometheus and forwarded to Alertmanager.
+# Keep the expressions in sync with the metrics the backend actually emits -
+# see the comment at the top of alert.rules.yml.
+rule_files:
+  - /etc/prometheus/alert.rules.yml
+
+# Without this block Prometheus evaluates rules and then drops the alerts on
+# the floor: rules exist, nothing is ever delivered.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 scrape_configs:
   - job_name: backend
     metrics_path: /api/v1/metrics

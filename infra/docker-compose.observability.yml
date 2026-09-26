@@ -17,9 +17,32 @@ services:
       - --storage.tsdb.path=/prometheus
     volumes:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
       - prometheus_data:/prometheus
+    depends_on:
+      - alertmanager
     ports:
       - "9090:9090"
+    networks:
+      - allcallall_network
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    environment:
+      # Point these at a real endpoint, otherwise alerts are evaluated and
+      # dropped - see observability/alertmanager.yml.
+      ALERTMANAGER_WEBHOOK_URL: ${ALERTMANAGER_WEBHOOK_URL:-http://localhost:9094/}
+      ALERTMANAGER_WEBHOOK_URL_CRITICAL: ${ALERTMANAGER_WEBHOOK_URL_CRITICAL:-http://localhost:9094/}
+      ALERTMANAGER_WEBHOOK_URL_SECURITY: ${ALERTMANAGER_WEBHOOK_URL_SECURITY:-http://localhost:9094/}
+    volumes:
+      - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - "9093:9093"
     networks:
       - allcallall_network
     restart: unless-stopped
@@ -70,5 +93,6 @@ networks:
 
 volumes:
   prometheus_data:
+  alertmanager_data:
   loki_data:
   grafana_data:
