@@ -15,6 +15,10 @@ class AudioServiceWebRTC {
   private oscillator: any = null;
   private gainNode: any = null;
   private playingAudio: AudioType | null = null;
+  // Handle for the ringtone pulse timer. It must be cleared, otherwise every
+  // call leaves a 1-2Hz timer running forever on a singleton - which shows up
+  // as battery drain during long sessions.
+  private ringTimer: ReturnType<typeof setInterval> | null = null;
 
   private constructor() {
     if (Platform.OS === "web") {
@@ -103,7 +107,8 @@ class AudioServiceWebRTC {
         this.oscillator.start();
 
         // 间歇性播放
-        setInterval(() => {
+        this.clearRingTimer();
+        this.ringTimer = setInterval(() => {
           if (this.gainNode && this.playingAudio === "incoming_call") {
             this.gainNode.gain.value = this.gainNode.gain.value > 0 ? 0 : 0.3;
           }
@@ -117,7 +122,8 @@ class AudioServiceWebRTC {
         this.gainNode.gain.value = 0.2;
         this.oscillator.start();
 
-        setInterval(() => {
+        this.clearRingTimer();
+        this.ringTimer = setInterval(() => {
           if (this.gainNode && this.playingAudio === "ringback") {
             this.gainNode.gain.value = this.gainNode.gain.value > 0 ? 0 : 0.2;
           }
@@ -129,9 +135,17 @@ class AudioServiceWebRTC {
   /**
    * 停止音频
    */
+  private clearRingTimer(): void {
+    if (this.ringTimer !== null) {
+      clearInterval(this.ringTimer);
+      this.ringTimer = null;
+    }
+  }
+
   public stop(audioType: AudioType): void {
     if (this.playingAudio === audioType) {
       this.playingAudio = null;
+      this.clearRingTimer();
 
       if (this.oscillator) {
         try {
@@ -153,6 +167,7 @@ class AudioServiceWebRTC {
    */
   public stopAll(): void {
     this.playingAudio = null;
+    this.clearRingTimer();
 
     if (this.oscillator) {
       try {
