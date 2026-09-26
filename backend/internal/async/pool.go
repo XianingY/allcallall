@@ -78,6 +78,13 @@ type Pool struct {
 	inflight int
 	done     bool
 
+	// quit signals workers to stop. Closing `jobs` instead would race with
+	// Submit: Submit checks `done` under the lock, releases it, and only then
+	// sends, so a Close landing in between makes that send panic with
+	// "send on closed channel" on whatever goroutine submitted the job. The
+	// jobs channel is never closed now; workers stop on quit or ctx.
+	quit chan struct{}
+
 	wg sync.WaitGroup
 }
 
@@ -107,6 +114,7 @@ func NewPool(opts Options) *Pool {
 	return &Pool{
 		opts:    opts,
 		jobs:    make(chan Job, opts.QueueSize),
+		quit:    make(chan struct{}),
 		logger:  opts.Logger,
 		metrics: opts.Metrics,
 	}
@@ -159,29 +167,42 @@ func (p *Pool) Submit(_ context.Context, job Job) error {
 	}
 }
 
+func (p *Pool) runJob(ctx context.Context, job Job) {
+	p.mu.Lock()
+	if p.queued > 0 {
+		p.queued--
+	}
+	p.inflight++
+	p.mu.Unlock()
+	p.metrics.Set("async_queue_depth_"+p.opts.Name, int64(p.queueLen()))
+
+	p.execute(ctx, job)
+
+	p.mu.Lock()
+	p.inflight--
+	p.mu.Unlock()
+}
+
 func (p *Pool) worker(ctx context.Context, id int) {
 	defer p.wg.Done()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case job, ok := <-p.jobs:
-			if !ok {
-				return
+		case <-p.quit:
+			// Drain what is already queued before stopping. Closing `jobs`
+			// used to do this implicitly - a closed channel still yields its
+			// buffered values - but that is also what raced with Submit.
+			for {
+				select {
+				case job := <-p.jobs:
+					p.runJob(ctx, job)
+				default:
+					return
+				}
 			}
-			p.mu.Lock()
-			if p.queued > 0 {
-				p.queued--
-			}
-			p.inflight++
-			p.mu.Unlock()
-			p.metrics.Set("async_queue_depth_"+p.opts.Name, int64(p.queueLen()))
-
-			p.execute(ctx, job)
-
-			p.mu.Lock()
-			p.inflight--
-			p.mu.Unlock()
+		case job := <-p.jobs:
+			p.runJob(ctx, job)
 		}
 	}
 }
@@ -229,7 +250,12 @@ func (p *Pool) execute(ctx context.Context, job Job) {
 	}
 }
 
-// Close stops accepting work and waits for in-flight jobs to finish.
+// Close stops accepting work, lets workers finish what is already queued, and
+// waits for them. Jobs submitted after Close returns are rejected.
+//
+// A job submitted concurrently with Close may still land in the queue; workers
+// drain it before stopping. That is safe now that the jobs channel is never
+// closed - previously the same race panicked with "send on closed channel".
 func (p *Pool) Close() {
 	p.mu.Lock()
 	if p.done {
@@ -238,7 +264,7 @@ func (p *Pool) Close() {
 	}
 	p.done = true
 	p.mu.Unlock()
-	close(p.jobs)
+	close(p.quit)
 	p.wg.Wait()
 }
 
