@@ -13,6 +13,10 @@ on:
 permissions:
   contents: read
   packages: write
+  # Required for keyless image signing: cosign exchanges the workflow's OIDC
+  # token for a short-lived certificate, so no signing key has to be stored
+  # or rotated. Without this the sign step fails.
+  id-token: write
 
 jobs:
   images:
@@ -80,3 +84,35 @@ jobs:
             ghcr.io/xianingy/allcallall/${{ matrix.name }}:${{ github.sha }} \
             ghcr.io/xianingy/allcallall/${{ matrix.name }}:${GITHUB_REF_NAME}
           docker push ghcr.io/xianingy/allcallall/${{ matrix.name }}:${GITHUB_REF_NAME}
+      # Sign after pushing. Keyless: cosign exchanges this workflow's OIDC
+      # token for a short-lived certificate, so there is no key to store or
+      # rotate, and the signature is recorded in the public Rekor log.
+      #
+      # Signed by digest, never by tag - a tag can be repointed between the
+      # scan and the push, so signing the tag would attest to whatever the
+      # registry happens to serve at that moment.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+      - name: Sign ${{ matrix.name }}
+        env:
+          IMAGE: ghcr.io/xianingy/allcallall/${{ matrix.name }}:${GITHUB_REF_NAME}
+        run: |
+          set -euo pipefail
+          digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE")
+          if [ -z "$digest" ]; then
+            echo "::error::could not resolve a digest for $IMAGE"
+            exit 1
+          fi
+          echo "signing $digest"
+          cosign sign --yes "$digest"
+      - name: Verify ${{ matrix.name }}
+        env:
+          IMAGE: ghcr.io/xianingy/allcallall/${{ matrix.name }}:${GITHUB_REF_NAME}
+        run: |
+          set -euo pipefail
+          digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE")
+          # Verify through the same identity the signing step used, so a broken
+          # signature fails the release instead of shipping unattested images.
+          cosign verify "$digest" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp "^https://github\.com/${GITHUB_REPOSITORY}/.*$" | tail -n 1
