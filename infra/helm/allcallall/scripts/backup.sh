@@ -37,16 +37,51 @@ mkdir -p "${BACKUP_DIR}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT
 
+# Go's DSN format is user:pass@tcp(host:port)/db?params. mysqldump does not
+# understand it: given one it treats the whole string as a database name and
+# fails with "Unknown database". Split it into the flags mysqldump wants.
+# The password goes through MYSQL_PWD so it never shows up in `ps` output.
+parse_dsn() {
+  local dsn="${MYSQL_DSN}"
+  dsn="${dsn%%\?*}"          # drop query parameters
+
+  MYSQL_USER="${dsn%%:*}"    # up to the first ':'
+  local rest="${dsn#*:}"
+
+  # Split on the LAST '@' so a password containing '@' still parses.
+  MYSQL_PASSWORD="${rest%@*}"
+  rest="${rest##*@}"
+
+  local addr
+  case "${rest}" in
+    tcp\(*|unix\(*)
+      rest="${rest#*\(}"
+      addr="${rest%%\)*}"
+      ;;
+    *)
+      addr="${rest%%/*}"
+      ;;
+  esac
+
+  MYSQL_HOST="${addr%%:*}"
+  MYSQL_PORT="${addr##*:}"
+  [[ "${MYSQL_HOST}" == "${MYSQL_PORT}" ]] && MYSQL_PORT=3306
+  [[ -n "${MYSQL_HOST}" ]] || return 1
+  return 0
+}
+
 dump_mysql() {
   if [[ -n "${MYSQL_DSN:-}" ]]; then
-    mysqldump --single-transaction --routines --triggers --all-databases \
-      --result-file="${TMP}/mysql.sql" "${MYSQL_DSN}" || fail "mysqldump failed"
-  else
-    mysqldump --single-transaction --routines --triggers --all-databases \
-      --result-file="${TMP}/mysql.sql" \
-      -h"${MYSQL_HOST:-127.0.0.1}" -P"${MYSQL_PORT:-3306}" \
-      -u"${MYSQL_USER:-root}" -p"${MYSQL_PASSWORD:-}" || fail "mysqldump failed"
+    parse_dsn || fail "could not parse MYSQL_DSN into host/port/user/password"
+    export MYSQL_PWD="${MYSQL_PASSWORD}"
   fi
+
+  mysqldump --single-transaction --routines --triggers --all-databases \
+    --result-file="${TMP}/mysql.sql" \
+    -h"${MYSQL_HOST:-127.0.0.1}" -P"${MYSQL_PORT:-3306}" \
+    -u"${MYSQL_USER:-root}" || fail "mysqldump failed"
+
+  unset MYSQL_PWD
   gzip -f "${TMP}/mysql.sql"
   log "mysql dump complete ($(du -h "${TMP}/mysql.sql.gz" | cut -f1))"
 }

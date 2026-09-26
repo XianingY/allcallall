@@ -367,7 +367,10 @@ spec:
     matchExpressions:
       - key: app.kubernetes.io/component
         operator: In
-        values: [api, agent-worker, outbox-worker, migration, sandbox-control-plane]
+        # backup needs to reach MySQL too: without it the default-deny policy
+        # leaves the backup Pod able to resolve DNS but unable to connect, so
+        # every scheduled run fails with a connection timeout.
+        values: [api, agent-worker, outbox-worker, migration, sandbox-control-plane, backup]
   policyTypes: [Egress]
   egress:
     {{- range .Values.external.mysql.egressCIDRs }}
