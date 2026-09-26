@@ -12,6 +12,9 @@ import {
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
+import type { RegistrationErrors } from "@allcallall/shared";
+import { hasErrors, isValidEmail, MESSAGES, validateRegistration } from "@allcallall/shared";
+
 import TextField from "../components/TextField";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
@@ -27,6 +30,11 @@ const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
   const [email, setEmail] = useState(prefilledEmail || "");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  // Web asks for a password confirmation and enforces a minimum display-name
+  // length; mobile did neither, so the same weak input was accepted here and
+  // rejected there. Both now run the shared rules.
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [errors, setErrors] = useState<RegistrationErrors>({});
   const [acceptCurrentLegal, setAcceptCurrentLegal] = useState(false);
   const [legal, setLegal] = useState<LegalInfo | null>(null);
   const [loading, setLoading] = useState(false);
@@ -44,18 +52,12 @@ const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
     void loadLegal();
   }, []);
 
+  // Field errors render under each input instead of in an Alert, so the user
+  // can see what to fix without dismissing a dialog first.
   const validateEmail = () => {
-    if (!normalizedEmail) {
-      Alert.alert("错误", "请输入邮箱");
-      return false;
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(normalizedEmail)) {
-      Alert.alert("错误", "请输入有效的邮箱地址");
-      return false;
-    }
-    return true;
+    const emailError = isValidEmail(normalizedEmail) ? undefined : MESSAGES.emailInvalid;
+    setErrors((current) => ({ ...current, email: emailError }));
+    return !emailError;
   };
 
   const handleStartVerification = () => {
@@ -79,23 +81,16 @@ const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
     }
 
     try {
-      if (!validateEmail()) {
-        return;
-      }
-      if (!password.trim()) {
-        Alert.alert("错误", "请输入密码");
-        return;
-      }
-      if (password.length < 8) {
-        Alert.alert("错误", "密码至少需要 8 个字符");
-        return;
-      }
-      if (!displayName.trim()) {
-        Alert.alert("错误", "请输入显示名称");
-        return;
-      }
-      if (!acceptCurrentLegal) {
-        Alert.alert("错误", "请先接受当前服务条款和隐私政策");
+      // Same rules as the web signup form - see packages/shared/validation.
+      const validationErrors = validateRegistration({
+        email: normalizedEmail,
+        password,
+        confirmPassword,
+        displayName,
+        acceptedLegal: acceptCurrentLegal,
+      });
+      setErrors(validationErrors);
+      if (hasErrors(validationErrors)) {
         return;
       }
 
@@ -146,6 +141,7 @@ const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
           value={email}
           onChangeText={setEmail}
           editable={!loading && !emailLocked}
+          error={errors.email ?? null}
         />
         {emailLocked ? (
           <>
@@ -155,6 +151,7 @@ const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
               value={displayName}
               onChangeText={setDisplayName}
               editable={!loading}
+              error={errors.displayName ?? null}
             />
             <TextField
               label="密码 / Password"
@@ -162,6 +159,15 @@ const RegisterScreen: React.FC<Props> = ({ navigation, route }) => {
               value={password}
               onChangeText={setPassword}
               editable={!loading}
+              error={errors.password ?? null}
+            />
+            <TextField
+              label="确认密码 / Confirm password"
+              secureTextEntry
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              editable={!loading}
+              error={errors.confirmPassword ?? null}
             />
             <View style={styles.legalCard}>
               <View style={styles.legalToggleRow}>

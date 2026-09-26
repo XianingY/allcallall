@@ -1,0 +1,7 @@
+{
+  "name": "@allcallall/shared",
+  "version": "1.0.0",
+  "description": "Shared business rules for the AllCallAll web and mobile clients",
+  "main": "index.ts",
+  "types": "index.ts"
+}

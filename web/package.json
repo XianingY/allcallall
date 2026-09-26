@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@allcallall/api-types": "*",
+    "@allcallall/shared": "*",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-alert-dialog": "1.1.6",
     "@radix-ui/react-dialog": "1.1.6",

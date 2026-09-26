@@ -5,19 +5,26 @@ import { useForm } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import { z } from "zod";
 
+import { DISPLAY_NAME_MIN_LENGTH, MESSAGES, PASSWORD_MIN_LENGTH } from "@allcallall/shared";
+
 import { getLegal, sendVerificationCode, verifyEmailCode } from "@/api/identity";
 import { useAuth } from "@/auth/AuthContext";
 import { AuthLayout, FieldError, FormError } from "@/components/AuthLayout";
 import { useQuery } from "@tanstack/react-query";
 
+// Web drives its form with react-hook-form, so the rules are expressed as a
+// zod schema here - but every number and message comes from @allcallall/shared,
+// which mobile also uses, so the two clients cannot drift apart.
+// Web also collects the emailed code inline; mobile verifies the address in a
+// separate step.
 const schema = z.object({
-  displayName: z.string().trim().min(2, "显示名称至少 2 个字符"),
-  email: z.string().email("请输入有效邮箱"),
-  code: z.string().regex(/^\d{6}$/, "请输入 6 位验证码"),
-  password: z.string().min(8, "密码至少 8 个字符"),
+  displayName: z.string().trim().min(DISPLAY_NAME_MIN_LENGTH, MESSAGES.displayNameTooShort),
+  email: z.string().email(MESSAGES.emailInvalid),
+  code: z.string().regex(/^\d{6}$/, MESSAGES.codeInvalid),
+  password: z.string().min(PASSWORD_MIN_LENGTH, MESSAGES.passwordTooShort),
   confirmPassword: z.string(),
-  legal: z.literal(true, { error: "请阅读并同意条款" }),
-}).refine((value) => value.password === value.confirmPassword, { path: ["confirmPassword"], message: "两次密码不一致" });
+  legal: z.literal(true, { error: MESSAGES.legalRequired }),
+}).refine((value) => value.password === value.confirmPassword, { path: ["confirmPassword"], message: MESSAGES.passwordMismatch });
 type Values = z.infer<typeof schema>;
 
 export function RegisterPage() {
