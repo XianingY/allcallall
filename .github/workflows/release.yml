@@ -63,6 +63,16 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+      # Produce an SBOM before the image is published, so a consumer can answer
+      # "what is in this image" without pulling it apart. Without this, the
+      # only record of dependencies is the source tree at build time.
+      - name: SBOM for ${{ matrix.name }}
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/xianingy/allcallall/${{ matrix.name }}:${{ github.sha }}
+          format: spdx-json
+          artifact-name: sbom-${{ matrix.name }}.spdx.json
+          upload-artifact: true
       - name: Tag and push ${{ matrix.name }}
         run: |
           docker tag \
