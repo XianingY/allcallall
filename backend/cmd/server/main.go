@@ -540,6 +540,13 @@ func main() {
 		IdleTimeout:  time.Duration(cfg.Server.IdleTimeoutSec) * time.Second,
 	}
 
+	// 标准 Prometheus 端点跑在独立端口：指标此前注册在 registry 里却没有任何
+	// 端口暴露，等于没有埋点。独立端口也便于只放行 Prometheus 访问。
+	var metricsServer *http.Server
+	if cfg.Metrics.Enabled {
+		metricsServer = metrics.Serve(cfg.Metrics.Addr, appLogger)
+	}
+
 	go func() {
 		appLogger.Info().Str("addr", httpServer.Addr).Msg("http server starting")
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -558,4 +565,6 @@ func main() {
 	} else {
 		appLogger.Info().Msg("http server gracefully stopped")
 	}
+
+	metrics.Shutdown(shutdownCtx, metricsServer, appLogger)
 }

@@ -47,6 +47,22 @@ type Config struct {
 	Privacy           PrivacyConfig           `yaml:"privacy"`
 	ContentModeration ContentModerationConfig `yaml:"content_moderation"`
 	Security          SecurityConfig          `yaml:"security"`
+	Metrics           MetricsConfig           `yaml:"metrics"`
+}
+
+// MetricsConfig 标准 Prometheus 抓取端点配置。
+//
+// 注意与 /api/v1/metrics 的区别：后者是自研 CounterStore 的文本渲染，供现有
+// Grafana 面板使用；这里配置的是标准 Prometheus registry 端点，包含
+// HttpRequestsTotal / HttpRequestDuration 以及 Go runtime、process 指标。
+// MetricsConfig configures the standard Prometheus scrape endpoint, which is
+// separate from the self-rendered /api/v1/metrics CounterStore output.
+type MetricsConfig struct {
+	// Enabled 开启后在独立端口暴露 /metrics。独立端口便于用 NetworkPolicy
+	// 限制为仅 Prometheus 可达，而不需要给业务端点加鉴权。
+	Enabled bool `yaml:"enabled" env:"METRICS_LISTENER_ENABLED"`
+	// Addr 监听地址，默认 ":9090"。
+	Addr string `yaml:"addr" env:"METRICS_LISTENER_ADDR"`
 }
 
 // SecurityConfig 安全合规相关配置：传输层 TLS 强制、审计留存期等。
@@ -402,6 +418,14 @@ func (c *Config) postProcess() error {
 
 	if c.Logging.Level == "" {
 		c.Logging.Level = "info"
+	}
+
+	// Prometheus 抓取端点默认开启：指标注册了却没有任何端口暴露，等于没埋点。
+	if !c.Metrics.Enabled {
+		c.Metrics.Enabled = true
+	}
+	if strings.TrimSpace(c.Metrics.Addr) == "" {
+		c.Metrics.Addr = ":9090"
 	}
 
 	// 周期性任务调度器默认配置

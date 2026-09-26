@@ -99,6 +99,38 @@ the token on, edit `infra/observability/prometheus.yml` and uncomment the
 `authorization:` block under the `backend` job, setting `credentials` to the
 same `METRICS_BEARER_TOKEN`.
 
+## Two metrics endpoints, on purpose
+
+The backend exposes metrics on two different ports, which is easy to confuse:
+
+| Port | Path | Content | How to reach it |
+|---|---|---|---|
+| 8080 | `/api/v1/metrics` | Self-rendered `CounterStore` text (`outbox_backlog`, `rag_runtime_*`, ...) used by the existing Grafana dashboard. Guarded by the internal-network check and optionally `METRICS_BEARER_TOKEN`. | Business port; already reachable from inside the network |
+| 9090 | `/metrics` | Standard Prometheus registry: `http_requests_total`, `http_request_duration_seconds`, Go runtime and process metrics | Own port, so access can be limited to Prometheus only |
+
+9090 exists because the standard registry had collectors registered with no
+endpoint serving them — instrumentation that nothing could read. It is a
+separate listener (see `internal/metrics.Serve`, configured under `metrics:` in
+`configs/config.yaml`) so it never has to be threaded through the API
+middleware chain.
+
+### Kubernetes: allow Prometheus to scrape 9090
+
+The api `NetworkPolicy` is default-deny. Scraping 9090 from another namespace
+is therefore blocked until you declare where Prometheus lives:
+
+```yaml
+networkPolicy:
+  prometheus:
+    enabled: true
+    namespace: monitoring          # namespace Prometheus runs in
+    podLabels:                     # optional, narrows further
+      app.kubernetes.io/name: prometheus
+```
+
+It ships disabled on purpose — enabling it without a namespace would open the
+metrics port to the entire cluster.
+
 ## Configuration files
 
 All config lives under `infra/observability/`:

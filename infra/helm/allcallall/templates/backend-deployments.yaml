@@ -104,6 +104,11 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            # 标准 Prometheus registry 端点（internal/metrics.Serve）。独立端口
+            # 便于只放行 Prometheus：业务端口 8080 不需要为它开例外。
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
           startupProbe:
             httpGet: {path: /api/v1/health, port: http}
             failureThreshold: 30

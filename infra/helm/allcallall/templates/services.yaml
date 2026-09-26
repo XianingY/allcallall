@@ -1,6 +1,6 @@
 {{- $root := . }}
 {{- $services := list
-      (dict "name" "api" "port" 8080)
+      (dict "name" "api" "port" 8080 "metricsPort" 9090)
       (dict "name" "agent-runtime" "port" 8090)
       (dict "name" "rag-runtime" "port" 8091)
       (dict "name" "sandbox-control-plane" "port" 8092)
@@ -25,4 +25,10 @@ spec:
       port: {{ $service.port }}
       targetPort: http
       protocol: TCP
+    {{- with $service.metricsPort }}
+    - name: metrics
+      port: {{ . }}
+      targetPort: metrics
+      protocol: TCP
+    {{- end }}
 {{- end }}

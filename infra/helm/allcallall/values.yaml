@@ -263,6 +263,14 @@ networkPolicy:
   dnsNamespace: kube-system
   dnsPodLabels:
     k8s-app: kube-dns
+  # Allow Prometheus to scrape the standard registry endpoint (9090).
+  # Off by default: enabling it without a namespace would expose the metrics
+  # port to the whole cluster. Fill in the namespace, and podLabels if you
+  # want to narrow it further, then turn it on. See docs/observability.md.
+  prometheus:
+    enabled: false
+    namespace: monitoring
+    podLabels: {}
 
 ingress:
   enabled: false

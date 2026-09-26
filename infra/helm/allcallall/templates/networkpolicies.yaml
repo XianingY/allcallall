@@ -97,6 +97,22 @@ spec:
                 values: [web, agent-runtime, rag-runtime]
       ports:
         - {protocol: TCP, port: 8080}
+    {{- if .Values.networkPolicy.prometheus.enabled }}
+    # 标准 Prometheus registry 跑在 9090。默认关闭：放行前必须声明 Prometheus
+    # 所在的 namespace（以及可选的 pod labels），否则一条 from: 0.0.0.0/0 会
+    # 把指标端口对全集群敞开。
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.prometheus.namespace }}
+          {{- with .Values.networkPolicy.prometheus.podLabels }}
+          podSelector:
+            matchLabels:
+              {{- toYaml . | nindent 12 }}
+          {{- end }}
+      ports:
+        - {protocol: TCP, port: 9090}
+    {{- end }}
   egress:
     - to:
         - podSelector:
