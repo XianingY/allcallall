@@ -3,8 +3,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { registerMock } = vi.hoisted(() => ({
+import { MESSAGES } from "@allcallall/shared";
+
+const { registerMock, sendCodeMock } = vi.hoisted(() => ({
   registerMock: vi.fn(() => Promise.resolve()),
+  sendCodeMock: vi.fn<(email: string, purpose: string) => Promise<unknown>>(() => Promise.resolve({})),
 }));
 
 vi.mock("@/auth/AuthContext", () => ({
@@ -14,7 +17,7 @@ vi.mock("@/auth/AuthContext", () => ({
 vi.mock("@/api/identity", () => ({
   getLegal: () =>
     Promise.resolve({ terms_url: "/legal/terms", privacy_policy_url: "/legal/privacy" }),
-  sendVerificationCode: () => Promise.resolve({}),
+  sendVerificationCode: (email: string, purpose: string) => sendCodeMock(email, purpose),
   verifyEmailCode: () => Promise.resolve({}),
 }));
 
@@ -66,7 +69,7 @@ describe("RegisterPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /验证并注册/ }));
 
     await waitFor(() =>
-      expect(screen.getByText("两次密码不一致")).toBeInTheDocument(),
+      expect(screen.getByText(MESSAGES.passwordMismatch)).toBeInTheDocument(),
     );
     expect(registerMock).not.toHaveBeenCalled();
   });
@@ -85,5 +88,20 @@ describe("RegisterPage", () => {
       expect(screen.getByText("请输入 6 位验证码")).toBeInTheDocument(),
     );
     expect(registerMock).not.toHaveBeenCalled();
+  });
+
+  it("throttles repeated verification code sends", async () => {
+    sendCodeMock.mockClear();
+    renderPage();
+    fill("邮箱", "ada@example.com");
+
+    fireEvent.click(screen.getByRole("button", { name: /发送验证码/ }));
+    await waitFor(() => expect(sendCodeMock).toHaveBeenCalledTimes(1));
+
+    const button = await screen.findByRole("button", { name: /秒后可重发/ });
+    expect(button).toBeDisabled();
+
+    fireEvent.click(button);
+    expect(sendCodeMock).toHaveBeenCalledTimes(1);
   });
 });

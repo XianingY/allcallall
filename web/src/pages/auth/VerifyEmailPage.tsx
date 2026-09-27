@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 
 import { sendVerificationCode, verifyEmailCode } from "@/api/identity";
 import { AuthLayout, FormError } from "@/components/AuthLayout";
+import { useResendCooldown } from "@/hooks/useResendCooldown";
 
 export function VerifyEmailPage() {
   const [params] = useSearchParams();
@@ -10,6 +11,17 @@ export function VerifyEmailPage() {
   const [code, setCode] = useState("");
   const [error, setError] = useState<unknown>();
   const [done, setDone] = useState(false);
+  const [sending, setSending] = useState(false);
+  const { remaining, start, coolingDown } = useResendCooldown();
+
+  const send = async () => {
+    if (sending || coolingDown) return;
+    if (!email.trim()) { setError(new Error("请输入邮箱地址")); return; }
+    setError(undefined);
+    setSending(true);
+    try { await sendVerificationCode(email, "register"); start(); } catch (caught) { setError(caught); } finally { setSending(false); }
+  };
+
   const verify = async () => {
     setError(undefined);
     try { await verifyEmailCode(email, code, "register"); setDone(true); } catch (caught) { setError(caught); }
@@ -20,10 +32,9 @@ export function VerifyEmailPage() {
       {done ? <div className="status-success">邮箱已验证。请返回注册页完成账号创建。</div> : <>
         <label>邮箱<input className="field" type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
         <label>验证码<input className="field" inputMode="numeric" maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} /></label>
-        <div className="button-row"><button className="button-secondary" onClick={() => void sendVerificationCode(email, "register").catch(setError)}>发送验证码</button><button className="button-primary" onClick={() => void verify()}>完成验证</button></div>
+        <div className="button-row"><button className="button-secondary" disabled={sending || coolingDown} onClick={() => void send()}>{coolingDown ? `${remaining}秒后可重发` : "发送验证码"}</button><button className="button-primary" onClick={() => void verify()}>完成验证</button></div>
       </>}
       <Link to="/register">返回注册</Link>
     </div>
   </AuthLayout>;
 }
-

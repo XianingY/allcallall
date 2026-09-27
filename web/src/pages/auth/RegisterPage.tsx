@@ -10,6 +10,7 @@ import { DISPLAY_NAME_MIN_LENGTH, MESSAGES, PASSWORD_MIN_LENGTH } from "@allcall
 import { getLegal, sendVerificationCode, verifyEmailCode } from "@/api/identity";
 import { useAuth } from "@/auth/AuthContext";
 import { AuthLayout, FieldError, FormError } from "@/components/AuthLayout";
+import { useResendCooldown } from "@/hooks/useResendCooldown";
 import { useQuery } from "@tanstack/react-query";
 
 // Web drives its form with react-hook-form, so the rules are expressed as a
@@ -33,14 +34,18 @@ export function RegisterPage() {
   const legal = useQuery({ queryKey: ["legal"], queryFn: getLegal });
   const [sentTo, setSentTo] = useState("");
   const [verifiedEmail, setVerifiedEmail] = useState("");
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState<unknown>();
+  const { remaining, start, coolingDown } = useResendCooldown();
   const { register, handleSubmit, getValues, formState } = useForm<Values>({ resolver: zodResolver(schema) });
 
   const send = async () => {
+    if (sending || coolingDown) return;
     const email = getValues("email");
     if (!z.string().email().safeParse(email).success) { setError(new Error("请先输入有效邮箱")); return; }
     setError(undefined);
-    try { await sendVerificationCode(email, "register"); setSentTo(email); setVerifiedEmail(""); } catch (caught) { setError(caught); }
+    setSending(true);
+    try { await sendVerificationCode(email, "register"); setSentTo(email); setVerifiedEmail(""); start(); } catch (caught) { setError(caught); } finally { setSending(false); }
   };
 
   const submit = handleSubmit(async (values) => {
@@ -59,7 +64,7 @@ export function RegisterPage() {
       <label>邮箱<input className="field" type="email" autoComplete="email" {...register("email")} /><FieldError message={formState.errors.email?.message} /></label>
       <div className="verification-row">
         <label>验证码<input className="field" inputMode="numeric" maxLength={6} autoComplete="one-time-code" {...register("code")} /><FieldError message={formState.errors.code?.message} /></label>
-        <button className="button-secondary" type="button" onClick={send}><Mail size={16} />{sentTo === getValues("email") ? "重新发送" : "发送验证码"}</button>
+        <button className="button-secondary" type="button" disabled={sending || coolingDown} onClick={() => void send()}><Mail size={16} />{coolingDown ? `${remaining}秒后可重发` : sentTo && sentTo === getValues("email") ? "重新发送" : "发送验证码"}</button>
       </div>
       {sentTo && <p className="field-hint">验证码已发送至 {sentTo}</p>}
       <label>密码<input className="field" type="password" autoComplete="new-password" {...register("password")} /><FieldError message={formState.errors.password?.message} /></label>
