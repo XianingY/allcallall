@@ -42,7 +42,7 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
     void query.refetch();
   }, [query]);
 
-  const error = query.error instanceof Error ? query.error : query.error ? new Error(String(query.error)) : null;
+  const error = useMemo(() => (query.error instanceof Error ? query.error : query.error ? new Error(String(query.error)) : null), [query.error]);
 
   const value = useMemo(() => ({ organizations, activeOrganization, loading: query.isLoading, error, retry, select, create }), [organizations, activeOrganization, query.isLoading, error, retry, select, create]);
   return <OrganizationContext.Provider value={value}>{children}</OrganizationContext.Provider>;
