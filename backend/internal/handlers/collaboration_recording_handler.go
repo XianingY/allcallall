@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/collaboration"
 	"github.com/allcallall/backend/internal/pagination"
@@ -71,7 +72,12 @@ func (h *CollaborationHandler) handleListRecordings(c *gin.Context) {
 	}
 	result, err := h.service.ListRecordings(c.Request.Context(), orgID, claims.UserID, page)
 	if err != nil {
-		JSONErrorWithCode(c, http.StatusBadRequest, "RECORDING_LIST_FAILED", err.Error())
+		if errors.Is(err, collaboration.ErrOrganizationAccessDenied) {
+			JSONErrorWithCode(c, http.StatusBadRequest, "RECORDING_LIST_FAILED", err.Error())
+			return
+		}
+		h.logger.Error().Err(err).Uint64("organization_id", orgID).Msg("failed to list recordings")
+		JSONErrorWithCode(c, http.StatusInternalServerError, "RECORDING_LIST_FAILED", "failed to list recordings")
 		return
 	}
 	response := make([]recordingResponse, 0, len(result.Items))
@@ -101,7 +107,15 @@ func (h *CollaborationHandler) handleGetRecording(c *gin.Context) {
 	}
 	item, err := h.service.GetRecording(c.Request.Context(), orgID, claims.UserID, recordingID)
 	if err != nil {
-		JSONErrorWithCode(c, http.StatusBadRequest, "RECORDING_NOT_FOUND", err.Error())
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			JSONErrorWithCode(c, http.StatusNotFound, "RECORDING_NOT_FOUND", "recording not found")
+		case errors.Is(err, collaboration.ErrOrganizationAccessDenied):
+			JSONErrorWithCode(c, http.StatusBadRequest, "RECORDING_NOT_FOUND", err.Error())
+		default:
+			h.logger.Error().Err(err).Uint64("organization_id", orgID).Uint64("recording_id", recordingID).Msg("failed to load recording")
+			JSONErrorWithCode(c, http.StatusInternalServerError, "RECORDING_NOT_FOUND", "failed to load recording")
+		}
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"recording": toRecordingResponse(*item)})

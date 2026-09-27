@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import { getAppVersion } from "../platform/appMetadata";
 import { useAuthContext } from "../context/AuthContext";
 import { useCommercial } from "../context/CommercialContext";
 import { useSettings } from "../context/SettingsContext";
@@ -373,7 +374,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
           <Text style={styles.sectionTitle}>关于 / About</Text>
           <View style={styles.aboutItem}>
             <Text style={styles.aboutLabel}>版本 / Version</Text>
-            <Text style={styles.aboutValue}>1.0.0</Text>
+            <Text style={styles.aboutValue}>{getAppVersion()}</Text>
           </View>
           <View style={styles.aboutItem}>
             <Text style={styles.aboutLabel}>开发者 / Developer</Text>
@@ -382,7 +383,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>© 2024 AllCallAll. All rights reserved.</Text>
+          <Text style={styles.footerText}>© {new Date().getFullYear()} AllCallAll. All rights reserved.</Text>
         </View>
       </ScrollView>
     </SafeAreaView>

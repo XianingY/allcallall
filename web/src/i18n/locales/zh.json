@@ -22,6 +22,7 @@
   "call.title": "浏览器通话",
   "call.unknownContact": "未知联系人",
   "call.unmute": "取消静音",
+  "common.loadFailed": "加载失败",
   "common.loading": "正在加载",
   "common.retry": "重试",
   "nav.agent": "Agent Lab",

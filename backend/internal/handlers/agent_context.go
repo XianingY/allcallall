@@ -79,23 +79,27 @@ func (h *AgentHandler) writeAgentError(c *gin.Context, err error) {
 func (h *AgentHandler) writeAgentStreamError(c *gin.Context, err error) {
 	code := "AGENT_RUN_FAILED"
 	status := http.StatusInternalServerError
+	message := "agent request failed"
 	switch {
 	case errors.Is(err, agent.ErrConversationAccessDenied):
 		code = "CONVERSATION_ACCESS_DENIED"
 		status = http.StatusForbidden
+		message = "conversation access denied"
 	case errors.Is(err, agent.ErrAgentRunNotFound):
 		code = "AGENT_RUN_NOT_FOUND"
 		status = http.StatusNotFound
+		message = "agent run not found"
 	case errors.Is(err, agent.ErrPlannerUnavailable):
 		code = "AGENT_PLANNER_UNAVAILABLE"
 		status = http.StatusServiceUnavailable
+		message = "agent planner unavailable"
 	default:
 		h.logger.Error().Err(err).Msg("agent stream failed")
 	}
 	c.SSEvent("error", gin.H{
 		"code":   code,
 		"status": status,
-		"error":  err.Error(),
+		"error":  message,
 	})
 	c.Writer.Flush()
 }

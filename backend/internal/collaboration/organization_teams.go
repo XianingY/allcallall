@@ -2,7 +2,6 @@ package collaboration
 
 import (
 	"context"
-	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -106,7 +105,7 @@ func (s *Service) CreateTeam(ctx context.Context, organizationID, actorID uint64
 	}
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
-		return nil, errors.New("team name required")
+		return nil, ErrTeamNameRequired
 	}
 	team := models.Team{
 		OrganizationID: organizationID,
@@ -137,7 +136,7 @@ func (s *Service) UpdateTeam(ctx context.Context, organizationID, actorID, teamI
 	}
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
-		return nil, errors.New("team name required")
+		return nil, ErrTeamNameRequired
 	}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&models.Team{}).
@@ -247,7 +246,7 @@ func (s *Service) ensureAnotherOwner(ctx context.Context, organizationID, target
 		return err
 	}
 	if ownerCount == 0 {
-		return errors.New("organization must keep at least one owner")
+		return ErrLastOwnerRequired
 	}
 	return nil
 }

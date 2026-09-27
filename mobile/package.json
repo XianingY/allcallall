@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run test:runners && npm run test:unit && npm run test:jest",
     "test:runners": "node scripts/check-test-coverage.mjs",
-    "test:unit": "tsx --test src/utils/linking.test.ts src/services/chatRealtimeCursor.test.ts src/services/conversationRealtimeReducer.test.ts src/services/roomMediaMapping.test.ts src/services/roomRemoteStreamRegistry.test.ts src/services/roomRealtimeReducer.test.ts src/context/signalingRtcUtils.test.ts src/screens/mcpPlatformUtils.test.ts src/store/useSubtitleStore.test.ts ../packages/shared/validation.test.ts",
+    "test:unit": "tsx --test src/utils/linking.test.ts src/services/chatRealtimeCursor.test.ts src/services/conversationRealtimeReducer.test.ts src/services/roomMediaMapping.test.ts src/services/roomRemoteStreamRegistry.test.ts src/services/roomRealtimeReducer.test.ts src/context/signalingRtcUtils.test.ts src/screens/mcpPlatformUtils.test.ts src/store/useSubtitleStore.test.ts src/components/loadViewState.test.ts src/components/submitGuard.test.ts test/launchActionGuards.test.ts ../packages/shared/validation.test.ts",
     "test:jest": "jest",
     "lint": "eslint . --ext .ts,.tsx",
     "postinstall": "patch-package"
@@ -38,7 +38,9 @@
       "src/services/roomRealtimeReducer.test.ts",
       "src/context/signalingRtcUtils.test.ts",
       "src/screens/mcpPlatformUtils.test.ts",
-      "src/store/useSubtitleStore.test.ts"
+      "src/store/useSubtitleStore.test.ts",
+      "src/components/loadViewState.test.ts",
+      "src/components/submitGuard.test.ts"
     ],
     "moduleNameMapper": {
       "^~/(.*)$": "<rootDir>/src/$1",

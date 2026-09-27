@@ -43,4 +43,18 @@ describe("VerifyEmailPage", () => {
     fireEvent.click(button);
     expect(sendCodeMock).toHaveBeenCalledTimes(1);
   });
+
+  it("verifies the email code only once for a burst of clicks", async () => {
+    verifyCodeMock.mockClear();
+    verifyCodeMock.mockImplementation(() => new Promise(() => {}));
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText("验证码"), { target: { value: "123456" } });
+    const button = screen.getByRole("button", { name: /完成验证/ });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    await waitFor(() => expect(verifyCodeMock).toHaveBeenCalledTimes(1));
+    expect(verifyCodeMock).toHaveBeenCalledWith("ada@example.com", "123456", "register");
+  });
 });

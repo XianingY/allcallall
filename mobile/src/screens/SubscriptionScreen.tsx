@@ -11,6 +11,7 @@ import {
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { getRevenueCatConfig } from "../api/commercial";
+import LoadError from "../components/LoadError";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
 import { useCommercial } from "../context/CommercialContext";
@@ -26,6 +27,7 @@ const SubscriptionScreen: React.FC<Props> = () => {
   const { tier, entitlements, refreshCommercialState } = useCommercial();
   const [offering, setOffering] = useState<PurchasesOffering | null>(null);
   const [loading, setLoading] = useState(false);
+  const [offeringsError, setOfferingsError] = useState<string | null>(null);
 
   const config = getRevenueCatConfig();
   const monthlyPackage = useMemo(
@@ -50,6 +52,7 @@ const SubscriptionScreen: React.FC<Props> = () => {
     }
     try {
       setLoading(true);
+      setOfferingsError(null);
       const initialized = await BillingService.initialize(`user:${user.id}`);
       if (!initialized) {
         setOffering(null);
@@ -59,6 +62,7 @@ const SubscriptionScreen: React.FC<Props> = () => {
       setOffering(nextOffering);
     } catch (error) {
       console.error("[SubscriptionScreen] Failed to load offerings:", error);
+      setOfferingsError("无法读取订阅商品。");
     } finally {
       setLoading(false);
     }
@@ -177,12 +181,18 @@ const SubscriptionScreen: React.FC<Props> = () => {
           ) : null
         )
       ) : billingSupported ? (
-        <View style={styles.placeholderCard}>
-          <Text style={styles.placeholderTitle}>订阅商店配置尚未完成</Text>
-          <Text style={styles.placeholderText}>
-            当前只支持 `premium_monthly` 和 `premium_yearly`。缺少任一 SKU 或 offering 未映射时，不开放购买入口。
-          </Text>
-        </View>
+        offeringsError ? (
+          <LoadError message={offeringsError} onRetry={() => void loadOfferings()} />
+        ) : loading && !offering ? (
+          <Text style={styles.loadingText}>正在加载订阅商品…</Text>
+        ) : (
+          <View style={styles.placeholderCard}>
+            <Text style={styles.placeholderTitle}>订阅商店配置尚未完成</Text>
+            <Text style={styles.placeholderText}>
+              当前只支持 `premium_monthly` 和 `premium_yearly`。缺少任一 SKU 或 offering 未映射时，不开放购买入口。
+            </Text>
+          </View>
+        )
       ) : null}
 
       <TouchableOpacity style={styles.secondaryButton} onPress={() => void handleRestore()} disabled={!billingSupported}>
@@ -280,6 +290,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 18,
     padding: 16,
+    marginBottom: 16
+  },
+  loadingText: {
+    color: "#64748b",
     marginBottom: 16
   },
   placeholderTitle: {

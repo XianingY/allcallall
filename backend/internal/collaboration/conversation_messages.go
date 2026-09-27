@@ -19,11 +19,11 @@ func (s *Service) createMessageTx(ctx context.Context, tx *gorm.DB, organization
 		input.Type = models.MessageTypeText
 	}
 	if !isValidMessageType(input.Type) {
-		return nil, errors.New("invalid message type")
+		return nil, ErrInvalidMessageType
 	}
 	body := strings.TrimSpace(input.Body)
 	if input.Type == models.MessageTypeText && body == "" {
-		return nil, errors.New("message body required")
+		return nil, ErrMessageBodyRequired
 	}
 	metadataJSON := ""
 	if len(input.Metadata) > 0 {
@@ -58,7 +58,7 @@ func (s *Service) createMessageTx(ctx context.Context, tx *gorm.DB, organization
 			return nil, err
 		}
 		if count == 0 {
-			return nil, errors.New("reply target not found")
+			return nil, ErrReplyTargetNotFound
 		}
 	}
 	if err := tx.Create(message).Error; err != nil {
@@ -73,7 +73,7 @@ func (s *Service) createMessageTx(ctx context.Context, tx *gorm.DB, organization
 			return nil, result.Error
 		}
 		if result.RowsAffected != int64(len(ids)) {
-			return nil, errors.New("one or more attachments are unavailable")
+			return nil, ErrAttachmentsUnavailable
 		}
 	}
 	// 打上服务端留存终点（PIPL 第十九条「最短必要期限」）；策略关闭时为 no-op。

@@ -6,12 +6,17 @@ import { styles } from "./styles";
 import type { MessagePaneProps } from "./types";
 import type { MessageRecord } from "../../api/collaboration";
 
+type Props = MessagePaneProps & {
+  sending: boolean;
+};
+
 const MessagePane = ({
   messages,
   loading,
   hasMorePrev,
   loadingMorePrev,
   draft,
+  sending,
   workflowLoading,
   currentUserId,
   onRefresh,
@@ -20,7 +25,7 @@ const MessagePane = ({
   onSend,
   onAskAgent,
   onOpenTranscript,
-}: MessagePaneProps) => {
+}: Props) => {
   const renderMessage = ({ item }: { item: MessageRecord }) => (
     <MessageRow
       item={item}
@@ -60,9 +65,9 @@ const MessagePane = ({
             />
             <View style={styles.buttonRow}>
               <PrimaryButton
-                title="发送消息"
+                title={sending ? "发送中…" : "发送消息"}
                 onPress={onSend}
-                disabled={!draft.trim()}
+                disabled={!draft.trim() || sending}
                 style={styles.button}
               />
               <PrimaryButton

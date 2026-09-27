@@ -8,8 +8,13 @@ import { useOrganization } from "../context/OrganizationContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import PrimaryButton from "../components/PrimaryButton";
 import TextField from "../components/TextField";
+import LoadError from "../components/LoadError";
+import { resolveLoadView } from "../components/loadViewState";
+import { canSubmitInput } from "../components/submitGuard";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Deals">;
+
+const LOAD_ERROR_MESSAGE = "无法读取商机列表。";
 
 const DealsScreen: React.FC<Props> = ({ navigation }) => {
   const { token } = useAuthContext();
@@ -17,6 +22,8 @@ const DealsScreen: React.FC<Props> = ({ navigation }) => {
   const [items, setItems] = useState<DealRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const [dealOffset, setDealOffset] = useState(0);
   const [dealHasMore, setDealHasMore] = useState(false);
   const [dealTotal, setDealTotal] = useState(0);
@@ -29,6 +36,7 @@ const DealsScreen: React.FC<Props> = ({ navigation }) => {
     }
     try {
       setLoading(true);
+      setLoadError(null);
       const data = await listDeals(token, { limit: 50, offset: 0 });
       setItems(data.deals);
       setDealOffset(data.deals.length);
@@ -36,7 +44,7 @@ const DealsScreen: React.FC<Props> = ({ navigation }) => {
       setDealTotal(data.pagination.total);
     } catch (error) {
       console.error("[DealsScreen] Failed to load deals:", error);
-      Alert.alert("加载失败", "无法加载商机列表。");
+      setLoadError(LOAD_ERROR_MESSAGE);
     } finally {
       setLoading(false);
     }
@@ -66,10 +74,11 @@ const DealsScreen: React.FC<Props> = ({ navigation }) => {
   }, [loadDeals]);
 
   const handleCreateDeal = async () => {
-    if (!token || !title.trim()) {
+    if (!token || !canSubmitInput(title, creating)) {
       return;
     }
     try {
+      setCreating(true);
       const deal = await createDeal(token, { title: title.trim() });
       setTitle("");
       await loadDeals();
@@ -77,8 +86,12 @@ const DealsScreen: React.FC<Props> = ({ navigation }) => {
     } catch (error) {
       console.error("[DealsScreen] Failed to create deal:", error);
       Alert.alert("创建失败", "无法创建商机。");
+    } finally {
+      setCreating(false);
     }
   };
+
+  const view = resolveLoadView({ loading, error: loadError, itemCount: items.length });
 
   return (
     <View style={styles.container}>
@@ -91,7 +104,16 @@ const DealsScreen: React.FC<Props> = ({ navigation }) => {
         onChangeText={setTitle}
         placeholder="例如：Tokyo Distributor Expansion"
       />
-      <PrimaryButton title="创建商机" onPress={handleCreateDeal} disabled={!title.trim()} style={styles.createButton} />
+      <PrimaryButton
+        title={creating ? "创建中…" : "创建商机"}
+        onPress={handleCreateDeal}
+        disabled={!canSubmitInput(title, creating)}
+        style={styles.createButton}
+      />
+
+      {view === "error" && items.length > 0 ? (
+        <LoadError message={LOAD_ERROR_MESSAGE} onRetry={() => void loadDeals()} />
+      ) : null}
 
       <FlatList
         data={items}
@@ -130,9 +152,13 @@ const DealsScreen: React.FC<Props> = ({ navigation }) => {
           </TouchableOpacity>
         )}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>当前还没有商机。</Text>
-          </View>
+          view === "error" ? (
+            <LoadError message={LOAD_ERROR_MESSAGE} onRetry={() => void loadDeals()} />
+          ) : view === "loading" ? null : (
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>当前还没有商机。</Text>
+            </View>
+          )
         }
       />
     </View>

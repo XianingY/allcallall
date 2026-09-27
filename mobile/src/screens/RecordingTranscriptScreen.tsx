@@ -16,6 +16,7 @@ import {
   type MeetingTranscriptSegmentRecord,
   type RecordingTranscriptionRecord,
 } from "../api/collaboration";
+import LoadError from "../components/LoadError";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
 import { useOrganization } from "../context/OrganizationContext";
@@ -60,6 +61,7 @@ const RecordingTranscriptScreen: React.FC<Props> = ({ route }) => {
   const [nextAfterId, setNextAfterId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [highlightedId, setHighlightedId] = useState<number | null>(segmentId ?? null);
 
@@ -71,6 +73,7 @@ const RecordingTranscriptScreen: React.FC<Props> = ({ route }) => {
     if (!token) return;
     try {
       setLoading(true);
+      setLoadMoreError(null);
       const page = await fetchRecordingTranscript(token, recordingId, { limit: 100 });
       setTranscription(page.transcription ?? null);
       setSegments(page.segments);
@@ -106,6 +109,7 @@ const RecordingTranscriptScreen: React.FC<Props> = ({ route }) => {
     if (!token || !nextAfterId || loadingMore) return;
     try {
       setLoadingMore(true);
+      setLoadMoreError(null);
       const page = await fetchRecordingTranscript(token, recordingId, {
         afterId: nextAfterId,
         limit: 100,
@@ -115,6 +119,7 @@ const RecordingTranscriptScreen: React.FC<Props> = ({ route }) => {
       setNextAfterId(page.next_after_id ?? null);
     } catch (error) {
       console.error("[RecordingTranscriptScreen] Failed to load more transcript:", error);
+      setLoadMoreError("无法读取更多转写内容。");
     } finally {
       setLoadingMore(false);
     }
@@ -128,6 +133,7 @@ const RecordingTranscriptScreen: React.FC<Props> = ({ route }) => {
       setTranscription(next);
       setSegments([]);
       setNextAfterId(null);
+      setLoadMoreError(null);
     } catch (error) {
       console.error("[RecordingTranscriptScreen] Failed to retry transcript:", error);
       Alert.alert("重试失败", "无法重新提交转写任务。");
@@ -217,7 +223,17 @@ const RecordingTranscriptScreen: React.FC<Props> = ({ route }) => {
           </Text>
         </View>
       }
-      ListFooterComponent={loadingMore ? <ActivityIndicator style={styles.footer} /> : null}
+      ListFooterComponent={
+        loadMoreError ? (
+          <LoadError
+            message={loadMoreError}
+            onRetry={() => void loadMore()}
+            style={styles.loadMoreError}
+          />
+        ) : loadingMore ? (
+          <ActivityIndicator style={styles.footer} />
+        ) : null
+      }
     />
   );
 };
@@ -251,6 +267,7 @@ const styles = StyleSheet.create({
   empty: { paddingVertical: 48, alignItems: "center" },
   emptyText: { color: "#64748b", textAlign: "center" },
   footer: { marginVertical: 16 },
+  loadMoreError: { marginTop: 8 },
 });
 
 export default RecordingTranscriptScreen;

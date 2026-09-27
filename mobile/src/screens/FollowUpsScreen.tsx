@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
@@ -8,12 +8,17 @@ import { useFollowUps } from "../context/FollowUpContext";
 import { useSignaling } from "../context/signalingContextValue";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import AnalyticsService from "../services/AnalyticsService";
+import { createSingleFlight } from "./launchActionGuards";
 
 type Props = NativeStackScreenProps<RootStackParamList, "FollowUps">;
 
 const FollowUpsScreen: React.FC<Props> = ({ navigation }) => {
   const { items, loading, refreshFollowUps, completeTask } = useFollowUps();
   const { connectionReady, startCall, setTranslationLanguage, setTranslationSourceLanguage } = useSignaling();
+  // completeTask rejects when the update fails; without the guard the
+  // rejection escaped as an unhandled promise and the 回拨 button looked dead.
+  const callbackFlight = useRef(createSingleFlight()).current;
+  const [callbackPending, setCallbackPending] = useState(false);
 
   const sections = useMemo(() => items, [items]);
 
@@ -21,8 +26,12 @@ const FollowUpsScreen: React.FC<Props> = ({ navigation }) => {
     if (!item.peer?.email) {
       return;
     }
+    const peerEmail = item.peer.email;
     if (!connectionReady) {
       Alert.alert("正在重新连接", "信令服务暂时不可用，请稍后再试。");
+      return;
+    }
+    if (callbackPending || callbackFlight.isBusy()) {
       return;
     }
     if (item.contact?.default_source_lang) {
@@ -33,10 +42,20 @@ const FollowUpsScreen: React.FC<Props> = ({ navigation }) => {
     }
     AnalyticsService.track("followup_task_completed", { task_id: item.task.id, type: item.task.type });
     if (item.task.call_id) {
-      AnalyticsService.track("missed_call_callback_started", { call_id: item.task.call_id, peer_email: item.peer.email });
+      AnalyticsService.track("missed_call_callback_started", { call_id: item.task.call_id, peer_email: peerEmail });
     }
-    await completeTask(item.task.id);
-    startCall(item.peer.email);
+    setCallbackPending(true);
+    try {
+      const result = await callbackFlight.run(async () => {
+        await completeTask(item.task.id);
+        startCall(peerEmail);
+      });
+      if (result.status === "error") {
+        Alert.alert("回拨失败", "跟进任务更新失败，回拨未发起，请稍后再试。");
+      }
+    } finally {
+      setCallbackPending(false);
+    }
   };
 
   return (
@@ -82,7 +101,12 @@ const FollowUpsScreen: React.FC<Props> = ({ navigation }) => {
                 </View>
               </View>
               {item.task.type === "callback" && item.task.status !== "done" ? (
-                <PrimaryButton title="回拨" onPress={() => void handleCallback(item)} style={styles.button} />
+                <PrimaryButton
+                  title={callbackPending ? "回拨中..." : "回拨"}
+                  onPress={() => void handleCallback(item)}
+                  disabled={callbackPending}
+                  style={styles.button}
+                />
               ) : null}
             </View>
           </TouchableOpacity>

@@ -34,6 +34,6 @@ func (h *KnowledgeHandler) writeKnowledgeError(c *gin.Context, err error) {
 		JSONErrorWithCode(c, http.StatusBadRequest, "KNOWLEDGE_SOURCE_UNSUPPORTED", err.Error())
 	default:
 		h.logger.Error().Err(err).Msg("knowledge request failed")
-		JSONErrorWithCode(c, http.StatusInternalServerError, "KNOWLEDGE_REQUEST_FAILED", err.Error())
+		JSONErrorWithCode(c, http.StatusInternalServerError, "KNOWLEDGE_REQUEST_FAILED", "knowledge request failed")
 	}
 }

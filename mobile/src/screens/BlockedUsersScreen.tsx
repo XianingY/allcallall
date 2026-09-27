@@ -10,13 +10,20 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 
 import { listBlocks, removeBlock, type UserBlockRecord } from "../api/commercial";
+import LoadError from "../components/LoadError";
 import PrimaryButton from "../components/PrimaryButton";
+import { resolveLoadView } from "../components/loadViewState";
+import { isPendingAction } from "../components/submitGuard";
 import { useAuthContext } from "../context/AuthContext";
+
+const LOAD_ERROR_MESSAGE = "无法读取黑名单列表。";
 
 const BlockedUsersScreen: React.FC = () => {
   const { token } = useAuthContext();
   const [blocks, setBlocks] = useState<UserBlockRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [pendingUnblockId, setPendingUnblockId] = useState<number | null>(null);
 
   const loadBlocks = useCallback(async () => {
     if (!token) {
@@ -24,10 +31,11 @@ const BlockedUsersScreen: React.FC = () => {
     }
     try {
       setLoading(true);
+      setLoadError(null);
       setBlocks(await listBlocks(token));
     } catch (error) {
       console.error("[BlockedUsersScreen] Failed to load blocks:", error);
-      Alert.alert("加载失败", "无法获取黑名单列表。");
+      setLoadError(LOAD_ERROR_MESSAGE);
     } finally {
       setLoading(false);
     }
@@ -44,17 +52,22 @@ const BlockedUsersScreen: React.FC = () => {
   );
 
   const handleUnblock = async (blockedUserId: number) => {
-    if (!token) {
+    if (!token || isPendingAction(pendingUnblockId, blockedUserId)) {
       return;
     }
     try {
+      setPendingUnblockId(blockedUserId);
       await removeBlock(token, blockedUserId);
       await loadBlocks();
     } catch (error) {
       console.error("[BlockedUsersScreen] Failed to unblock user:", error);
       Alert.alert("解除失败", "无法解除拉黑。");
+    } finally {
+      setPendingUnblockId(null);
     }
   };
+
+  const view = resolveLoadView({ loading, error: loadError, itemCount: blocks.length });
 
   return (
     <View style={styles.container}>
@@ -66,29 +79,38 @@ const BlockedUsersScreen: React.FC = () => {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void loadBlocks()} />}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
-          !loading ? (
+          view === "error" ? (
+            <LoadError message={LOAD_ERROR_MESSAGE} onRetry={() => void loadBlocks()} />
+          ) : view === "loading" ? null : (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyText}>当前没有已拉黑用户。</Text>
             </View>
-          ) : null
+          )
         }
-        renderItem={({ item }) => (
-          <View style={styles.row}>
-            <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>
-                {item.blocked_user_display_name || item.blocked_user_email || `用户 ID #${item.blocked_user_id}`}
-              </Text>
-              {item.blocked_user_email ? (
-                <Text style={styles.rowSubTitle}>{item.blocked_user_email}</Text>
-              ) : null}
-              <Text style={styles.rowMeta}>拉黑时间 {new Date(item.created_at).toLocaleString()}</Text>
-              {item.blocked_user_status === "deleted" ? (
-                <Text style={styles.deletedMeta}>该账号已删除</Text>
-              ) : null}
+        renderItem={({ item }) => {
+          const pending = isPendingAction(pendingUnblockId, item.blocked_user_id);
+          return (
+            <View style={styles.row}>
+              <View style={styles.rowText}>
+                <Text style={styles.rowTitle}>
+                  {item.blocked_user_display_name || item.blocked_user_email || `用户 ID #${item.blocked_user_id}`}
+                </Text>
+                {item.blocked_user_email ? (
+                  <Text style={styles.rowSubTitle}>{item.blocked_user_email}</Text>
+                ) : null}
+                <Text style={styles.rowMeta}>拉黑时间 {new Date(item.created_at).toLocaleString()}</Text>
+                {item.blocked_user_status === "deleted" ? (
+                  <Text style={styles.deletedMeta}>该账号已删除</Text>
+                ) : null}
+              </View>
+              <PrimaryButton
+                title={pending ? "解除中…" : "解除"}
+                onPress={() => void handleUnblock(item.blocked_user_id)}
+                disabled={pending}
+              />
             </View>
-            <PrimaryButton title="解除" onPress={() => void handleUnblock(item.blocked_user_id)} />
-          </View>
-        )}
+          );
+        }}
       />
     </View>
   );

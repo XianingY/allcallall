@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -20,6 +20,7 @@ import { useFollowUps } from "../context/FollowUpContext";
 import { useSignaling } from "../context/signalingContextValue";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import AnalyticsService from "../services/AnalyticsService";
+import { createSingleFlight } from "./launchActionGuards";
 import { FOLLOW_UP_CALLS_STORAGE_KEY } from "../constants/invitations";
 
 type Props = NativeStackScreenProps<RootStackParamList, "CallHistory">;
@@ -31,6 +32,11 @@ const CallHistoryScreen: React.FC<Props> = ({ navigation }) => {
   const { startCall, connectionReady } = useSignaling();
   const [history, setHistory] = useState<CallHistoryRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  // A failed load used to be a one-shot Alert with no way back: the failure is
+  // now a state with a retry, same as RoomsScreen.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const callbackFlight = useRef(createSingleFlight()).current;
+  const [callbackPending, setCallbackPending] = useState(false);
 
   const loadHistory = useCallback(async () => {
     if (!token) {
@@ -40,9 +46,10 @@ const CallHistoryScreen: React.FC<Props> = ({ navigation }) => {
       setLoading(true);
       const data = await fetchCallHistory(token, tier === "premium" ? 365 : 30);
       setHistory(data);
+      setLoadError(null);
     } catch (error) {
       console.error("[CallHistoryScreen] Failed to load call history:", error);
-      Alert.alert("加载失败", "无法获取最近通话记录。");
+      setLoadError(error instanceof Error && error.message ? error.message : "无法获取最近通话记录。");
     } finally {
       setLoading(false);
     }
@@ -64,23 +71,40 @@ const CallHistoryScreen: React.FC<Props> = ({ navigation }) => {
         Alert.alert("正在重新连接", "信令服务暂时不可用，请稍后再试。");
         return;
       }
+      // completeTask rejects when the update fails; the guard turns that into
+      // an Alert instead of an unhandled rejection that leaves the button dead.
+      // It must be acquired before the first await so a double tap cannot
+      // slip in while local storage is being written.
+      if (callbackPending || callbackFlight.isBusy()) {
+        return;
+      }
+      setCallbackPending(true);
       try {
-        const stored = await AsyncStorage.getItem(FOLLOW_UP_CALLS_STORAGE_KEY);
-        const existing = stored ? JSON.parse(stored) as string[] : [];
-        const next = Array.from(new Set([...existing, item.call_id]));
-        await AsyncStorage.setItem(FOLLOW_UP_CALLS_STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        // Ignore local follow-up storage failures.
+        const result = await callbackFlight.run(async () => {
+          try {
+            const stored = await AsyncStorage.getItem(FOLLOW_UP_CALLS_STORAGE_KEY);
+            const existing = stored ? JSON.parse(stored) as string[] : [];
+            const next = Array.from(new Set([...existing, item.call_id]));
+            await AsyncStorage.setItem(FOLLOW_UP_CALLS_STORAGE_KEY, JSON.stringify(next));
+          } catch {
+            // Ignore local follow-up storage failures.
+          }
+          AnalyticsService.track("missed_call_callback_started", { call_id: item.call_id, peer_email: peerEmail });
+          const matchedTask = followUpItems.find((candidate) => candidate.task.call_id === item.call_id && candidate.task.type === "callback" && candidate.task.status !== "done");
+          if (matchedTask) {
+            await completeTask(matchedTask.task.id);
+            AnalyticsService.track("followup_task_completed", { task_id: matchedTask.task.id, type: matchedTask.task.type });
+          }
+          startCall(peerEmail);
+        });
+        if (result.status === "error") {
+          Alert.alert("回拨失败", "跟进任务更新失败，回拨未发起，请稍后再试。");
+        }
+      } finally {
+        setCallbackPending(false);
       }
-      AnalyticsService.track("missed_call_callback_started", { call_id: item.call_id, peer_email: peerEmail });
-      const matchedTask = followUpItems.find((candidate) => candidate.task.call_id === item.call_id && candidate.task.type === "callback" && candidate.task.status !== "done");
-      if (matchedTask) {
-        await completeTask(matchedTask.task.id);
-        AnalyticsService.track("followup_task_completed", { task_id: matchedTask.task.id, type: matchedTask.task.type });
-      }
-      startCall(peerEmail);
     },
-    [completeTask, connectionReady, followUpItems, startCall]
+    [callbackFlight, callbackPending, completeTask, connectionReady, followUpItems, startCall]
   );
 
   const rows = useMemo(() => {
@@ -128,13 +152,20 @@ const CallHistoryScreen: React.FC<Props> = ({ navigation }) => {
         </Text>
       </View>
 
+      {loadError ? (
+        <View style={styles.errorBlock}>
+          <Text style={styles.errorText}>加载失败：{loadError}</Text>
+          <PrimaryButton title="重试" onPress={() => void loadHistory()} disabled={loading} />
+        </View>
+      ) : null}
+
       <FlatList
         data={rows}
         keyExtractor={(item) => `${item.id}`}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void loadHistory()} />}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
-          !loading ? (
+          !loading && !loadError ? (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>还没有通话记录</Text>
               <Text style={styles.emptyText}>完成首次通话后，这里会显示未接、已接和拒接记录。</Text>
@@ -159,9 +190,10 @@ const CallHistoryScreen: React.FC<Props> = ({ navigation }) => {
               ) : null}
             </View>
             <PrimaryButton
-              title="回拨"
+              title={callbackPending ? "回拨中..." : "回拨"}
               style={styles.callButton}
               onPress={() => void handleCallBack(item, item.peerEmail)}
+              disabled={callbackPending}
             />
           </View>
         )}
@@ -200,6 +232,18 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 120
+  },
+  errorBlock: {
+    gap: 12,
+    padding: 16,
+    borderRadius: 10,
+    backgroundColor: "#fef2f2",
+    marginBottom: 12
+  },
+  errorText: {
+    color: "#b91c1c",
+    fontSize: 14,
+    lineHeight: 20
   },
   row: {
     backgroundColor: "#fff",

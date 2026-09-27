@@ -3,20 +3,24 @@ import { Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { buildRecordingDownloadRequest, listRecordings, type RecordingRecord } from "../api/collaboration";
+import LoadError from "../components/LoadError";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
 import fileDownloadAdapter from "../platform/fileDownload";
 import type { RootStackParamList } from "../navigation/AppNavigator";
+import { resolveLoadView } from "../components/loadViewState";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Recordings">;
 
 const RECORDING_PAGE_SIZE = 50;
+const LOAD_ERROR_MESSAGE = "无法读取录音存档列表。";
 
 const RecordingsScreen: React.FC<Props> = ({ navigation }) => {
   const { token } = useAuthContext();
   const [items, setItems] = useState<RecordingRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [recOffset, setRecOffset] = useState(0);
   const [recHasMore, setRecHasMore] = useState(false);
   const [recTotal, setRecTotal] = useState(0);
@@ -28,6 +32,7 @@ const RecordingsScreen: React.FC<Props> = ({ navigation }) => {
     }
     try {
       setLoading(true);
+      setLoadError(null);
       const data = await listRecordings(token, { limit: RECORDING_PAGE_SIZE, offset: 0 });
       setItems(data.recordings);
       setRecOffset(data.recordings.length);
@@ -35,7 +40,7 @@ const RecordingsScreen: React.FC<Props> = ({ navigation }) => {
       setRecTotal(data.pagination.total);
     } catch (error) {
       console.error("[RecordingsScreen] Failed to load recordings:", error);
-      Alert.alert("加载失败", "无法加载录音存档列表。");
+      setLoadError(LOAD_ERROR_MESSAGE);
     } finally {
       setLoading(false);
     }
@@ -82,9 +87,14 @@ const RecordingsScreen: React.FC<Props> = ({ navigation }) => {
     void loadData();
   }, [loadData]);
 
+  const view = resolveLoadView({ loading, error: loadError, itemCount: items.length });
+
   return (
     <View style={styles.container}>
       <Text style={styles.heading}>录音存档</Text>
+      {view === "error" && items.length > 0 ? (
+        <LoadError message={LOAD_ERROR_MESSAGE} onRetry={() => void loadData()} />
+      ) : null}
       <FlatList
         data={items}
         keyExtractor={(item) => String(item.session.id)}
@@ -149,9 +159,13 @@ const RecordingsScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         )}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>当前工作区还没有录音存档。</Text>
-          </View>
+          view === "error" ? (
+            <LoadError message={LOAD_ERROR_MESSAGE} onRetry={() => void loadData()} />
+          ) : view === "loading" ? null : (
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>当前工作区还没有录音存档。</Text>
+            </View>
+          )
         }
       />
     </View>

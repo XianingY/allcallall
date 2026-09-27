@@ -22,6 +22,7 @@
   "call.title": "Browser call",
   "call.unknownContact": "Unknown contact",
   "call.unmute": "Unmute",
+  "common.loadFailed": "Failed to load",
   "common.loading": "Loading",
   "common.retry": "Retry",
   "nav.agent": "Agent Lab",

@@ -491,15 +491,26 @@ func (r *Repository) UpsertDuplicateCandidate(ctx context.Context, duplicate *mo
 
 // ---------- EventOutbox ----------
 
-// ListRAGDeadLetters returns failed RAG-related outbox events.
-func (r *Repository) ListRAGDeadLetters(ctx context.Context) ([]models.EventOutbox, error) {
+// ListRAGDeadLetters returns failed RAG-related outbox events for an organization.
+// event_outbox has no organization_id column; ownership lives in payload_json, so
+// rows are scoped with the same check RetryDeadLetter applies.
+func (r *Repository) ListRAGDeadLetters(ctx context.Context, organizationID uint64) ([]models.EventOutbox, error) {
 	var rows []models.EventOutbox
 	err := r.db.WithContext(ctx).
 		Where("status = ? AND event IN ?", models.EventOutboxStatusFailed, []string{EventSourceIngestRequested, EventChunkIndexRequested}).
 		Order("updated_at DESC").
 		Limit(100).
 		Find(&rows).Error
-	return rows, err
+	if err != nil {
+		return nil, err
+	}
+	scoped := make([]models.EventOutbox, 0, len(rows))
+	for _, row := range rows {
+		if outboxPayloadMatchesOrg(row.PayloadJSON, organizationID) {
+			scoped = append(scoped, row)
+		}
+	}
+	return scoped, nil
 }
 
 // GetDeadLetterByID returns a failed outbox event by ID.

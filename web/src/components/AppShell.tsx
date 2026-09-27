@@ -19,6 +19,7 @@ const nav = [
 
 export function AppShell() {
   const [open, setOpen] = useState(false);
+  const [switchError, setSwitchError] = useState<unknown>();
   const { t } = useTranslation();
   const { user, logout } = useAuth();
   const { organizations, activeOrganization, select, error: organizationsError, retry: retryOrganizations } = useOrganization();
@@ -41,7 +42,10 @@ export function AppShell() {
           ) : organizations.length === 0 ? (
             <p className="text-xs text-muted">暂无组织</p>
           ) : (
-            <label className="workspace-picker"><span>当前组织</span><select aria-label="当前组织" value={activeOrganization?.id ?? ""} onChange={(event) => void select(Number(event.target.value))}>{organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <>
+            <label className="workspace-picker"><span>当前组织</span><select aria-label="当前组织" value={activeOrganization?.id ?? ""} onChange={(event) => { setSwitchError(undefined); void select(Number(event.target.value)).catch((caught) => setSwitchError(caught)); }}>{organizations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            {switchError ? <p className="text-xs text-danger" role="alert">切换组织失败：{switchError instanceof Error ? switchError.message : String(switchError)}</p> : null}
+            </>
           )}
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto p-3" aria-label="主导航">

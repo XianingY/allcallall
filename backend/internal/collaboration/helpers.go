@@ -3,7 +3,6 @@ package collaboration
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -486,7 +485,7 @@ func normalizeConversationStatus(status string) (string, error) {
 	case models.ConversationStatusResolved:
 		return models.ConversationStatusResolved, nil
 	default:
-		return "", errors.New("invalid conversation status")
+		return "", ErrInvalidConversationStatus
 	}
 }
 
@@ -501,7 +500,7 @@ func normalizeConversationPriority(priority string) (string, error) {
 	case models.ConversationPriorityUrgent:
 		return models.ConversationPriorityUrgent, nil
 	default:
-		return "", errors.New("invalid conversation priority")
+		return "", ErrInvalidConversationPriority
 	}
 }
 

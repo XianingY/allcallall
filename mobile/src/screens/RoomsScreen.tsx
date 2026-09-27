@@ -19,13 +19,17 @@ import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
 import { useOrganization } from "../context/OrganizationContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import { resolveRoomsLoadView } from "./launchActionGuards";
 import { buildRoomShareLinks, parseRoomIdFromURL } from "../utils/invitations";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Rooms">;
 
 const RoomsScreen: React.FC<Props> = ({ navigation }) => {
   const { token } = useAuthContext();
-  const { currentOrganization } = useOrganization();
+  // The organization list can fail on cold start. Screens gate their fetching
+  // on `currentOrganization`, so that failure used to render as the
+  // "当前工作区还没有会议。" empty copy; now it drives a retry block too.
+  const { currentOrganization, error: organizationError, refreshOrganizations } = useOrganization();
   // A failed load used to be a one-shot Alert with no way back: this is the
   // landing screen, and in a native stack it does not remount when you
   // navigate back, so the useEffect never re-ran. The only recovery was
@@ -98,6 +102,11 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
   );
   const roomMap = useMemo(() => new Map(items.map((item) => [item.room.id, item])), [items]);
   const isWideScreen = width >= 1100;
+  const loadView = resolveRoomsLoadView({
+    organizationError,
+    listError: loadError,
+    hasRooms: recentRooms.length > 0,
+  });
 
   const buildConversationTarget = useCallback((room: RoomRecord): ConversationRecord | null => {
     if (!room.conversation_id) {
@@ -250,19 +259,29 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void loadData()} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={() => void (organizationError ? refreshOrganizations() : loadData())}
+          />
+        }
       >
         <View style={isWideScreen ? styles.desktopContent : undefined}>
           <View style={isWideScreen ? styles.primaryColumn : undefined}>
             <Text style={styles.sectionTitle}>Active / Upcoming</Text>
             {activeRooms.length > 0 ? activeRooms.map(renderRoomCard) : null}
             {upcomingRooms.length > 0 ? upcomingRooms.slice(0, 3).map(renderRoomCard) : null}
-            {loadError ? (
+            {loadView.kind === "organization-error" ? (
               <View style={styles.errorBlock}>
-                <Text style={styles.errorText}>加载失败：{loadError}</Text>
+                <Text style={styles.errorText}>工作区列表加载失败：{loadView.message}</Text>
+                <PrimaryButton title="重试" onPress={() => void refreshOrganizations()} />
+              </View>
+            ) : loadView.kind === "list-error" ? (
+              <View style={styles.errorBlock}>
+                <Text style={styles.errorText}>加载失败：{loadView.message}</Text>
                 <PrimaryButton title="重试" onPress={() => void loadData()} />
               </View>
-            ) : recentRooms.length === 0 ? (
+            ) : loadView.kind === "empty" ? (
               <Text style={styles.empty}>当前工作区还没有会议。</Text>
             ) : null}
             {!isWideScreen ? <Text style={styles.sectionTitle}>Recent</Text> : null}

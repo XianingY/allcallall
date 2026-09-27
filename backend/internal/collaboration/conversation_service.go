@@ -2,7 +2,6 @@ package collaboration
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -125,13 +124,13 @@ func (s *Service) CreateConversation(ctx context.Context, organizationID, userID
 		input.Type = models.ConversationTypeDirect
 	}
 	if !isValidConversationType(input.Type) {
-		return nil, errors.New("invalid conversation type")
+		return nil, ErrInvalidConversationType
 	}
 	memberIDs := append([]uint64{}, input.MemberIDs...)
 	memberIDs = append(memberIDs, userID)
 	memberIDs = uniqueUint64s(memberIDs)
 	if len(memberIDs) == 0 {
-		return nil, errors.New("conversation members required")
+		return nil, ErrConversationMembersRequired
 	}
 	conv := &models.Conversation{
 		OrganizationID: organizationID,
@@ -147,7 +146,7 @@ func (s *Service) CreateConversation(ctx context.Context, organizationID, userID
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if input.Type == models.ConversationTypeDirect {
 			if len(memberIDs) != 2 {
-				return errors.New("direct conversations require exactly two members")
+				return ErrDirectConversationMemberCount
 			}
 			if existing := s.findDirectConversationTx(ctx, tx, organizationID, memberIDs); existing != nil {
 				*conv = *existing
@@ -196,7 +195,7 @@ func (s *Service) UpdateConversation(ctx context.Context, organizationID, userID
 			return nil, err
 		}
 		if count == 0 {
-			return nil, errors.New("assignee must be a conversation member")
+			return nil, ErrAssigneeNotConversationMember
 		}
 	}
 

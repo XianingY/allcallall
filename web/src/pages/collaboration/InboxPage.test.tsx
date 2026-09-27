@@ -1,0 +1,196 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const {
+  sendMessageMock,
+  uploadAttachmentMock,
+  createNoteMock,
+  updateConversationMock,
+  pinMessageMock,
+  createRoomMock,
+  conversation,
+  detail,
+  message,
+} = vi.hoisted(() => {
+  const conversation = {
+    id: 5,
+    organization_id: 7,
+    type: "direct",
+    title: "客户支持",
+    topic: "退款流程",
+    status: "open",
+    priority: "normal",
+    unread_count: 2,
+    last_message_preview: "你好",
+    last_message_at: "2026-09-27T08:00:00Z",
+  };
+  const detail = {
+    conversation,
+    workspace: {
+      agent_context: {
+        meeting_transcript_segment_count: 0,
+        transcript_segment_count: 0,
+        knowledge_source_count: 0,
+        pending_approval_count: 0,
+      },
+    },
+  };
+  const message = {
+    id: 101,
+    organization_id: 7,
+    conversation_id: 5,
+    sender_id: 2,
+    sender_email: "bob@example.com",
+    sender_display_name: "Bob",
+    type: "text",
+    body: "你好，需要帮助",
+    pinned: false,
+    created_at: "2026-09-27T08:00:00Z",
+  };
+  const noop = vi.fn<(...args: unknown[]) => Promise<unknown>>(() => Promise.resolve(undefined));
+  return {
+    sendMessageMock: noop,
+    uploadAttachmentMock: vi.fn<(...args: unknown[]) => Promise<unknown>>(() => Promise.resolve(undefined)),
+    createNoteMock: vi.fn<(...args: unknown[]) => Promise<unknown>>(() => Promise.resolve(undefined)),
+    updateConversationMock: vi.fn<(...args: unknown[]) => Promise<unknown>>(() => Promise.resolve(undefined)),
+    pinMessageMock: vi.fn<(...args: unknown[]) => Promise<unknown>>(() => Promise.resolve(undefined)),
+    createRoomMock: vi.fn<(...args: unknown[]) => Promise<unknown>>(() => Promise.resolve(undefined)),
+    conversation,
+    detail,
+    message,
+  };
+});
+
+vi.mock("@/api/collaboration", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/collaboration")>()),
+  listConversations: () =>
+    Promise.resolve({
+      conversations: [conversation],
+      pagination: { total: 1, limit: 50, offset: 0, has_more: false },
+    }),
+  getConversation: () => Promise.resolve(detail),
+  listMessages: () => Promise.resolve({ messages: [message], has_more_prev: false }),
+  listPinnedMessages: () => Promise.resolve([]),
+  listNotes: () => Promise.resolve([]),
+  markConversationRead: () => Promise.resolve(),
+  sendTyping: () => Promise.resolve(),
+  sendMessage: (...args: unknown[]) => sendMessageMock(...args),
+  uploadAttachment: (...args: unknown[]) => uploadAttachmentMock(...args),
+  createNote: (...args: unknown[]) => createNoteMock(...args),
+  updateConversation: (...args: unknown[]) => updateConversationMock(...args),
+  pinMessage: (...args: unknown[]) => pinMessageMock(...args),
+}));
+
+vi.mock("@/api/meetings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/meetings")>()),
+  createRoom: (...args: unknown[]) => createRoomMock(...args),
+}));
+
+vi.mock("@/auth/AuthContext", () => ({
+  useAuth: () => ({
+    status: "authenticated",
+    user: { id: 1, email: "ada@example.com", display_name: "Ada" },
+    login: vi.fn(),
+    register: vi.fn(),
+    logout: vi.fn(),
+  }),
+}));
+
+vi.mock("@/organizations/OrganizationContext", () => ({
+  useOrganization: () => ({
+    organizations: [{ id: 7, name: "Demo", slug: "demo", role: "owner" }],
+    activeOrganization: { id: 7, name: "Demo", slug: "demo", role: "owner" },
+    loading: false,
+    error: null,
+    retry: vi.fn(),
+    select: () => Promise.resolve(),
+    create: () => Promise.resolve({}),
+  }),
+}));
+
+import { InboxPage } from "@/pages/collaboration/InboxPage";
+
+const renderPage = () =>
+  render(
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}
+    >
+      <MemoryRouter initialEntries={["/conversations/5"]}>
+        <Routes>
+          <Route path="/conversations/:conversationId" element={<InboxPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+
+describe("InboxPage mutation failures", () => {
+  afterEach(cleanup);
+  beforeEach(() => vi.clearAllMocks());
+
+  it("keeps the draft and surfaces an alert when sending fails", async () => {
+    sendMessageMock.mockRejectedValueOnce(new Error("发送失败"));
+    const { container } = renderPage();
+
+    fireEvent.change(await screen.findByLabelText("输入消息"), { target: { value: "hello" } });
+    fireEvent.submit(container.querySelector("form.message-composer") as HTMLFormElement);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("发送失败");
+    expect(screen.getByLabelText("输入消息")).toHaveValue("hello");
+  });
+
+  it("surfaces an alert when uploading an attachment fails", async () => {
+    uploadAttachmentMock.mockRejectedValueOnce(new Error("上传失败"));
+    const { container } = renderPage();
+    await screen.findByLabelText("输入消息");
+
+    const fileInput = container.querySelector("input[type=file]") as HTMLInputElement;
+    expect(fileInput).not.toBeNull();
+    fireEvent.change(fileInput, {
+      target: { files: [new File(["hi"], "a.txt", { type: "text/plain" })] },
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("上传失败");
+  });
+
+  it("keeps the note draft and surfaces an alert when saving a note fails", async () => {
+    createNoteMock.mockRejectedValueOnce(new Error("备注失败"));
+    renderPage();
+
+    fireEvent.change(await screen.findByPlaceholderText("仅团队可见"), { target: { value: "内部信息" } });
+    fireEvent.click(screen.getByRole("button", { name: /添加备注/ }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("备注失败");
+    expect(screen.getByPlaceholderText("仅团队可见")).toHaveValue("内部信息");
+  });
+
+  it("surfaces an alert when updating the conversation status fails", async () => {
+    updateConversationMock.mockRejectedValueOnce(new Error("状态更新失败"));
+    renderPage();
+
+    fireEvent.change(await screen.findByRole("combobox", { name: "状态" }), {
+      target: { value: "resolved" },
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("状态更新失败");
+  });
+
+  it("surfaces an alert when a message action fails", async () => {
+    pinMessageMock.mockRejectedValueOnce(new Error("置顶失败"));
+    renderPage();
+
+    fireEvent.click(await screen.findByTitle("置顶"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("置顶失败");
+  });
+
+  it("surfaces an alert when starting a meeting fails", async () => {
+    createRoomMock.mockRejectedValueOnce(new Error("开会失败"));
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "开会" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("开会失败");
+  });
+});

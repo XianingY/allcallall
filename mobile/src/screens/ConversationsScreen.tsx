@@ -8,6 +8,9 @@ import { useOrganization } from "../context/OrganizationContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import PrimaryButton from "../components/PrimaryButton";
 import TextField from "../components/TextField";
+import LoadError from "../components/LoadError";
+import { resolveLoadView } from "../components/loadViewState";
+import { canSubmitInput } from "../components/submitGuard";
 import ChatRealtimeService from "../services/ChatRealtimeService";
 import {
   applyConversationListPatch,
@@ -16,6 +19,8 @@ import {
 
 type Props = NativeStackScreenProps<RootStackParamList, "Conversations">;
 type InboxFilter = "my" | "open" | "pending" | "resolved" | "channels";
+
+const LOAD_ERROR_MESSAGE = "无法读取协作线程。";
 
 const FILTERS: Array<{ key: InboxFilter; label: string }> = [
   { key: "my", label: "My" },
@@ -36,6 +41,8 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
   const [convHasMore, setConvHasMore] = useState(false);
   const [convTotal, setConvTotal] = useState(0);
   const [channelName, setChannelName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<InboxFilter>("my");
   const isWideScreen = width >= 1100;
 
@@ -46,6 +53,7 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
     }
     try {
       setLoading(true);
+      setLoadError(null);
       const data = await listConversations(token, activeFilter, undefined, { limit: 50, offset: 0 });
       setItems(data.conversations);
       setConvOffset(data.conversations.length);
@@ -53,7 +61,7 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
       setConvTotal(data.pagination.total);
     } catch (error) {
       console.error("[ConversationsScreen] Failed to load conversations:", error);
-      Alert.alert("加载失败", "无法加载协作线程。");
+      setLoadError(LOAD_ERROR_MESSAGE);
     } finally {
       setLoading(false);
     }
@@ -109,10 +117,11 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
   }, [currentOrganization, loadData, token]);
 
   const handleCreateChannel = async () => {
-    if (!token || !channelName.trim()) {
+    if (!token || !canSubmitInput(channelName, creating)) {
       return;
     }
     try {
+      setCreating(true);
       const conversation = await createConversation(token, {
         type: "channel",
         title: channelName.trim()
@@ -123,8 +132,12 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
     } catch (error) {
       console.error("[ConversationsScreen] Failed to create channel:", error);
       Alert.alert("创建失败", "无法创建团队频道。");
+    } finally {
+      setCreating(false);
     }
   };
+
+  const view = resolveLoadView({ loading, error: loadError, itemCount: items.length });
 
   return (
     <View style={styles.container}>
@@ -154,14 +167,17 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
             placeholder="例如：跨境客服升级处理"
           />
           <PrimaryButton
-            title="创建频道"
+            title={creating ? "创建中…" : "创建频道"}
             onPress={handleCreateChannel}
-            disabled={!channelName.trim()}
+            disabled={!canSubmitInput(channelName, creating)}
             style={styles.createButton}
           />
         </View>
 
         <View style={isWideScreen ? styles.desktopMain : undefined}>
+          {view === "error" && items.length > 0 ? (
+            <LoadError message={LOAD_ERROR_MESSAGE} onRetry={() => void loadData()} />
+          ) : null}
           <FlatList
             data={items}
             keyExtractor={(item) => String(item.id)}
@@ -215,9 +231,13 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
               );
             }}
             ListEmptyComponent={
-              <View style={styles.empty}>
-                <Text style={styles.emptyText}>当前筛选下还没有协作线程。</Text>
-              </View>
+              view === "error" ? (
+                <LoadError message={LOAD_ERROR_MESSAGE} onRetry={() => void loadData()} />
+              ) : view === "loading" ? null : (
+                <View style={styles.empty}>
+                  <Text style={styles.emptyText}>当前筛选下还没有协作线程。</Text>
+                </View>
+              )
             }
           />
         </View>

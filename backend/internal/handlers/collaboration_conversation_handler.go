@@ -65,7 +65,7 @@ func (h *CollaborationHandler) handleCreateConversation(c *gin.Context) {
 	}
 	conv, err := h.service.CreateConversation(c.Request.Context(), orgID, claims.UserID, req)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to create conversation")
 		return
 	}
 	JSONSuccess(c, http.StatusCreated, gin.H{"conversation": toConversationResponse(collaboration.ConversationSummary{Conversation: *conv})})
@@ -106,7 +106,7 @@ func (h *CollaborationHandler) handleUpdateConversation(c *gin.Context) {
 	}
 	item, err := h.service.UpdateConversation(c.Request.Context(), orgID, claims.UserID, conversationID, req)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to update conversation")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"conversation": toConversationResponse(*item)})
@@ -162,7 +162,7 @@ func (h *CollaborationHandler) handleCreateMessage(c *gin.Context) {
 	}
 	item, err := h.service.CreateMessage(c.Request.Context(), orgID, claims.UserID, conversationID, req)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to create message")
 		return
 	}
 	JSONSuccess(c, http.StatusCreated, gin.H{"message": toMessageResponse(*item)})
@@ -523,7 +523,8 @@ func (h *CollaborationHandler) handleSearchMessages(c *gin.Context) {
 		Limit:          limit,
 	})
 	if err != nil {
-		JSONErrorWithCode(c, http.StatusBadGateway, "SEARCH_QUERY_FAILED", err.Error())
+		h.logger.Error().Err(err).Uint64("organization_id", orgID).Msg("message search failed")
+		JSONErrorWithCode(c, http.StatusBadGateway, "SEARCH_QUERY_FAILED", "message search failed")
 		return
 	}
 	filtered, err := h.service.FilterSearchResults(c.Request.Context(), orgID, claims.UserID, results)

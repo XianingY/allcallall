@@ -13,21 +13,23 @@ import {
 import { PAGE_SIZE } from "@/api/pagination";
 import { useAuth } from "@/auth/AuthContext";
 import { FormError } from "@/components/AuthLayout";
-import { PageLoading } from "@/components/PageState";
+import { PageEmpty, PageError, PageLoading } from "@/components/PageState";
 import { useOrganization } from "@/organizations/OrganizationContext";
 import { AuditTab, InvitesTab, MembersTab, Overview, PoliciesTab, TeamsTab, type Tab } from "@/pages/organizations/OrganizationAdminTabs";
 import { organizationTabs, tabLabel } from "@/pages/organizations/organizationTabs";
 
 export function OrganizationsPage() {
-  const { organizations, activeOrganization, loading, select, create } = useOrganization();
+  const { organizations, activeOrganization, loading, select, create, error: orgListError, retry: retryOrganizations } = useOrganization();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>("overview");
   const [name, setName] = useState("");
   const [error, setError] = useState<unknown>();
+  const [creating, setCreating] = useState(false);
+  const [switchError, setSwitchError] = useState<unknown>();
   const orgId = activeOrganization?.id;
   const canManage = activeOrganization?.role === "owner" || activeOrganization?.role === "admin";
-  const submit = async () => { setError(undefined); try { await create(name); setName(""); } catch (caught) { setError(caught); } };
+  const submit = async () => { if (creating) return; setError(undefined); setCreating(true); try { await create(name); setName(""); } catch (caught) { setError(caught); } finally { setCreating(false); } };
 
   const members = useInfiniteQuery({
     queryKey: ["organizations", orgId, "members"],
@@ -50,10 +52,11 @@ export function OrganizationsPage() {
     <div className="org-admin-layout">
       <aside className="panel panel-body org-sidebar">
         <h2>我的组织</h2>
-        {loading ? <PageLoading /> : <div className="list-stack">{organizations.map((organization) => <button key={organization.id} className={`select-row ${organization.id === activeOrganization?.id ? "select-row-active" : ""}`} onClick={() => void select(organization.id)}><span><strong>{organization.name}</strong><small>{organization.slug || `ID ${organization.id}`}</small></span><span className="role-badge">{organization.role}</span></button>)}</div>}
+        {loading ? <PageLoading /> : orgListError ? <PageError error={orgListError} retry={retryOrganizations} /> : organizations.length === 0 ? <PageEmpty label="还没有组织" hint="创建第一个组织开始协作" /> : <div className="list-stack">{organizations.map((organization) => <button key={organization.id} className={`select-row ${organization.id === activeOrganization?.id ? "select-row-active" : ""}`} onClick={() => { setSwitchError(undefined); void select(organization.id).catch((caught) => setSwitchError(caught)); }}><span><strong>{organization.name}</strong><small>{organization.slug || `ID ${organization.id}`}</small></span><span className="role-badge">{organization.role}</span></button>)}</div>}
+        <FormError error={switchError} />
         <h2 className="mt-4">创建组织</h2>
         <FormError error={error} />
-        <div className="form-stack"><label>组织名称<input className="field" value={name} onChange={(event) => setName(event.target.value)} /></label><button className="button-primary" disabled={!name.trim()} onClick={() => void submit()}><Plus size={17} />创建并切换</button></div>
+        <div className="form-stack"><label>组织名称<input className="field" value={name} onChange={(event) => setName(event.target.value)} /></label><button className="button-primary" disabled={!name.trim() || creating} onClick={() => void submit()}><Plus size={17} />创建并切换</button></div>
       </aside>
       <main className="panel panel-body org-admin-main">
         <div className="org-tabs">{organizationTabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{tabLabel(item)}</button>)}</div>

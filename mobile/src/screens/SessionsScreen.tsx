@@ -12,7 +12,11 @@ import {
 } from "react-native";
 
 import { listRefreshSessions, RefreshSessionRecord, revokeRefreshSession } from "../api/auth";
+import LoadError from "../components/LoadError";
+import { resolveLoadView } from "../components/loadViewState";
 import { useAuthContext } from "../context/AuthContext";
+
+const LOAD_ERROR_MESSAGE = "无法读取登录会话列表。";
 
 const statusLabels: Record<RefreshSessionRecord["status"], string> = {
   active: "活跃 / Active",
@@ -35,6 +39,7 @@ const SessionsScreen: React.FC = () => {
   const { token } = useAuthContext();
   const [sessions, setSessions] = React.useState<RefreshSessionRecord[]>([]);
   const [loading, setLoading] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [revokingSessionId, setRevokingSessionId] = React.useState<number | null>(null);
 
   const loadSessions = React.useCallback(async () => {
@@ -42,11 +47,12 @@ const SessionsScreen: React.FC = () => {
       return;
     }
     setLoading(true);
+    setLoadError(null);
     try {
       setSessions(await listRefreshSessions(token));
     } catch (error) {
       console.warn("[SessionsScreen] Failed to load refresh sessions:", error);
-      Alert.alert("加载失败 / Load failed", "当前无法读取登录会话列表。");
+      setLoadError(LOAD_ERROR_MESSAGE);
     } finally {
       setLoading(false);
     }
@@ -86,6 +92,8 @@ const SessionsScreen: React.FC = () => {
     ]);
   }, [revokeSession]);
 
+  const view = resolveLoadView({ loading, error: loadError, itemCount: sessions.length });
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -101,12 +109,18 @@ const SessionsScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
 
-        {loading && sessions.length === 0 ? (
+        {view === "error" && sessions.length > 0 ? (
+          <LoadError message={LOAD_ERROR_MESSAGE} onRetry={() => void loadSessions()} />
+        ) : null}
+
+        {view === "loading" ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator />
             <Text style={styles.mutedText}>正在加载登录会话...</Text>
           </View>
-        ) : sessions.length === 0 ? (
+        ) : view === "error" && sessions.length === 0 ? (
+          <LoadError message={LOAD_ERROR_MESSAGE} onRetry={() => void loadSessions()} />
+        ) : view === "empty" ? (
           <View style={styles.emptyBox}>
             <Text style={styles.emptyTitle}>暂无会话记录</Text>
             <Text style={styles.mutedText}>登录或刷新会话后，这里会显示脱敏的设备记录。</Text>

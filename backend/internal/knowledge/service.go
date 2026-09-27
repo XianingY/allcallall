@@ -158,7 +158,7 @@ func (s *Service) ListRAGDeadLetters(ctx context.Context, organizationID, userID
 	if err := s.ensureOrganizationMember(ctx, organizationID, userID); err != nil {
 		return nil, err
 	}
-	return s.repo.ListRAGDeadLetters(ctx)
+	return s.repo.ListRAGDeadLetters(ctx, organizationID)
 }
 
 // RetryDeadLetter moves a dead-lettered event back to pending so the RAG pipeline

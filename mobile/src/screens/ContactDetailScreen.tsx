@@ -12,6 +12,7 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import TextField from "../components/TextField";
 import PrimaryButton from "../components/PrimaryButton";
+import LoadError from "../components/LoadError";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import { createConversation, fetchRoomState, listConversations, type ConversationRecord } from "../api/collaboration";
 import {
@@ -59,6 +60,7 @@ const ContactDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   });
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [lastCall, setLastCall] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
   const [lastCallId, setLastCallId] = useState<string | null>(null);
@@ -72,6 +74,7 @@ const ContactDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     }
     try {
       setLoading(true);
+      setLoadError(null);
       const [remoteProfile, calls, conversations] = await Promise.all([
         fetchContactProfile(token, contact.id),
         fetchCallHistory(token, 365),
@@ -120,6 +123,7 @@ const ContactDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       }
     } catch (error) {
       console.warn("[ContactDetailScreen] Failed to load contact details:", error);
+      setLoadError("无法读取联系人详情。");
     } finally {
       setLoading(false);
     }
@@ -271,6 +275,14 @@ const ContactDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         <PrimaryButton title="打开私聊" onPress={() => void handleOpenChat()} style={styles.chatButton} />
       </View>
 
+      {loadError ? (
+        <LoadError
+          message={loadError}
+          onRetry={() => void loadProfile()}
+          style={styles.loadErrorInline}
+        />
+      ) : null}
+
       {settings.businessAssistantEnabled ? (
         <View style={styles.formCard}>
           <Text style={styles.sectionTitle}>AI 跟进卡 / Follow-up</Text>
@@ -384,6 +396,9 @@ const styles = StyleSheet.create({
   chatButton: {
     marginTop: 10,
     backgroundColor: "#0f172a"
+  },
+  loadErrorInline: {
+    marginTop: 0
   },
   name: {
     fontSize: 24,

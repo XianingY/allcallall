@@ -31,6 +31,23 @@ var (
 	ErrTranscriptionNotRetryable    = errors.New("recording transcription is not retryable")
 	ErrInviteEmailMismatch          = errors.New("invite email mismatch")
 	ErrIdentityVerificationRequired = errors.New("organization requires identity verification before joining")
+
+	// Input-validation sentinels exported so the HTTP layer can whitelist
+	// which service errors are safe to echo verbatim; unmatched errors fall
+	// back to a generic message (fail closed, so internals never leak).
+	ErrInvalidConversationType       = errors.New("invalid conversation type")
+	ErrConversationMembersRequired   = errors.New("conversation members required")
+	ErrDirectConversationMemberCount = errors.New("direct conversations require exactly two members")
+	ErrAssigneeNotConversationMember = errors.New("assignee must be a conversation member")
+	ErrInvalidConversationStatus     = errors.New("invalid conversation status")
+	ErrInvalidConversationPriority   = errors.New("invalid conversation priority")
+	ErrInvalidMessageType            = errors.New("invalid message type")
+	ErrMessageBodyRequired           = errors.New("message body required")
+	ErrReplyTargetNotFound           = errors.New("reply target not found")
+	ErrAttachmentsUnavailable        = errors.New("one or more attachments are unavailable")
+	ErrInvalidRole                   = errors.New("invalid role")
+	ErrLastOwnerRequired             = errors.New("organization must keep at least one owner")
+	ErrTeamNameRequired              = errors.New("team name required")
 )
 
 type EventPublisher interface {

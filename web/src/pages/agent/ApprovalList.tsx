@@ -2,23 +2,30 @@ import { Check, X } from "lucide-react";
 import { useState } from "react";
 
 import { listApprovals } from "@/api/agent";
-import { PageLoading } from "@/components/PageState";
+import { PageError, PageLoading } from "@/components/PageState";
 import { compactJSON } from "@/pages/agent/AgentLabUtils";
 
 export function ApprovalList({
   approvals,
   loading,
   decide,
+  error,
+  retry,
+  deciding,
 }: {
   approvals: Awaited<ReturnType<typeof listApprovals>>;
   loading: boolean;
   decide(id: number, value: "approve" | "reject"): void;
+  error?: unknown;
+  retry?(): void;
+  deciding?: boolean;
 }) {
   const [pendingOnly, setPendingOnly] = useState(true);
   const visible = pendingOnly
     ? approvals.filter((item) => item.status === "pending")
     : approvals;
   if (loading) return <PageLoading />;
+  if (error) return <PageError error={error} retry={retry} />;
   return (
     <div>
       <div className="approval-toolbar">
@@ -75,6 +82,7 @@ export function ApprovalList({
               <footer>
                 <button
                   className="button-secondary"
+                  disabled={deciding}
                   onClick={() => decide(item.id, "reject")}
                 >
                   <X size={16} />
@@ -82,6 +90,7 @@ export function ApprovalList({
                 </button>
                 <button
                   className="button-primary"
+                  disabled={deciding}
                   onClick={() => decide(item.id, "approve")}
                 >
                   <Check size={16} />

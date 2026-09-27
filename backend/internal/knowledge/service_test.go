@@ -3,6 +3,7 @@ package knowledge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -493,6 +494,50 @@ func TestRetryDeadLetterRequeuesRAGEvent(t *testing.T) {
 	}
 	if updated.Status != models.EventOutboxStatusPending || updated.Attempts != 0 || updated.LastError != "" || updated.AvailableAt != nil {
 		t.Fatalf("dead letter was not requeued: %+v", updated)
+	}
+}
+
+func TestListRAGDeadLettersFiltersByOrganization(t *testing.T) {
+	ctx := context.Background()
+	db := newKnowledgeTestDB(t)
+	orgID, userID, _ := seedKnowledgeAccess(t, db)
+	otherOrg := models.Organization{Name: "Other Org", Slug: "other-org", CreatedBy: 8}
+	if err := db.Create(&otherOrg).Error; err != nil {
+		t.Fatal(err)
+	}
+	mine := models.EventOutbox{
+		AggregateType:  "rag_chunk",
+		AggregateID:    1,
+		Event:          EventChunkIndexRequested,
+		PayloadJSON:    fmt.Sprintf(`{"chunk_id":1,"organization_id":%d}`, orgID),
+		IdempotencyKey: "dead-letter-mine",
+		Status:         models.EventOutboxStatusFailed,
+		Attempts:       3,
+		LastError:      "boom",
+	}
+	if err := db.Create(&mine).Error; err != nil {
+		t.Fatal(err)
+	}
+	theirs := models.EventOutbox{
+		AggregateType:  "rag_chunk",
+		AggregateID:    2,
+		Event:          EventChunkIndexRequested,
+		PayloadJSON:    fmt.Sprintf(`{"chunk_id":2,"organization_id":%d}`, otherOrg.ID),
+		IdempotencyKey: "dead-letter-theirs",
+		Status:         models.EventOutboxStatusFailed,
+		Attempts:       3,
+		LastError:      "other tenant error",
+	}
+	if err := db.Create(&theirs).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(db)
+	rows, err := svc.ListRAGDeadLetters(ctx, orgID, userID)
+	if err != nil {
+		t.Fatalf("list dead letters: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ID != mine.ID {
+		t.Fatalf("expected only org %d dead letters, got %d rows: %+v", orgID, len(rows), rows)
 	}
 }
 

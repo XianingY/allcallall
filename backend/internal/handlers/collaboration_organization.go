@@ -162,7 +162,7 @@ func (h *CollaborationHandler) handleUpdateOrganizationMember(c *gin.Context) {
 	}
 	item, err := h.service.UpdateOrganizationMember(c.Request.Context(), orgID, claims.UserID, targetUserID, req)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to update organization member")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"member": toOrganizationMemberResponse(*item)})

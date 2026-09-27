@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -10,20 +11,31 @@ import (
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/chat"
 	"github.com/allcallall/backend/internal/metrics"
+	"github.com/allcallall/backend/internal/models"
 )
+
+// OrganizationResolver 校验调用者对目标组织的成员资格。复用
+// collaboration.Service.ResolveOrganization（requireCurrentOrganization 同款
+// 组织成员关系查询），chat 侧不再重复实现 membership SQL。
+type OrganizationResolver interface {
+	ResolveOrganization(ctx context.Context, userID, requestedID uint64) (*models.Organization, string, error)
+}
 
 // ChatHandler 暴露即时通讯群聊的 HTTP 接口（群组 / 消息漫游 / 已读回执 / 富媒体）。
 type ChatHandler struct {
 	logger  zerolog.Logger
 	service *chat.Service
+	orgs    OrganizationResolver
 	metrics metrics.Recorder
 }
 
-// NewChatHandler 构造处理器。
-func NewChatHandler(log zerolog.Logger, service *chat.Service, recorder metrics.Recorder) *ChatHandler {
+// NewChatHandler 构造处理器。orgs 用于在每个 ?org_id= 路由上校验组织成员资格，
+// 必须注入（nil 时所有组织访问按拒绝处理，保持 fail-closed）。
+func NewChatHandler(log zerolog.Logger, service *chat.Service, orgs OrganizationResolver, recorder metrics.Recorder) *ChatHandler {
 	return &ChatHandler{
 		logger:  log.With().Str("component", "chat_handler").Logger(),
 		service: service,
+		orgs:    orgs,
 		metrics: recorder,
 	}
 }
@@ -53,12 +65,7 @@ type createGroupRequest struct {
 }
 
 func (h *ChatHandler) handleCreateGroup(c *gin.Context) {
-	claims, err := auth.GetClaimsFromContext(c)
-	if err != nil {
-		JSONError(c, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	orgID, ok := orgIDFromQuery(c)
+	claims, orgID, ok := h.requireOrgAccess(c)
 	if !ok {
 		return
 	}
@@ -82,12 +89,7 @@ func (h *ChatHandler) handleCreateGroup(c *gin.Context) {
 }
 
 func (h *ChatHandler) handleListGroups(c *gin.Context) {
-	claims, err := auth.GetClaimsFromContext(c)
-	if err != nil {
-		JSONError(c, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	orgID, ok := orgIDFromQuery(c)
+	claims, orgID, ok := h.requireOrgAccess(c)
 	if !ok {
 		return
 	}
@@ -100,12 +102,7 @@ func (h *ChatHandler) handleListGroups(c *gin.Context) {
 }
 
 func (h *ChatHandler) handleGetGroup(c *gin.Context) {
-	claims, err := auth.GetClaimsFromContext(c)
-	if err != nil {
-		JSONError(c, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	orgID, ok := orgIDFromQuery(c)
+	claims, orgID, ok := h.requireOrgAccess(c)
 	if !ok {
 		return
 	}
@@ -127,12 +124,7 @@ type addMemberRequest struct {
 }
 
 func (h *ChatHandler) handleAddMember(c *gin.Context) {
-	claims, err := auth.GetClaimsFromContext(c)
-	if err != nil {
-		JSONError(c, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	orgID, ok := orgIDFromQuery(c)
+	claims, orgID, ok := h.requireOrgAccess(c)
 	if !ok {
 		return
 	}
@@ -155,12 +147,7 @@ func (h *ChatHandler) handleAddMember(c *gin.Context) {
 }
 
 func (h *ChatHandler) handleRemoveMember(c *gin.Context) {
-	claims, err := auth.GetClaimsFromContext(c)
-	if err != nil {
-		JSONError(c, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	orgID, ok := orgIDFromQuery(c)
+	claims, orgID, ok := h.requireOrgAccess(c)
 	if !ok {
 		return
 	}
@@ -189,12 +176,7 @@ type sendMessageRequest struct {
 }
 
 func (h *ChatHandler) handleSendMessage(c *gin.Context) {
-	claims, err := auth.GetClaimsFromContext(c)
-	if err != nil {
-		JSONError(c, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	orgID, ok := orgIDFromQuery(c)
+	claims, orgID, ok := h.requireOrgAccess(c)
 	if !ok {
 		return
 	}
@@ -222,12 +204,7 @@ func (h *ChatHandler) handleSendMessage(c *gin.Context) {
 }
 
 func (h *ChatHandler) handleListMessages(c *gin.Context) {
-	claims, err := auth.GetClaimsFromContext(c)
-	if err != nil {
-		JSONError(c, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	orgID, ok := orgIDFromQuery(c)
+	claims, orgID, ok := h.requireOrgAccess(c)
 	if !ok {
 		return
 	}
@@ -261,12 +238,7 @@ func (h *ChatHandler) handleListMessages(c *gin.Context) {
 }
 
 func (h *ChatHandler) handleEditMessage(c *gin.Context) {
-	claims, err := auth.GetClaimsFromContext(c)
-	if err != nil {
-		JSONError(c, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	orgID, ok := orgIDFromQuery(c)
+	claims, orgID, ok := h.requireOrgAccess(c)
 	if !ok {
 		return
 	}
@@ -296,12 +268,7 @@ func (h *ChatHandler) handleEditMessage(c *gin.Context) {
 }
 
 func (h *ChatHandler) handleDeleteMessage(c *gin.Context) {
-	claims, err := auth.GetClaimsFromContext(c)
-	if err != nil {
-		JSONError(c, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	orgID, ok := orgIDFromQuery(c)
+	claims, orgID, ok := h.requireOrgAccess(c)
 	if !ok {
 		return
 	}
@@ -328,12 +295,7 @@ type markReadRequest struct {
 }
 
 func (h *ChatHandler) handleMarkRead(c *gin.Context) {
-	claims, err := auth.GetClaimsFromContext(c)
-	if err != nil {
-		JSONError(c, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	orgID, ok := orgIDFromQuery(c)
+	claims, orgID, ok := h.requireOrgAccess(c)
 	if !ok {
 		return
 	}
@@ -343,7 +305,10 @@ func (h *ChatHandler) handleMarkRead(c *gin.Context) {
 		return
 	}
 	var req markReadRequest
-	_ = c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
 	view, err := h.service.MarkRead(c.Request.Context(), orgID, claims.UserID, id, req.UpToMessageID)
 	if err != nil {
 		writeAppError(c, err)
@@ -353,12 +318,7 @@ func (h *ChatHandler) handleMarkRead(c *gin.Context) {
 }
 
 func (h *ChatHandler) handleListReceipts(c *gin.Context) {
-	claims, err := auth.GetClaimsFromContext(c)
-	if err != nil {
-		JSONError(c, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	orgID, ok := orgIDFromQuery(c)
+	claims, orgID, ok := h.requireOrgAccess(c)
 	if !ok {
 		return
 	}
@@ -381,12 +341,7 @@ func (h *ChatHandler) handleListReceipts(c *gin.Context) {
 }
 
 func (h *ChatHandler) handleReadSummary(c *gin.Context) {
-	claims, err := auth.GetClaimsFromContext(c)
-	if err != nil {
-		JSONError(c, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	orgID, ok := orgIDFromQuery(c)
+	claims, orgID, ok := h.requireOrgAccess(c)
 	if !ok {
 		return
 	}
@@ -401,6 +356,29 @@ func (h *ChatHandler) handleReadSummary(c *gin.Context) {
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"read": view})
+}
+
+// requireOrgAccess 读取 ?org_id= 并校验当前用户是该组织的成员；
+// 失败时已写出响应，调用方直接 return。所有读取 org_id 的聊天路由都必须经过这里。
+func (h *ChatHandler) requireOrgAccess(c *gin.Context) (*auth.Claims, uint64, bool) {
+	claims, err := auth.GetClaimsFromContext(c)
+	if err != nil {
+		JSONError(c, http.StatusUnauthorized, "unauthorized")
+		return nil, 0, false
+	}
+	orgID, ok := orgIDFromQuery(c)
+	if !ok {
+		return nil, 0, false
+	}
+	if h.orgs == nil {
+		JSONErrorWithCode(c, http.StatusForbidden, "ORGANIZATION_ACCESS_DENIED", "organization access denied")
+		return nil, 0, false
+	}
+	if _, _, err := h.orgs.ResolveOrganization(c.Request.Context(), claims.UserID, orgID); err != nil {
+		JSONErrorWithCode(c, http.StatusForbidden, "ORGANIZATION_ACCESS_DENIED", "organization access denied")
+		return nil, 0, false
+	}
+	return claims, orgID, true
 }
 
 // orgIDFromQuery 从查询参数读取组织 ID；缺失或非法时直接返回 false（已写响应）。

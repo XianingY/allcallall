@@ -41,6 +41,7 @@ import {
 } from "@/api/collaboration";
 import { createRoom } from "@/api/meetings";
 import { useAuth } from "@/auth/AuthContext";
+import { FormError } from "@/components/AuthLayout";
 import { PageEmpty, PageError, PageLoading } from "@/components/PageState";
 import { useOrganization } from "@/organizations/OrganizationContext";
 import { formatTime } from "@/pages/collaboration/InboxFormat";
@@ -201,6 +202,7 @@ export function InboxPage() {
     <main className="message-pane">
       {!selectedId ? <div className="pane-empty"><MessageSquarePlus size={28} /><strong>选择一个会话</strong><span>消息、备注和 Agent 上下文会在这里显示</span></div> : detail.isLoading ? <PageLoading /> : detail.isError ? <PageError error={detail.error} /> : <>
         <header className="workspace-pane-header"><button className="icon-button mobile-only" aria-label="返回会话列表" onClick={() => navigate("/inbox")}><ChevronLeft size={20} /></button><div className="min-w-0"><h2>{detail.data?.conversation.title}</h2><p>{detail.data?.conversation.topic || "无主题"}</p></div><div className="button-row"><button className="button-secondary" disabled={startMeeting.isPending} onClick={() => startMeeting.mutate()}><Video size={16} />开会</button><span className={`status-dot status-${detail.data?.conversation.status}`} /></div></header>
+        <FormError error={startMeeting.error} />
         {pins.data?.length ? <div className="pinned-strip">{pins.data.slice(0, 3).map((message) => <button key={message.id} onClick={() => document.getElementById(`message-${message.id}`)?.scrollIntoView({ block: "center" })}><Pin size={13} /><span>{message.body || "已撤回消息"}</span></button>)}</div> : null}
         <div className="message-stream">
           {messages.hasNextPage && <button className="button-secondary load-older" disabled={messages.isFetchingNextPage} onClick={() => void messages.fetchNextPage()}>加载更早消息</button>}
@@ -208,6 +210,7 @@ export function InboxPage() {
           {messages.isLoading ? <PageLoading /> : messages.isError ? <PageError error={messages.error} retry={() => void messages.refetch()} /> : messageItems.length ? messageWindow.visible.map((message) => <MessageBubble key={message.id} message={message} currentUserId={user?.id} onReply={setReplyTo} onEdit={(item) => { setEditing(item); setComposer(item.body); }} onAction={(action, item, emoji) => messageAction.mutate({ action, message: item, emoji })} />) : <div className="pane-empty"><span>还没有消息</span></div>}
           {activeTypingUsers.length ? <div className="typing-line">对方正在输入...</div> : null}
         </div>
+        <FormError error={messageAction.error} />
         <form className="message-composer beta-composer" onSubmit={(event) => { event.preventDefault(); if (composer.trim() || attachments.length) send.mutate(); }}>
           {(replyTo || editing || attachments.length > 0) && <div className="composer-context">
             {replyTo && <span><Reply size={13} />回复 {replyTo.sender_display_name || replyTo.sender_email}: {replyTo.body}</span>}
@@ -217,6 +220,8 @@ export function InboxPage() {
           </div>}
           <textarea aria-label="输入消息" placeholder="输入消息" rows={2} value={composer} onChange={(event) => onComposerChange(event.target.value)} />
           <input ref={fileInput} className="hidden" type="file" onChange={(event) => { const file = event.target.files?.[0]; if (file) upload.mutate(file); event.currentTarget.value = ""; }} />
+          <FormError error={upload.error} />
+          <FormError error={send.error} />
           <button type="button" className="icon-button" aria-label="上传附件" disabled={upload.isPending} onClick={() => fileInput.current?.click()}><Paperclip size={18} /></button>
           <button className="icon-button composer-send" aria-label="发送消息" disabled={(!composer.trim() && attachments.length === 0) || send.isPending}><Send size={18} /></button>
         </form>
@@ -224,11 +229,11 @@ export function InboxPage() {
     </main>
     <aside className="context-pane">
       {!selectedId || !detail.data ? <div className="pane-empty"><Bot size={24} /><span>业务上下文</span></div> : <div className="context-scroll">
-        <section className="context-section"><h3>会话状态</h3><label>状态<select className="field" value={detail.data.conversation.status} onChange={(event) => update.mutate({ status: event.target.value })}><option value="open">处理中</option><option value="pending">待处理</option><option value="resolved">已解决</option></select></label><label>优先级<select className="field" value={detail.data.conversation.priority} onChange={(event) => update.mutate({ priority: event.target.value })}><option value="low">低</option><option value="normal">普通</option><option value="high">高</option><option value="urgent">紧急</option></select></label></section>
+        <section className="context-section"><h3>会话状态</h3><label>状态<select className="field" value={detail.data.conversation.status} onChange={(event) => update.mutate({ status: event.target.value })}><option value="open">处理中</option><option value="pending">待处理</option><option value="resolved">已解决</option></select></label><label>优先级<select className="field" value={detail.data.conversation.priority} onChange={(event) => update.mutate({ priority: event.target.value })}><option value="low">低</option><option value="normal">普通</option><option value="high">高</option><option value="urgent">紧急</option></select></label><FormError error={update.error} /></section>
         <section className="context-section"><h3><Bot size={16} />Agent 上下文</h3><Metric label="会议转写" value={String(detail.data.workspace.agent_context.meeting_transcript_segment_count ?? 0)} /><Metric label="知识来源" value={String(detail.data.workspace.agent_context.knowledge_source_count ?? 0)} /><Metric label="待审批" value={String(detail.data.workspace.agent_context.pending_approval_count ?? 0)} />{detail.data.workspace.agent_context.meeting_transcription_status && <span className="context-status">转写 {detail.data.workspace.agent_context.meeting_transcription_status}</span>}<Link className="button-secondary w-full" to={`/agent-lab?conversationId=${selectedId}`}>打开 Agent Lab</Link>{detail.data.workspace.agent_context.meeting_transcription_status === "ready" && <Link className="button-primary w-full mt-2" to={`/agent-lab?conversationId=${selectedId}&preset=meeting_brief`}>生成会议复盘</Link>}</section>
         <section className="context-section"><h3><Video size={16} />会议</h3><button className="button-secondary w-full" disabled={startMeeting.isPending} onClick={() => startMeeting.mutate()}>从当前会话开会</button></section>
         {detail.data.conversation.latest_recording_id && <section className="context-section"><h3><FileAudio size={16} />最新录音</h3><Link to={`/recordings/${detail.data.conversation.latest_recording_id}`} className="button-secondary w-full">查看转写</Link></section>}
-        <section className="context-section"><h3><StickyNote size={16} />内部备注</h3><div className="notes-list">{notes.data?.map((item) => <article key={item.id}><p>{item.body}</p><small>{item.author_display_name} · {formatTime(item.created_at)}</small></article>)}</div><textarea className="field" rows={3} placeholder="仅团队可见" value={note} onChange={(event) => setNote(event.target.value)} /><button className="button-secondary w-full" disabled={!note.trim()} onClick={() => addNote.mutate()}><Check size={16} />添加备注</button></section>
+        <section className="context-section"><h3><StickyNote size={16} />内部备注</h3><div className="notes-list">{notes.data?.map((item) => <article key={item.id}><p>{item.body}</p><small>{item.author_display_name} · {formatTime(item.created_at)}</small></article>)}</div><textarea className="field" rows={3} placeholder="仅团队可见" value={note} onChange={(event) => setNote(event.target.value)} /><FormError error={addNote.error} /><button className="button-secondary w-full" disabled={!note.trim()} onClick={() => addNote.mutate()}><Check size={16} />添加备注</button></section>
       </div>}
     </aside>
   </div>;

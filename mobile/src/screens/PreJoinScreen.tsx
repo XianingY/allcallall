@@ -13,6 +13,16 @@ import { buildRoomShareLinks } from "../utils/invitations";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PreJoin">;
 
+const previewPermissionMessage = () => {
+  if (Platform.OS === "ios") {
+    return "未获得麦克风或摄像头权限。请打开系统“设置”>“隐私与安全性”，允许本应用使用麦克风和相机后返回重试。";
+  }
+  if (Platform.OS === "android") {
+    return "未获得麦克风或摄像头权限。请打开系统“设置”>“应用”>“权限”，允许本应用使用麦克风和相机后返回重试。";
+  }
+  return "浏览器未授予麦克风或摄像头权限，请检查地址栏中的设备权限设置。";
+};
+
 const PreJoinScreen: React.FC<Props> = ({ route, navigation }) => {
   const { token } = useAuthContext();
   const { localStream, preparePreview } = useRoomCall();
@@ -58,7 +68,7 @@ const PreJoinScreen: React.FC<Props> = ({ route, navigation }) => {
   useEffect(() => {
     void preparePreview(options).catch((error) => {
       console.error("[PreJoinScreen] Failed to prepare preview:", error);
-      setPreviewError("浏览器未授予麦克风或摄像头权限，请检查地址栏中的设备权限设置。");
+      setPreviewError(previewPermissionMessage());
     });
   }, [options, preparePreview]);
 

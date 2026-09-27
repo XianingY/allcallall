@@ -14,6 +14,8 @@ const OrganizationsScreen: React.FC<Props> = () => {
     organizations,
     currentOrganization,
     loading,
+    error,
+    refreshOrganizations,
     selectOrganization,
     createWorkspace
   } = useOrganization();
@@ -43,6 +45,19 @@ const OrganizationsScreen: React.FC<Props> = () => {
       <Text style={styles.currentName}>
         {currentOrganization?.name ?? "未选择工作区"}
       </Text>
+
+      {error ? (
+        <View style={styles.errorBlock}>
+          <Text style={styles.errorText}>
+            工作区列表加载失败：{error.message || "请检查网络后重试。"}
+          </Text>
+          <PrimaryButton
+            title={loading ? "重试中..." : "重试"}
+            onPress={() => void refreshOrganizations()}
+            disabled={loading}
+          />
+        </View>
+      ) : null}
 
       <TextField
         label="新建工作区"
@@ -99,6 +114,18 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#0f172a",
     marginBottom: 16
+  },
+  errorBlock: {
+    gap: 12,
+    padding: 16,
+    borderRadius: 10,
+    backgroundColor: "#fef2f2",
+    marginBottom: 16
+  },
+  errorText: {
+    color: "#b91c1c",
+    fontSize: 14,
+    lineHeight: 20
   },
   createButton: {
     marginBottom: 16

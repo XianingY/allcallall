@@ -1,25 +1,33 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, FlatList, StyleSheet, Text, View } from "react-native";
+import { FlatList, StyleSheet, Text, View } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { fetchDeal, listDealActivities, type DealActivityRecord, type DealRecord } from "../api/collaboration";
 import { useAuthContext } from "../context/AuthContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import LoadError from "../components/LoadError";
 import PrimaryButton from "../components/PrimaryButton";
+import { resolveLoadView } from "../components/loadViewState";
 
 type Props = NativeStackScreenProps<RootStackParamList, "DealDetail">;
+
+const LOAD_ERROR_MESSAGE = "无法读取商机详情。";
 
 const DealDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const { deal: initialDeal } = route.params;
   const { token } = useAuthContext();
   const [deal, setDeal] = useState<DealRecord>(initialDeal);
   const [activities, setActivities] = useState<DealActivityRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) {
       return;
     }
     try {
+      setLoading(true);
+      setLoadError(null);
       const [freshDeal, freshActivities] = await Promise.all([
         fetchDeal(token, initialDeal.id),
         listDealActivities(token, initialDeal.id)
@@ -28,13 +36,17 @@ const DealDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       setActivities(freshActivities);
     } catch (error) {
       console.error("[DealDetailScreen] Failed to load deal detail:", error);
-      Alert.alert("加载失败", "无法加载商机详情。");
+      setLoadError(LOAD_ERROR_MESSAGE);
+    } finally {
+      setLoading(false);
     }
   }, [initialDeal.id, token]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const view = resolveLoadView({ loading, error: loadError, itemCount: activities.length });
 
   return (
     <View style={styles.container}>
@@ -59,6 +71,9 @@ const DealDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       </View>
 
       <Text style={styles.sectionTitle}>最近活动</Text>
+      {view === "error" && activities.length > 0 ? (
+        <LoadError message={LOAD_ERROR_MESSAGE} onRetry={() => void load()} />
+      ) : null}
       <FlatList
         data={activities}
         keyExtractor={(item) => String(item.id)}
@@ -70,7 +85,13 @@ const DealDetailScreen: React.FC<Props> = ({ route, navigation }) => {
             </Text>
           </View>
         )}
-        ListEmptyComponent={<Text style={styles.empty}>暂无活动记录。</Text>}
+        ListEmptyComponent={
+          view === "error" ? (
+            <LoadError message={LOAD_ERROR_MESSAGE} onRetry={() => void load()} />
+          ) : view === "loading" ? null : (
+            <Text style={styles.empty}>暂无活动记录。</Text>
+          )
+        }
       />
     </View>
   );

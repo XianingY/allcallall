@@ -152,7 +152,7 @@ func (h *TranslationWSHandler) Handle(c *gin.Context) {
 			session, err := h.service.StartSession(c.Request.Context(), claims.Email, req)
 			if err != nil {
 				h.logger.Warn().Err(err).Str("email", claims.Email).Msg("start translation session failed")
-				sendJSON(translationErrorMessage("START_FAILED", err.Error(), isRecoverableStartError(err)))
+				sendJSON(translationErrorMessage("START_FAILED", translationStartErrorMessage(err), isRecoverableStartError(err)))
 				continue
 			}
 
@@ -195,7 +195,7 @@ func (h *TranslationWSHandler) Handle(c *gin.Context) {
 
 			if err := currentSession.SendAudio(c.Request.Context(), chunk); err != nil {
 				h.logger.Warn().Err(err).Str("session_id", currentSession.ID).Msg("send translation audio failed")
-				sendJSON(translationErrorMessage("PROVIDER_ERROR", err.Error(), true))
+				sendJSON(translationErrorMessage("PROVIDER_ERROR", "failed to send translation audio", true))
 			}
 
 		case "translation.stop":
@@ -287,6 +287,18 @@ func isRecoverableStartError(err error) bool {
 		return false
 	}
 	return true
+}
+
+// translationStartErrorMessage keeps deliberate validation/limit messages from
+// the translation service and replaces anything unexpected with a generic
+// string so provider internals never reach the websocket client.
+func translationStartErrorMessage(err error) string {
+	switch {
+	case errors.Is(err, translation.ErrBadStartRequest), errors.Is(err, translation.ErrSessionLimitExceeded):
+		return err.Error()
+	default:
+		return "failed to start translation session"
+	}
 }
 
 func translationErrorMessage(code, message string, recoverable bool) map[string]any {

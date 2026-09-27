@@ -61,6 +61,7 @@ import {
   WorkflowDebugModal,
   styles,
 } from "./conversationDetail";
+import { createSingleFlight } from "./launchActionGuards";
 
 type Props = NativeStackScreenProps<RootStackParamList, "ConversationDetail">;
 
@@ -77,6 +78,8 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const [latestRecording, setLatestRecording] =
     useState<RecordingRecord | null>(null);
   const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const sendFlight = useRef(createSingleFlight()).current;
   const [noteDraft, setNoteDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [activeWorkflow, setActiveWorkflow] = useState<WorkflowResult | null>(
@@ -415,17 +418,32 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const handleSend = useCallback(async () => {
     if (!token || !draft.trim()) return;
+    // The busy check is synchronous, so a second tap in the same frame never
+    // reaches createMessage; the flag also disables the button for the rest of
+    // the in-flight window.
+    if (sendFlight.isBusy()) return;
+    setSending(true);
     try {
-      const created = await createMessage(token, conversationId, { body: draft.trim() });
+      const result = await sendFlight.run(() =>
+        createMessage(token, conversationId, { body: draft.trim() }),
+      );
+      if (result.status === "busy") {
+        return;
+      }
+      if (result.status === "error") {
+        throw result.error;
+      }
       setDraft("");
       // Append rather than full-reload: preserves any "load earlier" history and
       // avoids flicker. The realtime echo of this message is deduped by id.
-      appendMessage(created);
+      appendMessage(result.value);
     } catch (e) {
-      console.error(e);
-      Alert.alert("发送失败");
+      console.error("[ConversationDetailScreen] Failed to send message:", e);
+      Alert.alert("发送失败", "消息未能发送，请稍后再试。");
+    } finally {
+      setSending(false);
     }
-  }, [token, draft, conversationId, appendMessage]);
+  }, [token, draft, conversationId, appendMessage, sendFlight]);
 
   const runMeetingAgent = useCallback(
     async (input: {
@@ -803,6 +821,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     hasMorePrev,
     loadingMorePrev,
     draft,
+    sending,
     workflowLoading,
     currentUserId: user?.id,
     onRefresh: () => void loadData(),

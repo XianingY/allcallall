@@ -380,7 +380,7 @@ func main() {
 
 	// 即时通讯群聊服务（群组 / 消息漫游 / 已读回执 / 富媒体）
 	chatService := chat.NewService(db, chatHub).WithLogger(appLogger).WithMetrics(counterStore).WithOutbox(outboxStore)
-	chatHandler := handlers.NewChatHandler(appLogger, chatService, counterStore)
+	chatHandler := handlers.NewChatHandler(appLogger, chatService, collaborationSvc, counterStore)
 
 	// 初始化 FCM 管理器
 	// Initialize FCM manager

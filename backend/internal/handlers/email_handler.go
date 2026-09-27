@@ -127,8 +127,10 @@ func (h *EmailHandler) handleVerifyCode(c *gin.Context) {
 			JSONError(c, http.StatusUnauthorized, err.Error())
 		case errors.Is(err, mail.ErrVerificationCodeIncorrect):
 			JSONError(c, http.StatusUnauthorized, err.Error())
-		default:
+		case errors.Is(err, mail.ErrVerificationCodeNotFoundOrUsed):
 			JSONError(c, http.StatusUnauthorized, err.Error())
+		default:
+			JSONError(c, http.StatusInternalServerError, "failed to verify code")
 		}
 		return
 	}

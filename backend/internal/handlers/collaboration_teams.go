@@ -37,7 +37,7 @@ func (h *CollaborationHandler) handleCreateTeam(c *gin.Context) {
 	}
 	item, err := h.service.CreateTeam(c.Request.Context(), orgID, claims.UserID, req)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to create team")
 		return
 	}
 	JSONSuccess(c, http.StatusCreated, gin.H{"team": toTeamResponse(*item)})
@@ -55,7 +55,7 @@ func (h *CollaborationHandler) handleUpdateTeam(c *gin.Context) {
 	}
 	item, err := h.service.UpdateTeam(c.Request.Context(), orgID, claims.UserID, teamID, req)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to update team")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"team": toTeamResponse(*item)})
@@ -67,7 +67,7 @@ func (h *CollaborationHandler) handleDeleteTeam(c *gin.Context) {
 		return
 	}
 	if err := h.service.DeleteTeam(c.Request.Context(), orgID, claims.UserID, teamID); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to delete team")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
@@ -87,7 +87,7 @@ func (h *CollaborationHandler) handleAddTeamMember(c *gin.Context) {
 	}
 	item, err := h.service.AddTeamMember(c.Request.Context(), orgID, claims.UserID, teamID, req.UserID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to add team member")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"team": toTeamResponse(*item)})

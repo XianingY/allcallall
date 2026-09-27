@@ -40,7 +40,7 @@ func (s *Service) ListOrganizationMembers(ctx context.Context, organizationID, u
 func (s *Service) UpdateOrganizationMember(ctx context.Context, organizationID, actorID, targetUserID uint64, input OrganizationMemberUpdateInput) (*OrganizationMemberView, error) {
 	role := strings.TrimSpace(input.Role)
 	if !isValidOrgRole(role) {
-		return nil, errors.New("invalid role")
+		return nil, ErrInvalidRole
 	}
 	actorRole, err := s.requireOrganizationAdmin(ctx, organizationID, actorID)
 	if err != nil {
