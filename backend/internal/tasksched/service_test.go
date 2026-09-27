@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 	"github.com/allcallall/backend/internal/testutil"
 )
 
@@ -93,5 +94,42 @@ func TestServiceOwnershipEnforced(t *testing.T) {
 	task, _ := svc.Create(ctx, 1, CreateInput{Title: "x", Weekdays: []int{1}, RunTimeOfDay: "09:00"})
 	if _, err := svc.Get(ctx, 2, task.ID); err == nil {
 		t.Fatalf("other owner should not access task")
+	}
+}
+
+func TestServiceListRunsClampsLimitAtRepoBoundary(t *testing.T) {
+	db := testutil.OpenSQLite(t, "tasksched_svc_lim")
+	testutil.AutoMigrateAll(t, db)
+	svc := NewService(db)
+	ctx := context.Background()
+	task, err := svc.Create(ctx, 1, CreateInput{Title: "x", Weekdays: []int{1}, RunTimeOfDay: "09:00"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		in   uint64
+		want int
+	}{
+		{"zero keeps default 50", 0, 50},
+		{"under cap unchanged", 30, 30},
+		{"at cap unchanged", pagination.MaxLimit, pagination.MaxLimit},
+		{"oversized clamped to cap", 1_000_000_000, pagination.MaxLimit},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			observed := -1
+			svc.listRunsFn = func(_ context.Context, taskID uint64, limit int) ([]models.WeeklyTaskRun, error) {
+				observed = limit
+				return nil, nil
+			}
+			if _, err := svc.ListRuns(ctx, 1, task.ID, tc.in); err != nil {
+				t.Fatalf("list runs: %v", err)
+			}
+			if observed != tc.want {
+				t.Fatalf("limit reaching repo = %d, want %d", observed, tc.want)
+			}
+		})
 	}
 }

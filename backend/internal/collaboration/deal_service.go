@@ -157,6 +157,17 @@ func (s *Service) AddDealContact(ctx context.Context, organizationID, userID, de
 	if _, _, err := s.ResolveOrganization(ctx, userID, organizationID); err != nil {
 		return err
 	}
+	if contactID == 0 {
+		return errors.New("contact id required")
+	}
+	var deal models.Deal
+	if err := s.db.WithContext(ctx).Where("organization_id = ? AND id = ?", organizationID, dealID).Take(&deal).Error; err != nil {
+		return err
+	}
+	var contact models.Contact
+	if err := s.db.WithContext(ctx).Where("organization_id = ? AND id = ?", organizationID, contactID).Take(&contact).Error; err != nil {
+		return err
+	}
 	item := models.DealContact{
 		DealID:    dealID,
 		ContactID: contactID,

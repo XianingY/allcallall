@@ -11,6 +11,7 @@ import (
 
 	"github.com/allcallall/backend/internal/apperror"
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
 
 var runTimeRe = regexp.MustCompile(`^([01]?\d|2[0-3]):[0-5]\d$`)
@@ -30,6 +31,9 @@ type CreateInput struct {
 // Service 面向 API 的任务管理门面：负责参数校验、计算首跑时间、状态变更。
 type Service struct {
 	repo *Repository
+	// listRunsFn 是测试缝：为 nil 时走 repo.ListRuns；测试注入后可在仓库
+	// 调用边界观察 Service 实际传入的 limit。生产路径（NewService）保持 nil。
+	listRunsFn func(ctx context.Context, taskID uint64, limit int) ([]models.WeeklyTaskRun, error)
 }
 
 // NewService 基于 GORM 连接构造服务
@@ -168,7 +172,8 @@ func (s *Service) Trigger(ctx context.Context, ownerID, id uint64) error {
 	return s.repo.SetNextRunAt(ctx, id, time.Now().UTC())
 }
 
-// ListRuns 读取运行历史
+// ListRuns 读取运行历史。limit=0 取默认 50，上限 pagination.MaxLimit，
+// 超上限截断，防止单次请求拉取全量运行历史。
 func (s *Service) ListRuns(ctx context.Context, ownerID, id, limit uint64) ([]models.WeeklyTaskRun, error) {
 	task, err := s.Get(ctx, ownerID, id)
 	if err != nil {
@@ -177,6 +182,11 @@ func (s *Service) ListRuns(ctx context.Context, ownerID, id, limit uint64) ([]mo
 	lim := int(limit)
 	if lim <= 0 {
 		lim = 50
+	} else if lim > pagination.MaxLimit {
+		lim = pagination.MaxLimit
+	}
+	if s.listRunsFn != nil {
+		return s.listRunsFn(ctx, task.ID, lim)
 	}
 	return s.repo.ListRuns(ctx, task.ID, lim)
 }

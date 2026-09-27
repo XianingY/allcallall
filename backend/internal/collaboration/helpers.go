@@ -11,7 +11,15 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/pagination"
 )
+
+// membershipListLimit 是 listMemberships 查询的行数上限。该查询位于
+// requireCurrentOrganization 热路径（每个 org-scoped 请求都会执行），
+// 无界扫描会让成员关系极多的用户在每个请求上拉取全量结果集。
+// Membership row cap for listMemberships, which runs on the
+// requireCurrentOrganization hot path for every org-scoped request.
+var membershipListLimit = pagination.MaxLimit
 
 func (s *Service) listMemberships(ctx context.Context, userID uint64) ([]currentOrgMember, error) {
 	var rows []currentOrgMember
@@ -21,6 +29,7 @@ func (s *Service) listMemberships(ctx context.Context, userID uint64) ([]current
 		Joins("JOIN organization_members ON organization_members.organization_id = organizations.id").
 		Where("organization_members.user_id = ?", userID).
 		Order("organizations.id ASC").
+		Limit(membershipListLimit).
 		Find(&rows).Error
 	return rows, err
 }

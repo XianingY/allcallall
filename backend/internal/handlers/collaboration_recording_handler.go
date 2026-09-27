@@ -136,18 +136,19 @@ func (h *CollaborationHandler) handleGetRecordingTranscript(c *gin.Context) {
 		JSONError(c, http.StatusBadRequest, "invalid after_id")
 		return
 	}
-	limit := 100
-	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
-		parsed, parseErr := strconv.Atoi(raw)
-		if parseErr != nil || parsed <= 0 {
-			JSONError(c, http.StatusBadRequest, "invalid limit")
-			return
-		}
-		limit = parsed
+	limit, limitErr := parseTranscriptLimit(c.Query("limit"))
+	if limitErr != nil {
+		JSONError(c, http.StatusBadRequest, "invalid limit")
+		return
 	}
 	page, err := h.service.GetRecordingTranscript(c.Request.Context(), orgID, claims.UserID, recordingID, afterID, limit)
 	if err != nil {
-		JSONErrorWithCode(c, http.StatusNotFound, "RECORDING_TRANSCRIPT_NOT_FOUND", err.Error())
+		if message, ok := collaborationClientMessage(err); ok {
+			JSONErrorWithCode(c, http.StatusNotFound, "RECORDING_TRANSCRIPT_NOT_FOUND", message)
+			return
+		}
+		h.logger.Error().Err(err).Str("path", c.Request.URL.Path).Uint64("recording_id", recordingID).Msg("failed to load recording transcript")
+		JSONErrorWithCode(c, http.StatusNotFound, "RECORDING_TRANSCRIPT_NOT_FOUND", "recording transcript not found")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, page)
@@ -186,6 +187,25 @@ func parseOptionalTranscriptCursor(raw string) (uint64, error) {
 		return 0, nil
 	}
 	return strconv.ParseUint(raw, 10, 64)
+}
+
+// parseTranscriptLimit parses the transcript page limit: empty defaults to
+// 100, values above pagination.MaxLimit are clamped (not rejected, so
+// pagination clients keep working), and non-numeric or non-positive values
+// are errors that surface as 400 "invalid limit".
+func parseTranscriptLimit(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 100, nil
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed <= 0 {
+		return 0, errors.New("invalid limit")
+	}
+	if parsed > pagination.MaxLimit {
+		return pagination.MaxLimit, nil
+	}
+	return parsed, nil
 }
 
 func (h *CollaborationHandler) handleDownloadRecordingFile(c *gin.Context) {

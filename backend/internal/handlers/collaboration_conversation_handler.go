@@ -493,6 +493,15 @@ func parseMessageCursor(c *gin.Context) (collaboration.MessageCursor, error) {
 	return cursor, nil
 }
 
+const searchMessagesDefaultLimit = 20
+
+// searchMessagesMaxLimit is the upper bound forwarded to the search backend.
+// It matches the search package's own ceiling: search.Service.SearchMessages
+// treats any Limit above 50 as invalid and silently rewrites it to 20
+// (internal/search/service.go), so anything larger here would either be
+// rejected downstream or — worse — return fewer results than a smaller limit.
+const searchMessagesMaxLimit = 50
+
 func (h *CollaborationHandler) handleSearchMessages(c *gin.Context) {
 	if h.search == nil {
 		JSONErrorWithCode(c, http.StatusServiceUnavailable, "SEARCH_UNAVAILABLE", "message search is not configured")
@@ -507,12 +516,15 @@ func (h *CollaborationHandler) handleSearchMessages(c *gin.Context) {
 		JSONError(c, http.StatusBadRequest, "q is required")
 		return
 	}
-	limit := 20
+	limit := searchMessagesDefaultLimit
 	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsed <= 0 {
 			JSONError(c, http.StatusBadRequest, "invalid limit")
 			return
+		}
+		if parsed > searchMessagesMaxLimit {
+			parsed = searchMessagesMaxLimit
 		}
 		limit = parsed
 	}
@@ -529,7 +541,16 @@ func (h *CollaborationHandler) handleSearchMessages(c *gin.Context) {
 	}
 	filtered, err := h.service.FilterSearchResults(c.Request.Context(), orgID, claims.UserID, results)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err.Error())
+		// Fail closed: only whitelisted sentinels may echo their own message;
+		// anything else is logged server-side with the raw error and answered
+		// with a generic message so internals (SQL, wrapper prefixes) never
+		// reach the wire.
+		if message, ok := collaborationClientMessage(err); ok {
+			JSONError(c, http.StatusForbidden, message)
+			return
+		}
+		h.logger.Error().Err(err).Str("path", c.Request.URL.Path).Msg("failed to filter search results")
+		JSONError(c, http.StatusInternalServerError, "failed to filter search results")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"results": filtered})
