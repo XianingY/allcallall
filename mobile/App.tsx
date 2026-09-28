@@ -7,6 +7,7 @@ import { Linking } from "react-native";
 import './src/i18n';
 
 import { AuthProvider } from "./src/context/AuthContext";
+import { setPendingIntent, type PendingIntent } from "./src/services/pendingIntent";
 import { CommercialProvider } from "./src/context/CommercialContext";
 import { FollowUpProvider } from "./src/context/FollowUpContext";
 import { OrganizationProvider } from "./src/context/OrganizationContext";
@@ -67,25 +68,34 @@ const App = () => {
     const handleURL = (url: string | null | undefined) => {
       const roomId = parseRoomIdFromURL(url);
       if (roomId) {
-        if (navigationRef.isReady()) {
-          navigationRef.navigate("PreJoin", { roomId });
-        }
+        navigateOrDefer({ kind: "room", roomId }, () => navigationRef.navigate("PreJoin", { roomId }));
         return;
       }
       const conversationId = parseConversationIdFromURL(url);
       if (conversationId) {
-        if (navigationRef.isReady()) {
-          navigationRef.navigate("ConversationDetail", { conversationId });
-        }
+        navigateOrDefer({ kind: "conversation", conversationId }, () =>
+          navigationRef.navigate("ConversationDetail", { conversationId }),
+        );
         return;
       }
       const code = parseInvitationCodeFromURL(url);
       if (!code) {
         return;
       }
-      if (navigationRef.isReady()) {
-        navigationRef.navigate("InvitationAccept", { code });
+      navigateOrDefer({ kind: "invitation", code }, () => navigationRef.navigate("InvitationAccept", { code }));
+    };
+
+    // Navigating straight away only works if the navigator is attached *and*
+    // the user is signed in - the target routes only exist in the signed-in
+    // stack. Otherwise remember the link and let AppNavigator open it once
+    // both conditions hold, instead of dropping it.
+    const navigateOrDefer = (intent: PendingIntent, navigate: () => void) => {
+      if (navigationRef.isReady() && navigationRef.current?.getCurrentRoute()) {
+        navigate();
+        return;
       }
+      console.warn("[App] Deep link received before navigation was ready; deferring", intent);
+      setPendingIntent(intent);
     };
 
     void Linking.getInitialURL().then(handleURL).catch(() => {});

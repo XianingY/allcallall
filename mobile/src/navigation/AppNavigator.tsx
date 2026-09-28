@@ -1,7 +1,9 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { ActivityIndicator, Platform, View } from "react-native";
 
+import { navigationRef } from "./navigationRef";
+import { setPendingIntent, takePendingIntent } from "../services/pendingIntent";
 import { useAuthContext } from "../context/AuthContext";
 import LoginScreen from "../screens/LoginScreen";
 import RegisterScreen from "../screens/RegisterScreen";
@@ -104,6 +106,39 @@ const LoadingFallback = () => (
 
 const AppNavigator: React.FC = () => {
   const { token, loading } = useAuthContext();
+
+  // Opens a deep link that arrived before the app could handle it - on a cold
+  // start, or while still signed in to nothing. App.tsx defers those here.
+  //
+  // Which routes exist depends on the session: InvitationAccept is only in the
+  // signed-out stack, PreJoin and ConversationDetail only in the signed-in
+  // one. So an invitation can open immediately, but meeting and conversation
+  // links are put back until there is a token.
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+    const intent = takePendingIntent();
+    if (!intent) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (intent.kind === "invitation") {
+        navigationRef.navigate("InvitationAccept", { code: intent.code });
+        return;
+      }
+      if (!token) {
+        setPendingIntent(intent);
+        return;
+      }
+      if (intent.kind === "room") {
+        navigationRef.navigate("PreJoin", { roomId: intent.roomId });
+        return;
+      }
+      navigationRef.navigate("ConversationDetail", { conversationId: intent.conversationId });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [loading, token]);
 
   if (loading) {
     return <LoadingFallback />;
