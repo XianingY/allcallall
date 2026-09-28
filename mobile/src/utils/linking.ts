@@ -52,7 +52,11 @@ export const buildRoomShareLinksWithOrigin = (roomId: number, webOrigin: string)
   const origin = webOrigin.replace(/\/+$/, "");
   return {
     appURL: `allcallall://rooms/${roomId}`,
-    webURL: `${origin}/rooms/${roomId}`,
+    // The web app serves meetings under /meetings, not /rooms. This used to
+    // produce /rooms/:id, which hit the web app's catch-all route and dropped
+    // whoever opened the link into Inbox - the recipient of a shared meeting
+    // never saw the meeting.
+    webURL: `${origin}/meetings/${roomId}`,
   };
 };
 

@@ -32,7 +32,9 @@ describe("linking helpers", () => {
   it("builds web and app share links with a normalized origin", () => {
     assert.deepEqual(buildRoomShareLinksWithOrigin(12, "https://app.example.com/"), {
       appURL: "allcallall://rooms/12",
-      webURL: "https://app.example.com/rooms/12",
+      // Must be a route the web app actually serves - /rooms does not exist
+      // and falls through to the catch-all, dropping the recipient in Inbox.
+      webURL: "https://app.example.com/meetings/12",
     });
     assert.deepEqual(buildConversationShareLinksWithOrigin(34, "https://app.example.com///"), {
       appURL: "allcallall://conversations/34",

@@ -18,11 +18,18 @@ import {
 } from "../services/conversationRealtimeReducer";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Conversations">;
-type InboxFilter = "my" | "open" | "pending" | "resolved" | "channels";
+// "" is the server's "no filter" value (see conversation_service.go). These
+// values are the status enum the backend accepts; anything else is treated as
+// "all" there, so a typo silently shows everything.
+type InboxFilter = "" | "my" | "open" | "pending" | "resolved" | "channels";
 
 const LOAD_ERROR_MESSAGE = "无法读取协作线程。";
 
 const FILTERS: Array<{ key: InboxFilter; label: string }> = [
+  // Must come first and be the default: "my" means assignee = me, and a newly
+  // created conversation has no assignee, so starting on "My" hides exactly
+  // the conversation the user just created. Web defaults to "all" too.
+  { key: "", label: "All" },
   { key: "my", label: "My" },
   { key: "open", label: "Open" },
   { key: "pending", label: "Pending" },
@@ -43,7 +50,7 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
   const [channelName, setChannelName] = useState("");
   const [creating, setCreating] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<InboxFilter>("my");
+  const [activeFilter, setActiveFilter] = useState<InboxFilter>("");
   const isWideScreen = width >= 1100;
 
   const loadData = useCallback(async () => {

@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { AnonymousRoute, ProtectedRoute } from "@/auth/ProtectedRoute";
 import { AppShell } from "@/components/AppShell";
 import { PageLoading } from "@/components/PageState";
@@ -59,8 +59,19 @@ export function App() {
             <Route path="/meetings/:roomId/preflight" element={<LazyLoad loader={() => import("@/pages/meetings/MeetingPreflightPage").then(m => ({ default: m.MeetingPreflightPage }))} fallback={<PageLoading />} />} />
             <Route path="/meetings/:roomId" element={<LazyLoad loader={() => import("@/pages/meetings/MeetingRoomPage").then(m => ({ default: m.MeetingRoomPage }))} fallback={<PageLoading />} />} />
           </Route>
+          {/* Meeting links shared by older mobile builds pointed at /rooms/:id,
+              which this app has never served - they fell through the catch-all
+              into Inbox, so the recipient never saw the meeting. Redirect so
+              those already-shared links keep working. */}
+          <Route path="/rooms/:roomId" element={<LegacyRoomRedirect />} />
           <Route path="*" element={<Navigate to="/inbox" replace />} />
         </Routes>
     </ErrorBoundary>
   );
+}
+
+/** Sends /rooms/:roomId, which older mobile builds shared, to the real route. */
+function LegacyRoomRedirect() {
+  const { roomId } = useParams();
+  return <Navigate to={`/meetings/${roomId ?? ""}`} replace />;
 }
