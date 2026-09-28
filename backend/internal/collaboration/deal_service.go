@@ -165,7 +165,16 @@ func (s *Service) AddDealContact(ctx context.Context, organizationID, userID, de
 		return err
 	}
 	var contact models.Contact
-	if err := s.db.WithContext(ctx).Where("organization_id = ? AND id = ?", organizationID, contactID).Take(&contact).Error; err != nil {
+	// 联系人 id 就是用户 id：API 传入的 contact_id 是 users.* 里的用户 id，不是自增的
+	// contacts.id；归属栅栏是调用者本人的联系人列表（contacts.owner_id = 当前用户）。
+	// 生产写入方从不填充 contacts.organization_id（恒为 0），所以旧的
+	// organization_id + contacts.id 查询永远匹配不到真实数据。
+	// Contact ids are user ids: the API exchanges a users.* id, not the autoincrement
+	// contacts.id PK. The fence is the caller's own contact list
+	// (contacts.owner_id = current user). Production writers never populate
+	// contacts.organization_id (always 0), so the old organization_id + contacts.id
+	// lookup could never match real rows.
+	if err := s.db.WithContext(ctx).Where("owner_id = ? AND contact_id = ?", userID, contactID).Take(&contact).Error; err != nil {
 		return err
 	}
 	item := models.DealContact{

@@ -667,7 +667,12 @@ func TestServiceUpdateConversationAndNotes(t *testing.T) {
 		t.Fatalf("expected 0 resolved conversations, got %d", len(resolvedItems.Items))
 	}
 
-	contactID := uint64(42)
+	// 联系人 id 是用户 id，校验栅栏是调用者本人的联系人列表；先播种 owner 的真实联系人，
+	// 让绑定走合法路径。Contact ids are user ids and the fence is the caller's own
+	// contacts row, so seed a real contact owned by the caller before binding.
+	boundContact := createTestUser(t, db, "bound-contact@example.com", "Bound Contact")
+	seedOwnerContactRow(t, db, owner.ID, boundContact.ID)
+	contactID := boundContact.ID
 	updated, err = svc.UpdateConversation(ctx, org.ID, owner.ID, conv.ID, UpdateConversationInput{
 		ContactID: &contactID,
 	})

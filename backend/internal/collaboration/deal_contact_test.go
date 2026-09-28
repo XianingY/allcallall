@@ -10,20 +10,6 @@ import (
 	"github.com/allcallall/backend/internal/models"
 )
 
-// seedDealContactRow creates a contacts row for contactUserID inside organizationID.
-func seedDealContactRow(t *testing.T, db *gorm.DB, organizationID, ownerID, contactUserID uint64) models.Contact {
-	t.Helper()
-	row := models.Contact{
-		OrganizationID: organizationID,
-		OwnerID:        ownerID,
-		ContactID:      contactUserID,
-	}
-	if err := db.Create(&row).Error; err != nil {
-		t.Fatalf("create contact failed: %v", err)
-	}
-	return row
-}
-
 func countDealContactRows(t *testing.T, db *gorm.DB, dealID, contactID uint64) int64 {
 	t.Helper()
 	var count int64
@@ -41,6 +27,7 @@ func TestAddDealContactTenantScope(t *testing.T) {
 
 	orgAUser := createTestUser(t, db, "deal-contact-a@example.com", "Org A Owner")
 	orgBUser := createTestUser(t, db, "deal-contact-b@example.com", "Org B Owner")
+	outsider := createTestUser(t, db, "deal-contact-outsider@example.com", "Outsider")
 
 	orgA, err := svc.CreateOrganization(ctx, orgAUser.ID, "Deal Scope Org A")
 	if err != nil {
@@ -60,41 +47,45 @@ func TestAddDealContactTenantScope(t *testing.T) {
 		t.Fatalf("create deal B failed: %v", err)
 	}
 
-	contactA := seedDealContactRow(t, db, orgA.ID, orgAUser.ID, orgBUser.ID)
-	contactB := seedDealContactRow(t, db, orgB.ID, orgBUser.ID, orgAUser.ID)
+	// Owner-scoped seeding matching production writers: OrganizationID stays 0 and
+	// ContactID is a users.* id, because contacts.organization_id is never populated
+	// and the API-facing contact id space is users.*, not the contacts.id PK.
+	// 按生产写入方的形态播种：OrganizationID 保持 0，ContactID 是 users.* 的用户 id。
+	contactA := seedOwnerContactRow(t, db, orgAUser.ID, orgBUser.ID)
+	contactForeign := seedOwnerContactRow(t, db, orgBUser.ID, outsider.ID)
 
-	t.Run("same organization deal and contact link succeeds", func(t *testing.T) {
-		if err := svc.AddDealContact(ctx, orgA.ID, orgAUser.ID, dealA.ID, contactA.ID); err != nil {
-			t.Fatalf("AddDealContact within one organization failed: %v", err)
+	t.Run("contact in the caller's own list links successfully", func(t *testing.T) {
+		if err := svc.AddDealContact(ctx, orgA.ID, orgAUser.ID, dealA.ID, contactA.ContactID); err != nil {
+			t.Fatalf("AddDealContact with a caller-owned contact failed: %v", err)
 		}
-		if got := countDealContactRows(t, db, dealA.ID, contactA.ID); got != 1 {
+		if got := countDealContactRows(t, db, dealA.ID, contactA.ContactID); got != 1 {
 			t.Fatalf("expected 1 deal_contacts row, got %d", got)
 		}
 	})
 
 	t.Run("deal from another organization is rejected", func(t *testing.T) {
-		err := svc.AddDealContact(ctx, orgA.ID, orgAUser.ID, dealB.ID, contactA.ID)
+		err := svc.AddDealContact(ctx, orgA.ID, orgAUser.ID, dealB.ID, contactA.ContactID)
 		if err == nil {
 			t.Fatal("expected cross-tenant deal link to fail, got nil error")
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			t.Fatalf("expected gorm.ErrRecordNotFound (same as GetDeal/UpdateDeal), got %v", err)
 		}
-		if got := countDealContactRows(t, db, dealB.ID, contactA.ID); got != 0 {
+		if got := countDealContactRows(t, db, dealB.ID, contactA.ContactID); got != 0 {
 			t.Fatalf("cross-tenant deal link must not persist, got %d rows", got)
 		}
 	})
 
-	t.Run("contact from another organization is rejected", func(t *testing.T) {
-		err := svc.AddDealContact(ctx, orgA.ID, orgAUser.ID, dealA.ID, contactB.ID)
+	t.Run("contact outside the caller's list is rejected", func(t *testing.T) {
+		err := svc.AddDealContact(ctx, orgA.ID, orgAUser.ID, dealA.ID, contactForeign.ContactID)
 		if err == nil {
-			t.Fatal("expected cross-tenant contact link to fail, got nil error")
+			t.Fatal("expected contact outside the caller's contact list to fail, got nil error")
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			t.Fatalf("expected gorm.ErrRecordNotFound (same as GetDeal/UpdateDeal), got %v", err)
 		}
-		if got := countDealContactRows(t, db, dealA.ID, contactB.ID); got != 0 {
-			t.Fatalf("cross-tenant contact link must not persist, got %d rows", got)
+		if got := countDealContactRows(t, db, dealA.ID, contactForeign.ContactID); got != 0 {
+			t.Fatalf("foreign contact link must not persist, got %d rows", got)
 		}
 	})
 

@@ -11,6 +11,7 @@ type conversationUpdatePlan struct {
 	SystemEvents             []MessageInput
 	ChangedFields            []string
 	AssigneeUserIDToValidate *uint64
+	ContactIDToValidate      *uint64
 }
 
 func buildConversationUpdatePlan(conv models.Conversation, input UpdateConversationInput) (*conversationUpdatePlan, error) {
@@ -90,7 +91,14 @@ func buildConversationUpdatePlan(conv models.Conversation, input UpdateConversat
 		if *input.ContactID == 0 {
 			plan.Updates["contact_id"] = nil
 		} else {
-			plan.Updates["contact_id"] = *input.ContactID
+			// 联系人 id 就是用户 id（API 面上的 contact id 来自 users.*），绑定前必须
+			// 校验该 id 在调用者本人的联系人列表里；0 表示解绑，无需校验。
+			// Contact ids are user ids (the API-facing contact id comes from users.*),
+			// so a non-zero bind must be validated against the caller's own contact
+			// list; 0 means unbind and needs no lookup.
+			contactValue := *input.ContactID
+			plan.ContactIDToValidate = &contactValue
+			plan.Updates["contact_id"] = contactValue
 		}
 		plan.ChangedFields = append(plan.ChangedFields, "contact_id")
 	}

@@ -198,6 +198,23 @@ func (s *Service) UpdateConversation(ctx context.Context, organizationID, userID
 			return nil, ErrAssigneeNotConversationMember
 		}
 	}
+	if plan.ContactIDToValidate != nil {
+		// 联系人 id 就是用户 id（API 面上的 contact id 来自 users.*），归属栅栏是
+		// 调用者本人的联系人列表（contacts.owner_id = 当前用户）。生产写入方从不填充
+		// contacts.organization_id（恒为 0），contacts.id 又是独立自增主键（错误的 id
+		// 空间），因此两者都不能作为校验范围。放在应用 plan.Updates 之前，拒绝时不写任何数据。
+		// Contact ids are user ids (the API-facing contact id comes from users.*), so the
+		// ownership fence is the caller's own contact list (contacts.owner_id = current
+		// user). Production writers never populate contacts.organization_id (always 0) and
+		// contacts.id is a separate autoincrement PK in the wrong id space, so neither can
+		// scope the lookup. Runs before plan.Updates are applied so a rejection writes nothing.
+		var contact models.Contact
+		if err := s.db.WithContext(ctx).
+			Where("owner_id = ? AND contact_id = ?", userID, *plan.ContactIDToValidate).
+			Take(&contact).Error; err != nil {
+			return nil, err
+		}
+	}
 
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if len(plan.Updates) > 0 {
