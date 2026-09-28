@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useState } from "react";
 import { FlatList, StyleSheet, Text, View } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
-import { fetchDeal, listDealActivities, type DealActivityRecord, type DealRecord } from "../api/collaboration";
+import { DEAL_STATUS_LABELS, DEAL_STATUS_ORDER, isDealStatus, formatShortDateTime } from "@allcallall/shared";
+
+import { fetchDeal, listDealActivities, updateDeal, type DealActivityRecord, type DealRecord } from "../api/collaboration";
 import { useAuthContext } from "../context/AuthContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import LoadError from "../components/LoadError";
@@ -20,6 +22,8 @@ const DealDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const [activities, setActivities] = useState<DealActivityRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) {
@@ -46,6 +50,31 @@ const DealDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     void load();
   }, [load]);
 
+  // Deals could be created on mobile but never advanced: this screen was
+  // read-only, so changing an amount, moving a stage or marking a win/loss
+  // all required going back to web. Status is the part that matters most and
+  // needs no extra lookups, so it is editable here.
+  const changeStatus = useCallback(
+    async (status: string) => {
+      if (!token || saving) {
+        return;
+      }
+      setSaving(true);
+      setActionError(null);
+      try {
+        const updated = await updateDeal(token, initialDeal.id, { status });
+        setDeal(updated);
+      } catch (error) {
+        console.error("[DealDetailScreen] Failed to update deal status:", error);
+        setActionError(error instanceof Error ? error.message : "无法更新商机状态。");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [initialDeal.id, saving, token],
+  );
+
+  const currentStatus = isDealStatus(deal.status) ? deal.status : DEAL_STATUS_ORDER[0];
   const view = resolveLoadView({ loading, error: loadError, itemCount: activities.length });
 
   return (
@@ -70,6 +99,20 @@ const DealDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         />
       </View>
 
+      <Text style={styles.sectionTitle}>状态</Text>
+      <View style={styles.statusRow}>
+        {DEAL_STATUS_ORDER.map((status) => (
+          <PrimaryButton
+            key={status}
+            title={DEAL_STATUS_LABELS[status]}
+            onPress={() => void changeStatus(status)}
+            disabled={saving || status === currentStatus}
+            style={styles.statusButton}
+          />
+        ))}
+      </View>
+      {actionError ? <Text style={styles.actionError}>{actionError}</Text> : null}
+
       <Text style={styles.sectionTitle}>最近活动</Text>
       {view === "error" && activities.length > 0 ? (
         <LoadError message={LOAD_ERROR_MESSAGE} onRetry={() => void load()} />
@@ -81,7 +124,7 @@ const DealDetailScreen: React.FC<Props> = ({ route, navigation }) => {
           <View style={styles.activityCard}>
             <Text style={styles.activitySummary}>{item.summary}</Text>
             <Text style={styles.activityMeta}>
-              {item.type} · {new Date(item.created_at).toLocaleString()}
+              {item.type} · {formatShortDateTime(item.created_at)}
             </Text>
           </View>
         )}
@@ -155,6 +198,19 @@ const styles = StyleSheet.create({
   },
   empty: {
     color: "#64748b"
+  },
+  statusRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 20
+  },
+  statusButton: {
+    flex: 1
+  },
+  actionError: {
+    color: "#b91c1c",
+    marginBottom: 12,
+    fontSize: 13
   }
 });
 
