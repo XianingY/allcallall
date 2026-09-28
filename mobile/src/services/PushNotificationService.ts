@@ -195,9 +195,25 @@ class PushNotificationService {
     const data = remoteMessage.data || {};
     const notificationType = data.type as NotificationType;
 
-    if (notificationType === 'incoming_call') {
-      console.warn("[PushNotificationService] incoming_call tap received; waiting signaling state");
+    if (notificationType !== 'incoming_call' && notificationType !== 'call_ended') {
+      return;
     }
+
+    // Tapping a call push used to do nothing but log. The app opened on
+    // whatever screen it was already on, so an incoming call looked like a
+    // dead notification - and by the time the user found the meeting list the
+    // call had already timed out.
+    //
+    // A 1:1 call is driven by the signaling socket, which is not connected yet
+    // when a push wakes the app, so there is no way to answer straight from
+    // here. Land on the meeting list instead: the user sees where calls live,
+    // and if signaling connects in time the incoming-call UI still appears.
+    const navigation = this.navigationRef?.current;
+    if (!navigation) {
+      console.warn("[PushNotificationService] Navigation ref not ready; cannot open the call screen");
+      return;
+    }
+    navigation.navigate("Rooms");
   }
 
   /**
