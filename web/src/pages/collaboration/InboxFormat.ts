@@ -1,8 +1,9 @@
-export const formatTime = (value?: string | null) => value ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "";
+import { formatBytes as sharedFormatBytes, formatShortDateTime } from "@allcallall/shared";
 
-export function formatBytes(value?: number) {
-  if (!value) return "0 B";
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
-}
+// Both of these now come from @allcallall/shared. They used to call
+// Intl/toLocaleString directly, which meant the same timestamp rendered
+// differently on web and mobile, and shifted with the device's locale and
+// 12/24-hour setting.
+export const formatTime = (value?: string | null) => formatShortDateTime(value);
+
+export const formatBytes = (value?: number) => sharedFormatBytes(value);

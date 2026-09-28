@@ -1,3 +1,4 @@
+import { formatShortDateTime } from "@allcallall/shared";
 import React, { useMemo } from "react";
 import { Text, View } from "react-native";
 import PrimaryButton from "../../components/PrimaryButton";
@@ -10,8 +11,10 @@ const MessageRow = React.memo<MessageRowProps>(
   ({ item, currentUserId, onOpenTranscript }) => {
     const isMine = item.sender_id === currentUserId;
     const isSystem = item.type === "system";
+    // Shared with web: a fixed shape, so the same message shows the same
+    // timestamp on both clients instead of following the device locale.
     const timeLabel = useMemo(
-      () => new Date(item.created_at).toLocaleString(),
+      () => formatShortDateTime(item.created_at),
       [item.created_at],
     );
     const eventType = item.metadata?.event_type;
