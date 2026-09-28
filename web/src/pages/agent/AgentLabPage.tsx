@@ -2,7 +2,7 @@ import * as Tabs from "@radix-ui/react-tabs";
 import "@xyflow/react/dist/style.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, FileText, GitBranch, Play, Search, ShieldCheck } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { createAgentRun, createWorkflow, decideApproval, getAgentRun, getWorkflow, listApprovals, listWorkflows, processWorkflow, streamAgentRun, submitAgentToolOutputs, type AgentCitation } from "@/api/agent";
@@ -30,6 +30,16 @@ export function AgentLabPage() {
   const process = useMutation({ mutationFn: () => processWorkflow(activeWorkflowId), onSuccess: () => void workflow.refetch() });
   const decision = useMutation({ mutationFn: ({ id, value }: { id: number; value: "approve" | "reject" }) => decideApproval(id, value), onSuccess: () => { void approvals.refetch(); void workflow.refetch(); } });
   const agentDecision = useMutation({ mutationFn: ({ callId, value }: { callId: string; value: "approve" | "reject" }) => submitAgentToolOutputs(runId, callId, value), onSuccess: (result) => { queryClient.setQueryData(["organizations", orgId, "agent", "runs", runId], result); void run.refetch(); } });
+
+  // Inbox's "生成会议复盘" button links here with ?preset=... . Without this
+  // it only pre-selected the preset and the user had to press start as well,
+  // so the button did not do what its label says. Runs once per mount.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (autoStarted.current || !requestedPreset || !selectedId || start.isPending) return;
+    autoStarted.current = true;
+    start.mutate();
+  }, [requestedPreset, selectedId, start]);
 
   useEffect(() => { if (!runId) return; const controller = new AbortController(); const refreshRun = () => queryClient.invalidateQueries({ queryKey: ["organizations", orgId, "agent", "runs", runId] }); void streamAgentRun(runId, controller.signal, (event) => { setStreamEvents((items) => [...items.slice(-199), event]); void refreshRun(); }).catch(() => { if (!controller.signal.aborted) void refreshRun(); }); return () => controller.abort(); }, [runId, orgId, queryClient]);
 

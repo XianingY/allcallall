@@ -1,4 +1,4 @@
-import { Alert, PermissionsAndroid, Platform } from "react-native";
+import { Alert, Linking, PermissionsAndroid, Platform } from "react-native";
 
 export interface PermissionResult {
   camera: boolean;
@@ -49,11 +49,29 @@ const webAdapter: PermissionsAdapter = {
 const nativeAdapter: PermissionsAdapter = {
   async requestMeetingPermissions() {
     if (Platform.OS !== "android") {
-      return {
-        camera: true,
-        microphone: true,
-        allGranted: true,
-      };
+      // iOS used to return "granted" without asking anything, so the app
+      // reported success and then produced a call with no audio - the user
+      // had no idea a permission was involved. Ask for the microphone for
+      // real via expo-av.
+      //
+      // Camera has to stay implicit: expo-camera is not a dependency, so the
+      // iOS camera prompt comes from getUserMedia when the stream opens. That
+      // means its status cannot be known up front, and a denial surfaces at
+      // stream time.
+      //
+      // Imported lazily so the web build never pulls in expo-av.
+      try {
+        const { Audio } = await import("expo-av");
+        const audio = await Audio.requestPermissionsAsync();
+        return {
+          camera: true,
+          microphone: audio.granted,
+          allGranted: audio.granted,
+        };
+      } catch (error) {
+        console.warn("[PermissionsAdapter] Failed to request iOS audio permission:", error);
+        return { camera: true, microphone: false, allGranted: false };
+      }
     }
 
     try {
@@ -97,9 +115,24 @@ const nativeAdapter: PermissionsAdapter = {
     return PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
   },
   showPermissionDeniedAlert(missingPermissions) {
+    // Offer a way out. Previously this only said "grant it in system
+    // settings" with no button, so on iOS - where the permission is never
+    // asked again once denied - the user was stuck: joining a meeting just
+    // silently did nothing.
     Alert.alert(
       "权限不足 / Permission Required",
-      `需要以下权限才能进行视频通话：\n${missingPermissions.join("、")}\n\n请在系统设置中授予权限。`
+      `需要以下权限才能进行视频通话：\n${missingPermissions.join("、")}`,
+      [
+        { text: "取消 / Cancel", style: "cancel" },
+        {
+          text: "去设置 / Open Settings",
+          onPress: () => {
+            void Linking.openSettings().catch(() => {
+              Alert.alert("无法打开设置 / Cannot open settings", "请手动在系统设置中授予权限。");
+            });
+          },
+        },
+      ]
     );
   },
 };

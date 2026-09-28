@@ -8,6 +8,7 @@ import PrimaryButton from "../components/PrimaryButton";
 import { useAuthContext } from "../context/AuthContext";
 import { useRoomCall } from "../context/roomCallContextValue";
 import { RootStackParamList } from "../navigation/AppNavigator";
+import permissionsAdapter from "../platform/permissionsAdapter";
 import { RTCView } from "../platform/rtc";
 import { buildRoomShareLinks } from "../utils/invitations";
 
@@ -85,6 +86,19 @@ const PreJoinScreen: React.FC<Props> = ({ route, navigation }) => {
       Alert.alert("会议不可用", "当前会议房间还没有准备好。");
       return;
     }
+
+    // Joining without checking meant a denied microphone produced a silent
+    // meeting: no error, no audio, nothing telling the user a permission was
+    // involved. Ask first and offer a route to settings when it is denied.
+    const permissions = await permissionsAdapter.requestMeetingPermissions();
+    if (!permissions.allGranted) {
+      const missing: string[] = [];
+      if (!permissions.microphone) missing.push("麦克风 / Microphone");
+      if (!permissions.camera) missing.push("相机 / Camera");
+      permissionsAdapter.showPermissionDeniedAlert(missing);
+      return;
+    }
+
     navigation.replace("RoomDetail", { room, joinOptions: options });
   };
 
