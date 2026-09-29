@@ -7,6 +7,8 @@ import React, {
 } from "react";
 import {
   Alert,
+  AppState,
+  type AppStateStatus
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -111,6 +113,28 @@ export const SignalingProvider: React.FC<{ children: React.ReactNode }> = ({
         Alert.alert("错误 / Connection Issue", "无法发送信令消息 / Failed to send signaling message.");
       }
     }
+  }, []);
+
+  // Coming back from the background, reconnect immediately instead of waiting
+  // for the backoff timer: iOS and Android suspend setTimeout while the app is
+  // backgrounded, so that timer can still be pending from minutes ago, and in
+  // the meantime the UI keeps showing the last known call and presence state.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state: AppStateStatus) => {
+      if (state !== "active") {
+        return;
+      }
+      const client = signalingRef.current;
+      if (!client) {
+        return;
+      }
+      try {
+        client.ensureConnected();
+      } catch (error) {
+        console.warn("[SignalingContext] Failed to re-check the signaling connection:", error);
+      }
+    });
+    return () => subscription.remove();
   }, []);
 
   const e2ee = useSignalingE2EE(sessionRef);

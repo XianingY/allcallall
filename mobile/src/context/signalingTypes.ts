@@ -90,6 +90,11 @@ export type SignalingEvents = {
 export interface SignalingTransport {
   connect: () => void;
   disconnect: () => void;
+  /**
+   * Re-establishes the socket if it is not currently open. Called when the app
+   * returns to the foreground, where the backoff timer cannot be relied on.
+   */
+  ensureConnected: () => void;
   on<T extends keyof SignalingEvents>(
     event: T,
     handler: (value: SignalingEvents[T]) => void

@@ -45,6 +45,25 @@ export class PollingSignalingClient {
     this.loop();
   }
 
+  /**
+   * Called when the app returns to the foreground. The poll cycle is driven by
+   * setTimeout, which is suspended while backgrounded, so the next poll can be
+   * pending from minutes ago. Run one immediately instead of waiting.
+   */
+  ensureConnected() {
+    if (!this.shouldRun) {
+      this.connect();
+      return;
+    }
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (!this.pollInFlight) {
+      void this.loop();
+    }
+  }
+
   private scheduleNext(ms: number) {
     if (!this.shouldRun) return;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);

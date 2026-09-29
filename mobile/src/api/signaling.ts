@@ -119,6 +119,38 @@ export class SignalingClient {
     this.openSocket();
   }
 
+  /**
+   * Called when the app comes back to the foreground.
+   *
+   * Reconnection is driven by setTimeout, which iOS and Android suspend while
+   * the app is backgrounded. Coming back, the timer may still be pending from
+   * minutes ago, so the socket can sit closed for a long time while the UI
+   * still shows the last known state. Re-checking here and reconnecting at
+   * once avoids that stale window; it is a no-op when already open.
+   */
+  ensureConnected() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    if (this.ws) {
+      // Half-open: the socket object exists but is not usable.
+      try {
+        this.ws.close();
+      } catch {
+        // Already closing; nothing to do.
+      }
+      this.ws = null;
+    }
+
+    this.connect();
+  }
+
   private flushPendingMessages() {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return;
