@@ -3,6 +3,7 @@ import { Circle, FileAudio, Mic, MicOff, PhoneOff, Radio, Users, Video, VideoOff
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
+import { APIError } from "@/api/http";
 import { getRoom, startRecording, stopRecording } from "@/api/meetings";
 import { PageError, PageLoading } from "@/components/PageState";
 import { useMeetingEngine } from "@/meetings/useMeetingEngine";
@@ -30,7 +31,21 @@ export function MeetingRoomPage() {
   const recording = useMutation({ mutationFn: () => room.data?.active_recording ? stopRecording(roomId) : startRecording(roomId), onSuccess: () => { void room.refetch(); void queryClient.invalidateQueries({ queryKey: ["organizations", activeOrganization?.id, "recordings"] }); } });
   if (room.isLoading) return <PageLoading label="正在加载会议" />; if (room.isError || !room.data) return <PageError error={room.error ?? new Error("会议不存在")} />;
   return <div className="meeting-room"><header><div><h1>{room.data.room.title}</h1><span><span className={`connection-dot ${meeting.state === "connected" ? "online" : ""}`} />{meeting.state}</span></div><div className="meeting-header-actions"><span><Users size={15} />{room.data.participant_count}/6</span>{room.data.latest_recording_id && <Link to={`/recordings/${room.data.latest_recording_id}`}><FileAudio size={16} />转写</Link>}</div></header>
-    <main className="meeting-stage"><div className="remote-media">{remoteStreams.length === 0 ? <div className="meeting-wait"><Users size={34} /><strong>等待其他参会人</strong><span>已加入 {room.data.participant_count} 人</span></div> : remoteStreams.map((stream, index) => <RemoteStream key={stream.id || index} stream={stream} blocked={autoplayBlocked} onBlocked={handleAutoplayBlocked} />)}{autoplayBlocked && <button className="autoplay-button" onClick={() => { setAutoplayBlocked(false); }}><Volume2 size={17} />播放远端音频</button>}</div><div className="local-media"><video ref={localVideo} autoPlay muted playsInline />{!meeting.video && <VideoOff size={22} />}</div>{meeting.error && <div className="meeting-error">{meeting.error}</div>}{recording.isError && <div className="meeting-error" role="alert">录制失败：{recording.error instanceof Error ? recording.error.message : "录制服务暂时不可用"}</div>}</main>
+    <main className="meeting-stage"><div className="remote-media">{remoteStreams.length === 0 ? <div className="meeting-wait"><Users size={34} /><strong>等待其他参会人</strong><span>已加入 {room.data.participant_count} 人</span></div> : remoteStreams.map((stream, index) => <RemoteStream key={stream.id || index} stream={stream} blocked={autoplayBlocked} onBlocked={handleAutoplayBlocked} />)}{autoplayBlocked && <button className="autoplay-button" onClick={() => { setAutoplayBlocked(false); }}><Volume2 size={17} />播放远端音频</button>}</div><div className="local-media"><video ref={localVideo} autoPlay muted playsInline />{!meeting.video && <VideoOff size={22} />}</div>{meeting.error && <div className="meeting-error">{meeting.error}</div>}{recording.isError && (() => {
+  // A new organization defaults to recording_mode=off, so pressing record
+  // always failed here with a generic message and no hint that a policy
+  // setting is what blocks it - which silently kills the whole
+  // record -> transcribe -> summarize -> follow-up chain.
+  const blockedByPolicy = recording.error instanceof APIError && recording.error.code === "RECORDING_NOT_ALLOWED";
+  if (blockedByPolicy) {
+    return (
+      <div className="meeting-error" role="alert">
+        当前组织的录制策略不允许录制。请到 <Link to="/organizations">组织设置</Link> 开启录制后重试。
+      </div>
+    );
+  }
+  return <div className="meeting-error" role="alert">录制失败：{recording.error instanceof Error ? recording.error.message : "录制服务暂时不可用"}</div>;
+})()}</main>
     <aside className="participant-strip">{room.data.members.filter((member) => member.joined && !member.left).map((member) => <article key={member.id}><div className="participant-avatar">{(member.user_display_name || member.user_email || "?").slice(0, 1).toUpperCase()}</div><span>{member.user_display_name || member.user_email}</span>{member.audio_enabled ? <Mic size={13} /> : <MicOff size={13} />}</article>)}</aside>
     <footer className="meeting-controls"><button className={`meeting-control ${meeting.audio ? "" : "off"}`} aria-label={meeting.audio ? "静音" : "取消静音"} onClick={meeting.toggleAudio}>{meeting.audio ? <Mic size={19} /> : <MicOff size={19} />}</button><button className={`meeting-control ${meeting.video ? "" : "off"}`} aria-label={meeting.video ? "关闭摄像头" : "开启摄像头"} onClick={() => void meeting.toggleVideo()}>{meeting.video ? <Video size={19} /> : <VideoOff size={19} />}</button><button className={`record-control ${room.data.active_recording ? "recording" : ""}`} disabled={recording.isPending} onClick={() => recording.mutate()}>{room.data.active_recording ? <><Circle size={14} fill="currentColor" />停止录制</> : <><Radio size={17} />开始录制</>}</button><button className="meeting-control leave" aria-label="离开会议" onClick={() => navigate("/meetings")}><PhoneOff size={19} /></button></footer>
   </div>;

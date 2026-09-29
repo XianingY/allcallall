@@ -197,6 +197,36 @@ const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     navigation.replace("Rooms");
   };
 
+  // A new organization defaults to recording_mode=off, so pressing record
+  // failed with a raw error and no hint that a policy setting is what blocks
+  // it - which quietly kills record -> transcribe -> summarize -> follow-up.
+  const handleRecordPress = async () => {
+    try {
+      if (currentRoom.active_recording) {
+        await stopRecording();
+        return;
+      }
+      await startRecording();
+    } catch (error) {
+      const responseData = (error as { response?: { data?: { code?: string } } })?.response?.data;
+      if (responseData?.code === "RECORDING_NOT_ALLOWED") {
+        Alert.alert(
+          "无法录制 / Recording unavailable",
+          "当前组织的录制策略不允许录制。请在组织设置中开启录制后重试。",
+          [
+            { text: "取消 / Cancel", style: "cancel" },
+            { text: "去组织设置 / Organizations", onPress: () => navigation.navigate("Organizations") },
+          ]
+        );
+        return;
+      }
+      Alert.alert(
+        "录制失败 / Recording failed",
+        error instanceof Error ? error.message : "录制服务暂时不可用 / Recording service unavailable"
+      );
+    }
+  };
+
   const handleCopyMeetingLink = async () => {
     const links = buildRoomShareLinks(currentRoom.room.id);
     await Clipboard.setStringAsync(links.webURL);
@@ -328,7 +358,7 @@ const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         />
         <PrimaryButton
           title={currentRoom.active_recording ? "停止录音" : "开始录音"}
-          onPress={() => void (currentRoom.active_recording ? stopRecording() : startRecording())}
+          onPress={() => void handleRecordPress()}
           style={canRecord ? styles.controlButton : styles.disabledButton}
           disabled={!canRecord}
         />
