@@ -88,6 +88,11 @@ func toOrganizationInviteResponse(item models.OrganizationInvite) organizationIn
 		AcceptedUserID: item.AcceptedUserID,
 		AcceptedAt:     item.AcceptedAt,
 		ExpiresAt:      item.ExpiresAt,
+		// /invite/:code is the organization invite page (InvitePage ->
+		// acceptOrganizationInvite), so the same builders the contact
+		// invitation uses are correct here too.
+		ShareURL: publicInvitationURL(item.Code),
+		AppURL:   appInvitationURL(item.Code),
 	}
 }
 

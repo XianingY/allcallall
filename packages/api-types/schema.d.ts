@@ -1695,6 +1695,10 @@ export interface components {
             accepted_at?: string | null;
             /** Format: date-time */
             expires_at: string;
+            /** @description Web URL that opens the invite acceptance page */
+            share_url?: string;
+            /** @description allcallall:// deep link for the same invite */
+            app_url?: string;
         };
         OrganizationTeamMember: {
             /** Format: int64 */

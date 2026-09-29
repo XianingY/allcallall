@@ -1136,6 +1136,10 @@ components:
         accepted_user_id: { type: [integer, 'null'], format: int64 }
         accepted_at: { type: [string, 'null'], format: date-time }
         expires_at: { type: string, format: date-time }
+        # Nothing emails an organization invite, so these are the only way it
+        # can reach the person it is for. Built from PUBLIC_WEB_BASE_URL.
+        share_url: { type: string, description: 'Web URL that opens the invite acceptance page' }
+        app_url: { type: string, description: 'allcallall:// deep link for the same invite' }
     OrganizationTeamMember:
       type: object
       required: [id, team_id, user_id, email, display_name, role, joined_at, created_at, updated_at]

@@ -1,5 +1,5 @@
 import { useMutation, type InfiniteData, type UseInfiniteQueryResult, type UseQueryResult } from "@tanstack/react-query";
-import { Building2, FileAudio, MailPlus, MessageSquare, Plus, RefreshCw, Shield, ShieldCheck, Trash2, Users, X } from "lucide-react";
+import { Building2, Check, Copy, FileAudio, MailPlus, MessageSquare, Plus, RefreshCw, Shield, ShieldCheck, Trash2, Users, X } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -86,10 +86,24 @@ export function InvitesTab({ orgId, canManage, invites, teams, refresh }: { orgI
   const create = useMutation({ mutationFn: () => createOrganizationInvite(orgId, { target_email: email, role, team_id: teamId ? Number(teamId) : undefined }), onSuccess: () => { setEmail(""); refresh(); } });
   const resend = useMutation({ mutationFn: (inviteId: number) => resendOrganizationInvite(orgId, inviteId), onSuccess: refresh });
   const revoke = useMutation({ mutationFn: (inviteId: number) => revokeOrganizationInvite(orgId, inviteId), onSuccess: refresh });
+  // Nothing emails an organization invite, so the only way it can reach
+  // anyone is the admin copying a link. Showing just the raw code left the
+  // invite with no delivery path at all.
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const copyInviteLink = async (invite: OrganizationInvite) => {
+    if (!invite.share_url) return;
+    try {
+      await navigator.clipboard.writeText(invite.share_url);
+      setCopiedId(invite.id);
+      window.setTimeout(() => setCopiedId((current) => (current === invite.id ? null : current)), 2000);
+    } catch {
+      setCopiedId(null);
+    }
+  };
   if (invites.isLoading) return <PageLoading />;
   if (invites.isError) return <PageError error={invites.error} retry={() => void invites.refetch()} />;
   const visible = filterInvites(invites.data ?? [], search, statusFilter);
-  return <div className="form-stack"><FormError error={create.error || resend.error || revoke.error} />{canManage && <div className="toolbar-panel org-invite-bar"><input className="field" type="email" placeholder="成员邮箱" value={email} onChange={(event) => setEmail(event.target.value)} /><select className="field" value={role} onChange={(event) => setRole(event.target.value)}><option value="member">member</option><option value="admin">admin</option></select><select className="field" value={teamId} onChange={(event) => setTeamId(event.target.value)}><option value="">不加入团队</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select><button className="button-primary" disabled={!email.trim() || create.isPending} onClick={() => { if (create.isPending) return; create.mutate(); }}><MailPlus size={16} />邀请</button></div>}<AdminTableToolbar search={search} onSearch={setSearch} filter={statusFilter} onFilter={setStatusFilter} resultCount={visible.length} options={[{ label: "全部", value: "" }, { label: "pending", value: "pending" }, { label: "accepted", value: "accepted" }, { label: "revoked", value: "revoked" }, { label: "expired", value: "expired" }]} /><div className="list-stack">{visible.slice(0, ADMIN_WINDOW).map((invite) => <div className="data-row" key={invite.id}><div><strong>{invite.target_email}</strong><small>{invite.role} · {invite.status} · expires {dateOnly(invite.expires_at)}</small><small>code: {invite.code}</small></div><div className="button-row"><button className="button-secondary" disabled={!canManage} onClick={() => resend.mutate(invite.id)}><RefreshCw size={15} />重发</button><button className="icon-button text-danger" disabled={!canManage || invite.status === "accepted"} onClick={() => revoke.mutate(invite.id)}><Trash2 size={16} /></button></div></div>)}</div>{visible.length > ADMIN_WINDOW && <EmptyPanel>已显示前 {ADMIN_WINDOW} 条，请继续搜索缩小范围</EmptyPanel>}{!visible.length && <EmptyPanel>没有匹配邀请</EmptyPanel>}</div>;
+  return <div className="form-stack"><FormError error={create.error || resend.error || revoke.error} />{canManage && <div className="toolbar-panel org-invite-bar"><input className="field" type="email" placeholder="成员邮箱" value={email} onChange={(event) => setEmail(event.target.value)} /><select className="field" value={role} onChange={(event) => setRole(event.target.value)}><option value="member">member</option><option value="admin">admin</option></select><select className="field" value={teamId} onChange={(event) => setTeamId(event.target.value)}><option value="">不加入团队</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select><button className="button-primary" disabled={!email.trim() || create.isPending} onClick={() => { if (create.isPending) return; create.mutate(); }}><MailPlus size={16} />邀请</button></div>}<AdminTableToolbar search={search} onSearch={setSearch} filter={statusFilter} onFilter={setStatusFilter} resultCount={visible.length} options={[{ label: "全部", value: "" }, { label: "pending", value: "pending" }, { label: "accepted", value: "accepted" }, { label: "revoked", value: "revoked" }, { label: "expired", value: "expired" }]} /><div className="list-stack">{visible.slice(0, ADMIN_WINDOW).map((invite) => <div className="data-row" key={invite.id}><div><strong>{invite.target_email}</strong><small>{invite.role} · {invite.status} · expires {dateOnly(invite.expires_at)}</small><small>code: {invite.code}</small></div><div className="button-row">{invite.share_url ? <button className="button-secondary" onClick={() => void copyInviteLink(invite)}>{copiedId === invite.id ? <Check size={15} /> : <Copy size={15} />}{copiedId === invite.id ? "已复制" : "复制链接"}</button> : null}<button className="button-secondary" disabled={!canManage} onClick={() => resend.mutate(invite.id)}><RefreshCw size={15} />重发</button><button className="icon-button text-danger" disabled={!canManage || invite.status === "accepted"} onClick={() => revoke.mutate(invite.id)}><Trash2 size={16} /></button></div></div>)}</div>{visible.length > ADMIN_WINDOW && <EmptyPanel>已显示前 {ADMIN_WINDOW} 条，请继续搜索缩小范围</EmptyPanel>}{!visible.length && <EmptyPanel>没有匹配邀请</EmptyPanel>}</div>;
 }
 
 export function TeamsTab({ orgId, canManage, members, teams, refresh }: { orgId: number; canManage: boolean; members: OrganizationMember[]; teams: UseQueryResult<OrganizationTeam[]>; refresh(): void }) {

@@ -74,6 +74,11 @@ type organizationInviteResponse struct {
 	AcceptedUserID *uint64    `json:"accepted_user_id,omitempty"`
 	AcceptedAt     *time.Time `json:"accepted_at,omitempty"`
 	ExpiresAt      time.Time  `json:"expires_at"`
+	// Until this was added an invite had no delivery path at all: nothing sends
+	// an email, and the UI only had the raw code, so an admin could not hand
+	// the invite to anyone. These give the client something to share.
+	ShareURL string `json:"share_url"`
+	AppURL   string `json:"app_url"`
 }
 
 type organizationMemberResponse struct {
