@@ -12,8 +12,16 @@ import { useFocusEffect } from "@react-navigation/native";
 
 import PrimaryButton from "../components/PrimaryButton";
 import { RootStackParamList } from "../navigation/AppNavigator";
-import { acceptInvitation, fetchInvitation, Invitation } from "../api/users";
+import {
+  acceptInvitation,
+  acceptOrganizationInvite,
+  fetchInvitation,
+  fetchOrganizationInvite,
+  Invitation,
+  OrganizationInvite
+} from "../api/users";
 import { useAuthContext } from "../context/AuthContext";
+import { useOrganization } from "../context/OrganizationContext";
 import AnalyticsService from "../services/AnalyticsService";
 import { PENDING_INVITATION_CODE_STORAGE_KEY } from "../constants/invitations";
 import { parseInvitationCodeFromURL } from "../utils/invitations";
@@ -22,10 +30,15 @@ type Props = NativeStackScreenProps<RootStackParamList, "InvitationAccept">;
 
 const InvitationAcceptScreen: React.FC<Props> = ({ navigation, route }) => {
   const { token, user } = useAuthContext();
+  const { refreshOrganizations } = useOrganization();
   const [invitation, setInvitation] = useState<Invitation | null>(null);
   const [loading, setLoading] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [resolvedCode, setResolvedCode] = useState<string | null>(route.params?.code ?? null);
+  // Organization invites are a separate table and endpoint. Trying only the
+  // contact invitation endpoints made every organization invite look invalid
+  // here, so a mobile user could not join an organization at all.
+  const [orgInvite, setOrgInvite] = useState<OrganizationInvite | null>(null);
 
   useEffect(() => {
     const loadURL = async () => {
@@ -60,9 +73,22 @@ const InvitationAcceptScreen: React.FC<Props> = ({ navigation, route }) => {
       }
       try {
         setLoading(true);
+        // Organization invites need a token to look up; contact invitations
+        // are readable anonymously. Try the organization one first when signed
+        // in, then fall back.
+        if (token) {
+          try {
+            const invite = await fetchOrganizationInvite(token, resolvedCode);
+            setOrgInvite(invite);
+            AnalyticsService.track("invite_opened", { code: resolvedCode, kind: "organization" });
+            return;
+          } catch (orgError) {
+            console.warn("[InvitationAcceptScreen] Not an organization invite, trying contact invite:", orgError);
+          }
+        }
         const data = await fetchInvitation(resolvedCode);
         setInvitation(data);
-        AnalyticsService.track("invite_opened", { code: resolvedCode });
+        AnalyticsService.track("invite_opened", { code: resolvedCode, kind: "contact" });
       } catch (error) {
         console.error("[InvitationAcceptScreen] Failed to load invitation:", error);
         Alert.alert("邀请无效", "当前邀请不存在或已失效。");
@@ -71,9 +97,12 @@ const InvitationAcceptScreen: React.FC<Props> = ({ navigation, route }) => {
       }
     };
     void loadInvitation();
-  }, [resolvedCode]);
+  }, [resolvedCode, token]);
 
   const statusText = useMemo(() => {
+    if (orgInvite) {
+      return `组织邀请 · 角色 ${orgInvite.role}\n目标邮箱：${orgInvite.target_email}`;
+    }
     if (!invitation) {
       return "";
     }
@@ -84,7 +113,7 @@ const InvitationAcceptScreen: React.FC<Props> = ({ navigation, route }) => {
       return "该邀请已过期。";
     }
     return `目标邮箱：${invitation.target_email}`;
-  }, [invitation]);
+  }, [invitation, orgInvite]);
 
   const handleAccept = async () => {
     if (!resolvedCode) {
@@ -97,8 +126,17 @@ const InvitationAcceptScreen: React.FC<Props> = ({ navigation, route }) => {
     }
     try {
       setAccepting(true);
+      if (orgInvite) {
+        await acceptOrganizationInvite(token, resolvedCode);
+        AnalyticsService.track("invite_accepted", { code: resolvedCode, kind: "organization" });
+        await refreshOrganizations();
+        Alert.alert("已加入组织", "该组织已出现在你的工作空间列表中。", [
+          { text: "继续", onPress: () => navigation.navigate("Organizations") }
+        ]);
+        return;
+      }
       await acceptInvitation(token, resolvedCode);
-      AnalyticsService.track("invite_accepted", { code: resolvedCode });
+      AnalyticsService.track("invite_accepted", { code: resolvedCode, kind: "contact" });
       Alert.alert("邀请已接受", "联系人已自动添加到你的联系人列表。", [
         {
           text: "继续",

@@ -243,12 +243,42 @@ paths:
                   summary: { $ref: '#/components/schemas/OrganizationAdminSummary' }
         '403':
           $ref: '#/components/responses/Error'
+  # Organization invites are a separate table from contact invitations, with
+  # their own endpoints. A client that only knows /invitations/{code} cannot
+  # resolve these, which is why organization invites looked invalid on mobile.
+  /organizations/invites/{code}:
+    get:
+      operationId: getOrganizationInvite
+      summary: Look up a pending organization invite before accepting it.
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: The pending invite.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [invite]
+                properties:
+                  invite: { $ref: '#/components/schemas/OrganizationInvite' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
   /organizations/invites/{code}/accept:
     post:
       operationId: acceptOrganizationInvite
       parameters:
         - { name: code, in: path, required: true, schema: { type: string } }
-      responses: { '200': { $ref: '#/components/responses/Success' } }
+      responses:
+        '200':
+          description: Invite accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [invite]
+                properties:
+                  invite: { $ref: '#/components/schemas/OrganizationInvite' }
   /realtime/tickets:
     post:
       operationId: issueRealtimeTicket

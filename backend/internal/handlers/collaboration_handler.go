@@ -49,6 +49,7 @@ func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGrou
 	protected.POST("/organizations/:id/invites", h.handleCreateOrganizationInvite)
 	protected.POST("/organizations/:id/invites/:inviteId/resend", h.handleResendOrganizationInvite)
 	protected.DELETE("/organizations/:id/invites/:inviteId", h.handleRevokeOrganizationInvite)
+	protected.GET("/organizations/invites/:code", h.handleGetOrganizationInvite)
 	protected.POST("/organizations/invites/:code/accept", h.handleAcceptOrganizationInvite)
 	protected.GET("/organizations/:id/teams", h.handleListTeams)
 	protected.POST("/organizations/:id/teams", h.handleCreateTeam)

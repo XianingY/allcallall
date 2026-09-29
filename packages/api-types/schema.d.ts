@@ -421,6 +421,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/invites/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Look up a pending organization invite before accepting it. */
+        get: operations["getOrganizationInvite"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/invites/{code}/accept": {
         parameters: {
             query?: never;
@@ -3864,6 +3881,32 @@ export interface operations {
             403: components["responses"]["Error"];
         };
     };
+    getOrganizationInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pending invite. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        invite: components["schemas"]["OrganizationInvite"];
+                    };
+                };
+            };
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
     acceptOrganizationInvite: {
         parameters: {
             query?: never;
@@ -3875,7 +3918,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            200: components["responses"]["Success"];
+            /** @description Invite accepted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        invite: components["schemas"]["OrganizationInvite"];
+                    };
+                };
+            };
         };
     };
     issueRealtimeTicket: {

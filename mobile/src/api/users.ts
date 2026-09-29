@@ -70,6 +70,32 @@ export const acceptInvitation = async (token: string, code: string) => {
   return response.data.invitation;
 };
 
+export interface OrganizationInvite {
+  id: number;
+  organization_id: number;
+  code: string;
+  target_email: string;
+  role: string;
+  status: string;
+  expires_at: string;
+  share_url?: string;
+}
+
+// Organization invites live in their own table with their own endpoints. They
+// used to be looked up with the contact invitation endpoints, which read a
+// different table, so every organization invite appeared invalid on mobile.
+export const fetchOrganizationInvite = async (token: string, code: string) => {
+  const api = createApiClient(token);
+  const response = await api.get<{ invite: OrganizationInvite }>(`/organizations/invites/${code}`);
+  return response.data.invite;
+};
+
+export const acceptOrganizationInvite = async (token: string, code: string) => {
+  const api = createApiClient(token);
+  const response = await api.post<{ invite: OrganizationInvite }>(`/organizations/invites/${code}/accept`);
+  return response.data.invite;
+};
+
 export const fetchContactProfile = async (token: string, contactId: number) => {
   const api = createApiClient(token);
   const response = await api.get<{ profile: ContactProfile }>(`/users/contacts/${contactId}/profile`);

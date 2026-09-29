@@ -119,6 +119,32 @@ func (s *Service) ListOrganizationInvites(ctx context.Context, organizationID, u
 	return invites, err
 }
 
+// GetOrganizationInviteByCode looks an invite up so a client can show what the
+// user is about to join before they accept.
+//
+// Reaching this requires knowing the code, which is a UUID handed to the
+// recipient, so it is not an enumeration path. The real gate - that the
+// signed-in user's email matches target_email - stays in
+// AcceptOrganizationInvite; duplicating it here would only produce a worse
+// error message.
+func (s *Service) GetOrganizationInviteByCode(ctx context.Context, code string) (*models.OrganizationInvite, error) {
+	trimmed := strings.TrimSpace(code)
+	if trimmed == "" {
+		return nil, errors.New("invite code is required")
+	}
+	var invite models.OrganizationInvite
+	if err := s.db.WithContext(ctx).Where("code = ?", trimmed).Take(&invite).Error; err != nil {
+		return nil, err
+	}
+	if invite.Status != models.InvitationStatusPending {
+		return nil, errors.New("invite is no longer pending")
+	}
+	if !invite.ExpiresAt.After(time.Now()) {
+		return nil, errors.New("invite has expired")
+	}
+	return &invite, nil
+}
+
 func (s *Service) ResendOrganizationInvite(ctx context.Context, organizationID, actorID, inviteID uint64) (*models.OrganizationInvite, error) {
 	if _, err := s.requireOrganizationAdmin(ctx, organizationID, actorID); err != nil {
 		return nil, err

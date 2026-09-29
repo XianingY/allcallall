@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/collaboration"
@@ -225,6 +226,28 @@ func (h *CollaborationHandler) handleRevokeOrganizationInvite(c *gin.Context) {
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
+}
+
+// handleGetOrganizationInvite lets a client show what the user is joining
+// before they accept. Without it, a mobile client could only try the contact
+// invitation endpoint, which reads a different table and reports the
+// organization code as invalid - so organization invites were impossible to
+// accept on mobile.
+func (h *CollaborationHandler) handleGetOrganizationInvite(c *gin.Context) {
+	if _, err := auth.GetClaimsFromContext(c); err != nil {
+		JSONError(c, http.StatusUnauthorized, "missing auth claims")
+		return
+	}
+	invite, err := h.service.GetOrganizationInviteByCode(c.Request.Context(), c.Param("code"))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			JSONError(c, http.StatusNotFound, "invite not found")
+			return
+		}
+		JSONError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	JSONSuccess(c, http.StatusOK, gin.H{"invite": toOrganizationInviteResponse(*invite)})
 }
 
 func (h *CollaborationHandler) handleAcceptOrganizationInvite(c *gin.Context) {
