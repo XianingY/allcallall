@@ -467,5 +467,9 @@ func sanitizeFileName(value string) string {
 }
 
 func attachmentDownloadURL(id uint64) string {
-	return fmt.Sprintf("/attachments/%d/download", id)
+	// Must include the /api/v1 prefix: the route is registered under that
+	// group, and without it the URL falls through the web app's catch-all
+	// instead of reaching the endpoint. Matches recording_service's
+	// /api/v1/recordings/... form.
+	return fmt.Sprintf("/api/v1/attachments/%d/download", id)
 }

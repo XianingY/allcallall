@@ -356,9 +356,15 @@
 .reply-preview { display: flex; align-items: center; gap: .35rem; margin-top: .45rem; border-left: 2px solid #8bb8aa; background: #f0f7f5; padding: .35rem .45rem; color: #65706d; font-size: .68rem; }
 .reply-preview span, .composer-context span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attachment-list { display: flex; flex-direction: column; gap: .35rem; margin-top: .5rem; }
-.attachment-list a { display: flex; width: fit-content; max-width: 100%; align-items: center; gap: .35rem; border: 1px solid #dfe4e2; border-radius: 5px; background: #f7faf9; padding: .32rem .45rem; color: #31584e; font-size: .7rem; }
-.attachment-list a span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Attachments are buttons now, not links: a plain <a> cannot carry the
+   Authorization header the download endpoint needs. */
+.attachment-list a,
+.attachment-list .attachment-link { display: flex; width: fit-content; max-width: 100%; align-items: center; gap: .35rem; border: 1px solid #dfe4e2; border-radius: 5px; background: #f7faf9; padding: .32rem .45rem; color: #31584e; font-size: .7rem; cursor: pointer; }
+.attachment-list .attachment-link:disabled { opacity: .6; cursor: progress; }
+.attachment-list a span,
+.attachment-list .attachment-link span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attachment-list small { color: #7d8784; }
+.attachment-error { color: #b91c1c; margin-left: .35rem; }
 .reaction-row { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem; }
 .reaction-row button { border-radius: 10px; background: #e7efec; padding: .12rem .45rem; color: #31584e; font-size: .68rem; }
 .pinned-strip { display: flex; gap: .4rem; overflow-x: auto; border-bottom: 1px solid #dfe4e2; background: #fbf7e8; padding: .45rem .75rem; }

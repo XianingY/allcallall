@@ -3,9 +3,52 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Edit3, MoreHorizontal, Paperclip, Pin, Plus, Reply, Trash2, X } from "lucide-react";
 import { useState } from "react";
 
-import { createConversation, type Message } from "@/api/collaboration";
+import { createConversation, type Attachment, type Message } from "@/api/collaboration";
+import { apiDownload } from "@/api/http";
 import { FormError } from "@/components/AuthLayout";
 import { formatBytes, formatTime } from "@/pages/collaboration/InboxFormat";
+
+/**
+ * Attachment names are rendered as buttons, not <a href>. A plain link sends
+ * no Authorization header, so the download answered 401 even once the URL was
+ * correct - and browsers cannot attach headers to a top-level navigation.
+ */
+function AttachmentLink({ attachment }: { attachment: Attachment }) {
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const download = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    setError(null);
+    try {
+      const { blob, fileName } = await apiDownload(attachment.download_url);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName || attachment.file_name || "attachment";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "下载失败");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <span className="attachment-item">
+      <button className="attachment-link" onClick={() => void download()} disabled={downloading} title={attachment.file_name}>
+        <Paperclip size={13} />
+        <span>{attachment.file_name}</span>
+        <small>{formatBytes(attachment.file_size)}</small>
+      </button>
+      {error ? <small className="attachment-error">{error}</small> : null}
+    </span>
+  );
+}
 
 export function MessageBubble({ message, currentUserId, onReply, onEdit, onAction }: { message: Message; currentUserId?: number; onReply(message: Message): void; onEdit(message: Message): void; onAction(action: "delete" | "pin" | "unpin" | "react", message: Message, emoji?: string): void }) {
   const mine = message.sender_id === currentUserId;
@@ -13,7 +56,7 @@ export function MessageBubble({ message, currentUserId, onReply, onEdit, onActio
     <header><div><strong>{message.sender_display_name || message.sender_email}</strong>{message.edited_at && <span>已编辑</span>}</div><div className="message-actions"><time>{formatTime(message.created_at)}</time><button className="icon-button" title="回复" onClick={() => onReply(message)}><Reply size={14} /></button>{mine && !message.deleted_at && <button className="icon-button" title="编辑" onClick={() => onEdit(message)}><Edit3 size={14} /></button>}<button className="icon-button" title={message.pinned ? "取消置顶" : "置顶"} onClick={() => onAction(message.pinned ? "unpin" : "pin", message)}><Pin size={14} /></button><button className="icon-button" title="赞同" onClick={() => onAction("react", message, "+1")}><MoreHorizontal size={14} /></button>{!message.deleted_at && <button className="icon-button text-danger" title="撤回" onClick={() => onAction("delete", message)}><Trash2 size={14} /></button>}</div></header>
     {message.reply_to && <div className="reply-preview"><Reply size={13} /><span>{message.reply_to.deleted ? "原消息已撤回" : `${message.reply_to.sender_display_name || message.reply_to.sender_email}: ${message.reply_to.body}`}</span></div>}
     <p>{message.deleted_at ? "该消息已撤回" : message.body}</p>
-    {message.attachments?.length ? <div className="attachment-list">{message.attachments.map((item) => <a key={item.id} href={item.download_url} target="_blank" rel="noreferrer"><Paperclip size={13} /><span>{item.file_name}</span><small>{formatBytes(item.file_size)}</small></a>)}</div> : null}
+    {message.attachments?.length ? <div className="attachment-list">{message.attachments.map((item) => <AttachmentLink key={item.id} attachment={item} />)}</div> : null}
     {message.reactions?.length ? <div className="reaction-row">{message.reactions.map((item) => <button key={item.emoji}>{item.emoji} {item.count}</button>)}</div> : null}
   </article>;
 }
