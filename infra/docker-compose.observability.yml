@@ -31,10 +31,17 @@ services:
   # Behind a profile because it is useless without a real notification
   # channel:  docker compose ... --profile alerting up -d
   #
-  # It used to default the webhook URLs to http://localhost:9094/, which
-  # started fine, passed config validation, and posted every alert into
-  # nothing. That is indistinguishable from having no alerting at all, except
-  # the dashboard looks guarded. Now it refuses to start without a URL.
+  # Two separate failures had to be fixed here:
+  #   1. The URLs once defaulted to http://localhost:9094/ - started fine,
+  #      passed validation, delivered nothing.
+  #   2. The config then used {{ env "VAR" }}, which Alertmanager does not
+  #      support at all (it expands neither that nor ${VAR}), so the URL
+  #      stayed a literal string and alerts were still not delivered.
+  #
+  # So the config is now a template rendered at start-up by
+  # render-alertmanager.sh, which refuses to emit a file while any URL is
+  # missing and checks that no placeholder survived. Alertmanager then reads
+  # the rendered file.
   alertmanager:
     image: prom/alertmanager:v0.27.0
     profiles: ["alerting"]
@@ -42,26 +49,19 @@ services:
     command:
       - |
         set -eu
-        for var in ALERTMANAGER_WEBHOOK_URL ALERTMANAGER_WEBHOOK_URL_CRITICAL ALERTMANAGER_WEBHOOK_URL_SECURITY; do
-          eval value="$${$$var:-}"
-          if [ -z "$$value" ]; then
-            echo "ERROR: $$var is not set." >&2
-            echo "       Alerts would be evaluated and then dropped with no trace." >&2
-            echo "       Set it in .env (see .env.template) or start without --profile alerting." >&2
-            exit 1
-          fi
-        done
+        /etc/alertmanager/render-alertmanager.sh
         exec /bin/alertmanager \
-          --config.file=/etc/alertmanager/alertmanager.yml \
+          --config.file=/tmp/alertmanager.yml \
           --storage.path=/alertmanager
     environment:
-      # No defaults on purpose - an unset value is what makes the check above
+      # No defaults on purpose - an unset value is what makes the render step
       # fail loudly instead of quietly sending alerts nowhere.
       ALERTMANAGER_WEBHOOK_URL: ${ALERTMANAGER_WEBHOOK_URL:-}
       ALERTMANAGER_WEBHOOK_URL_CRITICAL: ${ALERTMANAGER_WEBHOOK_URL_CRITICAL:-}
       ALERTMANAGER_WEBHOOK_URL_SECURITY: ${ALERTMANAGER_WEBHOOK_URL_SECURITY:-}
     volumes:
-      - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./observability/alertmanager.tmpl:/etc/alertmanager/alertmanager.tmpl:ro
+      - ./observability/render-alertmanager.sh:/etc/alertmanager/render-alertmanager.sh:ro
       - alertmanager_data:/alertmanager
     ports:
       - "9093:9093"
