@@ -8,6 +8,9 @@ export interface APIErrorBody {
 }
 
 export class APIError extends Error {
+  /** Set by {@link markSessionExpired} when the refresh flow itself failed with 401. */
+  sessionExpired = false;
+
   constructor(
     public readonly status: number,
     public readonly code: string,
@@ -18,6 +21,18 @@ export class APIError extends Error {
     this.name = "APIError";
   }
 }
+
+/** Tag an error as coming from the refresh-exhaustion path (refresh cookie dead). */
+export const markSessionExpired = (error: unknown): void => {
+  if (error instanceof APIError) error.sessionExpired = true;
+};
+
+/**
+ * A 401 that survived a refresh attempt: the session itself is over, not just
+ * this one request. Plain 401s (a single forbidden call) stay unmarked.
+ */
+export const isSessionExpiredError = (error: unknown): error is APIError =>
+  error instanceof APIError && error.status === 401 && error.sessionExpired === true;
 
 interface AuthPayload {
   access_token: string;
@@ -52,7 +67,13 @@ const refresh = async (): Promise<AuthPayload> => {
       credentials: "include",
       headers: { Accept: "application/json" },
     }).then(async (response) => {
-      if (!response.ok) throw await toAPIError(response);
+      if (!response.ok) {
+        // Refresh exhausted: tag the 401 so the query layer can tell a dead
+        // session (end it) apart from an ordinary forbidden request (keep it).
+        const error = await toAPIError(response);
+        if (error.status === 401) markSessionExpired(error);
+        throw error;
+      }
       const payload = await parseResponse<AuthPayload>(response);
       setAccessToken(payload.access_token);
       return payload;
