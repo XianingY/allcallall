@@ -80,15 +80,28 @@ const SubscriptionScreen: React.FC<Props> = () => {
       setLoading(true);
       await BillingService.purchasePackage(pkg);
       AnalyticsService.track("purchase_completed", { sku: pkg.product.identifier });
-      for (let attempt = 0; attempt < 3; attempt += 1) {
+      // Entitlements are written by an async webhook, so a single refresh right
+      // after checkout usually still shows Free. Poll long enough to catch up,
+      // and say which of the two happened - otherwise a successful payment
+      // looks like a failed one.
+      let synced = false;
+      for (let attempt = 0; attempt < 6; attempt += 1) {
         await refreshCommercialState();
         const customerInfo = await BillingService.getCustomerInfo();
         if (customerInfo?.activeSubscriptions?.includes(pkg.product.identifier)) {
+          synced = true;
           break;
         }
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1500));
       }
-      Alert.alert("购买已提交", "购买请求已提交，Premium 权益将以服务端同步结果为准。");
+      if (synced) {
+        Alert.alert("购买成功 / Purchase complete", "Premium 权益已生效。/ Premium is now active.");
+      } else {
+        Alert.alert(
+          "购买已提交 / Purchase submitted",
+          "Premium 权益仍在同步，以服务端结果为准；可下拉刷新查看。/ Entitlement is still syncing; pull to refresh."
+        );
+      }
     } catch (error) {
       console.error("[SubscriptionScreen] Purchase failed:", error);
       Alert.alert("购买失败", "无法完成购买，请稍后重试。");
