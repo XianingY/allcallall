@@ -43,7 +43,13 @@ docker compose -f infra/docker-compose.production.yml \
 
 Rules live in `infra/observability/alert.rules.yml` and are evaluated by
 Prometheus, which forwards firing alerts to Alertmanager. Routing and
-receivers live in `infra/observability/alertmanager.yml`.
+receivers live in `infra/observability/alertmanager.tmpl`.
+
+> **That file is a template, not the config.** Alertmanager expands
+> neither `{{ env "VAR" }}` nor `${VAR}`, so the webhook URLs are substituted
+> at start-up by `render-alertmanager.sh`, which fails if any is missing. An
+> earlier version put `{{ env ... }}` straight in the config and every alert
+> was posted to a literal string - rules fired, nothing was delivered.
 
 > **The container refuses to start without a webhook URL.** It checks
 > `ALERTMANAGER_WEBHOOK_URL`, `ALERTMANAGER_WEBHOOK_URL_CRITICAL` and
@@ -59,7 +65,7 @@ Any endpoint that accepts Alertmanager's JSON payload works:
 |---|---|
 | Slack | an incoming webhook, or a relay that reshapes the payload for Slack |
 | PagerDuty | `https://events.pagerduty.com/v2/enqueue` plus routing in PagerDuty |
-| Email | not supported by `webhook_configs`; edit `alertmanager.yml` to use `email_configs` with SMTP settings instead |
+| Email | not supported by `webhook_configs`; edit `alertmanager.tmpl` to use `email_configs` with SMTP settings instead |
 | Generic | your own receiver; verify it with the smoke test below |
 
 Set them in `.env` (see `.env.template`). Prometheus still runs without the
@@ -175,7 +181,7 @@ All config lives under `infra/observability/`:
 - `prometheus.yml` — scrape jobs (backend + self), `rule_files`, Alertmanager
   target.
 - `alert.rules.yml` — alerting rules.
-- `alertmanager.yml` — routing, receivers and inhibition.
+- `alertmanager.tmpl` — routing, receivers and inhibition (rendered at start-up).
 - `loki.yml`, `promtail.yml` — log ingestion (filesystem storage, Docker SD).
 - `grafana/provisioning/datasources/` — auto-provisioned datasources.
 - `grafana/provisioning/dashboards/` — a starter "AllCallAll Backend" dashboard;

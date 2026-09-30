@@ -1,19 +1,22 @@
 # Alertmanager routing for AllCallAll.
 #
-# ⚠️  THIS FILE DOES NOT DELIVER ALERTS UNTIL YOU FILL IN A NOTIFICATION
-#     CHANNEL. Rules that fire into a receiver nobody reads are the same
-#     silence as having no rules at all - the dashboard just looks guarded.
+# This file is a TEMPLATE, not the config Alertmanager reads. Alertmanager
+# does NOT expand environment variables - it supports neither {{ env "VAR" }}
+# (that is Prometheus's Go template syntax) nor ${VAR}. The old version of
+# this file used {{ env ... }}, which meant the webhook URL stayed the literal
+# string and every alert was posted to a URL that cannot exist: rules fired,
+# Alertmanager looked healthy, and nothing was ever delivered.
 #
-# Fill in at least one receiver below (Slack webhook, email, PagerDuty,
-# webhook...), then verify end to end before calling monitoring done:
+# The compose service renders this file at start-up and refuses to boot if a
+# value is missing, so an unrendered placeholder can never reach Alertmanager.
 #
-#   docker compose -f infra/docker-compose.observability.yml restart alertmanager
-#   curl -s http://localhost:9093/api/v2/status | jq .
-#   # fire a test alert:
+# Placeholders: __ALERTMANAGER_WEBHOOK_URL__, __ALERTMANAGER_WEBHOOK_URL_CRITICAL__,
+#               __ALERTMANAGER_WEBHOOK_URL_SECURITY__
+#
+# Verify delivery, not just "the alert fired":
 #   curl -XPOST http://localhost:9093/api/v2/alerts -H 'Content-Type: application/json' \
 #     -d '[{"labels":{"alertname":"SmokeTest","severity":"warning","instance":"manual"}}]'
-#
-# See docs/observability.md#alerting for channel-specific setup.
+#   # then confirm it arrived in the channel itself
 global:
   resolve_timeout: 5m
 
@@ -36,22 +39,22 @@ route:
       group_wait: 30s
 
 receivers:
-  # Replace the webhook URL with your real endpoint, or swap in a
-  # slack_configs / email_configs / pagerduty_configs block.
-  # The URL is injected from the environment so no endpoint is hardcoded here.
+  # Any endpoint accepting Alertmanager's JSON payload works: a Slack incoming
+  # webhook, PagerDuty events API, or your own relay. Email needs email_configs
+  # with SMTP settings instead - see docs/observability.md.
   - name: default
     webhook_configs:
-      - url: "{{ env \"ALERTMANAGER_WEBHOOK_URL\" }}"
+      - url: "__ALERTMANAGER_WEBHOOK_URL__"
         send_resolved: true
 
   - name: critical
     webhook_configs:
-      - url: "{{ env \"ALERTMANAGER_WEBHOOK_URL_CRITICAL\" }}"
+      - url: "__ALERTMANAGER_WEBHOOK_URL_CRITICAL__"
         send_resolved: true
 
   - name: security
     webhook_configs:
-      - url: "{{ env \"ALERTMANAGER_WEBHOOK_URL_SECURITY\" }}"
+      - url: "__ALERTMANAGER_WEBHOOK_URL_SECURITY__"
         send_resolved: true
 
 inhibit_rules:
