@@ -24,7 +24,10 @@ type Props = NativeStackScreenProps<RootStackParamList, "Subscription">;
 
 const SubscriptionScreen: React.FC<Props> = () => {
   const { user } = useAuthContext();
-  const { tier, entitlements, refreshCommercialState } = useCommercial();
+  // `usage` was already fetched into context but never rendered, so a paying
+  // mobile user could see Premium or Free and nothing about how much they had
+  // used. Web has had a usage section all along.
+  const { tier, entitlements, usage, refreshCommercialState } = useCommercial();
   const [offering, setOffering] = useState<PurchasesOffering | null>(null);
   const [loading, setLoading] = useState(false);
   const [offeringsError, setOfferingsError] = useState<string | null>(null);
@@ -150,6 +153,24 @@ const SubscriptionScreen: React.FC<Props> = () => {
         </Text>
       </View>
 
+      <View style={styles.usageCard}>
+        <Text style={styles.usageTitle}>用量 / Usage</Text>
+        {usage.length === 0 ? (
+          <Text style={styles.usageEmpty}>暂无用量记录。/ No usage recorded yet.</Text>
+        ) : (
+          usage.map((item) => (
+            <View key={`${item.feature}-${item.period_key}`} style={styles.usageRow}>
+              <Text style={styles.usageFeature}>{item.feature}</Text>
+              <Text style={styles.usageMeta}>
+                {item.unlimited
+                  ? "无限 / Unlimited"
+                  : `${item.used_units} / ${item.limit_units} ${item.unit} · 剩余 ${item.remaining_units}`}
+              </Text>
+            </View>
+          ))
+        )}
+      </View>
+
       {!billingSupported ? (
         <View style={styles.placeholderCard}>
           <Text style={styles.placeholderTitle}>Web 端暂不支持订阅购买</Text>
@@ -258,6 +279,35 @@ const styles = StyleSheet.create({
   statusMeta: {
     marginTop: 8,
     color: "#475569"
+  },
+  usageCard: {
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 12
+  },
+  usageTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0f172a",
+    marginBottom: 10
+  },
+  usageRow: {
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0"
+  },
+  usageFeature: {
+    color: "#0f172a",
+    fontWeight: "600"
+  },
+  usageMeta: {
+    marginTop: 4,
+    color: "#64748b",
+    fontSize: 12
+  },
+  usageEmpty: {
+    color: "#64748b"
   },
   planCard: {
     backgroundColor: "#fff",
