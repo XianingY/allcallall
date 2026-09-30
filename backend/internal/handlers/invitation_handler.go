@@ -71,7 +71,7 @@ func (h *InvitationHandler) handleCreateInvitation(c *gin.Context) {
 
 	var req createInvitationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 
@@ -274,7 +274,7 @@ func (h *InvitationHandler) handleUpsertContactProfile(c *gin.Context) {
 	}
 	var req contactProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	profile, err := h.contacts.SaveProfile(c.Request.Context(), claims.UserID, contactID, contact.ContactProfileInput{

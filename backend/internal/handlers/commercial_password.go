@@ -19,7 +19,7 @@ type passwordResetSendRequest struct {
 func (h *CommercialHandler) handlePasswordResetSend(c *gin.Context) {
 	var req passwordResetSendRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 
@@ -42,7 +42,7 @@ func (h *CommercialHandler) handlePasswordResetSend(c *gin.Context) {
 		h.logger.Warn().Err(err).Str("email", req.Email).Msg("send password reset code failed")
 		switch {
 		case errors.Is(err, mail.ErrEmailTemporarilyBlocked):
-			JSONError(c, http.StatusTooManyRequests, err.Error())
+			JSONServiceError(c, err, "failed to complete the password operation")
 		default:
 			JSONError(c, http.StatusInternalServerError, "failed to send password reset code")
 		}
@@ -62,7 +62,7 @@ type passwordResetConfirmRequest struct {
 func (h *CommercialHandler) handlePasswordResetConfirm(c *gin.Context) {
 	var req passwordResetConfirmRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if req.NewPassword != req.ConfirmPassword {
@@ -81,7 +81,7 @@ func (h *CommercialHandler) handlePasswordResetConfirm(c *gin.Context) {
 	}
 
 	if err := h.verify.VerifyForPurpose(req.Email, req.Code, mail.PurposePasswordReset); err != nil {
-		JSONError(c, http.StatusUnauthorized, err.Error())
+		JSONServiceError(c, err, "failed to complete the password operation")
 		return
 	}
 
@@ -94,7 +94,7 @@ func (h *CommercialHandler) handlePasswordResetConfirm(c *gin.Context) {
 	if err := h.users.ResetPassword(c.Request.Context(), userModel.ID, req.NewPassword); err != nil {
 		switch err {
 		case user.ErrPasswordTooShort, user.ErrPasswordTooLong, user.ErrPasswordWeak, user.ErrSpecialCharacters:
-			JSONError(c, http.StatusBadRequest, err.Error())
+			JSONServiceError(c, err, "failed to complete the password operation")
 		default:
 			h.logger.Error().Err(err).Msg("reset password failed")
 			JSONError(c, http.StatusInternalServerError, "failed to reset password")

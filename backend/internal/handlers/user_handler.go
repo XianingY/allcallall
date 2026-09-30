@@ -224,7 +224,7 @@ func (h *UserHandler) handleSetPresenceState(c *gin.Context) {
 
 	var req setPresenceStateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 
@@ -232,7 +232,7 @@ func (h *UserHandler) handleSetPresenceState(c *gin.Context) {
 	switch state {
 	case presence.StateBusy, presence.StateAway, presence.StateDND:
 		if err := h.presence.SetManualState(c.Request.Context(), claims.Email, state, req.CustomMessage); err != nil {
-			JSONError(c, http.StatusBadRequest, err.Error())
+			JSONServiceError(c, err, "failed to complete the user operation")
 			return
 		}
 	case presence.StateOnline, presence.StateOffline:
@@ -277,7 +277,7 @@ func (h *UserHandler) handleAddContact(c *gin.Context) {
 
 	var req addContactRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 
@@ -377,7 +377,7 @@ func (h *UserHandler) handleChangePassword(c *gin.Context) {
 
 	var req changePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 
@@ -432,7 +432,7 @@ func (h *UserHandler) handleSaveFCMToken(c *gin.Context) {
 
 	var req saveFCMTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 

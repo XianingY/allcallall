@@ -31,13 +31,13 @@ func (h *RealtimeHandler) handleIssueTicket(c *gin.Context) {
 		Channel string `json:"channel" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	channel := strings.ToLower(strings.TrimSpace(req.Channel))
 	ticket, expiresAt, err := h.tickets.Issue(c.Request.Context(), claims, channel)
 	if err != nil {
-		JSONError(c, auth.RealtimeTicketErrorStatus(err), err.Error())
+		JSONServiceErrorCode(c, err, auth.RealtimeTicketErrorStatus(err), "REALTIME_TICKET_ISSUE_FAILED", "failed to issue realtime ticket")
 		return
 	}
 	path := "/ws"

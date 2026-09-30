@@ -43,7 +43,7 @@ func (h *KnowledgeHandler) handleDuplicateCandidateDecision(c *gin.Context) {
 	}
 	var req duplicateDecisionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if err := h.service.DecideDuplicateCandidate(c.Request.Context(), organizationID, claims.UserID, duplicateID, req.Decision); err != nil {

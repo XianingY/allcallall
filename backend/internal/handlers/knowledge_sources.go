@@ -24,7 +24,7 @@ func (h *KnowledgeHandler) handleCreateSource(c *gin.Context) {
 	}
 	input, err := h.parseCreateSourceInput(c)
 	if err != nil {
-		JSONErrorWithCode(c, http.StatusBadRequest, "KNOWLEDGE_SOURCE_INVALID", err.Error())
+		JSONErrorWithCode(c, http.StatusBadRequest, "KNOWLEDGE_SOURCE_INVALID", "invalid knowledge source payload")
 		return
 	}
 	source, err := h.service.CreateSource(c.Request.Context(), organizationID, claims.UserID, input)

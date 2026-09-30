@@ -25,13 +25,13 @@ func (h *CollaborationHandler) handleCreateOrganization(c *gin.Context) {
 		Name string `json:"name"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	org, err := h.service.CreateOrganization(c.Request.Context(), claims.UserID, req.Name)
 	if err != nil {
 		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Msg("create organization failed")
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the organization operation")
 		return
 	}
 	JSONSuccess(c, http.StatusCreated, gin.H{"organization": toOrganizationResponse(*org, models.OrganizationRoleOwner)})
@@ -86,7 +86,7 @@ func (h *CollaborationHandler) handleGetOrganizationAdminSummary(c *gin.Context)
 	}
 	summary, err := h.service.GetOrganizationAdminSummary(c.Request.Context(), orgID, claims.UserID)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err.Error())
+		JSONServiceError(c, err, "failed to complete the organization operation")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"summary": toOrganizationAdminSummaryResponse(*summary)})
@@ -105,13 +105,13 @@ func (h *CollaborationHandler) handleCreateOrganizationInvite(c *gin.Context) {
 	}
 	var req collaboration.OrganizationInviteInput
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	invite, err := h.service.CreateOrganizationInvite(c.Request.Context(), orgID, claims.UserID, req)
 	if err != nil {
 		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Uint64("organization_id", orgID).Msg("create organization invite failed")
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the organization operation")
 		return
 	}
 	JSONSuccess(c, http.StatusCreated, gin.H{"invite": toOrganizationInviteResponse(*invite)})
@@ -128,7 +128,7 @@ func (h *CollaborationHandler) handleListOrganizationMembers(c *gin.Context) {
 	}
 	result, err := h.service.ListOrganizationMembers(c.Request.Context(), orgID, claims.UserID, page)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err.Error())
+		JSONServiceError(c, err, "failed to complete the organization operation")
 		return
 	}
 	response := make([]organizationMemberResponse, 0, len(result.Items))
@@ -158,7 +158,7 @@ func (h *CollaborationHandler) handleUpdateOrganizationMember(c *gin.Context) {
 	}
 	var req collaboration.OrganizationMemberUpdateInput
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	item, err := h.service.UpdateOrganizationMember(c.Request.Context(), orgID, claims.UserID, targetUserID, req)
@@ -180,7 +180,7 @@ func (h *CollaborationHandler) handleRemoveOrganizationMember(c *gin.Context) {
 		return
 	}
 	if err := h.service.RemoveOrganizationMember(c.Request.Context(), orgID, claims.UserID, targetUserID); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the organization operation")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
@@ -193,7 +193,7 @@ func (h *CollaborationHandler) handleListOrganizationInvites(c *gin.Context) {
 	}
 	items, err := h.service.ListOrganizationInvites(c.Request.Context(), orgID, claims.UserID)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err.Error())
+		JSONServiceError(c, err, "failed to complete the organization operation")
 		return
 	}
 	response := make([]organizationInviteResponse, 0, len(items))
@@ -210,7 +210,7 @@ func (h *CollaborationHandler) handleResendOrganizationInvite(c *gin.Context) {
 	}
 	item, err := h.service.ResendOrganizationInvite(c.Request.Context(), orgID, claims.UserID, inviteID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the organization operation")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"invite": toOrganizationInviteResponse(*item)})
@@ -222,7 +222,7 @@ func (h *CollaborationHandler) handleRevokeOrganizationInvite(c *gin.Context) {
 		return
 	}
 	if err := h.service.RevokeOrganizationInvite(c.Request.Context(), orgID, claims.UserID, inviteID); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the organization operation")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
@@ -244,7 +244,7 @@ func (h *CollaborationHandler) handleGetOrganizationInvite(c *gin.Context) {
 			JSONError(c, http.StatusNotFound, "invite not found")
 			return
 		}
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the organization operation")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"invite": toOrganizationInviteResponse(*invite)})
@@ -258,11 +258,11 @@ func (h *CollaborationHandler) handleAcceptOrganizationInvite(c *gin.Context) {
 	}
 	invite, err := h.service.AcceptOrganizationInvite(c.Request.Context(), c.Param("code"), claims.UserID, claims.Email)
 	if err != nil {
-		code := ""
 		if errors.Is(err, collaboration.ErrInviteEmailMismatch) {
-			code = "ORGANIZATION_INVITE_EMAIL_MISMATCH"
+			JSONServiceErrorCode(c, err, http.StatusBadRequest, "ORGANIZATION_INVITE_EMAIL_MISMATCH", "invite email mismatch")
+		} else {
+			h.writeServiceError(c, err, "failed to accept organization invite")
 		}
-		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"invite": toOrganizationInviteResponse(*invite)})
@@ -281,7 +281,7 @@ func (h *CollaborationHandler) handleGetOrganizationPolicy(c *gin.Context) {
 	}
 	policy, err := h.service.GetOrganizationPolicy(c.Request.Context(), orgID, claims.UserID)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err.Error())
+		JSONServiceError(c, err, "failed to complete the organization operation")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"policy": toOrganizationPolicyResponse(*policy)})
@@ -300,12 +300,12 @@ func (h *CollaborationHandler) handleUpdateOrganizationPolicy(c *gin.Context) {
 	}
 	var req collaboration.OrganizationPolicyInput
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	policy, err := h.service.UpdateOrganizationPolicy(c.Request.Context(), orgID, claims.UserID, req)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the organization operation")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"policy": toOrganizationPolicyResponse(*policy)})
@@ -327,7 +327,7 @@ func (h *CollaborationHandler) handleListOrganizationAuditEvents(c *gin.Context)
 	}
 	items, err := h.service.ListOrganizationAuditEvents(c.Request.Context(), orgID, claims.UserID, limit)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err.Error())
+		JSONServiceError(c, err, "failed to complete the organization operation")
 		return
 	}
 	response := make([]organizationAuditEventResponse, 0, len(items))

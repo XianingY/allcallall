@@ -45,7 +45,7 @@ func (h *AgentHandler) handleSubmitApprovalDecision(c *gin.Context) {
 	}
 	var req submitApprovalDecisionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	result, err := h.service.SubmitWorkflowApproval(c.Request.Context(), organizationID, claims.UserID, approvalID, req.Decision)

@@ -19,7 +19,7 @@ func (h *AgentHandler) handleCreateWorkflow(c *gin.Context) {
 	}
 	var req createWorkflowRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	result, err := h.service.StartWorkflowAgent(c.Request.Context(), organizationID, claims.UserID, agent.WorkflowInput{

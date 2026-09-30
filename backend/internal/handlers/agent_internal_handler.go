@@ -70,7 +70,7 @@ func (h *AgentHandler) handleInternalMCPToolCatalog(c *gin.Context) {
 	}
 	var req internalMCPContext
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if !capabilitySubjectMatches(claims, req) {
@@ -121,7 +121,7 @@ func (h *AgentHandler) handleInternalMCPToolExecute(c *gin.Context) {
 	}
 	var req internalMCPExecuteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if !capabilitySubjectMatches(claims, req.internalMCPContext) {
@@ -188,9 +188,10 @@ func (h *AgentHandler) handleInternalMCPToolExecute(c *gin.Context) {
 			return
 		}
 		if execution != nil && errors.Is(err, mcpplatform.ErrExecutionTerminal) {
+			c.Error(err)
 			c.JSON(http.StatusConflict, gin.H{
 				"code":      "MCP_EXECUTION_TERMINAL",
-				"error":     err.Error(),
+				"error":     "execution is already in a terminal state",
 				"execution": toMCPExecutionResponse(execution),
 			})
 			return
@@ -211,7 +212,7 @@ func (h *AgentHandler) handleInternalReadTool(c *gin.Context) {
 	}
 	var req internalReadToolRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	inputJSON := strings.TrimSpace(req.InputJSON)
@@ -244,7 +245,7 @@ func (h *AgentHandler) handleInternalRetrievalQuery(c *gin.Context) {
 	}
 	var req internalRetrievalQueryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	limit := req.TopK

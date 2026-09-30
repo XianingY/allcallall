@@ -34,8 +34,7 @@ func (h *CollaborationHandler) handleListConversations(c *gin.Context) {
 	}
 	result, err := h.service.ListConversations(c.Request.Context(), orgID, claims.UserID, c.Query("filter"), contactID, page)
 	if err != nil {
-		h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Uint64("organization_id", orgID).Msg("list conversations failed")
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to list conversations")
 		return
 	}
 	response := make([]conversationResponse, 0, len(result.Items))
@@ -60,7 +59,7 @@ func (h *CollaborationHandler) handleCreateConversation(c *gin.Context) {
 	}
 	var req collaboration.CreateConversationInput
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	conv, err := h.service.CreateConversation(c.Request.Context(), orgID, claims.UserID, req)
@@ -83,7 +82,7 @@ func (h *CollaborationHandler) handleGetConversation(c *gin.Context) {
 	}
 	detail, err := h.service.GetConversation(c.Request.Context(), orgID, claims.UserID, conversationID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to get conversation")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"conversation": toConversationDetailResponse(*detail)})
@@ -101,7 +100,7 @@ func (h *CollaborationHandler) handleUpdateConversation(c *gin.Context) {
 	}
 	var req collaboration.UpdateConversationInput
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	item, err := h.service.UpdateConversation(c.Request.Context(), orgID, claims.UserID, conversationID, req)
@@ -124,12 +123,12 @@ func (h *CollaborationHandler) handleListMessages(c *gin.Context) {
 	}
 	cursor, err := parseMessageCursor(c)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONError(c, http.StatusBadRequest, "invalid message cursor")
 		return
 	}
 	page, err := h.service.ListMessagePage(c.Request.Context(), orgID, claims.UserID, conversationID, cursor)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err.Error())
+		h.writeServiceError(c, err, "failed to list messages")
 		return
 	}
 	response := make([]messageResponse, 0, len(page.Messages))
@@ -157,7 +156,7 @@ func (h *CollaborationHandler) handleCreateMessage(c *gin.Context) {
 	}
 	var req collaboration.MessageInput
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	item, err := h.service.CreateMessage(c.Request.Context(), orgID, claims.UserID, conversationID, req)
@@ -177,12 +176,12 @@ func (h *CollaborationHandler) handleUpdateMessage(c *gin.Context) {
 		Body string `json:"body"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	item, err := h.service.EditMessage(c.Request.Context(), orgID, claims.UserID, conversationID, messageID, req.Body)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to update message")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"message": toMessageResponse(*item)})
@@ -195,7 +194,7 @@ func (h *CollaborationHandler) handleDeleteMessage(c *gin.Context) {
 	}
 	item, err := h.service.DeleteMessage(c.Request.Context(), orgID, claims.UserID, conversationID, messageID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to delete message")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"message": toMessageResponse(*item)})
@@ -214,11 +213,11 @@ func (h *CollaborationHandler) handleRecallMessage(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, collaboration.ErrRecallWindowExpired):
-			JSONError(c, http.StatusConflict, err.Error())
+			JSONServiceErrorCode(c, err, http.StatusConflict, "MESSAGE_RECALL_WINDOW_EXPIRED", "message recall window expired")
 		case errors.Is(err, collaboration.ErrRecallForbidden), errors.Is(err, collaboration.ErrRecallDisabled):
-			JSONError(c, http.StatusForbidden, err.Error())
+			JSONServiceErrorCode(c, err, http.StatusForbidden, "MESSAGE_RECALL_FORBIDDEN", "message recall forbidden")
 		default:
-			JSONError(c, http.StatusBadRequest, err.Error())
+			h.writeServiceError(c, err, "failed to recall message")
 		}
 		return
 	}
@@ -241,10 +240,10 @@ func (h *CollaborationHandler) handleEraseUserMessages(c *gin.Context) {
 	count, err := h.service.PurgeUserMessages(c.Request.Context(), orgID, claims.UserID, targetUserID)
 	if err != nil {
 		if errors.Is(err, collaboration.ErrErasureForbidden) {
-			JSONError(c, http.StatusForbidden, err.Error())
+			JSONServiceErrorCode(c, err, http.StatusForbidden, "MESSAGE_ERASURE_FORBIDDEN", "message erasure forbidden")
 			return
 		}
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to erase messages")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"erased_messages": count})
@@ -261,10 +260,10 @@ func (h *CollaborationHandler) handleEraseOrganizationMessages(c *gin.Context) {
 	count, err := h.service.PurgeOrganizationMessages(c.Request.Context(), orgID, claims.UserID)
 	if err != nil {
 		if errors.Is(err, collaboration.ErrErasureForbidden) {
-			JSONError(c, http.StatusForbidden, err.Error())
+			JSONServiceErrorCode(c, err, http.StatusForbidden, "MESSAGE_ERASURE_FORBIDDEN", "message erasure forbidden")
 			return
 		}
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to erase messages")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"erased_messages": count})
@@ -279,12 +278,12 @@ func (h *CollaborationHandler) handleAddMessageReaction(c *gin.Context) {
 		Emoji string `json:"emoji"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	item, err := h.service.AddMessageReaction(c.Request.Context(), orgID, claims.UserID, conversationID, messageID, req.Emoji)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to add reaction")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"message": toMessageResponse(*item)})
@@ -297,7 +296,7 @@ func (h *CollaborationHandler) handleRemoveMessageReaction(c *gin.Context) {
 	}
 	item, err := h.service.RemoveMessageReaction(c.Request.Context(), orgID, claims.UserID, conversationID, messageID, c.Param("emoji"))
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to remove reaction")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"message": toMessageResponse(*item)})
@@ -310,7 +309,7 @@ func (h *CollaborationHandler) handlePinMessage(c *gin.Context) {
 	}
 	item, err := h.service.PinMessage(c.Request.Context(), orgID, claims.UserID, conversationID, messageID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to pin message")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"message": toMessageResponse(*item)})
@@ -323,7 +322,7 @@ func (h *CollaborationHandler) handleUnpinMessage(c *gin.Context) {
 	}
 	item, err := h.service.UnpinMessage(c.Request.Context(), orgID, claims.UserID, conversationID, messageID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to unpin message")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"message": toMessageResponse(*item)})
@@ -341,7 +340,7 @@ func (h *CollaborationHandler) handleListPinnedMessages(c *gin.Context) {
 	}
 	items, err := h.service.ListPinnedMessages(c.Request.Context(), orgID, claims.UserID, conversationID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to list pinned messages")
 		return
 	}
 	response := make([]messageResponse, 0, len(items))
@@ -368,7 +367,7 @@ func (h *CollaborationHandler) handleUploadConversationAttachment(c *gin.Context
 	}
 	reader, err := file.Open()
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONError(c, http.StatusBadRequest, "failed to read upload")
 		return
 	}
 	defer reader.Close()
@@ -379,7 +378,7 @@ func (h *CollaborationHandler) handleUploadConversationAttachment(c *gin.Context
 		Reader:      reader,
 	})
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to save attachment")
 		return
 	}
 	JSONSuccess(c, http.StatusCreated, gin.H{"attachment": toAttachmentResponse(*item)})
@@ -397,7 +396,7 @@ func (h *CollaborationHandler) handleDownloadConversationAttachment(c *gin.Conte
 	}
 	download, err := h.service.OpenConversationAttachment(c.Request.Context(), orgID, claims.UserID, attachmentID)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err.Error())
+		h.writeServiceError(c, err, "failed to open attachment")
 		return
 	}
 	defer download.Reader.Close()
@@ -419,11 +418,11 @@ func (h *CollaborationHandler) handleSendTypingEvent(c *gin.Context) {
 		Typing bool `json:"typing"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if err := h.service.SendTypingEvent(c.Request.Context(), orgID, claims.UserID, conversationID, req.Typing); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to send typing event")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
@@ -440,7 +439,7 @@ func (h *CollaborationHandler) handleMarkConversationRead(c *gin.Context) {
 		return
 	}
 	if err := h.service.MarkConversationRead(c.Request.Context(), orgID, claims.UserID, conversationID); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to mark conversation read")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
@@ -568,7 +567,7 @@ func (h *CollaborationHandler) handleListConversationNotes(c *gin.Context) {
 	}
 	items, err := h.service.ListConversationNotes(c.Request.Context(), orgID, claims.UserID, conversationID, 20)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to list notes")
 		return
 	}
 	response := make([]conversationNoteResponse, 0, len(items))
@@ -592,12 +591,12 @@ func (h *CollaborationHandler) handleCreateConversationNote(c *gin.Context) {
 		Body string `json:"body"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	item, err := h.service.CreateConversationNote(c.Request.Context(), orgID, claims.UserID, conversationID, req.Body)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to create note")
 		return
 	}
 	JSONSuccess(c, http.StatusCreated, gin.H{"note": toConversationNoteResponse(*item)})
@@ -618,13 +617,13 @@ func (h *CollaborationHandler) handleCreateConversationRoom(c *gin.Context) {
 	}
 	if c.Request.ContentLength > 0 {
 		if err := c.ShouldBindJSON(&req); err != nil {
-			JSONError(c, http.StatusBadRequest, err.Error())
+			JSONBindingError(c, err)
 			return
 		}
 	}
 	room, err := h.service.CreateConversationRoom(c.Request.Context(), orgID, claims.UserID, conversationID, req.Title)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		h.writeServiceError(c, err, "failed to create room")
 		return
 	}
 	JSONSuccess(c, http.StatusCreated, gin.H{"room": toRoomStateResponse(*room)})

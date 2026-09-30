@@ -31,7 +31,7 @@ func (h *KnowledgeHandler) writeKnowledgeError(c *gin.Context, err error) {
 	case errors.Is(err, knowledge.ErrSourceNotFound):
 		JSONErrorWithCode(c, http.StatusNotFound, "KNOWLEDGE_SOURCE_NOT_FOUND", "knowledge source not found")
 	case errors.Is(err, knowledge.ErrUnsupportedFileType), errors.Is(err, knowledge.ErrUnsupportedSource):
-		JSONErrorWithCode(c, http.StatusBadRequest, "KNOWLEDGE_SOURCE_UNSUPPORTED", err.Error())
+		JSONServiceErrorCode(c, err, http.StatusBadRequest, "KNOWLEDGE_SOURCE_UNSUPPORTED", "knowledge source unsupported")
 	default:
 		h.logger.Error().Err(err).Msg("knowledge request failed")
 		JSONErrorWithCode(c, http.StatusInternalServerError, "KNOWLEDGE_REQUEST_FAILED", "knowledge request failed")

@@ -15,7 +15,7 @@ func (h *CollaborationHandler) handleListTeams(c *gin.Context) {
 	}
 	items, err := h.service.ListTeams(c.Request.Context(), orgID, claims.UserID)
 	if err != nil {
-		JSONError(c, http.StatusForbidden, err.Error())
+		JSONServiceError(c, err, "failed to complete the team operation")
 		return
 	}
 	response := make([]teamResponse, 0, len(items))
@@ -32,7 +32,7 @@ func (h *CollaborationHandler) handleCreateTeam(c *gin.Context) {
 	}
 	var req collaboration.TeamInput
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	item, err := h.service.CreateTeam(c.Request.Context(), orgID, claims.UserID, req)
@@ -50,7 +50,7 @@ func (h *CollaborationHandler) handleUpdateTeam(c *gin.Context) {
 	}
 	var req collaboration.TeamInput
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	item, err := h.service.UpdateTeam(c.Request.Context(), orgID, claims.UserID, teamID, req)
@@ -82,7 +82,7 @@ func (h *CollaborationHandler) handleAddTeamMember(c *gin.Context) {
 		UserID uint64 `json:"user_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	item, err := h.service.AddTeamMember(c.Request.Context(), orgID, claims.UserID, teamID, req.UserID)
@@ -105,7 +105,7 @@ func (h *CollaborationHandler) handleRemoveTeamMember(c *gin.Context) {
 	}
 	item, err := h.service.RemoveTeamMember(c.Request.Context(), orgID, claims.UserID, teamID, targetUserID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the team operation")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"team": toTeamResponse(*item)})

@@ -119,7 +119,7 @@ func (h *AuthHandler) RegisterProtectedRoutes(rg *gin.RouterGroup) {
 func (h *AuthHandler) handleRegister(c *gin.Context) {
 	var req registerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if !h.allowAuthRequest(c, "register", req.Email, 5, time.Hour) {
@@ -180,7 +180,7 @@ func (h *AuthHandler) handleRegister(c *gin.Context) {
 func (h *AuthHandler) handleLogin(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if !h.allowAuthRequest(c, "login", req.Email, 10, 15*time.Minute) {

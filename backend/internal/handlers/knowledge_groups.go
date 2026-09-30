@@ -69,7 +69,7 @@ func (h *KnowledgeHandler) handleSetSourceGroupCanonical(c *gin.Context) {
 	}
 	var req setCanonicalSourceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if err := h.service.SetSourceGroupCanonical(c.Request.Context(), organizationID, claims.UserID, groupID, req.SourceID); err != nil {

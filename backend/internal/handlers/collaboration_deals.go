@@ -16,7 +16,7 @@ func (h *CollaborationHandler) handleListPipelines(c *gin.Context) {
 	}
 	items, err := h.service.ListPipelines(c.Request.Context(), orgID, claims.UserID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the deal operation")
 		return
 	}
 	response := make([]pipelineResponse, 0, len(items))
@@ -37,7 +37,7 @@ func (h *CollaborationHandler) handleListDeals(c *gin.Context) {
 	}
 	result, err := h.service.ListDeals(c.Request.Context(), orgID, claims.UserID, page)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the deal operation")
 		return
 	}
 	response := make([]dealResponse, 0, len(result.Items))
@@ -62,12 +62,12 @@ func (h *CollaborationHandler) handleCreateDeal(c *gin.Context) {
 	}
 	var req collaboration.DealInput
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	deal, err := h.service.CreateDeal(c.Request.Context(), orgID, claims.UserID, req)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the deal operation")
 		return
 	}
 	JSONSuccess(c, http.StatusCreated, gin.H{"deal": toDealResponse(*deal)})
@@ -85,7 +85,7 @@ func (h *CollaborationHandler) handleGetDeal(c *gin.Context) {
 	}
 	deal, err := h.service.GetDeal(c.Request.Context(), orgID, claims.UserID, dealID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the deal operation")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"deal": toDealResponse(*deal)})
@@ -103,12 +103,12 @@ func (h *CollaborationHandler) handleUpdateDeal(c *gin.Context) {
 	}
 	var req collaboration.DealUpdateInput
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	deal, err := h.service.UpdateDeal(c.Request.Context(), orgID, claims.UserID, dealID, req)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the deal operation")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"deal": toDealResponse(*deal)})
@@ -128,11 +128,11 @@ func (h *CollaborationHandler) handleAddDealContact(c *gin.Context) {
 		ContactID uint64 `json:"contact_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if err := h.service.AddDealContact(c.Request.Context(), orgID, claims.UserID, dealID, req.ContactID); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the deal operation")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
@@ -150,7 +150,7 @@ func (h *CollaborationHandler) handleListDealActivities(c *gin.Context) {
 	}
 	items, err := h.service.ListDealActivities(c.Request.Context(), orgID, claims.UserID, dealID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the deal operation")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"activities": items})

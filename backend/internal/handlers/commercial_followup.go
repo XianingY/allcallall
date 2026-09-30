@@ -128,7 +128,7 @@ func (h *CommercialHandler) handleCreateBlock(c *gin.Context) {
 	}
 	var req blockRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if req.BlockedUserID == 0 || req.BlockedUserID == claims.UserID {
@@ -196,7 +196,7 @@ func (h *CommercialHandler) handleCreateFollowUp(c *gin.Context) {
 	}
 	var req followUpTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	dueAt, err := parseOptionalTime(req.DueAt)
@@ -243,7 +243,7 @@ func (h *CommercialHandler) handleUpdateFollowUp(c *gin.Context) {
 	}
 	var req updateFollowUpTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	dueAt, err := parseOptionalTime(req.DueAt)

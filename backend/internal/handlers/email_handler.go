@@ -76,7 +76,7 @@ func (h *EmailHandler) RegisterRoutes(rg *gin.RouterGroup) {
 func (h *EmailHandler) handleSendVerificationCode(c *gin.Context) {
 	var req sendVerificationCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if !allowRateLimitedRequest(c, h.rateLimits, h.metrics, "verification_send", req.Email, 5, time.Hour) {
@@ -92,7 +92,7 @@ func (h *EmailHandler) handleSendVerificationCode(c *gin.Context) {
 			if h.metrics != nil {
 				h.metrics.Inc("verification_send_rate_limit_total")
 			}
-			JSONError(c, http.StatusTooManyRequests, err.Error())
+			JSONServiceErrorCode(c, err, http.StatusTooManyRequests, "EMAIL_TEMPORARILY_BLOCKED", "email is temporarily blocked, please try again later")
 		default:
 			JSONError(c, http.StatusInternalServerError, "failed to send verification code")
 		}
@@ -109,7 +109,7 @@ func (h *EmailHandler) handleSendVerificationCode(c *gin.Context) {
 func (h *EmailHandler) handleVerifyCode(c *gin.Context) {
 	var req verifyCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if !allowRateLimitedRequest(c, h.rateLimits, h.metrics, "verification_check", req.Email, 10, 15*time.Minute) {
@@ -122,13 +122,13 @@ func (h *EmailHandler) handleVerifyCode(c *gin.Context) {
 		// 根据错误类型返回不同的状态码
 		switch {
 		case errors.Is(err, mail.ErrTooManyVerificationAttempts):
-			JSONError(c, http.StatusTooManyRequests, err.Error())
+			JSONServiceErrorCode(c, err, http.StatusTooManyRequests, "VERIFICATION_ATTEMPTS_EXCEEDED", "too many attempts, please try again later")
 		case errors.Is(err, mail.ErrVerificationCodeExpired):
-			JSONError(c, http.StatusUnauthorized, err.Error())
+			JSONServiceErrorCode(c, err, http.StatusUnauthorized, "VERIFICATION_CODE_EXPIRED", "verification code has expired")
 		case errors.Is(err, mail.ErrVerificationCodeIncorrect):
-			JSONError(c, http.StatusUnauthorized, err.Error())
+			JSONServiceErrorCode(c, err, http.StatusUnauthorized, "VERIFICATION_CODE_INCORRECT", "verification code is incorrect")
 		case errors.Is(err, mail.ErrVerificationCodeNotFoundOrUsed):
-			JSONError(c, http.StatusUnauthorized, err.Error())
+			JSONServiceErrorCode(c, err, http.StatusUnauthorized, "VERIFICATION_CODE_NOT_FOUND_OR_USED", "verification code not found or already used")
 		default:
 			JSONError(c, http.StatusInternalServerError, "failed to verify code")
 		}

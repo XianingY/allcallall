@@ -24,7 +24,7 @@ func (h *AgentHandler) handleCreateRun(c *gin.Context) {
 	}
 	var req createAgentRunRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	result, err := h.service.RunConversationAssistant(c.Request.Context(), organizationID, claims.UserID, agent.RunInput{
@@ -105,7 +105,7 @@ func (h *AgentHandler) handleSubmitToolOutputs(c *gin.Context) {
 
 	var req submitToolOutputsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		JSONBindingError(c, err)
 		return
 	}
 

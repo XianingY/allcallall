@@ -69,7 +69,7 @@ func (h *PushHandler) handleRegisterDevice(c *gin.Context) {
 	}
 	var req registerPushDeviceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	device, err := h.users.RegisterPushDevice(c.Request.Context(), claims.UserID, user.SavePushRegistrationInput{

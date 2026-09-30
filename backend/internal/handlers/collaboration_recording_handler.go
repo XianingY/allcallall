@@ -29,11 +29,11 @@ func (h *CollaborationHandler) handleStartRecording(c *gin.Context) {
 	}
 	item, err := h.service.StartRecording(c.Request.Context(), orgID, claims.UserID, roomID)
 	if err != nil {
-		code := ""
 		if errors.Is(err, collaboration.ErrRecordingNotAllowed) {
-			code = "RECORDING_NOT_ALLOWED"
+			JSONServiceErrorCode(c, err, http.StatusBadRequest, "RECORDING_NOT_ALLOWED", "recording not allowed")
+		} else {
+			h.writeServiceError(c, err, "failed to start recording")
 		}
-		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"recording": toRecordingResponse(*item)})
@@ -51,11 +51,11 @@ func (h *CollaborationHandler) handleStopRecording(c *gin.Context) {
 	}
 	item, err := h.service.StopRecording(c.Request.Context(), orgID, claims.UserID, roomID)
 	if err != nil {
-		code := ""
 		if errors.Is(err, collaboration.ErrRecordingNotAllowed) {
-			code = "RECORDING_NOT_ALLOWED"
+			JSONServiceErrorCode(c, err, http.StatusBadRequest, "RECORDING_NOT_ALLOWED", "recording not allowed")
+		} else {
+			h.writeServiceError(c, err, "failed to stop recording")
 		}
-		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"recording": toRecordingResponse(*item)})
@@ -73,7 +73,7 @@ func (h *CollaborationHandler) handleListRecordings(c *gin.Context) {
 	result, err := h.service.ListRecordings(c.Request.Context(), orgID, claims.UserID, page)
 	if err != nil {
 		if errors.Is(err, collaboration.ErrOrganizationAccessDenied) {
-			JSONErrorWithCode(c, http.StatusBadRequest, "RECORDING_LIST_FAILED", err.Error())
+			JSONServiceErrorCode(c, err, http.StatusBadRequest, "RECORDING_LIST_FAILED", "failed to list recordings")
 			return
 		}
 		h.logger.Error().Err(err).Uint64("organization_id", orgID).Msg("failed to list recordings")
@@ -111,7 +111,7 @@ func (h *CollaborationHandler) handleGetRecording(c *gin.Context) {
 		case errors.Is(err, gorm.ErrRecordNotFound):
 			JSONErrorWithCode(c, http.StatusNotFound, "RECORDING_NOT_FOUND", "recording not found")
 		case errors.Is(err, collaboration.ErrOrganizationAccessDenied):
-			JSONErrorWithCode(c, http.StatusBadRequest, "RECORDING_NOT_FOUND", err.Error())
+			JSONServiceErrorCode(c, err, http.StatusBadRequest, "RECORDING_NOT_FOUND", "recording not found")
 		default:
 			h.logger.Error().Err(err).Uint64("organization_id", orgID).Uint64("recording_id", recordingID).Msg("failed to load recording")
 			JSONErrorWithCode(c, http.StatusInternalServerError, "RECORDING_NOT_FOUND", "failed to load recording")
@@ -168,14 +168,17 @@ func (h *CollaborationHandler) handleRetryRecordingTranscription(c *gin.Context)
 	if err != nil {
 		status := http.StatusBadRequest
 		code := "RECORDING_TRANSCRIPTION_RETRY_FAILED"
+		message := "failed to retry transcription"
 		if errors.Is(err, collaboration.ErrRecordingNotAllowed) {
 			status = http.StatusForbidden
 			code = "RECORDING_TRANSCRIPTION_RETRY_FORBIDDEN"
+			message = "recording not allowed"
 		} else if errors.Is(err, collaboration.ErrTranscriptionNotRetryable) {
 			status = http.StatusConflict
 			code = "RECORDING_TRANSCRIPTION_NOT_RETRYABLE"
+			message = "transcription not retryable"
 		}
-		JSONErrorWithCode(c, status, code, err.Error())
+		JSONServiceErrorCode(c, err, status, code, message)
 		return
 	}
 	JSONSuccess(c, http.StatusAccepted, gin.H{"transcription": item})

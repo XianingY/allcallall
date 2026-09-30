@@ -44,8 +44,10 @@ func JSONAppError(c *gin.Context, err error) {
 		JSONErrorWithCode(c, appErr.HTTPStatus, appErr.Code, appErr.Message)
 		return
 	}
-	// Fallback for unhandled errors
-	JSONErrorWithCode(c, http.StatusInternalServerError, apperror.ErrCodeInternalServerError, err.Error())
+	// Fallback for unhandled errors: fail closed with a fixed message so
+	// internals (SQL, paths) never reach the wire.
+	_ = c.Error(err)
+	JSONErrorWithCode(c, http.StatusInternalServerError, apperror.ErrCodeInternalServerError, "internal server error")
 }
 
 func defaultErrorCode(status int) string {
@@ -118,14 +120,67 @@ func collaborationClientMessage(err error) (string, bool) {
 	return "", false
 }
 
+// JSONBindingError answers request binding failures with 400. Binding errors
+// mean the client sent malformed JSON or violated field validation: that is
+// the client's fault and must never be reported as a 500. The raw validator
+// text is dropped from the wire to stay fail-closed.
+func JSONBindingError(c *gin.Context, err error) {
+	_ = c.Error(err)
+	JSONError(c, http.StatusBadRequest, "invalid request body")
+}
+
+// JSONServiceError is the fail-closed way to answer any handler error.
+//
+// Handlers used to call JSONError(c, 400, err.Error()) in ~85 places, which
+// put GORM SQL, file paths and internal constraint text on the wire. This
+// keeps whitelisted domain sentinels (400 + their own message) and answers
+// everything else with a generic message, recording the real error through
+// gin's error accumulator where middleware can log it.
+//
+// Unknown errors answer 500 rather than 400: if we cannot classify it, we
+// cannot claim it was the client's fault. Do NOT pass ShouldBindJSON errors
+// here — use JSONBindingError, which answers 400.
+func JSONServiceError(c *gin.Context, err error, genericMessage string) {
+	if message, ok := clientErrorMessage(err); ok {
+		JSONError(c, http.StatusBadRequest, message)
+		return
+	}
+	_ = c.Error(err)
+	JSONError(c, http.StatusInternalServerError, genericMessage)
+}
+
+// clientErrorMessage generalises collaborationClientMessage with sentinels
+// that any package may return.
+func clientErrorMessage(err error) (string, bool) {
+	if message, ok := collaborationClientMessage(err); ok {
+		return message, true
+	}
+	for _, sentinel := range []error{gorm.ErrRecordNotFound} {
+		if errors.Is(err, sentinel) {
+			return "记录不存在 / not found", true
+		}
+	}
+	return "", false
+}
+
 // writeServiceError: whitelisted domain errors keep 400 + their own message;
 // everything else is logged server-side and answered with a generic 500 so
 // internals never leak to the client.
 func (h *CollaborationHandler) writeServiceError(c *gin.Context, err error, genericMessage string) {
-	if message, ok := collaborationClientMessage(err); ok {
+	if message, ok := clientErrorMessage(err); ok {
 		JSONError(c, http.StatusBadRequest, message)
 		return
 	}
 	h.logger.Error().Err(err).Str("path", c.Request.URL.Path).Msg(genericMessage)
 	JSONError(c, http.StatusInternalServerError, genericMessage)
+}
+
+// JSONServiceErrorCode answers a classified service error with a stable code
+// and a FIXED message. The caller has already classified the error with
+// errors.Is, so status/code semantics are trusted; the wrapped err.Error()
+// may still carry internal detail and is recorded via gin's error
+// accumulator instead of being echoed to the client.
+func JSONServiceErrorCode(c *gin.Context, err error, status int, code string, message string) {
+	_ = c.Error(err)
+	JSONErrorWithCode(c, status, code, message)
 }

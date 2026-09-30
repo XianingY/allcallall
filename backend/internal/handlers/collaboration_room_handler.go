@@ -18,12 +18,12 @@ func (h *CollaborationHandler) handleCreateRoom(c *gin.Context) {
 	}
 	var req collaboration.CreateRoomInput
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	state, err := h.service.CreateRoom(c.Request.Context(), orgID, claims.UserID, req)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the room operation")
 		return
 	}
 	JSONSuccess(c, http.StatusCreated, gin.H{"room": toRoomStateResponse(*state)})
@@ -36,7 +36,7 @@ func (h *CollaborationHandler) handleListRooms(c *gin.Context) {
 	}
 	items, err := h.service.ListRooms(c.Request.Context(), orgID, claims.UserID)
 	if err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the room operation")
 		return
 	}
 	response := make([]roomStateResponse, 0, len(items))
@@ -58,15 +58,14 @@ func (h *CollaborationHandler) handleJoinRoom(c *gin.Context) {
 	}
 	state, err := h.service.JoinRoom(c.Request.Context(), orgID, claims.UserID, roomID)
 	if err != nil {
-		code := ""
-		status := http.StatusBadRequest
-		if errors.Is(err, collaboration.ErrRoomAccessDenied) {
-			code = "ROOM_ACCESS_DENIED"
-		} else if errors.Is(err, collaboration.ErrRoomParticipantLimit) {
-			code = "ROOM_PARTICIPANT_LIMIT_REACHED"
-			status = http.StatusConflict
+		switch {
+		case errors.Is(err, collaboration.ErrRoomAccessDenied):
+			JSONServiceErrorCode(c, err, http.StatusBadRequest, "ROOM_ACCESS_DENIED", "room access denied")
+		case errors.Is(err, collaboration.ErrRoomParticipantLimit):
+			JSONServiceErrorCode(c, err, http.StatusConflict, "ROOM_PARTICIPANT_LIMIT_REACHED", "room participant limit reached")
+		default:
+			h.writeServiceError(c, err, "failed to join room")
 		}
-		JSONErrorWithCode(c, status, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"room": toRoomStateResponse(*state)})
@@ -84,11 +83,11 @@ func (h *CollaborationHandler) handleLeaveRoom(c *gin.Context) {
 	}
 	state, err := h.service.LeaveRoom(c.Request.Context(), orgID, claims.UserID, roomID)
 	if err != nil {
-		code := ""
 		if errors.Is(err, collaboration.ErrRoomAccessDenied) {
-			code = "ROOM_ACCESS_DENIED"
+			JSONServiceErrorCode(c, err, http.StatusBadRequest, "ROOM_ACCESS_DENIED", "room access denied")
+		} else {
+			h.writeServiceError(c, err, "failed to leave room")
 		}
-		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"room": toRoomStateResponse(*state)})
@@ -108,16 +107,16 @@ func (h *CollaborationHandler) handleRoomOffer(c *gin.Context) {
 		SDP string `json:"sdp"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	result, err := h.service.HandleRoomOffer(c.Request.Context(), orgID, claims.UserID, roomID, req.SDP)
 	if err != nil {
-		code := ""
 		if errors.Is(err, collaboration.ErrRoomAccessDenied) {
-			code = "ROOM_ACCESS_DENIED"
+			JSONServiceErrorCode(c, err, http.StatusBadRequest, "ROOM_ACCESS_DENIED", "room access denied")
+		} else {
+			h.writeServiceError(c, err, "failed to handle room offer")
 		}
-		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{
@@ -139,15 +138,15 @@ func (h *CollaborationHandler) handleRoomIce(c *gin.Context) {
 	}
 	var payload media.ICECandidateInit
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if err := h.service.AddRoomICECandidate(c.Request.Context(), orgID, claims.UserID, roomID, payload); err != nil {
-		code := ""
 		if errors.Is(err, collaboration.ErrRoomAccessDenied) {
-			code = "ROOM_ACCESS_DENIED"
+			JSONServiceErrorCode(c, err, http.StatusBadRequest, "ROOM_ACCESS_DENIED", "room access denied")
+		} else {
+			h.writeServiceError(c, err, "failed to add room ICE candidate")
 		}
-		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
@@ -165,17 +164,17 @@ func (h *CollaborationHandler) handleRoomMediaState(c *gin.Context) {
 	}
 	var req collaboration.RoomMediaStateInput
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if err := h.service.UpdateRoomMediaState(c.Request.Context(), orgID, claims.UserID, roomID, req); err != nil {
-		code := "ROOM_MEDIA_SYNC_FAILED"
 		if errors.Is(err, collaboration.ErrRoomAccessDenied) {
-			code = "ROOM_ACCESS_DENIED"
+			JSONServiceErrorCode(c, err, http.StatusBadRequest, "ROOM_ACCESS_DENIED", "room access denied")
 		} else if strings.Contains(strings.ToLower(err.Error()), "required") {
-			code = "ROOM_PARTICIPANT_STATE_INVALID"
+			JSONServiceErrorCode(c, err, http.StatusBadRequest, "ROOM_PARTICIPANT_STATE_INVALID", "room participant state invalid")
+		} else {
+			JSONServiceErrorCode(c, err, http.StatusBadRequest, "ROOM_MEDIA_SYNC_FAILED", "room media state sync failed")
 		}
-		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
@@ -193,11 +192,11 @@ func (h *CollaborationHandler) handleRoomSignalEvent(c *gin.Context, eventType s
 	}
 	var payload map[string]any
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if err := h.service.SaveRoomSignalEvent(c.Request.Context(), orgID, claims.UserID, roomID, eventType, payload); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONServiceError(c, err, "failed to complete the room operation")
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
@@ -215,11 +214,11 @@ func (h *CollaborationHandler) handleRoomState(c *gin.Context) {
 	}
 	state, err := h.service.GetRoomState(c.Request.Context(), orgID, claims.UserID, roomID)
 	if err != nil {
-		code := ""
 		if errors.Is(err, collaboration.ErrRoomAccessDenied) {
-			code = "ROOM_ACCESS_DENIED"
+			JSONServiceErrorCode(c, err, http.StatusBadRequest, "ROOM_ACCESS_DENIED", "room access denied")
+		} else {
+			h.writeServiceError(c, err, "failed to get room state")
 		}
-		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"room": toRoomStateResponse(*state)})
@@ -239,15 +238,15 @@ func (h *CollaborationHandler) handleRoomRenegotiationAnswer(c *gin.Context) {
 		SDP string `json:"sdp"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if err := h.service.HandleRoomRenegotiationAnswer(c.Request.Context(), orgID, claims.UserID, roomID, req.SDP); err != nil {
-		code := ""
 		if errors.Is(err, collaboration.ErrRoomAccessDenied) {
-			code = "ROOM_ACCESS_DENIED"
+			JSONServiceErrorCode(c, err, http.StatusBadRequest, "ROOM_ACCESS_DENIED", "room access denied")
+		} else {
+			h.writeServiceError(c, err, "failed to handle room renegotiation answer")
 		}
-		JSONErrorWithCode(c, http.StatusBadRequest, code, err.Error())
 		return
 	}
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})

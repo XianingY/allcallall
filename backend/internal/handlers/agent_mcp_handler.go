@@ -56,7 +56,7 @@ func (h *AgentHandler) handleCreateMCPInstallation(c *gin.Context) {
 	}
 	var input mcpplatform.CreateInstallationInput
 	if err := c.ShouldBindJSON(&input); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	installation, err := h.mcp.CreateInstallation(c.Request.Context(), organizationID, claims.UserID, input)
@@ -87,7 +87,7 @@ func (h *AgentHandler) handleUpdateMCPInstallation(c *gin.Context) {
 	}
 	var input mcpplatform.UpdateInstallationInput
 	if err := c.ShouldBindJSON(&input); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	installation, err := h.mcp.UpdateInstallation(c.Request.Context(), organizationID, claims.UserID, installationID, input)
@@ -146,7 +146,7 @@ func (h *AgentHandler) handlePutMCPSecrets(c *gin.Context) {
 	}
 	var input putMCPSecretsRequest
 	if err := c.ShouldBindJSON(&input); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if err := h.mcp.PutSecrets(c.Request.Context(), organizationID, claims.UserID, installationID, input.Secrets); err != nil {
@@ -202,7 +202,7 @@ func (h *AgentHandler) handleCreateAgentSkill(c *gin.Context) {
 	}
 	var input mcpplatform.CreateSkillInput
 	if err := c.ShouldBindJSON(&input); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	skill, err := h.mcp.CreateSkill(c.Request.Context(), organizationID, claims.UserID, input)
@@ -225,7 +225,7 @@ func (h *AgentHandler) handleUpdateAgentSkill(c *gin.Context) {
 	}
 	var input mcpplatform.UpdateSkillInput
 	if err := c.ShouldBindJSON(&input); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	skill, err := h.mcp.UpdateSkill(c.Request.Context(), organizationID, claims.UserID, skillID, input)
@@ -277,17 +277,17 @@ func (h *AgentHandler) requireMCPInstallationContext(c *gin.Context) (*auth.Clai
 func (h *AgentHandler) writeMCPError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, mcpplatform.ErrDisabled), errors.Is(err, mcpplatform.ErrSandboxUnavailable), errors.Is(err, mcpplatform.ErrSecretUnavailable):
-		JSONErrorWithCode(c, http.StatusServiceUnavailable, "MCP_DEPENDENCY_UNAVAILABLE", err.Error())
+		JSONServiceErrorCode(c, err, http.StatusServiceUnavailable, "MCP_DEPENDENCY_UNAVAILABLE", "MCP dependency unavailable")
 	case errors.Is(err, mcpplatform.ErrNotFound):
 		JSONErrorWithCode(c, http.StatusNotFound, "MCP_RESOURCE_NOT_FOUND", "MCP resource not found")
 	case errors.Is(err, mcpplatform.ErrForbidden):
 		JSONErrorWithCode(c, http.StatusForbidden, "MCP_RESOURCE_FORBIDDEN", "MCP resource forbidden")
 	case errors.Is(err, mcpplatform.ErrInvalidInput):
-		JSONErrorWithCode(c, http.StatusBadRequest, "MCP_INVALID_INPUT", err.Error())
+		JSONServiceErrorCode(c, err, http.StatusBadRequest, "MCP_INVALID_INPUT", "invalid MCP input")
 	case errors.Is(err, mcpplatform.ErrInvalidState), errors.Is(err, mcpplatform.ErrApprovalRequired):
-		JSONErrorWithCode(c, http.StatusConflict, "MCP_INVALID_STATE", err.Error())
+		JSONServiceErrorCode(c, err, http.StatusConflict, "MCP_INVALID_STATE", "invalid MCP state")
 	case errors.Is(err, mcpplatform.ErrQuotaExceeded):
-		JSONErrorWithCode(c, http.StatusTooManyRequests, "MCP_QUOTA_EXCEEDED", err.Error())
+		JSONServiceErrorCode(c, err, http.StatusTooManyRequests, "MCP_QUOTA_EXCEEDED", "MCP quota exceeded")
 	default:
 		h.logger.Error().Err(err).Msg("MCP platform request failed")
 		JSONErrorWithCode(c, http.StatusInternalServerError, "MCP_REQUEST_FAILED", "MCP request failed")

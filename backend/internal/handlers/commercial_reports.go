@@ -31,7 +31,7 @@ func (h *CommercialHandler) handleCreateReport(c *gin.Context) {
 	}
 	var req reportRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 	if allowed, retryAfter, err := h.rateLimits.Allow(c.Request.Context(), "abuse-report:"+strconv.FormatUint(claims.UserID, 10), 10, time.Hour); err != nil {
@@ -109,7 +109,7 @@ func (h *CommercialHandler) handleDeleteAccount(c *gin.Context) {
 	}
 	var req deleteAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		JSONError(c, http.StatusBadRequest, err.Error())
+		JSONBindingError(c, err)
 		return
 	}
 
@@ -133,7 +133,7 @@ func (h *CommercialHandler) handleDeleteAccount(c *gin.Context) {
 			return
 		}
 		if err := h.verify.VerifyForPurpose(account.Email, req.Code, mail.PurposeAccountDeletion); err != nil {
-			JSONError(c, http.StatusUnauthorized, err.Error())
+			JSONServiceError(c, err, "failed to complete the report operation")
 			return
 		}
 		if err := h.verify.ConsumeVerifiedPurpose(account.Email, mail.PurposeAccountDeletion); err != nil {
