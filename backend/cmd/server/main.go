@@ -316,7 +316,23 @@ func main() {
 	})
 	pushHandler := handlers.NewPushHandler(appLogger, userSvc)
 	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, mailSvc, rateLimitSvc, counterStore)
-	orgBillingHandler := handlers.NewOrgBillingHandler(appLogger, orgBillingSvc, usageStatsSvc, invoiceSvc, quotaSvc)
+	// 组织归属从已认证主体派生（复用组织服务的成员关系查询），
+	// 绝不采信客户端传入的 X-Organization-ID。返回 0 表示该用户尚无组织，
+	// 组织级端点（org billing）会以 400 拒绝。
+	resolveUserOrg := func(ctx context.Context, userID uint64) (uint64, error) {
+		if userID == 0 {
+			return 0, nil
+		}
+		org, _, err := collaborationSvc.ResolveOrganization(ctx, userID, 0)
+		if err != nil {
+			return 0, err
+		}
+		if org == nil {
+			return 0, nil
+		}
+		return org.ID, nil
+	}
+	orgBillingHandler := handlers.NewOrgBillingHandler(appLogger, resolveUserOrg, orgBillingSvc, usageStatsSvc, invoiceSvc, quotaSvc)
 	collaborationHandler := handlers.NewCollaborationHandler(appLogger, collaborationSvc, userSvc, chatHub)
 	collaborationHandler.WithSearchService(searchSvc)
 	agentHandler := handlers.NewAgentHandler(appLogger, agentSvc).
@@ -484,10 +500,6 @@ func main() {
 		RoomRealtimeAuth:   auth.RealtimeMiddleware(realtimeTicketSvc, tokenValidator, "room"),
 		Metrics:            counterStore,
 		RequireTLS:         cfg.Security.RequireTLS,
-		// 租户隔离：组织归属从认证主体派生，杜绝客户端伪造 X-Organization-ID 越权。
-		// 强制开关见 TENANT_ISOLATION_ENFORCE（默认仅标注不拦截，避免锁死无组织用户）。
-		TenantResolver: appruntime.TenantResolverFromService(collaborationSvc),
-		TenantEnforce:  appruntime.TenantEnforceFromEnv(),
 		ReadinessChecks: map[string]server.ReadinessCheck{
 			"mysql": func(ctx context.Context) error {
 				sqlDB, err := db.DB()

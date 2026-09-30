@@ -11,8 +11,8 @@ import (
 
 // 装配契约测试（P0-5）。
 //
-// 代码审查发现：Phase 0-2 交付的 internal/tenant、internal/alerting、
-// internal/kms 三个包**整包零外部引用**——实现完整、单测全绿，却从未接进运行时。
+// 代码审查发现：Phase 0-2 交付的 internal/alerting、internal/kms 等包
+// **整包零外部引用**——实现完整、单测全绿，却从未接进运行时。
 // 根因是"新增包 + 单测"与"装配到 main.go"之间没有任何强制关联，
 // 而 cmd/server（装配入口）本身零测试，CI 完全无法发现这类断点。
 //
@@ -58,7 +58,6 @@ func TestCriticalPackagesAreWired(t *testing.T) {
 
 	// 包名 -> 中文说明（失败信息要能直接看懂影响面）。
 	critical := map[string]string{
-		"internal/tenant":   "租户隔离中间件",
 		"internal/alerting": "告警分级路由",
 		"internal/kms":      "KMS 主密钥管理",
 	}
@@ -95,7 +94,6 @@ func TestMainWiresCriticalServices(t *testing.T) {
 	body := string(src)
 
 	wants := map[string]string{
-		"appruntime.TenantResolverFromService":    "租户解析器装配",
 		"appruntime.AlertingFromEnv":              "告警服务装配",
 		"commerce.NewOrgBillingService":           "组织计费服务实例化",
 		"commerce.NewInvoiceService":              "发票服务实例化",
@@ -103,7 +101,7 @@ func TestMainWiresCriticalServices(t *testing.T) {
 		"commerce.NewQuotaService":                "配额服务实例化",
 		"appruntime.ApplyPrivacyPolicies(rootCtx": "隐私策略装配（须传 ctx）",
 		"OrgBilling:":                             "组织计费 handler 注入路由依赖",
-		"TenantResolver:":                         "租户中间件注入路由依赖",
+		"handlers.NewOrgBillingHandler":           "组织计费 handler 构造（含组织归属解析）",
 	}
 
 	for needle, desc := range wants {

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -10,38 +11,47 @@ import (
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
 
+	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/commerce"
-	"github.com/allcallall/backend/internal/tenant"
 )
 
 // OrgBillingHandler exposes B2B organization billing endpoints: plan/quota
 // state, multi-dimensional usage analytics and invoices.
 //
-// These endpoints are organization-scoped by nature, so they require a resolved
-// tenant (unlike account-level endpoints, where a user without an organization
-// is still legitimate). The org id always comes from the tenant middleware,
+// These endpoints are organization-scoped by nature, so they require the
+// authenticated user to belong to an organization (unlike account-level
+// endpoints, where a user without an organization is still legitimate). The
+// org id is derived from the authenticated principal through ResolveUserOrg,
 // never from a client header.
 type OrgBillingHandler struct {
-	logger   zerolog.Logger
-	billing  *commerce.OrgBillingService
-	usage    *commerce.UsageStatsService
-	invoices *commerce.InvoiceService
-	quota    *commerce.QuotaService
+	logger         zerolog.Logger
+	resolveUserOrg func(ctx context.Context, userID uint64) (uint64, error)
+	billing        *commerce.OrgBillingService
+	usage          *commerce.UsageStatsService
+	invoices       *commerce.InvoiceService
+	quota          *commerce.QuotaService
 }
 
+// NewOrgBillingHandler wires the org-scoped billing endpoints.
+//
+// resolveUserOrg maps an authenticated user to their organization; returning
+// (0, nil) means the user has no organization yet. Passing nil disables the
+// org resolution and every route answers 400.
 func NewOrgBillingHandler(
 	log zerolog.Logger,
+	resolveUserOrg func(ctx context.Context, userID uint64) (uint64, error),
 	billing *commerce.OrgBillingService,
 	usage *commerce.UsageStatsService,
 	invoices *commerce.InvoiceService,
 	quota *commerce.QuotaService,
 ) *OrgBillingHandler {
 	return &OrgBillingHandler{
-		logger:   log.With().Str("component", "org_billing_handler").Logger(),
-		billing:  billing,
-		usage:    usage,
-		invoices: invoices,
-		quota:    quota,
+		logger:         log.With().Str("component", "org_billing_handler").Logger(),
+		resolveUserOrg: resolveUserOrg,
+		billing:        billing,
+		usage:          usage,
+		invoices:       invoices,
+		quota:          quota,
 	}
 }
 
@@ -51,13 +61,24 @@ func (h *OrgBillingHandler) RegisterProtectedRoutes(protected *gin.RouterGroup) 
 	protected.GET("/org/invoices/:invoiceNo", h.handleGetInvoice)
 }
 
-// resolveOrg 取租户中间件解析出的组织 ID。组织级端点必须有归属，
+// resolveOrg 从已认证主体派生用户所属组织 ID。组织级端点必须有归属，
 // 未解析到一律 400（鉴权由上游中间件保证，此处只判归属）。
+// 组织归属绝不采信客户端传入的任何组织标识。
 func (h *OrgBillingHandler) resolveOrg(c *gin.Context) (uint64, bool) {
-	orgID := tenant.OrgID(c)
-	if orgID == 0 {
+	fail := func() (uint64, bool) {
 		JSONError(c, http.StatusBadRequest, "organization context required")
 		return 0, false
+	}
+	if h.resolveUserOrg == nil {
+		return fail()
+	}
+	claims, err := auth.GetClaimsFromContext(c)
+	if err != nil || claims == nil || claims.UserID == 0 {
+		return fail()
+	}
+	orgID, err := h.resolveUserOrg(c.Request.Context(), claims.UserID)
+	if err != nil || orgID == 0 {
+		return fail()
 	}
 	return orgID, true
 }

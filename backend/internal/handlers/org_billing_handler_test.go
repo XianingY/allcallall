@@ -13,21 +13,10 @@ import (
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
+	"github.com/allcallall/backend/internal/auth"
 	"github.com/allcallall/backend/internal/commerce"
 	"github.com/allcallall/backend/internal/models"
-	"github.com/allcallall/backend/internal/tenant"
 )
-
-// stubOrgResolver 用固定组织 ID 模拟租户中间件解析结果。
-type stubOrgResolver struct {
-	orgID  uint64
-	userID uint64
-	ok     bool
-}
-
-func (r stubOrgResolver) Resolve(*gin.Context) (uint64, uint64, bool) {
-	return r.orgID, r.userID, r.ok
-}
 
 func newOrgBillingTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -60,6 +49,12 @@ func newOrgBillingTestRouter(t *testing.T, orgID uint64) (*gin.Engine, *commerce
 	entitlement := commerce.NewEntitlementService(commerce.NewRepository(db), nil)
 	handler := NewOrgBillingHandler(
 		zerolog.Nop(),
+		func(_ context.Context, _ uint64) (uint64, error) {
+			if orgID == 0 {
+				return 0, nil
+			}
+			return orgID, nil
+		},
 		commerce.NewOrgBillingService(orgRepo),
 		commerce.NewUsageStatsService(orgRepo),
 		commerce.NewInvoiceService(orgRepo),
@@ -68,9 +63,11 @@ func newOrgBillingTestRouter(t *testing.T, orgID uint64) (*gin.Engine, *commerce
 
 	router := gin.New()
 	api := router.Group("/api/v1")
-	// 复刻生产链路：鉴权之后挂租户中间件，组织归属由认证主体派生。
-	api.Use(func(c *gin.Context) { c.Next() })
-	api.Use(tenant.TenantMiddlewareWithConfig(stubOrgResolver{orgID: orgID, userID: 7, ok: orgID != 0}, tenant.Config{}))
+	// 复刻生产链路：上游鉴权中间件写入认证主体，组织归属由认证主体派生。
+	api.Use(func(c *gin.Context) {
+		auth.SetClaimsToContext(c, &auth.Claims{UserID: 7})
+		c.Next()
+	})
 	handler.RegisterProtectedRoutes(api)
 	return router, orgRepo
 }
