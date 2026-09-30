@@ -113,8 +113,15 @@ spec:
             httpGet: {path: /api/v1/health, port: http}
             failureThreshold: 30
             periodSeconds: 5
+          # Must be /api/v1/ready, not /health. /health is a constant 200 and
+          # proves only that the process is up; /ready actually runs the
+          # MySQL/Redis checks. With /health here a Pod whose database is
+          # unreachable stayed in the Service and kept receiving traffic.
+          #
+          # liveness stays on /health deliberately: a database blip should
+          # take a Pod out of rotation, not restart it.
           readinessProbe:
-            httpGet: {path: /api/v1/health, port: http}
+            httpGet: {path: /api/v1/ready, port: http}
             periodSeconds: 10
           livenessProbe:
             httpGet: {path: /api/v1/health, port: http}
