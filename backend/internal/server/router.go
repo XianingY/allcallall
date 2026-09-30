@@ -18,6 +18,8 @@ func NewEngine(log zerolog.Logger, counters ...*metrics.CounterStore) *gin.Engin
 	engine.Use(gin.Recovery())
 	engine.Use(SecurityHeadersMiddleware())
 	engine.Use(requestLogger(log.With().Str("component", "http").Logger(), counterStore))
+	// P0-1：全局请求体上限，必须排在 requestLogger 之后、路由之前生效。
+	engine.Use(BodyLimit(defaultBodyLimitBytes))
 
 	return engine
 }
