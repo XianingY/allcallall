@@ -27,6 +27,12 @@ const MeetingParticipantsScreen: React.FC<Props> = () => {
     <View style={styles.container}>
       <Text style={styles.heading}>参会成员</Text>
       <FlatList
+        // Bounds how much is kept mounted and rendered per batch. The
+        // defaults (21 / 10 / 10) are tuned for short lists; these lists
+        // grow with the workspace.
+        windowSize={7}
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
         data={items}
         keyExtractor={(item) => String(item.id)}
         renderItem={({ item }) => (

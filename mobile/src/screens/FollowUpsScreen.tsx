@@ -62,6 +62,12 @@ const FollowUpsScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <View style={styles.container}>
       <FlatList
+        // Bounds how much is kept mounted and rendered per batch. The
+        // defaults (21 / 10 / 10) are tuned for short lists; these lists
+        // grow with the workspace.
+        windowSize={7}
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
         data={sections}
         keyExtractor={(item) => `${item.task.id}`}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refreshFollowUps()} />}

@@ -118,6 +118,12 @@ const DealDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         <LoadError message={LOAD_ERROR_MESSAGE} onRetry={() => void load()} />
       ) : null}
       <FlatList
+        // Bounds how much is kept mounted and rendered per batch. The
+        // defaults (21 / 10 / 10) are tuned for short lists; these lists
+        // grow with the workspace.
+        windowSize={7}
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
         data={activities}
         keyExtractor={(item) => String(item.id)}
         renderItem={({ item }) => (

@@ -271,6 +271,12 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
           ) : null}
           {searchResults === null ? (
           <FlatList
+            // Bounds how much is kept mounted and rendered per batch. The
+            // defaults (21 / 10 / 10) are tuned for short lists; these lists
+            // grow with the workspace.
+            windowSize={7}
+            initialNumToRender={12}
+            maxToRenderPerBatch={12}
             data={items}
             keyExtractor={(item) => String(item.id)}
             refreshing={loading}
