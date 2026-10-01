@@ -17,9 +17,20 @@ import (
 	"github.com/allcallall/backend/internal/models"
 )
 
+// currentSchemaVersion is the version a freshly bootstrapped database is
+// stamped with. Bump it, and the assertion in migrations_test.go, when adding
+// a migration - see migrations/README.md for why this is a single stamp rather
+// than one per applied file.
 const currentSchemaVersion = 14
 
 // RunMigrations applies the ordered schema migrations using golang-migrate.
+//
+// Read migrations/README.md first. On MySQL the migration files are not the
+// path a fresh install takes: an empty database is built by AutoMigrate from
+// the structs in internal/models and stamped at currentSchemaVersion, so the
+// SQL files are skipped. That is deliberate, and the README documents what was
+// measured against a real MySQL instance - including that applying them by
+// hand fails.
 func RunMigrations(db *gorm.DB, dataSourceNames ...string) error {
 	if db == nil {
 		return fmt.Errorf("database is required")
