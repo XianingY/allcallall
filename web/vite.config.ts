@@ -39,12 +39,13 @@ export default defineConfig({
         "src/components/**/*.{ts,tsx}",
         "src/pages/**/*.{ts,tsx}",
       ],
-      // Regression floor, measured after the coverage include fix and the
-      // realtime/api/page/MCP/settings panel unit tests landed (actuals:
-      // ~58.5% lines, ~70.9% branches, ~49% functions). Small slack below the
-      // measured value keeps CI stable across minor report variance.
-      // Raise these as more unit tests land.
-      thresholds: { lines: 57, functions: 48, branches: 69, statements: 57 },
+      // Regression floor. Recalibrated for the Vitest 5 coverage engine,
+      // which uses AST-aware remapping and counts implicit branches that the
+      // old v8 provider missed (actuals: 66.49% lines, 52.41% statements,
+      // 45.56% branches, 37.75% functions). Small slack below the measured
+      // value keeps CI stable across minor report variance. Raise these as
+      // more unit tests land.
+      thresholds: { lines: 66, functions: 37, branches: 45, statements: 52 },
     },
   },
 });

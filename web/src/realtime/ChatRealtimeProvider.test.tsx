@@ -19,12 +19,14 @@ const { instances, activeOrganization } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/realtime/TicketSocket", () => ({
-  TicketSocket: vi.fn().mockImplementation((
+  // Vitest 5 requires constructable mocks to use a regular function or
+  // class; an arrow-function implementation cannot be invoked with `new`.
+  TicketSocket: vi.fn().mockImplementation(function (
     channel: string,
     query: () => Record<string, string | number>,
     onMessage: (event: ChatEvent) => void,
     onState: (connected: boolean) => void,
-  ) => {
+  ) {
     const socket = {
       channel,
       query,
