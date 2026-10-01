@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Circle, FileAudio, Mic, MicOff, PhoneOff, Radio, Users, Video, VideoOff, Volume2 } from "lucide-react";
+import { Check, Circle, Copy, FileAudio, Mic, MicOff, PhoneOff, Radio, Users, Video, VideoOff, Volume2 } from "lucide-react";
+import { buildMeetingShareLinks } from "@allcallall/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -29,8 +30,22 @@ export function MeetingRoomPage() {
   const remoteStreams = Array.from(meeting.remoteStreams.values());
   useEffect(() => { if (localVideo.current) localVideo.current.srcObject = meeting.localStream; }, [meeting.localStream]);
   const recording = useMutation({ mutationFn: () => room.data?.active_recording ? stopRecording(roomId) : startRecording(roomId), onSuccess: () => { void room.refetch(); void queryClient.invalidateQueries({ queryKey: ["organizations", activeOrganization?.id, "recordings"] }); } });
-  if (room.isLoading) return <PageLoading label="正在加载会议" />; if (room.isError || !room.data) return <PageError error={room.error ?? new Error("会议不存在")} />;
-  return <div className="meeting-room"><header><div><h1>{room.data.room.title}</h1><span><span className={`connection-dot ${meeting.state === "connected" ? "online" : ""}`} />{meeting.state}</span></div><div className="meeting-header-actions"><span><Users size={15} />{room.data.participant_count}/6</span>{room.data.latest_recording_id && <Link to={`/recordings/${room.data.latest_recording_id}`}><FileAudio size={16} />转写</Link>}</div></header>
+  // Web had no way to invite anyone to a meeting; the only option was to read
+  // the address bar and hope the recipient added /preflight themselves.
+  const [linkCopied, setLinkCopied] = useState(false);
+  const copyMeetingLink = async () => {
+    const links = buildMeetingShareLinks(Number(roomId), window.location.origin);
+    try {
+      await navigator.clipboard.writeText(links.webURL);
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 2000);
+    } catch (error) {
+      console.error("[MeetingRoomPage] Failed to copy meeting link:", error);
+    }
+  };
+
+  if (room.isLoading) return <PageLoading label="正在加载会议" />; if (room.isError || !room.data) return <PageError error={room.error ?? new Error("会议不存在")} retry={() => void room.refetch()} />;
+  return <div className="meeting-room"><header><div><h1>{room.data.room.title}</h1><span><span className={`connection-dot ${meeting.state === "connected" ? "online" : ""}`} />{meeting.state}</span></div><div className="meeting-header-actions"><button className="button-secondary" onClick={() => void copyMeetingLink()} title="复制邀请链接">{linkCopied ? <Check size={15} /> : <Copy size={15} />}{linkCopied ? "已复制" : "邀请"}</button><span><Users size={15} />{room.data.participant_count} 人</span>{room.data.latest_recording_id && <Link to={`/recordings/${room.data.latest_recording_id}`}><FileAudio size={16} />转写</Link>}</div></header>
     <main className="meeting-stage"><div className="remote-media">{remoteStreams.length === 0 ? <div className="meeting-wait"><Users size={34} /><strong>等待其他参会人</strong><span>已加入 {room.data.participant_count} 人</span></div> : remoteStreams.map((stream, index) => <RemoteStream key={stream.id || index} stream={stream} blocked={autoplayBlocked} onBlocked={handleAutoplayBlocked} />)}{autoplayBlocked && <button className="autoplay-button" onClick={() => { setAutoplayBlocked(false); }}><Volume2 size={17} />播放远端音频</button>}</div><div className="local-media"><video ref={localVideo} autoPlay muted playsInline />{!meeting.video && <VideoOff size={22} />}</div>{meeting.error && <div className="meeting-error">{meeting.error}</div>}{recording.isError && (() => {
   // A new organization defaults to recording_mode=off, so pressing record
   // always failed here with a generic message and no hint that a policy

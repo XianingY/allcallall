@@ -1,3 +1,8 @@
+import {
+  buildConversationShareLinks as buildConversationShareLinksFromShared,
+  buildMeetingShareLinks,
+} from "@allcallall/shared";
+
 export const parseInvitationCodeFromURL = (value: string | null | undefined) => {
   if (!value) {
     return null;
@@ -48,22 +53,11 @@ export const parseConversationIdFromURL = (value: string | null | undefined) => 
   return null;
 };
 
-export const buildRoomShareLinksWithOrigin = (roomId: number, webOrigin: string) => {
-  const origin = webOrigin.replace(/\/+$/, "");
-  return {
-    appURL: `allcallall://rooms/${roomId}`,
-    // The web app serves meetings under /meetings, not /rooms. This used to
-    // produce /rooms/:id, which hit the web app's catch-all route and dropped
-    // whoever opened the link into Inbox - the recipient of a shared meeting
-    // never saw the meeting.
-    webURL: `${origin}/meetings/${roomId}`,
-  };
-};
+// Both of these delegate to @allcallall/shared so web and mobile cannot build
+// different URLs for the same thing. The paths themselves (and why /meetings
+// rather than /rooms) are documented there.
+export const buildRoomShareLinksWithOrigin = (roomId: number, webOrigin: string) =>
+  buildMeetingShareLinks(roomId, webOrigin);
 
-export const buildConversationShareLinksWithOrigin = (conversationId: number, webOrigin: string) => {
-  const origin = webOrigin.replace(/\/+$/, "");
-  return {
-    appURL: `allcallall://conversations/${conversationId}`,
-    webURL: `${origin}/conversations/${conversationId}`,
-  };
-};
+export const buildConversationShareLinksWithOrigin = (conversationId: number, webOrigin: string) =>
+  buildConversationShareLinksFromShared(conversationId, webOrigin);
