@@ -119,18 +119,22 @@ func checkFile(fset *token.FileSet, path string, out *[]finding) error {
 		if fn.Body == nil {
 			continue
 		}
-		hasFind, hasPageControl, hasBatchIN := scanBody(fn.Body)
-		if hasFind && !hasPageControl && !hasBatchIN {
+		hasFind, hasUnpagedFind, hasBatchIN := scanBody(fn.Body)
+		if hasFind && hasUnpagedFind && !hasBatchIN {
 			*out = append(*out, finding{file: path, line: fset.Position(fn.Pos()).Line, fn: fn.Name.Name})
 		}
 	}
 	return nil
 }
 
-// scanBody 返回：是否存在 .Find(&...)、是否已施加分页控制（.Limit( 或
-// .Scopes(，后者通常经 pagination.Page.Scope 应用 Limit/Offset）、是否存在
+// scanBody 返回：是否存在 .Find(&...)、是否存在**未分页**的 .Find、是否存在
 // "IN ?" 批量取数。
-func scanBody(body *ast.BlockStmt) (hasFind, hasPageControl, hasBatchIN bool) {
+//
+// 分页控制按每个 Find 自己的调用链判断，而不是"函数体里出现过 .Limit("。
+// 后者会让一个函数内的多个查询互相掩护：只要其中一个分页了，同函数里另一个
+// 无分页的 Find 就被一并豁免。列表函数恰好常在一个函数里查多张表，所以这个
+// 假阴性会真实放过未分页的列表端点。
+func scanBody(body *ast.BlockStmt) (hasFind, hasUnpagedFind, hasBatchIN bool) {
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -146,12 +150,11 @@ func scanBody(body *ast.BlockStmt) (hasFind, hasPageControl, hasBatchIN bool) {
 			if len(call.Args) > 0 {
 				if _, isAddr := call.Args[0].(*ast.UnaryExpr); isAddr {
 					hasFind = true
+					if !chainHasPageControl(sel.X) {
+						hasUnpagedFind = true
+					}
 				}
 			}
-		case "Limit", "Scopes":
-			// .Scopes(pagination.Page.Scope) 会在作用域内施加 Limit/Offset，
-			// 视为已分页，避免误报经 helper 分页的列表端点。
-			hasPageControl = true
 		case "Where":
 			if containsBatchIN(call) {
 				hasBatchIN = true
@@ -160,6 +163,35 @@ func scanBody(body *ast.BlockStmt) (hasFind, hasPageControl, hasBatchIN bool) {
 		return true
 	})
 	return
+}
+
+// chainHasPageControl 沿 db.Limit(n).Where(...).Find(&x) 这类接收者链向上找
+// .Limit( 或 .Scopes(。.Scopes(pagination.Page.Scope) 会在作用域内施加
+// Limit/Offset，同样视为已分页。
+//
+// 通过中间变量分页（q := db.Model(&x); q = q.Limit(10); q.Find(&y)）无法在
+// 语法层判断，会被报为未分页。这是有意的保守方向：误报需要人工确认，漏报
+// 才是真正的风险。
+func chainHasPageControl(expr ast.Expr) bool {
+	for {
+		switch node := expr.(type) {
+		case *ast.CallExpr:
+			sel, ok := node.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return false
+			}
+			if sel.Sel.Name == "Limit" || sel.Sel.Name == "Scopes" {
+				return true
+			}
+			expr = sel.X
+		case *ast.SelectorExpr:
+			expr = node.X
+		case *ast.ParenExpr:
+			expr = node.X
+		default:
+			return false
+		}
+	}
 }
 
 // containsBatchIN 检测 WHERE 条件中是否含 "IN ?" 形式的批量取数。
