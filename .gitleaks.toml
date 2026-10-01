@@ -14,6 +14,12 @@ useDefault = true
 
 [allowlist]
 description = "Template/example files contain only placeholders, never real credentials."
+regexTarget = "match"
+regexes = [
+  # Kubernetes Secret *key name*, not the credential value. The private key
+  # itself remains external to the chart and is injected via secretKeyRef.
+  '''mcp-capability-ed25519-private-key''',
+]
 paths = [
   '''(?i)\.example\.env$''',
   '''(?i)\.env\.example$''',
