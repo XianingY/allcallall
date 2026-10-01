@@ -273,8 +273,10 @@ func (s *FollowUpService) UpdateFollowUpTask(ctx context.Context, userID, taskID
 	if taskID == 0 {
 		return nil, errors.New("task id is required")
 	}
-	task, err := s.repo.GetFollowUpTask(ctx, taskID, userID)
-	if err != nil {
+	// Existence and ownership check. The value is not needed: the task is
+	// re-read after the patch is applied, and assigning it here was flagged as
+	// an ineffectual assignment.
+	if _, err := s.repo.GetFollowUpTask(ctx, taskID, userID); err != nil {
 		return nil, err
 	}
 	patch := map[string]any{"updated_at": time.Now().UTC()}
@@ -300,7 +302,7 @@ func (s *FollowUpService) UpdateFollowUpTask(ctx context.Context, userID, taskID
 	if err := s.repo.UpdateFollowUpTask(ctx, taskID, patch); err != nil {
 		return nil, err
 	}
-	task, err = s.repo.GetFollowUpTask(ctx, taskID, userID)
+	task, err := s.repo.GetFollowUpTask(ctx, taskID, userID)
 	if err != nil {
 		return nil, err
 	}

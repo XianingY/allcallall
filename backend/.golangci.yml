@@ -1,0 +1,56 @@
+# Linting for the Go backend.
+#
+# CI ran only `go build` and `go vet`, so whole classes of defect that vet does
+# not cover had no automated check at all.
+#
+# The enabled set is deliberately narrow and starts from what the code already
+# satisfies, so turning this on is a hard gate from day one rather than a
+# backlog people learn to ignore. Widen it as the remaining findings are
+# cleared - the "not yet enabled" list below is the queue, roughly in the order
+# they are worth fixing.
+version: "2"
+
+linters:
+  default: none
+  enable:
+    # Equivalent to the `go vet` the CI already ran, kept here so a single tool
+    # reports everything and the thresholds live in one file.
+    - govet
+    # Assignments whose value is never read - usually a real bug (a result
+    # computed and dropped), and the codebase is already clean of them.
+    - ineffassign
+
+  # Not yet enabled, in rough priority order:
+  #   errcheck    - unchecked errors; the largest finding set, needs a sweep
+  #   staticcheck - broad correctness and simplification checks
+  #   unused      - dead code
+  #   bodyclose   - leaked HTTP response bodies
+  #   gosec       - security-oriented checks; overlaps with the Trivy scan
+  #   errorlint   - enforces errors.Is/As over == comparisons
+
+  settings:
+    govet:
+      # Field alignment and shadow reports are noisy here and neither is a
+      # correctness problem at this stage.
+      disable:
+        - fieldalignment
+        - shadow
+
+  exclusions:
+    rules:
+      # Tests legitimately ignore some errors and use long setup helpers.
+      - path: _test\.go
+        linters:
+          - ineffassign
+      # Generated protobuf code is not ours to lint.
+      - path: \.pb\.go
+        linters:
+          - govet
+          - ineffassign
+
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    paths:
+      - \.pb\.go

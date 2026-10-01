@@ -28,6 +28,14 @@ jobs:
         run: go build -v ./...
       - name: Vet
         run: go vet ./...
+      - name: Lint
+        # Config in backend/.golangci.yml. Starts from the rules the code
+        # already satisfies so it blocks from day one; the file lists the
+        # linters to enable next.
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+          working-directory: backend
       - name: Pagination gate (no unbounded list Find)
         # 拦截新增的"面向用户列表端点裸写 .Find(&...) 不加 .Limit"回归。
         # 存量违规在 cmd/check-unbounded-find 的 allowlist 中豁免，治理后移除。

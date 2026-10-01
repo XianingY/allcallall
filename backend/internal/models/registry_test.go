@@ -16,16 +16,18 @@ var tableNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(_[a-z0-9]+)*$`)
 // TestAllModels_RegistryEntriesAreValid guards the schema registry that new
 // database bootstrap and AutoMigrate rely on. A bad entry here silently creates
 // or migrates the wrong table, so the invariants are asserted explicitly:
-//   1. every entry is a pointer to a struct (gorm rejects non-pointers);
-//   2. every model pins an explicit, non-empty TableName();
-//   3. table names follow the lower_snake_case convention;
-//   4. no two models share a table name (a copy/paste accident would make one
-//      model overwrite the other's columns).
+//  1. every entry is a pointer to a struct (gorm rejects non-pointers);
+//  2. every model pins an explicit, non-empty TableName();
+//  3. table names follow the lower_snake_case convention;
+//  4. no two models share a table name (a copy/paste accident would make one
+//     model overwrite the other's columns).
 func TestAllModels_RegistryEntriesAreValid(t *testing.T) {
 	seen := make(map[string]string)
 	for _, model := range AllModels() {
 		value := reflect.ValueOf(model)
-		if value.Kind() != reflect.Ptr {
+		// reflect.Pointer is the alias introduced in Go 1.18; govet's inline
+		// check flags the older reflect.Ptr spelling.
+		if value.Kind() != reflect.Pointer {
 			t.Errorf("AllModels() entry %T must be a pointer to a struct, got %s", model, value.Kind())
 			continue
 		}

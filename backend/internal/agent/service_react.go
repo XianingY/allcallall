@@ -104,13 +104,9 @@ func (s *Service) executeReActRun(ctx context.Context, run models.AgentRun, goal
 				return nil, err
 			}
 
-			// Add assistant response to history just in case, though we are exiting
-			assistantMsgBytes, _ := json.Marshal(output)
-			messageHistory = append(messageHistory, map[string]any{
-				"role":    "assistant",
-				"content": string(assistantMsgBytes),
-			})
-
+			// The assistant turn is deliberately not appended to messageHistory
+			// here: this branch returns immediately, so the append could not
+			// affect anything (ineffassign flagged it as ineffectual).
 			return s.markRunReady(ctx, run, output)
 		}
 

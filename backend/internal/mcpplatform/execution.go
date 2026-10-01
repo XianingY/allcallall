@@ -239,7 +239,9 @@ func (s *Service) reconcileExecution(ctx context.Context, execution *models.MCPE
 		scheduled, scheduleErr := s.deferExecutionReconciliation(ctx, execution, time.Now().UTC())
 		return scheduled, false, errors.Join(ErrExecutionInProgress, ErrSandboxUnavailable, scheduleErr)
 	}
-	identity := sandboxExpectedIdentity{}
+	// Declared without an initial value: both branches below assign it, so
+	// initialising to the zero value first was an ineffectual assignment.
+	var identity sandboxExpectedIdentity
 	if expected != nil {
 		identity = *expected
 	} else {
