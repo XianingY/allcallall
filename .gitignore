@@ -266,3 +266,34 @@ output/
 # (Already tracked in this repo; to stop tracking run:
 #  git rm --cached mobile/ios/.xcode.env — not executed here.)
 mobile/ios/.xcode.env
+
+# ============================
+# Go build output
+# ============================
+# `go build ./cmd/<name>` (as opposed to `go build ./...`) writes the binary
+# into the current directory. Without these, a local build leaves an
+# untracked executable that is easy to commit by accident.
+/backend/agent-eval
+/backend/agent-worker
+/backend/allcallallctl
+/backend/beta-seed
+/backend/chat-ws-replay-bench
+/backend/check-unbounded-find
+/backend/cleanup-worker
+/backend/data-worker
+/backend/interview-bench
+/backend/interview-seed
+/backend/mail-test
+/backend/mcp-tool-server
+/backend/media-node
+/backend/migrate
+/backend/opsaudit
+/backend/outbox-worker
+/backend/rag-eval
+/backend/realtime-replay-bench
+/backend/sandbox-service
+/backend/sandbox-supervisor
+/backend/search-worker
+/backend/server
+/backend/translation-smoke
+/backend/user-service

@@ -45,6 +45,33 @@ sets, column widths).
   claims to be fully migrated. When you add a migration, you must bump both
   that constant and the assertion in `migrations_test.go`.
 
+## Adding foreign keys
+
+There are none today: `FOREIGN KEY` appears zero times across the migration
+files, so referential integrity rests entirely on application code. Adding
+constraints is worth doing, but not blindly - a constraint applied to a table
+that already contains orphans fails, and on a large table it fails slowly.
+
+`check-orphans.sql` in this directory reports the violations for the ten
+relationships most worth constraining. It is read-only:
+
+```
+mysql -h <host> -u <user> -p <database> < backend/migrations/check-orphans.sql
+```
+
+All zeros means the constraints can be added. A non-zero count means the row
+set needs a decision first - delete the orphan, repair its reference, or leave
+that constraint out - and that decision is a product question, not a migration
+one.
+
+The check was run against a real MySQL 8.0.46 database: it passes on a freshly
+bootstrapped schema, and inserting a single `conversation_members` row with a
+non-existent `conversation_id` and `user_id` makes it report `1` for both
+relationships.
+
+Constraints, once added, belong in the structs (`internal/models/`) with GORM
+`constraint` tags, not in these SQL files - see the section above for why.
+
 ## Why this file exists
 
 Two sources of truth for one schema is a trap, and this one is silent: the
