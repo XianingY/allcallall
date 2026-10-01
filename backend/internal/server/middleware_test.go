@@ -150,6 +150,46 @@ func TestDefaultCORSOriginsUsesExplicitEnvList(t *testing.T) {
 	}
 }
 
+func TestWSOriginChecker(t *testing.T) {
+	check := WSOriginChecker([]string{"https://app.example.com", " https://desktop.example.com/ "})
+
+	cases := []struct {
+		name   string
+		origin string
+		want   bool
+	}{
+		{"no origin header (native client) allowed", "", true},
+		{"allowlisted origin allowed", "https://app.example.com", true},
+		{"trailing slash normalized on both sides", "https://desktop.example.com/", true},
+		{"unknown origin rejected", "https://evil.example.com", false},
+		{"origin with path rejected", "https://app.example.com/evil", false},
+		{"whitespace-only origin treated as absent", "   ", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+			if strings.TrimSpace(tc.origin) != "" {
+				req.Header.Set("Origin", tc.origin)
+			}
+			if got := check(req); got != tc.want {
+				t.Fatalf("Origin %q: expected %v, got %v", tc.origin, tc.want, got)
+			}
+		})
+	}
+}
+
+func TestWSOriginCheckerEmptyAllowlistRejectsAllBrowsers(t *testing.T) {
+	check := WSOriginChecker(nil)
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req.Header.Set("Origin", "https://app.example.com")
+	if check(req) {
+		t.Fatal("expected browser origin to be rejected with empty allowlist")
+	}
+	if check(httptest.NewRequest(http.MethodGet, "/ws", nil)) == false {
+		t.Fatal("expected missing Origin header to be allowed with empty allowlist")
+	}
+}
+
 func TestSecurityHeadersMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

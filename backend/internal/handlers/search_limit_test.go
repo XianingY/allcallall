@@ -62,6 +62,7 @@ func newSearchTestEnv(t *testing.T) *searchTestEnv {
 		collaboration.NewService(db, userSvc),
 		userSvc,
 		collaboration.NewChatHub(nil, zerolog.Nop()),
+		nil,
 	)
 	handler.WithSearchService(search.NewService(env.indexer))
 

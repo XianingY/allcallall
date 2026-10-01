@@ -33,25 +33,31 @@ type TranslationWSHandler struct {
 }
 
 // NewTranslationWSHandler 构造函数
-// NewTranslationWSHandler creates handler with signaling-hub dispatcher.
-func NewTranslationWSHandler(log zerolog.Logger, service *translation.Service, hub *signaling.Hub) *TranslationWSHandler {
+// NewTranslationWSHandler creates handler with signaling-hub dispatcher. A nil
+// wsOriginCheck falls back to the gorilla/websocket default same-origin
+// policy; production wiring passes the shared CORS allowlist checker.
+func NewTranslationWSHandler(log zerolog.Logger, service *translation.Service, hub *signaling.Hub, wsOriginCheck func(*http.Request) bool) *TranslationWSHandler {
 	var dispatcher SubtitleDispatcher
 	if hub != nil {
 		dispatcher = &hubSubtitleDispatcher{hub: hub}
 	}
-	return NewTranslationWSHandlerWithDispatcher(log, service, dispatcher)
+	return NewTranslationWSHandlerWithDispatcher(log, service, dispatcher, wsOriginCheck)
 }
 
 // NewTranslationWSHandlerWithDispatcher 构造函数（可注入自定义分发器）
-// NewTranslationWSHandlerWithDispatcher creates handler with custom dispatcher.
-func NewTranslationWSHandlerWithDispatcher(log zerolog.Logger, service *translation.Service, dispatcher SubtitleDispatcher) *TranslationWSHandler {
+// NewTranslationWSHandlerWithDispatcher creates handler with custom
+// dispatcher. A nil wsOriginCheck falls back to the gorilla/websocket default
+// same-origin policy.
+func NewTranslationWSHandlerWithDispatcher(log zerolog.Logger, service *translation.Service, dispatcher SubtitleDispatcher, wsOriginCheck func(*http.Request) bool) *TranslationWSHandler {
+	upgrader := websocket.Upgrader{}
+	if wsOriginCheck != nil {
+		upgrader.CheckOrigin = wsOriginCheck
+	}
 	return &TranslationWSHandler{
 		logger:     log.With().Str("component", "translation_ws_handler").Logger(),
 		service:    service,
 		dispatcher: dispatcher,
-		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
-		},
+		upgrader:   upgrader,
 	}
 }
 

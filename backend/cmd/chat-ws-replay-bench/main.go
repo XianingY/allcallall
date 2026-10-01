@@ -194,7 +194,7 @@ func buildRouter(db *gorm.DB, jwtManager *auth.Manager) *gin.Engine {
 	service := collaboration.NewService(db, nil)
 	service.WithLogger(log)
 	hub := collaboration.NewChatHub(nil, log)
-	handler := handlers.NewCollaborationHandler(log, service, nil, hub)
+	handler := handlers.NewCollaborationHandler(log, service, nil, hub, nil)
 	api := router.Group("/api/v1")
 	protected := api.Group("")
 	protected.Use(auth.Middleware(jwtManager))

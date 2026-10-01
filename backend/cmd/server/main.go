@@ -73,6 +73,11 @@ func main() {
 	engine := server.NewEngine(appLogger, counterStore)
 	engine.Use(otelgin.Middleware("allcallall-backend"))
 	engine.Use(metrics.PrometheusMiddleware())
+	// WS 升级复用同一 CORS 白名单语义：无 Origin（原生客户端）放行，
+	// 浏览器 Origin 必须命中白名单，避免各 WS handler 各自放行所有来源。
+	// WS upgrades share the same CORS allowlist semantics: requests without an
+	// Origin header (native clients) pass; browser origins must be allowlisted.
+	wsOriginCheck := server.WSOriginChecker(server.DefaultCORSOrigins(os.Getenv("CORS_ALLOWED_ORIGINS")))
 	engine.Use(server.CORSMiddleware(server.CORSConfig{
 		AllowedOrigins: server.DefaultCORSOrigins(os.Getenv("CORS_ALLOWED_ORIGINS")),
 	}))
@@ -333,7 +338,7 @@ func main() {
 		return org.ID, nil
 	}
 	orgBillingHandler := handlers.NewOrgBillingHandler(appLogger, resolveUserOrg, orgBillingSvc, usageStatsSvc, invoiceSvc, quotaSvc)
-	collaborationHandler := handlers.NewCollaborationHandler(appLogger, collaborationSvc, userSvc, chatHub)
+	collaborationHandler := handlers.NewCollaborationHandler(appLogger, collaborationSvc, userSvc, chatHub, wsOriginCheck)
 	collaborationHandler.WithSearchService(searchSvc)
 	agentHandler := handlers.NewAgentHandler(appLogger, agentSvc).
 		WithRedis(redisClient).
@@ -428,7 +433,7 @@ func main() {
 	signalingHub.WithMediaEngine(mediaEngine)
 	collaborationSvc.WithMediaEngine(mediaEngine)
 
-	signalingHandler := handlers.NewSignalingHandler(appLogger, signalingHub)
+	signalingHandler := handlers.NewSignalingHandler(appLogger, signalingHub, wsOriginCheck)
 	realtimeTicketSvc := auth.NewRealtimeTicketService(redisClient)
 	realtimeHandler := handlers.NewRealtimeHandler(realtimeTicketSvc)
 	signalingPollHandler := handlers.NewSignalingPollHandler(appLogger, signalingHub)
@@ -449,7 +454,7 @@ func main() {
 				Commerce: commerceSvc,
 				Users:    userSvc,
 			})
-			translationWSHandler = handlers.NewTranslationWSHandler(appLogger, translationSvc, signalingHub)
+			translationWSHandler = handlers.NewTranslationWSHandler(appLogger, translationSvc, signalingHub, wsOriginCheck)
 			appLogger.Info().
 				Str("provider", translationProvider.Name()).
 				Int("chunk_ms", cfg.Translation.ChunkMS).

@@ -56,6 +56,29 @@ func DefaultCORSOrigins(value string) []string {
 	}
 }
 
+// WSOriginChecker returns a gorilla/websocket CheckOrigin function backed by
+// the same origin allowlist semantics as CORSMiddleware: requests without an
+// Origin header (native mobile, desktop, and CLI clients) are allowed, while
+// browsers must present an explicitly allowlisted Origin. Passing a nil or
+// empty allowlist rejects every browser Origin.
+func WSOriginChecker(allowed []string) func(*http.Request) bool {
+	set := make(map[string]struct{}, len(allowed))
+	for _, origin := range allowed {
+		origin = strings.TrimRight(strings.TrimSpace(origin), "/")
+		if origin != "" {
+			set[origin] = struct{}{}
+		}
+	}
+	return func(r *http.Request) bool {
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin == "" {
+			return true
+		}
+		_, ok := set[strings.TrimRight(origin, "/")]
+		return ok
+	}
+}
+
 func CORSMiddleware(cfg CORSConfig) gin.HandlerFunc {
 	allowed := make(map[string]struct{}, len(cfg.AllowedOrigins))
 	for _, origin := range cfg.AllowedOrigins {

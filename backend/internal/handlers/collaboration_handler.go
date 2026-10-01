@@ -21,15 +21,20 @@ type CollaborationHandler struct {
 	wsUpgrader websocket.Upgrader
 }
 
-func NewCollaborationHandler(log zerolog.Logger, service *collaboration.Service, users *user.Service, chatHub *collaboration.ChatHub) *CollaborationHandler {
+// NewCollaborationHandler builds the collaboration handler. A nil
+// wsOriginCheck falls back to the gorilla/websocket default same-origin
+// policy; production wiring passes the shared CORS allowlist checker.
+func NewCollaborationHandler(log zerolog.Logger, service *collaboration.Service, users *user.Service, chatHub *collaboration.ChatHub, wsOriginCheck func(*http.Request) bool) *CollaborationHandler {
+	upgrader := websocket.Upgrader{}
+	if wsOriginCheck != nil {
+		upgrader.CheckOrigin = wsOriginCheck
+	}
 	return &CollaborationHandler{
-		logger:  log.With().Str("component", "collaboration_handler").Logger(),
-		service: service,
-		users:   users,
-		chatHub: chatHub,
-		wsUpgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
-		},
+		logger:     log.With().Str("component", "collaboration_handler").Logger(),
+		service:    service,
+		users:      users,
+		chatHub:    chatHub,
+		wsUpgrader: upgrader,
 	}
 }
 

@@ -74,7 +74,7 @@ func newCollaborationErrorTestEnv(t *testing.T, recordingSessions bool) (*gin.En
 
 	userSvc := user.NewService(user.NewRepository(db))
 	service := collaboration.NewService(db, userSvc)
-	handler := NewCollaborationHandler(zerolog.Nop(), service, userSvc, collaboration.NewChatHub(nil, zerolog.Nop()))
+	handler := NewCollaborationHandler(zerolog.Nop(), service, userSvc, collaboration.NewChatHub(nil, zerolog.Nop()), nil)
 
 	owner := models.User{Email: "owner@example.com", PasswordHash: "hash", DisplayName: "Owner", Status: "active"}
 	if err := db.Create(&owner).Error; err != nil {

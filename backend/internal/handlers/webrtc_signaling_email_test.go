@@ -113,7 +113,7 @@ func TestSignalingHandler(t *testing.T) {
 	claims := &auth.Claims{UserID: 1, Email: "alice@example.com"}
 
 	t.Run("unauthorized", func(t *testing.T) {
-		handler := NewSignalingHandler(zerolog.Nop(), hub)
+		handler := NewSignalingHandler(zerolog.Nop(), hub, nil)
 		router := newRouterWithClaims(nil, func(rg *gin.RouterGroup) {
 			rg.GET("/ws", handler.Handle)
 		})
@@ -123,7 +123,7 @@ func TestSignalingHandler(t *testing.T) {
 	})
 
 	t.Run("upgrade failure", func(t *testing.T) {
-		handler := NewSignalingHandler(zerolog.Nop(), hub)
+		handler := NewSignalingHandler(zerolog.Nop(), hub, nil)
 		router := newRouterWithClaims(claims, func(rg *gin.RouterGroup) {
 			rg.GET("/ws", handler.Handle)
 		})

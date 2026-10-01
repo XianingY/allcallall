@@ -20,14 +20,18 @@ type SignalingHandler struct {
 }
 
 // NewSignalingHandler 构造函数
-// NewSignalingHandler creates a SignalingHandler.
-func NewSignalingHandler(log zerolog.Logger, hub *signaling.Hub) *SignalingHandler {
+// NewSignalingHandler creates a SignalingHandler. A nil wsOriginCheck falls
+// back to the gorilla/websocket default same-origin policy; production wiring
+// passes the shared CORS allowlist checker.
+func NewSignalingHandler(log zerolog.Logger, hub *signaling.Hub, wsOriginCheck func(*http.Request) bool) *SignalingHandler {
+	upgrader := websocket.Upgrader{}
+	if wsOriginCheck != nil {
+		upgrader.CheckOrigin = wsOriginCheck
+	}
 	return &SignalingHandler{
-		logger: log.With().Str("component", "signaling_handler").Logger(),
-		hub:    hub,
-		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
-		},
+		logger:   log.With().Str("component", "signaling_handler").Logger(),
+		hub:      hub,
+		upgrader: upgrader,
 	}
 }
 

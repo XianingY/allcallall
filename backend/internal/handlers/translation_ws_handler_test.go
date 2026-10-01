@@ -61,7 +61,7 @@ func TestTranslationWSHandlerLifecycle(t *testing.T) {
 	provider := &testProvider{}
 	svc := translation.NewService(zerolog.Nop(), provider, 1)
 	dispatcher := &testSubtitleDispatcher{}
-	handler := NewTranslationWSHandlerWithDispatcher(zerolog.Nop(), svc, dispatcher)
+	handler := NewTranslationWSHandlerWithDispatcher(zerolog.Nop(), svc, dispatcher, nil)
 
 	router := gin.New()
 	router.GET("/ws", func(c *gin.Context) {
