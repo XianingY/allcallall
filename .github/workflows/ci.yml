@@ -13,7 +13,7 @@ permissions:
 jobs:
   backend:
     name: Backend
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     defaults:
       run:
@@ -83,14 +83,14 @@ jobs:
           echo "total coverage ${cov_int}% meets ${MIN_COVERAGE}% floor"
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-coverage
           path: backend/coverage.out
 
   backend-integration:
     name: Backend Dependencies
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     services:
       mysql:
@@ -170,7 +170,7 @@ jobs:
 
   mobile:
     name: Mobile
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
@@ -208,7 +208,7 @@ jobs:
 
   web:
     name: Web
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
@@ -237,7 +237,7 @@ jobs:
         run: npm run test:coverage
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-coverage
           path: web/coverage
@@ -260,7 +260,7 @@ jobs:
   authenticated-web-e2e:
     name: Authenticated Beta Web E2E
     if: ${{ github.event_name != 'pull_request' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     env:
       WEB_SMOKE_BASE_URL: ${{ secrets.BETA_E2E_BASE_URL }}
@@ -295,7 +295,7 @@ jobs:
 
   desktop:
     name: Desktop
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7

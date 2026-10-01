@@ -21,7 +21,7 @@ permissions:
 jobs:
   images:
     name: Build, scan and push (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
