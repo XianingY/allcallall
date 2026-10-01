@@ -1,4 +1,5 @@
 import { useMutation, type InfiniteData, type UseInfiniteQueryResult, type UseQueryResult } from "@tanstack/react-query";
+import { formatShortDateTime } from "@allcallall/shared";
 import { Building2, Check, Copy, FileAudio, MailPlus, MessageSquare, Plus, RefreshCw, Shield, ShieldCheck, Trash2, Users, X } from "lucide-react";
 import { useState } from "react";
 
@@ -139,5 +140,5 @@ export function AuditTab({ audit }: { audit: UseQueryResult<OrganizationAuditEve
 }
 
 function dateOnly(value?: string | null) {
-  return value ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "-";
+  return value ? formatShortDateTime(value) : "-";
 }

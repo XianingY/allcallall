@@ -1,3 +1,4 @@
+import { formatShortDateTime } from "@allcallall/shared";
 import React from "react";
 import {
   ActivityIndicator,
@@ -32,7 +33,7 @@ const formatDateTime = (value?: string | null) => {
   if (Number.isNaN(date.getTime())) {
     return "—";
   }
-  return date.toLocaleString();
+  return formatShortDateTime(date);
 };
 
 const SessionsScreen: React.FC = () => {

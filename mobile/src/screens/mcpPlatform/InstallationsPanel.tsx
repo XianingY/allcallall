@@ -1,5 +1,6 @@
 import React from "react";
 import { Pressable, Text, View } from "react-native";
+import { formatShortDateTime } from "@allcallall/shared";
 
 import type { MCPInstallation, MCPTool } from "../../api/mcpPlatform";
 import {
@@ -256,7 +257,7 @@ export const InstallationsPanel: React.FC<InstallationsPanelProps> = ({
                   </View>
                   {selectedInstallation.published_at ? (
                     <Text style={styles.itemMeta}>
-                      组织发布于 {new Date(selectedInstallation.published_at).toLocaleString()}
+                      组织发布于 {formatShortDateTime(selectedInstallation.published_at)}
                     </Text>
                   ) : null}
                   {selectedInstallation.latest_revision?.image_digest ? (

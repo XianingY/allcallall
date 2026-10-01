@@ -1,4 +1,5 @@
 import { Search } from "lucide-react";
+import { formatShortDateTime } from "@allcallall/shared";
 import type { ReactNode } from "react";
 
 export function MetricTile({ icon, label, value, hint }: { icon: ReactNode; label: string; value: string | number; hint?: string }) {
@@ -27,5 +28,5 @@ export function AuditEventRow({ action, target, actor, createdAt }: { action: st
 }
 
 function dateOnly(value?: string | null) {
-  return value ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value)) : "-";
+  return value ? formatShortDateTime(value) : "-";
 }

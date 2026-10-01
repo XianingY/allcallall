@@ -1,4 +1,5 @@
 import { Linking, Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { formatShortDateTime } from "@allcallall/shared";
 import PrimaryButton from "../../components/PrimaryButton";
 import TextField from "../../components/TextField";
 import { styles } from "./styles";
@@ -254,7 +255,7 @@ export const WorkflowDebugModal = ({
               <Text style={styles.citationTitle}>{event.event_type}</Text>
               <Text style={styles.citationMeta}>
                 {event.ref_type || "workflow"} ·{" "}
-                {new Date(event.created_at).toLocaleString()}
+                {formatShortDateTime(event.created_at)}
               </Text>
             </View>
           ))}
@@ -272,7 +273,7 @@ export const WorkflowDebugModal = ({
                 {timer.timer_name} · {timer.status}
               </Text>
               <Text style={styles.citationMeta}>
-                due {new Date(timer.fire_at).toLocaleString()}
+                due {formatShortDateTime(timer.fire_at)}
               </Text>
             </View>
           ))}

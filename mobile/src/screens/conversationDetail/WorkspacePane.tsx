@@ -1,4 +1,5 @@
 import { Pressable, Text, View } from "react-native";
+import { formatShortDateTime } from "@allcallall/shared";
 import PrimaryButton from "../../components/PrimaryButton";
 import TextField from "../../components/TextField";
 import { styles } from "./styles";
@@ -138,14 +139,14 @@ const WorkspacePane = ({
       {agentContext?.latest_transcript_at ? (
         <Text style={styles.infoMeta}>
           Latest transcript{" "}
-          {new Date(agentContext.latest_transcript_at).toLocaleString()}
+          {formatShortDateTime(agentContext.latest_transcript_at)}
         </Text>
       ) : null}
       {agentContext?.last_agent_run_at ? (
         <Text style={styles.infoMeta}>
           Last workflow {agentContext.last_agent_status || "-"} ·{" "}
           {agentContext.last_workflow_preset || activeWorkflow?.workflow.preset || "custom"} ·{" "}
-          {new Date(agentContext.last_agent_run_at).toLocaleString()}
+          {formatShortDateTime(agentContext.last_agent_run_at)}
         </Text>
       ) : null}
       {activeWorkflow ? (
@@ -416,7 +417,7 @@ const WorkspacePane = ({
             {workspace.latest_note.author_display_name ||
               workspace.latest_note.author_email}{" "}
             ·{" "}
-            {new Date(workspace.latest_note.created_at).toLocaleString()}
+            {formatShortDateTime(workspace.latest_note.created_at)}
           </Text>
         ) : null}
       </View>
@@ -430,7 +431,7 @@ const WorkspacePane = ({
             <Text style={styles.noteBody}>{note.body}</Text>
             <Text style={styles.infoMeta}>
               {note.author_display_name || note.author_email} ·{" "}
-              {new Date(note.created_at).toLocaleString()}
+              {formatShortDateTime(note.created_at)}
             </Text>
           </View>
         ))}

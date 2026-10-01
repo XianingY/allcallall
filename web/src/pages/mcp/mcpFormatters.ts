@@ -1,4 +1,5 @@
 import type { MCPInstallation, MCPTool } from "@/api/mcp";
+import { formatDateTime } from "@allcallall/shared";
 
 export const installationSourceLabel = (installation: Pick<MCPInstallation, "source_type" | "latest_revision">) => {
   if (installation.source_type === "oci") {
@@ -33,5 +34,5 @@ export const canBindInstallationToSkill = (
 ) => skillScope === "personal" || installationScope === "organization";
 
 export const formatTimestamp = (value?: string | null) => value
-  ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
+  ? formatDateTime(value)
   : "-";

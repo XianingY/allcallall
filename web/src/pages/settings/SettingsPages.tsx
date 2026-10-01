@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { formatDateTime } from "@allcallall/shared";
 import { Bell, ExternalLink, Globe2, LogOut, Trash2, Unlock } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
@@ -11,7 +12,7 @@ import { FormError } from "@/components/AuthLayout";
 import { PageError, PageLoading } from "@/components/PageState";
 import { clearStoredPushDeviceId, deleteBrowserPushToken, getStoredPushDeviceId, isPushConfigured, registerBrowserPush } from "@/platform/push";
 
-const dateTime = (value?: string | null) => value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "-";
+const dateTime = (value?: string | null) => value ? formatDateTime(value) : "-";
 
 export function ProfileSettingsPage() {
   const { user, logout } = useAuth();

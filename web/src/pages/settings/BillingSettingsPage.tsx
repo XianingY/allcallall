@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { formatDateTime } from "@allcallall/shared";
 import { CreditCard } from "lucide-react";
 import { useState } from "react";
 
@@ -8,7 +9,7 @@ import { FormError } from "@/components/AuthLayout";
 import { PageError, PageLoading } from "@/components/PageState";
 import { isBillingConfigured, openRevenueCatCheckout, openRevenueCatPortal } from "@/platform/billing";
 
-const dateTime = (value?: string | null) => value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "-";
+const dateTime = (value?: string | null) => value ? formatDateTime(value) : "-";
 
 export function BillingSettingsPage() {
   const { user } = useAuth();

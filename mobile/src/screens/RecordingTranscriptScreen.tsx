@@ -8,6 +8,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { formatShortDateTime } from "@allcallall/shared";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import {
@@ -155,7 +156,7 @@ const RecordingTranscriptScreen: React.FC<Props> = ({ route }) => {
         <Text style={styles.meta}>
           {transcription?.segment_count ?? 0} segments
           {transcription?.completed_at
-            ? ` · ${new Date(transcription.completed_at).toLocaleString()}`
+            ? ` · ${formatShortDateTime(transcription.completed_at)}`
             : ""}
         </Text>
         {transcription?.error_message ? (

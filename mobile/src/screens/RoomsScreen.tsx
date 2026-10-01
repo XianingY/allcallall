@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { formatShortDateTime } from "@allcallall/shared";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
 
@@ -388,7 +389,7 @@ const RoomsScreen: React.FC<Props> = ({ navigation }) => {
                     <Text style={styles.cardMeta}>
                       {item.followup?.summary_cn || item.followup?.summary_en || "跟进任务待处理"}
                     </Text>
-                    {item.task.due_at ? <Text style={styles.cardMeta}>到期 {new Date(item.task.due_at).toLocaleString()}</Text> : null}
+                    {item.task.due_at ? <Text style={styles.cardMeta}>到期 {formatShortDateTime(item.task.due_at)}</Text> : null}
                   </View>
                 ))}
               </View>

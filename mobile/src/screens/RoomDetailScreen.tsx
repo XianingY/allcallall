@@ -8,6 +8,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import { formatShortDateTime } from "@allcallall/shared";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
 
@@ -403,7 +404,7 @@ const RoomDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         renderItem={({ item }) => (
           <View style={styles.eventCard}>
             <Text style={styles.eventType}>{item.type}</Text>
-            <Text style={styles.eventTime}>{new Date(item.created_at).toLocaleString()}</Text>
+            <Text style={styles.eventTime}>{formatShortDateTime(item.created_at)}</Text>
           </View>
         )}
         ListHeaderComponent={<Text style={styles.eventsHeading}>最近事件</Text>}

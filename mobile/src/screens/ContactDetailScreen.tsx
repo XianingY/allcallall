@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
+import { formatShortDateTime } from "@allcallall/shared";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import TextField from "../components/TextField";
@@ -261,7 +262,7 @@ const ContactDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     if (!lastCall) {
       return "暂无通话记录";
     }
-    return `${new Date(lastCall).toLocaleString()} · ${lastResult ?? "unknown"}`;
+    return `${formatShortDateTime(lastCall)} · ${lastResult ?? "unknown"}`;
   }, [lastCall, lastResult]);
 
   return (
@@ -297,7 +298,7 @@ const ContactDetailScreen: React.FC<Props> = ({ route, navigation }) => {
                 <View style={styles.taskList}>
                   {tasks.map((task) => (
                     <Text key={task.id} style={styles.taskItem}>
-                      • {task.title} {task.due_at ? `· ${new Date(task.due_at).toLocaleString()}` : ""}
+                      • {task.title} {task.due_at ? `· ${formatShortDateTime(task.due_at)}` : ""}
                     </Text>
                   ))}
                 </View>

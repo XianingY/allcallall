@@ -1,5 +1,6 @@
 import React from "react";
 import { Pressable, Text, View } from "react-native";
+import { formatShortDateTime } from "@allcallall/shared";
 
 import type {
   AgentSkill,
@@ -152,7 +153,7 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({
                 ) : null}
                 {skill.published_at ? (
                   <Text style={styles.itemMeta}>
-                    组织发布于 {new Date(skill.published_at).toLocaleString()}
+                    组织发布于 {formatShortDateTime(skill.published_at)}
                   </Text>
                 ) : null}
                 <Text style={styles.skillInstructions} numberOfLines={4}>

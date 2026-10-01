@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
+import { formatShortDateTime } from "@allcallall/shared";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -177,7 +178,7 @@ const CallHistoryScreen: React.FC<Props> = ({ navigation }) => {
             <View style={styles.rowText}>
               <Text style={styles.peerName}>{item.peerName}</Text>
               <Text style={styles.peerMeta}>
-                {item.directionLabel} · {new Date(item.started_at).toLocaleString()}
+                {item.directionLabel} · {formatShortDateTime(item.started_at)}
               </Text>
               <View style={[styles.statusBadge, item.status === "missed" ? styles.missedBadge : item.status === "rejected" ? styles.rejectedBadge : styles.normalBadge]}>
                 <Text style={styles.statusBadgeText}>{item.statusLabel}</Text>
@@ -185,7 +186,7 @@ const CallHistoryScreen: React.FC<Props> = ({ navigation }) => {
               {item.followupStatus ? (
                 <Text style={[styles.followUpMeta, item.isOverdue ? styles.overdueText : undefined]}>
                   {item.isOverdue ? "已逾期" : `跟进状态: ${item.followupStatus}`}
-                  {item.nextTaskDueAt ? ` · ${new Date(item.nextTaskDueAt).toLocaleString()}` : ""}
+                  {item.nextTaskDueAt ? ` · ${formatShortDateTime(item.nextTaskDueAt)}` : ""}
                 </Text>
               ) : null}
             </View>

@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from "react";
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { formatShortDateTime } from "@allcallall/shared";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type { FollowUpListItem } from "../api/commercial";
@@ -105,7 +106,7 @@ const FollowUpsScreen: React.FC<Props> = ({ navigation }) => {
                 <View style={styles.badges}>
                   {item.is_overdue ? <Text style={[styles.badge, styles.overdue]}>Overdue</Text> : null}
                   {item.task.status === "done" ? <Text style={[styles.badge, styles.done]}>Done</Text> : null}
-                  {item.task.due_at ? <Text style={styles.badge}>Due {new Date(item.task.due_at).toLocaleString()}</Text> : null}
+                  {item.task.due_at ? <Text style={styles.badge}>Due {formatShortDateTime(item.task.due_at)}</Text> : null}
                 </View>
               </View>
               {item.task.type === "callback" && item.task.status !== "done" ? (

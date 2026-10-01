@@ -7,6 +7,7 @@ import {
   Text,
   View
 } from "react-native";
+import { formatShortDateTime } from "@allcallall/shared";
 import { useFocusEffect } from "@react-navigation/native";
 
 import { listBlocks, removeBlock, type UserBlockRecord } from "../api/commercial";
@@ -98,7 +99,7 @@ const BlockedUsersScreen: React.FC = () => {
                 {item.blocked_user_email ? (
                   <Text style={styles.rowSubTitle}>{item.blocked_user_email}</Text>
                 ) : null}
-                <Text style={styles.rowMeta}>拉黑时间 {new Date(item.created_at).toLocaleString()}</Text>
+                <Text style={styles.rowMeta}>拉黑时间 {formatShortDateTime(item.created_at)}</Text>
                 {item.blocked_user_status === "deleted" ? (
                   <Text style={styles.deletedMeta}>该账号已删除</Text>
                 ) : null}

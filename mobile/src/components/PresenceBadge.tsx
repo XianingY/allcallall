@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
+import { formatShortDateTime } from "@allcallall/shared";
 
 interface Props {
   online: boolean;
@@ -14,7 +15,7 @@ const PresenceBadge: React.FC<Props> = ({ online, lastSeen }) => {
         {online
           ? "在线 / Online"
           : lastSeen
-          ? `离线 / Offline • ${new Date(lastSeen).toLocaleString()}`
+          ? `离线 / Offline • ${formatShortDateTime(lastSeen)}`
           : "离线 / Offline"}
       </Text>
     </View>
