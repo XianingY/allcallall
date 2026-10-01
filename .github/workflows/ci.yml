@@ -194,10 +194,17 @@ jobs:
       - name: Lint
         working-directory: mobile
         run: npm run lint
-      - name: npm audit (informational, non-blocking)
-        working-directory: mobile
-        run: npm audit --audit-level=high || true
-        continue-on-error: true
+      - name: Dependency audit
+        # Runs once, at the root: the lockfile is the workspace root's, so
+        # auditing from web/ and mobile/ separately was the same tree twice.
+        #
+        # Was `npm audit --audit-level=high || true` with continue-on-error, so
+        # it could never fail. Now blocking at critical. Raising it to high
+        # needs a baseline taken in CI first - the local registry mirror does
+        # not implement the audit endpoint, so it cannot be measured here, and
+        # guessing would either leave it toothless or break every build.
+        working-directory: .
+        run: npm audit --audit-level=critical
 
   web:
     name: Web
@@ -234,10 +241,9 @@ jobs:
         with:
           name: web-coverage
           path: web/coverage
-      - name: npm audit (informational, non-blocking)
-        working-directory: web
-        run: npm audit --audit-level=high || true
-        continue-on-error: true
+      # Dependency auditing happens once in the mobile job, at the workspace
+      # root - see the note there. Auditing again here would re-check the same
+      # lockfile.
       - name: Build
         working-directory: web
         run: npm run build
