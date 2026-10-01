@@ -24,6 +24,8 @@ interface OrganizationContextValue {
    * refreshOrganizations() to retry.
    */
   error: Error | null;
+  /** Increments on every organization switch; watch it to drop cached data. */
+  organizationVersion: number;
   refreshOrganizations: () => Promise<void>;
   selectOrganization: (organizationId: number) => Promise<void>;
   createWorkspace: (name: string) => Promise<OrganizationRecord>;
@@ -85,6 +87,13 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     void refreshOrganizations();
   }, [refreshOrganizations]);
 
+  // Bumped whenever the active organization changes. Contexts that cache
+  // org-scoped data (follow-ups, commercial usage) watch this and reload -
+  // previously switching workspace only changed the header, so the previous
+  // organization's data stayed on screen until something else refetched it.
+  // Web does the equivalent with queryClient.removeQueries.
+  const [organizationVersion, setOrganizationVersion] = useState(0);
+
   const selectOrganization = useCallback(async (organizationId: number) => {
     if (!token) {
       return;
@@ -92,6 +101,7 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const org = await switchOrganization(token, organizationId);
     setCurrentOrganization(org);
     setActiveOrganizationHeader(org.id);
+    setOrganizationVersion((current) => current + 1);
     await AsyncStorage.setItem(ACTIVE_ORG_STORAGE_KEY, String(org.id));
   }, [token]);
 
@@ -110,10 +120,11 @@ export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     currentOrganization,
     loading,
     error,
+    organizationVersion,
     refreshOrganizations,
     selectOrganization,
     createWorkspace
-  }), [organizations, currentOrganization, loading, error, refreshOrganizations, selectOrganization, createWorkspace]);
+  }), [organizations, currentOrganization, loading, error, organizationVersion, refreshOrganizations, selectOrganization, createWorkspace]);
 
   return <OrganizationContext.Provider value={value}>{children}</OrganizationContext.Provider>;
 };

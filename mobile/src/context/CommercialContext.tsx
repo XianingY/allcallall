@@ -16,6 +16,7 @@ import {
   type UsageRecord
 } from "../api/commercial";
 import { useAuthContext } from "./AuthContext";
+import { useOrganization } from "./OrganizationContext";
 import BillingService from "../services/BillingService";
 
 interface CommercialState {
@@ -23,6 +24,12 @@ interface CommercialState {
   entitlements: EntitlementRecord[];
   usage: UsageRecord[];
   loading: boolean;
+  /**
+   * Set when entitlements/usage could not be fetched. Kept separate from
+   * `tier` so a failed request is not reported as "free" - which is what a
+   * paying user would see if the request failed.
+   */
+  error: Error | null;
 }
 
 interface CommercialContextValue extends CommercialState {
@@ -38,7 +45,8 @@ export const CommercialProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     tier: "free",
     entitlements: [],
     usage: [],
-    loading: false
+    loading: false,
+    error: null
   });
 
   const refreshCommercialState = useCallback(async () => {
@@ -47,7 +55,8 @@ export const CommercialProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         tier: "free",
         entitlements: [],
         usage: [],
-        loading: false
+        loading: false,
+        error: null
       });
       return;
     }
@@ -62,17 +71,29 @@ export const CommercialProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         tier: entitlementResponse.tier === "premium" ? "premium" : "free",
         entitlements: entitlementResponse.entitlements,
         usage,
-        loading: false
+        loading: false,
+        error: null
       });
     } catch (error) {
+      // Surface it: swallowing this meant a failed entitlement/usage fetch was
+      // indistinguishable from a free account, including for paying users.
       console.warn("[CommercialContext] Failed to refresh commercial state:", error);
-      setState((current) => ({ ...current, loading: false }));
+      setState((current) => ({
+        ...current,
+        loading: false,
+        error: error instanceof Error ? error : new Error(String(error))
+      }));
     }
   }, [token]);
 
+  // Entitlements and usage are per-organization, so a workspace switch has to
+  // drop the previous values rather than keep showing them. See
+  // OrganizationContext.organizationVersion.
+  const { organizationVersion } = useOrganization();
+
   useEffect(() => {
     void refreshCommercialState();
-  }, [refreshCommercialState]);
+  }, [refreshCommercialState, organizationVersion]);
 
   useEffect(() => {
     if (!token) {

@@ -13,7 +13,7 @@ import { createSingleFlight } from "./launchActionGuards";
 type Props = NativeStackScreenProps<RootStackParamList, "FollowUps">;
 
 const FollowUpsScreen: React.FC<Props> = ({ navigation }) => {
-  const { items, loading, refreshFollowUps, completeTask } = useFollowUps();
+  const { items, loading, error, refreshFollowUps, completeTask } = useFollowUps();
   const { connectionReady, startCall, setTranslationLanguage, setTranslationSourceLanguage } = useSignaling();
   // completeTask rejects when the update fails; without the guard the
   // rejection escaped as an unhandled promise and the 回拨 button looked dead.
@@ -66,12 +66,20 @@ const FollowUpsScreen: React.FC<Props> = ({ navigation }) => {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refreshFollowUps()} />}
         contentContainerStyle={styles.content}
         ListEmptyComponent={
-          !loading ? (
+          loading ? null : error ? (
+            // A failed load used to fall through to "nothing to follow up",
+            // which reads as an empty account rather than a broken request.
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>加载失败 / Could not load</Text>
+              <Text style={styles.emptyText}>{error.message}</Text>
+              <PrimaryButton title="重试 / Retry" onPress={() => void refreshFollowUps()} />
+            </View>
+          ) : (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>暂无待跟进任务</Text>
               <Text style={styles.emptyText}>通话完成后，系统会在这里汇总待回访联系人和跟进任务。</Text>
             </View>
-          ) : null
+          )
         }
         renderItem={({ item }) => (
           <TouchableOpacity
