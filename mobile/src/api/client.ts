@@ -41,7 +41,32 @@ export const configureTokenRefresh = (refresher: TokenRefresher | null) => {
   tokenRefresher = refresher;
 };
 
+// Instances are cached rather than rebuilt per call. createApiClient is called
+// at 100+ sites - once per request - and each call was constructing an axios
+// instance plus two interceptors. Two slots is enough: one for the signed-in
+// token, one for anonymous requests, which is all the app ever uses. Keyed by
+// token, so a caller that passes an explicit token still gets an instance
+// bound to that token.
+let cachedToken: string | null = null;
+let cachedInstance: AxiosInstance | null = null;
+let anonymousInstance: AxiosInstance | null = null;
+
 export const createApiClient = (token?: string): AxiosInstance => {
+  if (!token) {
+    if (!anonymousInstance) {
+      anonymousInstance = buildClient(undefined);
+    }
+    return anonymousInstance;
+  }
+  if (cachedInstance && cachedToken === token) {
+    return cachedInstance;
+  }
+  cachedInstance = buildClient(token);
+  cachedToken = token;
+  return cachedInstance;
+};
+
+const buildClient = (token?: string): AxiosInstance => {
   const instance = axios.create({
     baseURL: API_BASE_URL,
     timeout: REQUEST_TIMEOUT
