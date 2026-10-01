@@ -372,6 +372,9 @@
 .call-summary ul { margin: 0; padding-left: 1.1rem; }
 .call-summary li { margin-bottom: .2rem; }
 .call-summary-empty { display: flex; flex-direction: column; align-items: flex-start; gap: .6rem; padding: .75rem .25rem; text-align: left; }
+/* Banner shown while the Inbox list is replaced by message-content results. */
+.search-scope { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin: 0 .75rem .5rem; padding: .4rem .6rem; border-radius: 6px; background: #eef4f2; color: #31584e; font-size: .72rem; }
+.search-scope button { padding: .15rem .4rem; font-size: .68rem; }
 .reaction-row { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem; }
 .reaction-row button { border-radius: 10px; background: #e7efec; padding: .12rem .45rem; color: #31584e; font-size: .68rem; }
 .pinned-strip { display: flex; gap: .4rem; overflow-x: auto; border-bottom: 1px solid #dfe4e2; background: #fbf7e8; padding: .45rem .75rem; }

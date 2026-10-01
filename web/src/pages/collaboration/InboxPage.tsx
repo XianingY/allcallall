@@ -31,6 +31,7 @@ import {
   listPinnedMessages,
   markConversationRead,
   pinMessage,
+  searchMessages,
   sendMessage,
   sendTyping,
   type Attachment,
@@ -71,6 +72,17 @@ export function InboxPage() {
   const [status, setStatus] = useState("");
   const [keyword, setKeyword] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
+  // Committed on Enter: `keyword` filters the loaded conversation titles on the
+  // client, which is instant and needs no request. Searching message *bodies*
+  // is a server query, so it only runs when the user asks for it.
+  const [messageQuery, setMessageQuery] = useState("");
+
+  const messageHits = useQuery({
+    queryKey: ["organizations", orgId, "search", "messages", messageQuery],
+    queryFn: () => searchMessages(messageQuery),
+    enabled: Boolean(orgId) && messageQuery.trim().length >= 2,
+    retry: false,
+  });
   const [composer, setComposer] = useState("");
   const [note, setNote] = useState("");
   const [creating, setCreating] = useState(false);
@@ -185,7 +197,31 @@ export function InboxPage() {
   return <div className={`inbox-layout ${selectedId ? "inbox-selected" : ""}`}>
     <aside className="conversation-list">
       <header className="workspace-pane-header"><div><span className="eyebrow">Workspace</span><h1>Inbox</h1></div><NewConversationDialog open={creating} onOpenChange={setCreating} orgId={orgId} onCreated={(id) => navigate(`/conversations/${id}`)} /></header>
-      <div className="search-field"><Search size={16} /><input aria-label="搜索会话" placeholder="搜索会话" value={keyword} onChange={(event) => setKeyword(event.target.value)} /></div>
+      <div className="search-field">
+        <Search size={16} />
+        <input
+          aria-label="搜索会话，按回车搜索消息内容"
+          placeholder="搜索会话；回车搜索消息内容"
+          value={keyword}
+          onChange={(event) => {
+            const next = event.target.value;
+            setKeyword(next);
+            // Leaving the field blank drops out of message-search mode.
+            if (!next.trim()) setMessageQuery("");
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            setMessageQuery(keyword.trim());
+          }}
+        />
+      </div>
+      {messageQuery ? (
+        <div className="search-scope">
+          <span>搜索消息内容：{messageQuery}</span>
+          <button className="button-secondary" onClick={() => setMessageQuery("")}>退出消息搜索</button>
+        </div>
+      ) : null}
       <div className="filter-tabs">
         <button className={!status && !unreadOnly ? "active" : ""} onClick={() => { setStatus(""); setUnreadOnly(false); }}>全部</button>
         {/* "未读" has no server-side equivalent, so it filters locally. */}
@@ -196,7 +232,13 @@ export function InboxPage() {
         <button className={status === "resolved" ? "active" : ""} onClick={() => { setStatus("resolved"); setUnreadOnly(false); }}>已解决</button>
         <button className={status === "channels" ? "active" : ""} onClick={() => { setStatus("channels"); setUnreadOnly(false); }}>频道</button>
       </div>
-      {conversations.isLoading ? <PageLoading /> : conversations.isError ? <PageError error={conversations.error} /> : visibleConversations.length === 0 ? <PageEmpty label={keyword || unreadOnly ? "没有匹配的会话" : "还没有会话"} hint={keyword || unreadOnly ? "换个关键词，或清除筛选条件" : "新建会话开始协作，或邀请联系人加入组织"} action={keyword || unreadOnly ? <button className="button-secondary" onClick={() => { setKeyword(""); setUnreadOnly(false); setStatus(""); }}>清除筛选</button> : <button className="button-secondary" onClick={() => setCreating(true)}>新建会话</button>} /> : <div className="conversation-items">{visibleConversations.map((item) => <Link key={item.id} to={`/conversations/${item.id}`} className={`conversation-item ${selectedId === item.id ? "conversation-item-active" : ""}`}><div className="conversation-avatar">{item.title.slice(0, 1).toUpperCase()}</div><div className="conversation-copy"><div><strong>{item.title}</strong><time>{formatTime(item.last_message_at)}</time></div><p>{item.last_message_preview || item.topic || "暂无消息"}</p><span>{item.priority}</span></div>{item.unread_count > 0 && <b className="unread-count">{item.unread_count}</b>}</Link>)}</div>}
+      {/* Server-side message search. The Inbox box only filters conversation
+          titles, so body text was previously unsearchable from the UI even
+          though the endpoint existed. */}
+      {messageQuery ? (
+        messageHits.isLoading ? <PageLoading label="正在搜索消息" /> : messageHits.isError ? <PageError error={messageHits.error} retry={() => void messageHits.refetch()} /> : (messageHits.data?.length ?? 0) === 0 ? <PageEmpty label="没有匹配的消息" hint={`“${messageQuery}” 没有找到消息内容，换个关键词试试`} /> : <div className="conversation-items">{messageHits.data!.map((hit) => <Link key={hit.id} to={`/conversations/${hit.conversation_id}`} className="conversation-item"><div className="conversation-avatar">{(hit.sender_display_name || hit.sender_email || "?").slice(0, 1).toUpperCase()}</div><div className="conversation-copy"><div><strong>{hit.sender_display_name || hit.sender_email || "未知发送者"}</strong><time>{formatTime(hit.created_at)}</time></div><p>{hit.body}</p></div></Link>)}</div>
+      ) : null}
+      {messageQuery ? null : conversations.isLoading ? <PageLoading /> : conversations.isError ? <PageError error={conversations.error} /> : visibleConversations.length === 0 ? <PageEmpty label={keyword || unreadOnly ? "没有匹配的会话" : "还没有会话"} hint={keyword || unreadOnly ? "换个关键词，或清除筛选条件" : "新建会话开始协作，或邀请联系人加入组织"} action={keyword || unreadOnly ? <button className="button-secondary" onClick={() => { setKeyword(""); setUnreadOnly(false); setStatus(""); }}>清除筛选</button> : <button className="button-secondary" onClick={() => setCreating(true)}>新建会话</button>} /> : <div className="conversation-items">{visibleConversations.map((item) => <Link key={item.id} to={`/conversations/${item.id}`} className={`conversation-item ${selectedId === item.id ? "conversation-item-active" : ""}`}><div className="conversation-avatar">{item.title.slice(0, 1).toUpperCase()}</div><div className="conversation-copy"><div><strong>{item.title}</strong><time>{formatTime(item.last_message_at)}</time></div><p>{item.last_message_preview || item.topic || "暂无消息"}</p><span>{item.priority}</span></div>{item.unread_count > 0 && <b className="unread-count">{item.unread_count}</b>}</Link>)}</div>}
       {conversations.data?.pages?.length ? <div className="conversation-list-footer"><span>共 {(conversations.data.pages[conversations.data.pages.length - 1]?.pagination.total ?? 0)} 个会话</span>{conversations.hasNextPage ? <button className="button-secondary" disabled={conversations.isFetchingNextPage} onClick={() => void conversations.fetchNextPage()}>加载更多</button> : null}</div> : null}
     </aside>
     <main className="message-pane">

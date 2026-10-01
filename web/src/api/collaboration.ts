@@ -58,6 +58,28 @@ export const createFollowUp = (input: { peer_user_id: number; type: string; titl
 export const updateFollowUp = (id: number, input: { status?: string; description?: string; due_at?: string | null; reminder_mode?: string }) => apiRequest<{ task: FollowUpTask }>(`/follow-ups/${id}`, { method: "PATCH", body: JSON.stringify(input) }).then((value) => value.task);
 export const listCallHistory = (days = 30) => apiRequest<{ calls: CallHistory[] }>(`/calls/history${buildQuery({ days })}`).then((value) => value.calls);
 
+export interface MessageSearchHit {
+  id: string;
+  conversation_id: number;
+  message_id: number;
+  sender_display_name?: string;
+  sender_email?: string;
+  body: string;
+  created_at: string;
+  score?: number;
+}
+
+/**
+ * Full-text search over message bodies.
+ *
+ * The endpoint has existed on the backend with its own limit tests all along;
+ * nothing in either client ever called it, so the only search a user had was
+ * the Inbox box, which filters conversation titles on the client. Message
+ * content was unsearchable.
+ */
+export const searchMessages = (q: string) =>
+  apiRequest<{ results: MessageSearchHit[] }>(`/search/messages${buildQuery({ q })}`).then((value) => value.results);
+
 // Post-call summary. Mobile has had these for a while; web only ever showed a
 // read-only call table, so on the desktop there was no way to see or produce a
 // summary at all.
