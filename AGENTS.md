@@ -35,7 +35,7 @@ Web:
 
 Mobile:
   cd mobile && npm run typecheck   # tsc --noEmit
-  cd mobile && npm test            # alias for npm run test:unit
+  cd mobile && npm test            # runs test:runners (coverage gate) + test:unit + test:jest
   cd mobile && npm run test:jest   # jest-expo: the React-Native-dependent suites
 
   Two runners, by design:
@@ -106,11 +106,14 @@ no-op there — always use `cd web && npm run typecheck`):
 ## Conventions
 
 - Write clear, descriptive commit messages.
-- CI runs three workflows: `ci.yml`, `backend-ci.yml`,
-  `platform-ci.yml`. Keep all three green before merging. Web and mobile
-  checks (including the web `test:coverage` gate, coverage artifact upload
-  and `npm audit`) live in `ci.yml`; the retired `frontend-ci.yml` was merged
-  into it to stop running web/mobile twice on every push and PR.
+- CI's merge-blocking workflows are `ci.yml` and `platform-ci.yml`. Keep both
+  green before merging. `ci.yml` runs backend, mobile, web (including the web
+  `test:coverage` gate, coverage artifact upload and `npm audit`), the
+  authenticated Beta Web E2E suite, and desktop checks. `platform-ci.yml` runs
+  the Python agent/RAG runtimes, MySQL checkpoint idempotency contract, sandbox
+  control plane, OpenAPI contract drift, Helm/Kubernetes schema validation, and
+  image build+scan. The retired `frontend-ci.yml` and `backend-ci.yml` were
+  merged into these to stop running suites twice on every push and PR.
 - Push over SSH.
 - Never commit `.env`, `.omo`, `.workbuddy`, or `output/`.
 

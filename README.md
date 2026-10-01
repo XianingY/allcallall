@@ -144,7 +144,7 @@ Common backend variables:
 - `AGENT_RUNTIME=python_langgraph|legacy_go`: Agent orchestration runtime. Compose/Beta demo defaults to `python_langgraph`; bare Go processes without this env still use the legacy in-process runtime. `go` is accepted as a legacy alias.
 - `PY_AGENT_RUNTIME_BASE_URL`: Python LangGraph runtime URL, defaulting to `http://127.0.0.1:8090` locally and `http://agent-runtime:8090` in Compose.
 - `PY_RAG_RUNTIME_BASE_URL`: Python RAG Runtime URL, defaulting to `http://rag-runtime:8091` in Compose when Agentic RAG calls are enabled.
-- `PY_AGENT_RUNTIME_IMAGE`, `PY_RAG_RUNTIME_IMAGE`: Docker image overrides. Compose defaults to `ghcr.io/xianingy/allcallall-agent-runtime/{agent-runtime,rag-runtime}:v0.2.0`.
+- `PY_AGENT_RUNTIME_IMAGE`, `PY_RAG_RUNTIME_IMAGE`: Docker image overrides. Production Compose (`infra/docker-compose.production.yml`) defaults to `ghcr.io/xianingy/allcallall-agent-runtime/{agent-runtime,rag-runtime}:v0.3.0`; the local dev Compose (`infra/docker-compose.yml`) defaults to the locally built `allcallall-{agent,rag}-runtime:local` tags.
 - `PY_AGENT_RUNTIME_TIMEOUT_SEC`, `PY_AGENT_RUNTIME_STRICT`: timeout and strict failure behavior for the Python runtime.
 - `AGENT_RUNTIME_TOOL_TOKEN`: shared token that protects the Go read-only tool bridge for Python runtime calls.
 - `PY_AGENT_PROVIDER=rules|openai_compatible`: Python runtime provider selection.
@@ -193,7 +193,7 @@ Mobile native public variables:
 - `EXPO_PUBLIC_RESTRICTED_NETWORK`
 - `EXPO_PUBLIC_SIGNALING_TRANSPORT`
 - `EXPO_PUBLIC_SIGNALING_SHAPING`
-- `EXPO_PUBLIC_E2EE_MODE=experimental`
+- `EXPO_PUBLIC_E2EE_MODE=experimental` (only the literal value `experimental` enables E2EE; any other value — including the legacy `auto` — silently disables it)
 - `EXPO_PUBLIC_REVENUECAT_API_KEY` and related RevenueCat variables for Android subscription paths.
 
 ## Optional Microservice / Infra Demo
@@ -312,8 +312,8 @@ make lint   # go vet (backend) + npm run lint (web)
 
 ## Scope Boundaries
 
-- Kubernetes is intentionally not part of the current implementation.
-- Transcript editing, large-meeting SFU scale-out, and Kubernetes are future enhancements.
+- Kubernetes manifests (`infra/k8s/`) and a Helm chart (`infra/helm/allcallall`) exist and are schema-validated in `platform-ci.yml`, but Compose is the reference deployment path; CI does not deploy to Kubernetes.
+- Transcript editing and large-meeting SFU scale-out are future enhancements.
 - Kafka and Elasticsearch adapters exist, but live smoke tests require the optional Compose profiles.
 - Production Web billing and Web Push require RevenueCat/Firebase public runtime config plus backend FCM service-account config.
 - The `.proto` file is the source contract; current Go gRPC binding is hand-written because `protoc` is not required by CI.
