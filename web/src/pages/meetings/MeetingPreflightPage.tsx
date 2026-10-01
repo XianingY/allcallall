@@ -3,11 +3,120 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 
+interface MediaDeviceRequest {
+  audio: boolean | { deviceId: { exact: string } };
+  video: boolean | { deviceId: { exact: string } };
+}
+
+function buildMediaRequest(audio: boolean, video: boolean, audioDeviceId: string, videoDeviceId: string): MediaDeviceRequest {
+  return {
+    audio: audio ? (audioDeviceId ? { deviceId: { exact: audioDeviceId } } : true) : false,
+    video: video ? (videoDeviceId ? { deviceId: { exact: videoDeviceId } } : true) : false,
+  };
+}
+
 export function MeetingPreflightPage() {
-  const { t } = useTranslation(); const roomId = Number(useParams().roomId); const navigate = useNavigate(); const videoRef = useRef<HTMLVideoElement>(null); const streamRef = useRef<MediaStream | null>(null);
-  const [audio, setAudio] = useState(true); const [video, setVideo] = useState(true); const [devices, setDevices] = useState<MediaDeviceInfo[]>([]); const [audioDeviceId, setAudioDeviceId] = useState(""); const [videoDeviceId, setVideoDeviceId] = useState(""); const [error, setError] = useState("");
-  useEffect(() => { let active = true; const preview = async () => { streamRef.current?.getTracks().forEach((track) => track.stop()); try { const stream = await navigator.mediaDevices.getUserMedia({ audio: audio ? (audioDeviceId ? { deviceId: { exact: audioDeviceId } } : true) : false, video: video ? (videoDeviceId ? { deviceId: { exact: videoDeviceId } } : true) : false }); if (!active) return; streamRef.current = stream; if (videoRef.current) videoRef.current.srcObject = stream; setDevices(await navigator.mediaDevices.enumerateDevices()); setError(""); } catch (caught) { setError(caught instanceof Error ? caught.message : t("preflight.error.mediaUnavailable")); } }; if (audio || video) void preview(); else { streamRef.current?.getTracks().forEach((track) => track.stop()); streamRef.current = null; } return () => { active = false; streamRef.current?.getTracks().forEach((track) => track.stop()); }; }, [audio, video, audioDeviceId, videoDeviceId, t]);
-  useEffect(() => { const changed = () => void navigator.mediaDevices.enumerateDevices().then(setDevices); navigator.mediaDevices?.addEventListener("devicechange", changed); return () => navigator.mediaDevices?.removeEventListener("devicechange", changed); }, []);
-  const enter = () => { sessionStorage.setItem(`meeting-options:${roomId}`, JSON.stringify({ audio, video, audioDeviceId, videoDeviceId })); navigate(`/meetings/${roomId}`); };
-  return <div className="preflight-page"><section className="preflight-preview"><video ref={videoRef} autoPlay muted playsInline />{!video && <div className="camera-placeholder"><CameraOff size={30} />{t("preflight.cameraOff")}</div>}</section><aside className="preflight-panel"><p className="eyebrow">Device check</p><h1>{t("preflight.title")}</h1><p>{t("preflight.subtitle")}</p>{error && <div className="status-error">{error}</div>}<div className="preflight-toggles"><button className={audio ? "active" : ""} onClick={() => setAudio(!audio)}>{audio ? <Mic size={18} /> : <MicOff size={18} />}{t("preflight.mic")}</button><button className={video ? "active" : ""} onClick={() => setVideo(!video)}>{video ? <Camera size={18} /> : <CameraOff size={18} />}{t("preflight.camera")}</button></div><label>{t("preflight.mic")}<select className="field" value={audioDeviceId} onChange={(event) => setAudioDeviceId(event.target.value)}><option value="">{t("preflight.systemDefault")}</option>{devices.filter((item) => item.kind === "audioinput").map((item) => <option key={item.deviceId} value={item.deviceId}>{item.label || t("preflight.mic")}</option>)}</select></label><label>{t("preflight.camera")}<select className="field" value={videoDeviceId} onChange={(event) => setVideoDeviceId(event.target.value)}><option value="">{t("preflight.systemDefault")}</option>{devices.filter((item) => item.kind === "videoinput").map((item) => <option key={item.deviceId} value={item.deviceId}>{item.label || t("preflight.camera")}</option>)}</select></label><button className="button-primary w-full" onClick={enter}>{t("preflight.enter")}</button></aside></div>;
+  const { t } = useTranslation();
+  const roomId = Number(useParams().roomId);
+  const navigate = useNavigate();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [audio, setAudio] = useState(true);
+  const [video, setVideo] = useState(true);
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [audioDeviceId, setAudioDeviceId] = useState("");
+  const [videoDeviceId, setVideoDeviceId] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    const preview = async () => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(
+          buildMediaRequest(audio, video, audioDeviceId, videoDeviceId),
+        );
+        if (!active) return;
+        streamRef.current = stream;
+        if (videoRef.current) videoRef.current.srcObject = stream;
+        setDevices(await navigator.mediaDevices.enumerateDevices());
+        setError("");
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : t("preflight.error.mediaUnavailable"));
+      }
+    };
+
+    if (audio || video) void preview();
+    else {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    return () => {
+      active = false;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, [audio, video, audioDeviceId, videoDeviceId, t]);
+
+  useEffect(() => {
+    const changed = () => void navigator.mediaDevices.enumerateDevices().then(setDevices);
+    navigator.mediaDevices?.addEventListener("devicechange", changed);
+    return () => navigator.mediaDevices?.removeEventListener("devicechange", changed);
+  }, []);
+
+  const enter = () => {
+    sessionStorage.setItem(`meeting-options:${roomId}`, JSON.stringify({ audio, video, audioDeviceId, videoDeviceId }));
+    navigate(`/meetings/${roomId}`);
+  };
+
+  const audioDevices = devices.filter((item) => item.kind === "audioinput");
+  const videoDevices = devices.filter((item) => item.kind === "videoinput");
+
+  return (
+    <div className="preflight-page">
+      <section className="preflight-preview">
+        <video ref={videoRef} autoPlay muted playsInline />
+        {!video && (
+          <div className="camera-placeholder">
+            <CameraOff size={30} />
+            {t("preflight.cameraOff")}
+          </div>
+        )}
+      </section>
+      <aside className="preflight-panel">
+        <p className="eyebrow">Device check</p>
+        <h1>{t("preflight.title")}</h1>
+        <p>{t("preflight.subtitle")}</p>
+        {error && <div className="status-error">{error}</div>}
+        <div className="preflight-toggles">
+          <button className={audio ? "active" : ""} onClick={() => setAudio(!audio)}>
+            {audio ? <Mic size={18} /> : <MicOff size={18} />}
+            {t("preflight.mic")}
+          </button>
+          <button className={video ? "active" : ""} onClick={() => setVideo(!video)}>
+            {video ? <Camera size={18} /> : <CameraOff size={18} />}
+            {t("preflight.camera")}
+          </button>
+        </div>
+        <label>
+          {t("preflight.mic")}
+          <select className="field" value={audioDeviceId} onChange={(event) => setAudioDeviceId(event.target.value)}>
+            <option value="">{t("preflight.systemDefault")}</option>
+            {audioDevices.map((item) => (
+              <option key={item.deviceId} value={item.deviceId}>{item.label || t("preflight.mic")}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          {t("preflight.camera")}
+          <select className="field" value={videoDeviceId} onChange={(event) => setVideoDeviceId(event.target.value)}>
+            <option value="">{t("preflight.systemDefault")}</option>
+            {videoDevices.map((item) => (
+              <option key={item.deviceId} value={item.deviceId}>{item.label || t("preflight.camera")}</option>
+            ))}
+          </select>
+        </label>
+        <button className="button-primary w-full" onClick={enter}>{t("preflight.enter")}</button>
+      </aside>
+    </div>
+  );
 }

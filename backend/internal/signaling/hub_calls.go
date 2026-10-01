@@ -126,9 +126,8 @@ func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmai
 	// 不阻塞地发送推送通知，使用 goroutine
 	// Send notification asynchronously to avoid blocking
 	go func() {
-		// 调用上上下文以取消悠斶
-		// Create a new context with timeout
-		notifCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// 保留请求上下文中的 trace 值，但避免响应返回后取消仍在进行的推送。
+		notifCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 
 		// 获取接收者的用户信息

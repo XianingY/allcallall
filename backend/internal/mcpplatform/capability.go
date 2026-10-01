@@ -130,7 +130,7 @@ func (m *CapabilityManager) Verify(raw string) (*CapabilityClaims, error) {
 		return m.publicKey, nil
 	}, jwt.WithAudience(capabilityAudience), jwt.WithIssuer("allcallall-api"), jwt.WithExpirationRequired())
 	if err != nil || !token.Valid {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidCapability, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidCapability, err)
 	}
 	return claims, nil
 }

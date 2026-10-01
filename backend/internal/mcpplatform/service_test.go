@@ -619,19 +619,17 @@ func TestExecutionEnforcesTimeoutAndOutputLimit(t *testing.T) {
 		execution  func(context.Context, ExecutionRequest) (ExecutionResult, error)
 		wantError  error
 		wantStatus string
-		// Only the timeout case wants a tiny budget. The others assert a
-		// specific error and must not have the context expire first: under
-		// load (a full `go test ./internal/...` run) 5ms is easily spent
-		// before the sandbox call even starts, and the case fails with
-		// DeadlineExceeded instead of the error it is checking.
+		// Every case uses a budget large enough for database preflight. The
+		// timeout case simulates the sandbox returning a terminal timeout
+		// receipt after dispatch; a tiny context budget would instead expire
+		// during preflight under load and leave the execution running.
 		timeout time.Duration
 	}{
 		{
 			name:    "timeout",
-			timeout: 5 * time.Millisecond,
-			execution: func(ctx context.Context, _ ExecutionRequest) (ExecutionResult, error) {
-				<-ctx.Done()
-				return ExecutionResult{}, ctx.Err()
+			timeout: 10 * time.Second,
+			execution: func(_ context.Context, _ ExecutionRequest) (ExecutionResult, error) {
+				return ExecutionResult{}, context.DeadlineExceeded
 			},
 			wantError:  context.DeadlineExceeded,
 			wantStatus: models.MCPExecutionStatusTimedOut,

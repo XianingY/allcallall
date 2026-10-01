@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -116,6 +117,44 @@ func (s *RealtimeEventStore) ListSince(ctx context.Context, organizationID, user
 		})
 	}
 	return result, nil
+}
+
+// PurgeBefore 物理删除早于 before 的实时事件（分批，避免大事务锁表）。
+// chat_events 只服务重连回放，事件被客户端游标越过或超过回放窗口后即无用途；
+// 没有清理路径时这是一张只增不删的表，属于上线前必须堵住的存储泄漏。
+// PurgeBefore deletes realtime events older than the cutoff, in batches.
+func (s *RealtimeEventStore) PurgeBefore(ctx context.Context, before time.Time, batchLimit int) (int64, error) {
+	if s == nil || s.db == nil {
+		return 0, errors.New("realtime event store database is nil")
+	}
+	if batchLimit <= 0 {
+		batchLimit = 500
+	}
+	var total int64
+	for {
+		var ids []uint64
+		if err := s.db.WithContext(ctx).
+			Model(&models.ChatEvent{}).
+			Where("created_at < ?", before).
+			Limit(batchLimit).
+			Pluck("id", &ids).Error; err != nil {
+			return total, err
+		}
+		if len(ids) == 0 {
+			break
+		}
+		res := s.db.WithContext(ctx).
+			Where("id IN ?", ids).
+			Delete(&models.ChatEvent{})
+		if res.Error != nil {
+			return total, res.Error
+		}
+		total += res.RowsAffected
+		if len(ids) < batchLimit {
+			break
+		}
+	}
+	return total, nil
 }
 
 func decodeRealtimePayload(payloadJSON string) any {

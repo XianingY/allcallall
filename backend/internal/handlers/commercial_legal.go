@@ -1,26 +1,20 @@
 package handlers
 
 import (
-	"fmt"
 	"html/template"
 	"net/http"
+	"strings"
 
 	"github.com/allcallall/backend/internal/auth"
 	"github.com/gin-gonic/gin"
 )
 
-func (h *CommercialHandler) handleCurrentLegal(c *gin.Context) {
-	JSONSuccess(c, http.StatusOK, gin.H{"legal": h.commerce.CurrentLegal()})
-}
-
-func (h *CommercialHandler) renderLegalPage(c *gin.Context, title string, body template.HTML) {
-	legal := h.commerce.CurrentLegal()
-	page := fmt.Sprintf(`<!doctype html>
+var legalPageTemplate = template.Must(template.New("legal").Parse(`<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>%s</title>
+  <title>{{.Title}}</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#f8fafc; color:#0f172a; margin:0; }
     main { max-width: 860px; margin: 0 auto; padding: 48px 20px 80px; }
@@ -34,13 +28,29 @@ func (h *CommercialHandler) renderLegalPage(c *gin.Context, title string, body t
 </head>
 <body>
   <main>
-    <h1>%s</h1>
-    <p class="meta">AllCallAll · 联系邮箱 %s</p>
-    <div class="card">%s</div>
+    <h1>{{.Title}}</h1>
+    <p class="meta">AllCallAll · 联系邮箱 {{.SupportEmail}}</p>
+    <div class="card">{{.Body}}</div>
   </main>
 </body>
-</html>`, title, title, legal.SupportEmail, body)
-	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(page))
+</html>`))
+
+func (h *CommercialHandler) handleCurrentLegal(c *gin.Context) {
+	JSONSuccess(c, http.StatusOK, gin.H{"legal": h.commerce.CurrentLegal()})
+}
+
+func (h *CommercialHandler) renderLegalPage(c *gin.Context, title string, body template.HTML) {
+	legal := h.commerce.CurrentLegal()
+	var page strings.Builder
+	if err := legalPageTemplate.Execute(&page, struct {
+		Title        string
+		SupportEmail string
+		Body         template.HTML
+	}{Title: title, SupportEmail: legal.SupportEmail, Body: body}); err != nil {
+		c.String(http.StatusInternalServerError, "failed to render legal page")
+		return
+	}
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(page.String()))
 }
 
 func (h *CommercialHandler) handleTermsPage(c *gin.Context) {
@@ -82,8 +92,7 @@ func (h *CommercialHandler) handlePrivacyPage(c *gin.Context) {
 }
 
 func (h *CommercialHandler) handleDeleteAccountPage(c *gin.Context) {
-	legal := h.commerce.CurrentLegal()
-	body := template.HTML(fmt.Sprintf(`
+	body := template.HTML(`
 <p>你可以在应用内的“设置 -> 删除账号”入口发起账号删除。</p>
 <h2>删除会清除的数据</h2>
 <ul>
@@ -94,7 +103,7 @@ func (h *CommercialHandler) handleDeleteAccountPage(c *gin.Context) {
 <h2>删除后仍会保留的内容</h2>
 <p>为满足合规和支持排查，我们只保留不含可逆个人信息的删除审计摘要，例如删除时间和受影响记录数量。</p>
 <h2>处理时效</h2>
-<p>应用内删除流程成功后会立即生效。如需人工帮助，请联系 %s。</p>`, legal.SupportEmail))
+<p>应用内删除流程成功后会立即生效。如需人工帮助，请联系支持邮箱。</p>`)
 	h.renderLegalPage(c, "AllCallAll 账号删除说明", body)
 }
 

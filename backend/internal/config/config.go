@@ -295,6 +295,7 @@ func Load() (*Config, error) {
 		}
 
 		var content []byte
+		// #nosec G703 -- CONFIG_PATH is deployment-controlled and deliberately supports absolute paths.
 		content, cfgErr = os.ReadFile(filepath.Clean(path))
 		if cfgErr != nil {
 			cfgErr = fmt.Errorf("config: unable to read file %s: %w", path, cfgErr)

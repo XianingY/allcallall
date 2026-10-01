@@ -129,7 +129,7 @@ func (s *Service) HealthCheck() error {
 		s.logger.Error().Err(err).Msg("SMTP health check failed")
 		return fmt.Errorf("smtp health check: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	s.logger.Info().Msg("SMTP health check passed")
 	return nil

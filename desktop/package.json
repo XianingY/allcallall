@@ -11,8 +11,7 @@
     "dev": "electron .",
     "start": "electron .",
     "build": "electron-builder --dir",
-    "dist": "electron-builder",
-    "test": "vitest run"
+    "dist": "electron-builder"
   },
   "build": {
     "appId": "com.allcallall.desktop",

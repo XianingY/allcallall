@@ -1,19 +1,21 @@
 # Migrations — read this before using them
 
-**These files are not how the MySQL schema is created or upgraded.** They look
-like golang-migrate migrations, and `internal/runtime` does load them, but on
-MySQL they are not the path anything actually takes. Running them against a
-MySQL database fails.
+**The historical files are not how the MySQL schema is created or upgraded.**
+They look like golang-migrate migrations, and `internal/runtime` does load
+them, but `000001`–`000014` are not the path a MySQL database takes. Running
+those from zero fails. Migrations `000015` onward are active, ordered
+transitions for databases stamped at the historical version.
 
 This was verified against a real MySQL 8.0.46 instance rather than inferred:
 
 - Applying the migrations to an empty MySQL database fails immediately on
   `000001_init_schema.up.sql`, which uses SQLite syntax
   (`AUTOINCREMENT`, 72 occurrences). MySQL wants `AUTO_INCREMENT`.
-- Applying `000002` onward to a database that was initialised by the service
-  fails on `ALTER TABLE agent_runs ADD COLUMN dedupe_key ...`: those columns
-  already exist, because AutoMigrate created them from the Go structs. The run
-  left `schema_migrations` marked `dirty`, which then needs manual repair.
+- Applying the historical `000002`–`000014` range to a database that was
+initialised by the service fails on `ALTER TABLE agent_runs ADD COLUMN
+dedupe_key ...`: those columns already exist, because AutoMigrate created them
+from the Go structs. The run left `schema_migrations` marked `dirty`, which
+then needs manual repair.
 
 ## How the schema is actually managed
 
@@ -21,7 +23,7 @@ This was verified against a real MySQL 8.0.46 instance rather than inferred:
 
 | Database state | What runs | SQL files used |
 | --- | --- | --- |
-| No `users` table (fresh) | `AutoMigrate(models.AllModels())` + `alignMySQLPlatformSchema()` + `Force(14)` | **none** |
+| No `users` table (fresh) | `AutoMigrate(models.AllModels())` + `alignMySQLPlatformSchema()` + `Force(20)` | **none** |
 | `users` table present | `migration.Up()` | any migration above the recorded version |
 
 So on a fresh install the SQL files are skipped entirely and the version is
@@ -36,12 +38,14 @@ sets, column widths).
 - **Adding a column or table for MySQL**: change the struct in
   `internal/models/`. AutoMigrate applies it on the next start. There is no SQL
   file to write.
-- **Do not run `migrate` against a MySQL deployment.** It will fail, or worse,
-  half-apply and leave the database dirty.
+- **Do not run golang-migrate from zero against a MySQL deployment.** Use the
+service migration path, which bootstraps fresh databases with AutoMigrate and
+then advances existing, versioned databases through `000015` onward.
 - **`000001_init_schema.*` is SQLite dialect** and cannot work on MySQL at all.
 - **`000002`–`000014` describe schema that the structs already contain.** They
-  are historical, not pending work.
-- The single-version stamp (`currentSchemaVersion = 14`) means a fresh install
+are historical, not pending work. **`000015` onward must stay runnable
+up/down/up on MySQL** because existing deployments use them.
+- The single-version stamp (`currentSchemaVersion = 20`) means a fresh install
   claims to be fully migrated. When you add a migration, you must bump both
   that constant and the assertion in `migrations_test.go`.
 

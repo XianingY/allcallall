@@ -242,7 +242,7 @@ func (m *Manager) ClearManualState(ctx context.Context, email string) error {
 // GetStatus fetches aggregated presence for a single email.
 func (m *Manager) GetStatus(ctx context.Context, email string) (Status, error) {
 	raw, err := m.redis.Get(ctx, m.userKey(email)).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return Status{Email: email, State: StateOffline, Online: false}, nil
 	}
 	if err != nil {
@@ -267,7 +267,7 @@ func (m *Manager) GetStatuses(ctx context.Context, emails []string) (map[string]
 		keys = append(keys, m.userKey(email))
 	}
 	values, err := m.redis.MGet(ctx, keys...).Result()
-	if err != nil && err != redis.Nil {
+	if err != nil && !errors.Is(err, redis.Nil) {
 		return nil, err
 	}
 	for i, raw := range values {
@@ -344,7 +344,7 @@ func (m *Manager) computeState(ctx context.Context, email string) (State, string
 
 func (m *Manager) getManual(ctx context.Context, email string) (State, string, error) {
 	raw, err := m.redis.Get(ctx, m.manualKey(email)).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return "", "", nil
 	}
 	if err != nil {

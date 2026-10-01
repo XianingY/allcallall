@@ -2,6 +2,7 @@ package commerce
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -123,7 +124,7 @@ func TestConsumeTranslationSeconds(t *testing.T) {
 
 	// 2. Consume over quota should fail
 	err = svc.ConsumeTranslationSeconds(ctx, 1, 2000) // limit is 1800
-	if err != ErrTranslationQuotaExhausted {
+	if !errors.Is(err, ErrTranslationQuotaExhausted) {
 		t.Errorf("expected ErrTranslationQuotaExhausted, got %v", err)
 	}
 

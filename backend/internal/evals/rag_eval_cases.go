@@ -21,8 +21,10 @@ func runRAGEvalCase(ctx context.Context, index int, item RAGEvalCase, opts RAGEv
 	if err != nil {
 		return RAGEvalResult{}, err
 	}
+	// #nosec G115 -- index is a non-negative loop counter for eval cases.
 	orgID := uint64(100 + index)
 	userID := uint64(7)
+	// #nosec G115 -- index is a non-negative loop counter for eval cases.
 	conversationID := uint64(1000 + index)
 	if err := seedRAGEvalScope(db, orgID, userID, conversationID); err != nil {
 		return RAGEvalResult{}, err

@@ -191,7 +191,7 @@ func (p OpenAICompatiblePlanner) callChatCompletions(ctx context.Context, prompt
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: build request: %v", ErrPlannerUnavailable, err)
+		return "", nil, fmt.Errorf("%w: build request: %w", ErrPlannerUnavailable, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if p.apiKey != "" {
@@ -206,9 +206,9 @@ func (p OpenAICompatiblePlanner) callChatCompletions(ctx context.Context, prompt
 		if errors.Is(err, context.Canceled) {
 			return "", nil, err
 		}
-		return "", nil, fmt.Errorf("%w: request failed: %v", ErrPlannerUnavailable, err)
+		return "", nil, fmt.Errorf("%w: request failed: %w", ErrPlannerUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if requestPayload["stream"] == true {
 		return p.handleStreamingResponse(ctx, resp, prompt.OnToken)
@@ -216,7 +216,7 @@ func (p OpenAICompatiblePlanner) callChatCompletions(ctx context.Context, prompt
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: read response: %v", ErrPlannerUnavailable, err)
+		return "", nil, fmt.Errorf("%w: read response: %w", ErrPlannerUnavailable, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", nil, fmt.Errorf("%w: status %d: %s", ErrPlannerUnavailable, resp.StatusCode, CompactSnippet(string(respBody), 240))
@@ -237,7 +237,7 @@ func (p OpenAICompatiblePlanner) callChatCompletions(ctx context.Context, prompt
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(respBody, &decoded); err != nil {
-		return "", nil, fmt.Errorf("%w: decode response: %v", ErrPlannerUnavailable, err)
+		return "", nil, fmt.Errorf("%w: decode response: %w", ErrPlannerUnavailable, err)
 	}
 	if len(decoded.Choices) == 0 {
 		return "", nil, fmt.Errorf("%w: empty choices", ErrPlannerUnavailable)
@@ -294,7 +294,7 @@ func (p OpenAICompatiblePlanner) CreateEmbedding(ctx context.Context, text strin
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, err
@@ -335,7 +335,7 @@ func openAICompatibleChatCompletionsURL(baseURL string) (string, error) {
 func decodePlannerOutput(raw string) (PlannerOutput, error) {
 	var output PlannerOutput
 	if err := json.Unmarshal([]byte(raw), &output); err != nil {
-		return PlannerOutput{}, fmt.Errorf("%w: decode planner output: %v", ErrPlannerUnavailable, err)
+		return PlannerOutput{}, fmt.Errorf("%w: decode planner output: %w", ErrPlannerUnavailable, err)
 	}
 	output.Summary = strings.TrimSpace(output.Summary)
 	output.NextStep = strings.TrimSpace(output.NextStep)
@@ -382,7 +382,7 @@ func (p OpenAICompatiblePlanner) handleStreamingResponse(ctx context.Context, re
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return "", nil, fmt.Errorf("%w: read stream: %v", ErrPlannerUnavailable, err)
+		return "", nil, fmt.Errorf("%w: read stream: %w", ErrPlannerUnavailable, err)
 	}
 
 	return builder.String(), nil, nil

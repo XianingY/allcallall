@@ -63,9 +63,8 @@ func TestBandwidthManagerMarkUnmarkForwarded(t *testing.T) {
 	m := NewBandwidthManager()
 	m.MarkForwarded("sub1", "vid1")
 	m.MarkForwarded("sub1", "vid2")
-	if m.ForwardBudget("sub1") == 0 {
-		// budget is 0 only because no downlink estimate; just ensure no panic
-		// and that unmarking works.
+	if budget := m.ForwardBudget("sub1"); budget != 0 {
+		t.Fatalf("expected zero budget without a downlink estimate, got %d", budget)
 	}
 	m.UnmarkForwarded("sub1", "vid1")
 	m.UnmarkForwarded("sub1", "vid2")

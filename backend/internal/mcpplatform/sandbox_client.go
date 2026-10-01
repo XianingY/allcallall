@@ -116,7 +116,7 @@ func (c *HTTPSandboxClient) do(req *http.Request, requestDigest string, output a
 	if err != nil {
 		return fmt.Errorf("call sandbox: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	limited := io.LimitReader(resp.Body, int64(sandboxResponseLimit)+1)
 	responseBody, err := io.ReadAll(limited)
 	if err != nil {

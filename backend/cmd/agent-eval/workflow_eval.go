@@ -59,6 +59,7 @@ type WorkflowEvalReport struct {
 }
 
 func IsWorkflowEvalFixture(path string) bool {
+	// #nosec G304 -- eval fixtures are operator-supplied local files.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return false
@@ -67,6 +68,7 @@ func IsWorkflowEvalFixture(path string) bool {
 }
 
 func LoadWorkflowEvalCases(path string) ([]WorkflowEvalCase, error) {
+	// #nosec G304 -- eval fixtures are operator-supplied local files.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -101,8 +103,10 @@ func runWorkflowEvalCase(ctx context.Context, index int, item WorkflowEvalCase) 
 	if err != nil {
 		return WorkflowEvalResult{}, err
 	}
+	// #nosec G115 -- index is a non-negative loop counter for eval cases.
 	orgID := uint64(200 + index)
 	userID := uint64(7)
+	// #nosec G115 -- index is a non-negative loop counter for eval cases.
 	conversationID := uint64(2000 + index)
 	if err := seedWorkflowEvalScope(db, orgID, userID, conversationID, item); err != nil {
 		return WorkflowEvalResult{}, err

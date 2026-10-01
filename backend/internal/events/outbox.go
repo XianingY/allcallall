@@ -168,7 +168,7 @@ func (s *Store) ClaimPendingForEvents(ctx context.Context, limit int, workerID s
 		}
 		selectSQL += " ORDER BY id ASC LIMIT ?"
 		args = append(args, limit)
-		if s.db.Dialector.Name() == "mysql" {
+		if s.db.Name() == "mysql" {
 			selectSQL += " FOR UPDATE SKIP LOCKED"
 		}
 

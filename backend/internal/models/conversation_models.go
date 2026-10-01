@@ -3,8 +3,13 @@ package models
 import "time"
 
 type Conversation struct {
-	ID                 uint64     `gorm:"primaryKey;autoIncrement"`
-	OrganizationID     uint64     `gorm:"not null;index"`
+	// idx_conversations_org_last_message_updated serves ListConversations:
+	// WHERE organization_id + member/user filters, ORDER BY last_message_at DESC,
+	// updated_at DESC. It replaces the former single-column organization index;
+	// its leading column still supports organization-only lookups without a
+	// second index to maintain on every conversation write.
+	ID                 uint64     `gorm:"primaryKey;autoIncrement;index:idx_conversations_org_last_message_updated,priority:4"`
+	OrganizationID     uint64     `gorm:"not null;index:idx_conversations_org_last_message_updated,priority:1"`
 	TeamID             *uint64    `gorm:"index"`
 	RoomID             *uint64    `gorm:"index"`
 	Type               string     `gorm:"size:32;not null;index"`
@@ -16,9 +21,9 @@ type Conversation struct {
 	ContactID          *uint64    `gorm:"index"`
 	LastInternalNoteAt *time.Time `gorm:"index"`
 	CreatedBy          uint64     `gorm:"not null;index"`
-	LastMessageAt      *time.Time `gorm:"index"`
+	LastMessageAt      *time.Time `gorm:"index:idx_conversations_org_last_message_updated,priority:2"`
 	CreatedAt          time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt          time.Time  `gorm:"autoUpdateTime"`
+	UpdatedAt          time.Time  `gorm:"autoUpdateTime;index:idx_conversations_org_last_message_updated,priority:3"`
 }
 
 func (Conversation) TableName() string {
@@ -54,12 +59,19 @@ func (ConversationMember) TableName() string {
 }
 
 type Message struct {
-	ID               uint64     `gorm:"primaryKey;autoIncrement"`
-	OrganizationID   uint64     `gorm:"not null;index"`
-	ConversationID   uint64     `gorm:"not null;index"`
+	// idx_messages_org_conversation_id 覆盖消息页查询：WHERE organization_id
+	// + conversation_id，ORDER BY id（游标 BeforeID/AfterID 也落在 id 上）。
+	// id 显式入索引，SQLite（测试库）不会像 InnoDB 那样隐式把主键追加到二级索引。
+	//
+	// idx_messages_conversation_type_created 覆盖 latestConversationFollowup
+	// （会话详情页每次执行）：WHERE conversation_id + type ORDER BY created_at DESC。
+	// 没有它时要扫描整个会话的消息再过滤排序，而 call_event 只占极少数。
+	ID               uint64     `gorm:"primaryKey;autoIncrement;index:idx_messages_org_conversation_id,priority:3"`
+	OrganizationID   uint64     `gorm:"not null;index;index:idx_messages_org_conversation_id,priority:1"`
+	ConversationID   uint64     `gorm:"not null;index;index:idx_messages_org_conversation_id,priority:2;index:idx_messages_conversation_type_created,priority:1"`
 	SenderID         uint64     `gorm:"not null;index"`
 	ReplyToMessageID *uint64    `gorm:"index"`
-	Type             string     `gorm:"size:32;not null;index"`
+	Type             string     `gorm:"size:32;not null;index;index:idx_messages_conversation_type_created,priority:2"`
 	Body             string     `gorm:"type:text"`
 	MetadataJSON     string     `gorm:"type:longtext"`
 	EditedAt         *time.Time `gorm:"index"`
@@ -95,7 +107,7 @@ type Message struct {
 	// 组织 owner/admin 可擦除组织内任意消息（合规下架 / 组织注销）。这一列是事后审计的唯一依据。
 	// ErasedBy records who performed the erasure; differs from the sender on admin takedowns.
 	ErasedBy  *uint64   `gorm:"index"`
-	CreatedAt time.Time `gorm:"autoCreateTime;index"`
+	CreatedAt time.Time `gorm:"autoCreateTime;index;index:idx_messages_conversation_type_created,priority:3"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 }
 
@@ -117,14 +129,17 @@ func (MessageRead) TableName() string {
 
 // ChatEvent stores per-recipient realtime events for websocket catch-up after reconnects.
 type ChatEvent struct {
-	ID             uint64    `gorm:"primaryKey;autoIncrement"`
-	OrganizationID uint64    `gorm:"not null;index:idx_chat_event_recipient,priority:1"`
-	UserID         uint64    `gorm:"not null;index:idx_chat_event_recipient,priority:2"`
-	Sequence       uint64    `gorm:"not null;default:0;index"`
-	Event          string    `gorm:"size:96;not null;index"`
-	DedupKey       *string   `gorm:"size:160;uniqueIndex"`
-	PayloadJSON    string    `gorm:"type:longtext"`
-	CreatedAt      time.Time `gorm:"autoCreateTime;index:idx_chat_event_recipient,priority:3"`
+	ID             uint64  `gorm:"primaryKey;autoIncrement"`
+	OrganizationID uint64  `gorm:"not null;index:idx_chat_event_recipient,priority:1"`
+	UserID         uint64  `gorm:"not null;index:idx_chat_event_recipient,priority:2"`
+	Sequence       uint64  `gorm:"not null;default:0;index"`
+	Event          string  `gorm:"size:96;not null;index"`
+	DedupKey       *string `gorm:"size:160;uniqueIndex"`
+	PayloadJSON    string  `gorm:"type:longtext"`
+	// created_at 同时是复合索引的尾列与独立索引：复合形态服务回放查询
+	// (org + user + created_at)；独立索引服务留存清理 (WHERE created_at < ?)，
+	// 后者无法利用以 org/user 开头的复合索引，缺它会退化为全表扫描。
+	CreatedAt time.Time `gorm:"autoCreateTime;index:idx_chat_event_recipient,priority:3;index"`
 }
 
 func (ChatEvent) TableName() string {
@@ -182,8 +197,12 @@ func (ConversationPin) TableName() string {
 }
 
 type OrganizationAuditEvent struct {
-	ID             uint64    `gorm:"primaryKey;autoIncrement"`
-	OrganizationID uint64    `gorm:"not null;index"`
+	// idx_organization_audit_events_org_id supports organization-scoped audit
+	// listings ordered by id DESC. Its leading organization column replaces the
+	// former single-column organization index; created_at remains separate for
+	// the retention purge.
+	ID             uint64    `gorm:"primaryKey;autoIncrement;index:idx_organization_audit_events_org_id,priority:2"`
+	OrganizationID uint64    `gorm:"not null;index:idx_organization_audit_events_org_id,priority:1"`
 	ActorUserID    uint64    `gorm:"not null;index"`
 	Action         string    `gorm:"size:96;not null;index"`
 	TargetType     string    `gorm:"size:64;not null;index"`

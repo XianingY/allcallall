@@ -103,7 +103,6 @@ func main() {
 func (s mcpServer) serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	scanner := bufio.NewScanner(in)
 	writer := bufio.NewWriter(out)
-	defer writer.Flush()
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {

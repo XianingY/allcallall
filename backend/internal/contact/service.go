@@ -117,20 +117,7 @@ func (s *Service) ListWithProfiles(ctx context.Context, ownerID uint64) ([]Conta
 	}
 	result := make([]ContactRecord, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, ContactRecord{
-			User:                  row.User,
-			Company:               row.Company,
-			Role:                  row.Role,
-			Timezone:              row.Timezone,
-			DefaultSourceLang:     row.DefaultSourceLang,
-			DefaultTargetLang:     row.DefaultTargetLang,
-			RelationshipStatus:    row.RelationshipStatus,
-			PreferredContactStart: row.PreferredContactStart,
-			PreferredContactEnd:   row.PreferredContactEnd,
-			PreferredContactDays:  row.PreferredContactDays,
-			LastFollowupState:     row.LastFollowupState,
-			Note:                  row.Note,
-		})
+		result = append(result, ContactRecord(row))
 	}
 	return result, nil
 }

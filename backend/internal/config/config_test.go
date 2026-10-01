@@ -191,7 +191,7 @@ func TestLoadDefaultPathAndEmptyJWTSecret(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(cwd) })
 
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "configs"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "configs"), 0o750); err != nil {
 		t.Fatalf("mkdir failed: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "configs", "config.yaml"), []byte(`

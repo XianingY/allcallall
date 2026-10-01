@@ -95,6 +95,7 @@ func WriteFrame(writer io.Writer, kind byte, payload []byte) error {
 	}
 	var header [5]byte
 	header[0] = kind
+	// #nosec G115 -- MaxFrameSize is bounded well below uint32 and the length was just checked.
 	binary.BigEndian.PutUint32(header[1:], uint32(len(payload)))
 	if err := writeAll(writer, header[:]); err != nil {
 		return err

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -161,8 +163,12 @@ func run(ctx context.Context, cfg benchConfig, writer io.Writer) error {
 		expectedPerClient = cfg.ReplayLimit
 	}
 
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return fmt.Errorf("generate bench jwt secret: %w", err)
+	}
 	jwtManager, err := auth.NewManager(auth.Config{
-		Secret:         "chat-ws-replay-bench-secret",
+		Secret:         base64.StdEncoding.EncodeToString(secret),
 		Issuer:         "allcallall-interview-bench",
 		AccessTokenTTL: time.Hour,
 	})
@@ -279,7 +285,7 @@ func runClient(wsURL string, expected int, timeout time.Duration) clientResult {
 	if err != nil {
 		return clientResult{err: err}
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	result := clientResult{upgradeOK: true}
 	deadline := time.Now().Add(timeout)
 	_ = conn.SetReadDeadline(deadline)

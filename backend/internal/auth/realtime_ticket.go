@@ -102,12 +102,12 @@ func RealtimeMiddleware(tickets *RealtimeTicketService, validator TokenValidator
 			token = strings.TrimSpace(c.Query("token"))
 		}
 		if token == "" {
-			abortAuthError(c, authTokenMissingCode, "missing realtime ticket or bearer token")
+			abortAuthError(c, authBearerMissingCode, "missing realtime ticket or bearer token")
 			return
 		}
 		claims, err := validator.ValidateAccessToken(c.Request.Context(), token)
 		if err != nil {
-			abortAuthError(c, authTokenInvalidCode, "invalid token")
+			abortAuthError(c, authBearerInvalidCode, "invalid token")
 			return
 		}
 		SetClaimsToContext(c, claims)

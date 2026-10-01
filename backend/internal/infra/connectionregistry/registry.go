@@ -91,7 +91,7 @@ func (r *RedisRegistry) ListActive(ctx context.Context) ([]Node, error) {
 	stale := make([]interface{}, 0)
 	for _, id := range ids {
 		raw, err := r.client.Get(ctx, r.nodeKey(id)).Result()
-		if err == redis.Nil {
+		if errors.Is(err, redis.Nil) {
 			stale = append(stale, id)
 			continue
 		}

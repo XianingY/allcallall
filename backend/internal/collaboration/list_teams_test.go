@@ -77,7 +77,7 @@ func TestListTeamsAvoidsNPlusOneAndReturnsCounts(t *testing.T) {
 
 	byName := make(map[string]TeamView, len(teams))
 	for _, tm := range teams {
-		byName[tm.Team.Name] = tm
+		byName[tm.Name] = tm
 	}
 	for i := 0; i < teamCount; i++ {
 		name := "Team-" + strconv.Itoa(i)

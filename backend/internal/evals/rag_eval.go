@@ -105,6 +105,7 @@ type RAGEvalOptions struct {
 }
 
 func LoadRAGEvalCases(path string) ([]RAGEvalCase, error) {
+	// #nosec G304 -- eval fixtures are operator-supplied local files.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

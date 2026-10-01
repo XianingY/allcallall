@@ -2,6 +2,7 @@ package commerce
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -57,7 +58,7 @@ func (r *Repository) UpsertLegalAcceptance(ctx context.Context, userID uint64, t
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing models.LegalAcceptance
 		err := tx.Where("user_id = ?", userID).Take(&existing).Error
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return tx.Create(record).Error
 		}
 		if err != nil {

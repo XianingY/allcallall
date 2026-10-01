@@ -394,9 +394,9 @@ func (r *PythonLangGraphRuntime) post(ctx context.Context, path string, input an
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return WorkflowRuntimeResponse{}, fmt.Errorf("%w: %v", ErrWorkflowRuntimeUnavailable, err)
+		return WorkflowRuntimeResponse{}, fmt.Errorf("%w: %w", ErrWorkflowRuntimeUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, (4<<20)+1))
 	if readErr != nil {
 		return WorkflowRuntimeResponse{}, readErr
@@ -466,9 +466,4 @@ func ensureJSONEOF(decoder *json.Decoder) error {
 		return err
 	}
 	return nil
-}
-
-func workflowRuntimeStrictFromEnv() bool {
-	raw := strings.TrimSpace(strings.ToLower(os.Getenv("PY_AGENT_RUNTIME_STRICT")))
-	return raw == "" || raw == "1" || raw == "true" || raw == "yes"
 }

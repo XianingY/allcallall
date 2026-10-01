@@ -14,11 +14,14 @@ import (
 	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/allcallall/backend/internal/models"
+	"github.com/allcallall/backend/internal/testutil"
 )
 
 func TestCurrentSchemaVersionIncludesDurableSandboxReceipts(t *testing.T) {
-	if currentSchemaVersion != 14 {
-		t.Fatalf("current schema version=%d want=14", currentSchemaVersion)
+	if currentSchemaVersion != 20 {
+		t.Fatalf("current schema version=%d want=20", currentSchemaVersion)
 	}
 	migrations := map[string]map[string][]string{
 		"000003_workflow_runtime_resume": {
@@ -49,6 +52,30 @@ func TestCurrentSchemaVersionIncludesDurableSandboxReceipts(t *testing.T) {
 			"up":   {"real_name", "identity_verified", "require_identity_verification"},
 			"down": {"real_name", "identity_verified", "require_identity_verification"},
 		},
+		"000015_messages_page_index": {
+			"up":   {"idx_messages_org_conversation_id"},
+			"down": {"idx_messages_org_conversation_id"},
+		},
+		"000016_messages_call_event_index": {
+			"up":   {"idx_messages_conversation_type_created"},
+			"down": {"idx_messages_conversation_type_created"},
+		},
+		"000017_chat_events_created_index": {
+			"up":   {"idx_chat_events_created_at"},
+			"down": {"idx_chat_events_created_at"},
+		},
+		"000018_conversations_list_order_index": {
+			"up":   {"idx_conversations_org_last_message_updated", "idx_conversations_organization_id"},
+			"down": {"idx_conversations_org_last_message_updated", "idx_conversations_organization_id"},
+		},
+		"000019_call_rooms_org_updated_index": {
+			"up":   {"idx_call_rooms_org_updated_id", "idx_call_rooms_organization_id"},
+			"down": {"idx_call_rooms_org_updated_id", "idx_call_rooms_organization_id"},
+		},
+		"000020_admin_recent_indexes": {
+			"up":   {"idx_recording_sessions_org_updated_id", "idx_organization_audit_events_org_id", "idx_recording_sessions_organization_id", "idx_organization_audit_events_organization_id"},
+			"down": {"idx_recording_sessions_org_updated_id", "idx_organization_audit_events_org_id", "idx_recording_sessions_organization_id", "idx_organization_audit_events_organization_id"},
+		},
 	}
 	for migration, directions := range migrations {
 		for direction, fields := range directions {
@@ -64,6 +91,59 @@ func TestCurrentSchemaVersionIncludesDurableSandboxReceipts(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestMessagePageCompositeIndexBootstrap(t *testing.T) {
+	db := testutil.OpenSQLite(t, "message_page_index.db")
+	testutil.AutoMigrateAll(t, db)
+	if !db.Migrator().HasIndex(&models.Message{}, "idx_messages_org_conversation_id") {
+		t.Fatal("fresh bootstrap must create idx_messages_org_conversation_id for the message page query")
+	}
+	if !db.Migrator().HasIndex(&models.Message{}, "idx_messages_conversation_type_created") {
+		t.Fatal("fresh bootstrap must create idx_messages_conversation_type_created for the follow-up lookup")
+	}
+	if !db.Migrator().HasIndex(&models.ChatEvent{}, "idx_chat_events_created_at") {
+		t.Fatal("fresh bootstrap must create idx_chat_events_created_at for the realtime retention purge")
+	}
+}
+
+func TestConversationListOrderIndexBootstrap(t *testing.T) {
+	db := testutil.OpenSQLite(t, "conversation_list_order_index.db")
+	testutil.AutoMigrateAll(t, db)
+	if !db.Migrator().HasIndex(&models.Conversation{}, "idx_conversations_org_last_message_updated") {
+		t.Fatal("fresh bootstrap must create the organization + list-order index for ListConversations")
+	}
+	if db.Migrator().HasIndex(&models.Conversation{}, "idx_conversations_organization_id") {
+		t.Fatal("the single-column organization index is redundant once the composite list-order index exists")
+	}
+}
+
+func TestCallRoomOrganizationOrderIndexBootstrap(t *testing.T) {
+	db := testutil.OpenSQLite(t, "call_room_org_order_index.db")
+	testutil.AutoMigrateAll(t, db)
+	if !db.Migrator().HasIndex(&models.CallRoom{}, "idx_call_rooms_org_updated_id") {
+		t.Fatal("fresh bootstrap must create the organization + room-order index for recent room listings")
+	}
+	if db.Migrator().HasIndex(&models.CallRoom{}, "idx_call_rooms_organization_id") {
+		t.Fatal("the single-column organization index is redundant once the composite room-order index exists")
+	}
+}
+
+func TestAdminRecentOrderIndexesBootstrap(t *testing.T) {
+	db := testutil.OpenSQLite(t, "admin_recent_order_indexes.db")
+	testutil.AutoMigrateAll(t, db)
+	if !db.Migrator().HasIndex(&models.RecordingSession{}, "idx_recording_sessions_org_updated_id") {
+		t.Fatal("fresh bootstrap must create the recording-session order index")
+	}
+	if !db.Migrator().HasIndex(&models.OrganizationAuditEvent{}, "idx_organization_audit_events_org_id") {
+		t.Fatal("fresh bootstrap must create the audit-event order index")
+	}
+	if db.Migrator().HasIndex(&models.RecordingSession{}, "idx_recording_sessions_organization_id") {
+		t.Fatal("the recording-session organization index is redundant once the order index exists")
+	}
+	if db.Migrator().HasIndex(&models.OrganizationAuditEvent{}, "idx_organization_audit_events_organization_id") {
+		t.Fatal("the audit-event organization index is redundant once the order index exists")
 	}
 }
 
@@ -239,6 +319,152 @@ func TestMySQLSandboxReceiptMigrationUpDownUp(t *testing.T) {
 	assertSandboxReceiptV4Schema(t, sqlDB, databaseName)
 }
 
+func TestMySQLCallRoomOrderMigrationUpDownUp(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ALLCALLALL_TEST_MYSQL_DSN"))
+	if dsn == "" {
+		t.Skip("ALLCALLALL_TEST_MYSQL_DSN is not configured")
+	}
+
+	databaseName := "allcallall_call_room_migration_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	adminDB, testDSN := createMigrationTestDatabase(t, dsn, databaseName)
+	t.Cleanup(func() {
+		if _, err := adminDB.Exec("DROP DATABASE IF EXISTS `" + databaseName + "`"); err != nil {
+			t.Errorf("drop isolated call-room migration database: %v", err)
+		}
+	})
+
+	gormDB, err := gorm.Open(gormmysql.Open(testDSN), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatalf("open isolated call-room migration database with gorm: %v", err)
+	}
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		t.Fatalf("get isolated call-room migration sql.DB: %v", err)
+	}
+	driver, err := migratemysql.WithInstance(sqlDB, &migratemysql.Config{})
+	if err != nil {
+		t.Fatalf("create call-room migration driver: %v", err)
+	}
+	migrationPath, err := filepath.Abs(filepath.Join("..", "..", "migrations"))
+	if err != nil {
+		t.Fatalf("resolve migration directory: %v", err)
+	}
+	migration, err := migrate.NewWithDatabaseInstance("file://"+filepath.ToSlash(migrationPath), "mysql", driver)
+	if err != nil {
+		t.Fatalf("create call-room migration runner: %v", err)
+	}
+	t.Cleanup(func() {
+		sourceErr, databaseErr := migration.Close()
+		if sourceErr != nil {
+			t.Errorf("close migration source: %v", sourceErr)
+		}
+		if databaseErr != nil {
+			t.Errorf("close call-room migration database: %v", databaseErr)
+		}
+	})
+
+	bootstrapped, err := bootstrapMySQLSchema(gormDB, migration)
+	if err != nil {
+		t.Fatalf("bootstrap isolated call-room migration database: %v", err)
+	}
+	if !bootstrapped {
+		t.Fatal("expected empty call-room migration database to be bootstrapped")
+	}
+	assertMigrationVersion(t, migration, 19)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "call_rooms", "idx_call_rooms_org_updated_id", true)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "call_rooms", "idx_call_rooms_organization_id", false)
+
+	if err := migration.Migrate(18); err != nil {
+		t.Fatalf("roll back call-room order index: %v", err)
+	}
+	assertMigrationVersion(t, migration, 18)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "call_rooms", "idx_call_rooms_org_updated_id", false)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "call_rooms", "idx_call_rooms_organization_id", true)
+
+	if err := migration.Migrate(19); err != nil {
+		t.Fatalf("reapply call-room order index: %v", err)
+	}
+	assertMigrationVersion(t, migration, 19)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "call_rooms", "idx_call_rooms_org_updated_id", true)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "call_rooms", "idx_call_rooms_organization_id", false)
+}
+
+func TestMySQLAdminRecentIndexesMigrationUpDownUp(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ALLCALLALL_TEST_MYSQL_DSN"))
+	if dsn == "" {
+		t.Skip("ALLCALLALL_TEST_MYSQL_DSN is not configured")
+	}
+
+	databaseName := "allcallall_admin_recent_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	adminDB, testDSN := createMigrationTestDatabase(t, dsn, databaseName)
+	t.Cleanup(func() {
+		if _, err := adminDB.Exec("DROP DATABASE IF EXISTS `" + databaseName + "`"); err != nil {
+			t.Errorf("drop isolated admin-recent migration database: %v", err)
+		}
+	})
+
+	gormDB, err := gorm.Open(gormmysql.Open(testDSN), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatalf("open isolated admin-recent migration database with gorm: %v", err)
+	}
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		t.Fatalf("get isolated admin-recent migration sql.DB: %v", err)
+	}
+	driver, err := migratemysql.WithInstance(sqlDB, &migratemysql.Config{})
+	if err != nil {
+		t.Fatalf("create admin-recent migration driver: %v", err)
+	}
+	migrationPath, err := filepath.Abs(filepath.Join("..", "..", "migrations"))
+	if err != nil {
+		t.Fatalf("resolve migration directory: %v", err)
+	}
+	migration, err := migrate.NewWithDatabaseInstance("file://"+filepath.ToSlash(migrationPath), "mysql", driver)
+	if err != nil {
+		t.Fatalf("create admin-recent migration runner: %v", err)
+	}
+	t.Cleanup(func() {
+		sourceErr, databaseErr := migration.Close()
+		if sourceErr != nil {
+			t.Errorf("close migration source: %v", sourceErr)
+		}
+		if databaseErr != nil {
+			t.Errorf("close admin-recent migration database: %v", databaseErr)
+		}
+	})
+
+	bootstrapped, err := bootstrapMySQLSchema(gormDB, migration)
+	if err != nil {
+		t.Fatalf("bootstrap isolated admin-recent migration database: %v", err)
+	}
+	if !bootstrapped {
+		t.Fatal("expected empty admin-recent migration database to be bootstrapped")
+	}
+	assertMigrationVersion(t, migration, 20)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "recording_sessions", "idx_recording_sessions_org_updated_id", true)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "organization_audit_events", "idx_organization_audit_events_org_id", true)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "recording_sessions", "idx_recording_sessions_organization_id", false)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "organization_audit_events", "idx_organization_audit_events_organization_id", false)
+
+	if err := migration.Migrate(19); err != nil {
+		t.Fatalf("roll back admin recent indexes: %v", err)
+	}
+	assertMigrationVersion(t, migration, 19)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "recording_sessions", "idx_recording_sessions_org_updated_id", false)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "organization_audit_events", "idx_organization_audit_events_org_id", false)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "recording_sessions", "idx_recording_sessions_organization_id", true)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "organization_audit_events", "idx_organization_audit_events_organization_id", true)
+
+	if err := migration.Migrate(20); err != nil {
+		t.Fatalf("reapply admin recent indexes: %v", err)
+	}
+	assertMigrationVersion(t, migration, 20)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "recording_sessions", "idx_recording_sessions_org_updated_id", true)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "organization_audit_events", "idx_organization_audit_events_org_id", true)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "recording_sessions", "idx_recording_sessions_organization_id", false)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "organization_audit_events", "idx_organization_audit_events_organization_id", false)
+}
+
 func createMigrationTestDatabase(t *testing.T, dsn, databaseName string) (*sql.DB, string) {
 	t.Helper()
 
@@ -406,6 +632,25 @@ func assertMySQLIndex(t *testing.T, db *sql.DB, databaseName, table, index, want
 	}
 	if column != wantColumn || nonUnique != 1 {
 		t.Fatalf("index %s.%s=(column=%s, non_unique=%d) want=(column=%s, non_unique=1)", table, index, column, nonUnique, wantColumn)
+	}
+}
+
+func assertMySQLIndexPresence(t *testing.T, db *sql.DB, databaseName, table, index string, wantPresent bool) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`
+		SELECT COUNT(DISTINCT INDEX_NAME)
+		FROM information_schema.STATISTICS
+		WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+		databaseName, table, index,
+	).Scan(&count); err != nil {
+		t.Fatalf("read index presence %s.%s: %v", table, index, err)
+	}
+	if wantPresent && count != 1 {
+		t.Fatalf("index %s.%s count=%d, want present", table, index, count)
+	}
+	if !wantPresent && count != 0 {
+		t.Fatalf("index %s.%s count=%d, want absent", table, index, count)
 	}
 }
 

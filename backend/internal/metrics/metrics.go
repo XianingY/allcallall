@@ -62,8 +62,8 @@ func (s *CounterStore) RenderPrometheus() string {
 		if strings.HasSuffix(key, "_backlog") {
 			metricType = "gauge"
 		}
-		builder.WriteString(fmt.Sprintf("# TYPE %s %s\n", key, metricType))
-		builder.WriteString(fmt.Sprintf("%s %d\n", key, snapshot[key]))
+		fmt.Fprintf(&builder, "# TYPE %s %s\n", key, metricType)
+		fmt.Fprintf(&builder, "%s %d\n", key, snapshot[key])
 	}
 	return builder.String()
 }

@@ -53,6 +53,13 @@ const renderPage = () =>
     </QueryClientProvider>,
   );
 
+// Vitest runs the full web suite with substantial concurrent setup work.  The
+// mocked API resolves immediately, but the default one-second waitFor timeout
+// is too tight when a worker is CPU-starved and turns this into a suite-level
+// flake.  Give rendering assertions enough time to observe the resolved query.
+const waitForRendered = (assertion: () => void) =>
+  waitFor(assertion, { timeout: 5_000 });
+
 describe("RecordingsPage", () => {
   afterEach(cleanup);
 
@@ -65,7 +72,7 @@ describe("RecordingsPage", () => {
     );
     renderPage();
 
-    await waitFor(() =>
+    await waitForRendered(() =>
       expect(screen.getByText("会议录音 #101")).toBeInTheDocument(),
     );
     expect(screen.getByText("共 2 个录音存档")).toBeInTheDocument();
@@ -78,7 +85,7 @@ describe("RecordingsPage", () => {
     });
     renderPage();
 
-    await waitFor(() =>
+    await waitForRendered(() =>
       expect(listRecordingsMock).toHaveBeenCalledWith({ limit: 50, offset: 0 }),
     );
   });
@@ -90,7 +97,7 @@ describe("RecordingsPage", () => {
     });
     renderPage();
 
-    await waitFor(() =>
+    await waitForRendered(() =>
       expect(screen.getByText("暂无录音存档")).toBeInTheDocument(),
     );
     expect(screen.queryByText(/共 0 个录音存档/)).not.toBeInTheDocument();
@@ -108,16 +115,16 @@ describe("RecordingsPage", () => {
     });
     renderPage();
 
-    await waitFor(() =>
+    await waitForRendered(() =>
       expect(screen.getByText("会议录音 #101")).toBeInTheDocument(),
     );
     const loadMore = screen.getByRole("button", { name: "加载更多" });
     fireEvent.click(loadMore);
 
-    await waitFor(() =>
+    await waitForRendered(() =>
       expect(listRecordingsMock).toHaveBeenCalledWith({ limit: 50, offset: 50 }),
     );
-    await waitFor(() =>
+    await waitForRendered(() =>
       expect(screen.getByText("会议录音 #102")).toBeInTheDocument(),
     );
     // The first page is still on screen: pages are appended, not replaced.

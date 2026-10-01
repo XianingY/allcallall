@@ -80,6 +80,44 @@ func StartCleanupWorker(ctx context.Context, log zerolog.Logger, collaborationSv
 	StartRefreshSessionCleanupWorker(ctx, log, refreshSessions)
 	StartMessageRetentionWorker(ctx, log, collaborationSvc)
 	StartAuditRetentionWorker(ctx, log, collaborationSvc)
+	StartRealtimeEventRetentionWorker(ctx, log, collaborationSvc)
+}
+
+// StartRealtimeEventRetentionWorker 周期性清理超过回放窗口的 chat_events。
+// 该表只服务 websocket 重连回放，事件被客户端游标越过或早于窗口后即无用途；
+// 若不清理则表只增不删（每条实时事件按收件人各一行），最终拖垮库与备份。
+// 默认保留 7 天、每小时清理一次，可用环境变量调整或关闭（<=0 禁用）。
+// StartRealtimeEventRetentionWorker periodically prunes chat_events past the replay window.
+func StartRealtimeEventRetentionWorker(ctx context.Context, log zerolog.Logger, collaborationSvc *collaboration.Service) {
+	if collaborationSvc == nil {
+		return
+	}
+	retentionDays := intFromEnvAllowZero("CHAT_EVENT_RETENTION_DAYS", 7)
+	if retentionDays <= 0 {
+		log.Info().Msg("realtime event retention worker disabled (retention <= 0)")
+		return
+	}
+	intervalMinutes := intFromEnv("CHAT_EVENT_RETENTION_CLEANUP_INTERVAL_MIN", 60)
+	batchLimit := intFromEnv("CHAT_EVENT_RETENTION_CLEANUP_BATCH_LIMIT", 500)
+	interval := time.Duration(intervalMinutes) * time.Minute
+	log.Info().
+		Int("retention_days", retentionDays).
+		Int("interval_min", intervalMinutes).
+		Int("batch_limit", batchLimit).
+		Msg("realtime event retention worker enabled")
+	go runTicker(ctx, interval, func() {
+		runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		defer cancel()
+		before := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour)
+		purged, err := collaborationSvc.PurgeExpiredRealtimeEvents(runCtx, before, batchLimit)
+		if err != nil {
+			log.Error().Err(err).Msg("realtime event retention worker failed")
+			return
+		}
+		if purged > 0 {
+			log.Info().Int64("purged", purged).Msg("realtime event retention worker completed")
+		}
+	})
 }
 
 // StartAuditRetentionWorker 周期性清理超过最短留存期的组织审计事件。

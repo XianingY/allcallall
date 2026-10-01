@@ -108,10 +108,7 @@ func (s *Service) ListOrganizations(ctx context.Context, userID uint64) ([]Organ
 	}
 	result := make([]OrganizationSummary, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, OrganizationSummary{
-			Organization: row.Organization,
-			Role:         row.Role,
-		})
+		result = append(result, OrganizationSummary(row))
 	}
 	return result, nil
 }

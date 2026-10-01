@@ -2,6 +2,7 @@ package commerce
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -90,7 +91,7 @@ func TestOrgBillingPlanAndQuota(t *testing.T) {
 	if err := svc.RecordOrganizationUsage(ctx, 10, "translation_seconds", 50); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.RecordOrganizationUsage(ctx, 10, "translation_seconds", 60); err != ErrQuotaExceeded {
+	if err := svc.RecordOrganizationUsage(ctx, 10, "translation_seconds", 60); !errors.Is(err, ErrQuotaExceeded) {
 		t.Fatalf("expected ErrQuotaExceeded, got %v", err)
 	}
 

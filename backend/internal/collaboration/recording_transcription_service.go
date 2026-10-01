@@ -288,7 +288,7 @@ func (s *Service) materializeRecordingForTranscription(ctx context.Context, obje
 			Err:       err,
 		}
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	if extension == "" || len(extension) > 10 {
 		extension = ".audio"
 	}

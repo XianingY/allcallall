@@ -77,7 +77,7 @@ func TestGenerateAndParseAccessToken(t *testing.T) {
 	if claims.Subject != "user@example.com" {
 		t.Fatalf("unexpected subject: got %q", claims.Subject)
 	}
-	if claims.ExpiresAt == nil || !claims.ExpiresAt.Time.After(before) {
+	if claims.ExpiresAt == nil || !claims.ExpiresAt.After(before) {
 		t.Fatalf("expected future expiration, got %+v", claims.ExpiresAt)
 	}
 }

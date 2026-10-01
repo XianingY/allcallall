@@ -3,14 +3,9 @@
     "name": "AllCallAll",
     "slug": "allcallall",
     "version": "1.0.0",
-    "sdkVersion": "51.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "allcallall",
-    "splash": {
-      "backgroundColor": "#ffffff",
-      "resizeMode": "contain"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -41,6 +36,11 @@
       "eas": {
         "projectId": "c285bf78-61df-433a-9504-d6be37a6600c"
       }
-    }
+    },
+    "plugins": [
+      "expo-localization",
+      "expo-status-bar",
+      "expo-audio"
+    ]
   }
 }

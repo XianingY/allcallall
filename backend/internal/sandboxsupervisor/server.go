@@ -109,7 +109,7 @@ func (server *Server) Serve(ctx context.Context, socketPath string) error {
 		return errors.New("supervisor socket could not be created")
 	}
 	listener.SetUnlinkOnClose(true)
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	if err := os.Chmod(socketPath, 0o600); err != nil {
 		return errors.New("supervisor socket permissions could not be set")
 	}
@@ -132,7 +132,7 @@ func (server *Server) Serve(ctx context.Context, socketPath string) error {
 // HandleConn implements the framed supervisor protocol for one owned
 // connection. It always closes the connection before returning.
 func (server *Server) HandleConn(ctx context.Context, connection net.Conn) error {
-	defer connection.Close()
+	defer func() { _ = connection.Close() }()
 	limits := server.withDefaults()
 	writer := &frameWriter{conn: connection, timeout: limits.WriteTimeout}
 
@@ -313,6 +313,7 @@ func prepareCommand(request StartRequest) (*exec.Cmd, io.WriteCloser, io.ReadClo
 	if err != nil {
 		return nil, nil, nil, nil, ErrSessionRejected
 	}
+	// #nosec G204 -- request.Command is first normalized to a permitted executable by resolveCommand.
 	command := exec.Command(commandPath, request.Args...)
 	command.Args[0] = request.Command
 	command.Env = environmentList(effectiveEnvironment)
@@ -373,6 +374,7 @@ func resolveCommand(command string, environment map[string]string) (string, erro
 			continue
 		}
 		candidate := filepath.Join(directory, command)
+		// #nosec G703 -- directory was normalized to an absolute path before candidate construction.
 		info, err := os.Stat(candidate)
 		if err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
 			return candidate, nil
@@ -485,8 +487,8 @@ func consumeStderr(stderr io.Reader, budget int64, events chan<- sessionEvent) {
 
 func cleanupUnattachedProcess(command *exec.Cmd, input *childInput, stdout, stderr io.Reader, grace time.Duration) {
 	input.close()
-	go io.Copy(io.Discard, stdout)
-	go io.Copy(io.Discard, stderr)
+	go func() { _, _ = io.Copy(io.Discard, stdout) }()
+	go func() { _, _ = io.Copy(io.Discard, stderr) }()
 	signalProcessGroup(command.Process.Pid, syscall.SIGTERM)
 	done := make(chan struct{})
 	go func() {

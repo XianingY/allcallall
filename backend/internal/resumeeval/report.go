@@ -137,7 +137,7 @@ func WriteArtifacts(outDir string, report Report) error {
 	if strings.TrimSpace(outDir) == "" {
 		return fmt.Errorf("output directory is required")
 	}
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
 		return err
 	}
 	if err := evals.WriteDemoEvalArtifacts(outDir, report.Eval); err != nil {
@@ -146,7 +146,7 @@ func WriteArtifacts(outDir string, report Report) error {
 	if err := writeJSON(filepath.Join(outDir, "task-eval.json"), report.TaskEval); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(outDir, "task-eval.md"), []byte(evals.FormatAgentTaskEvalMarkdown(report.TaskEval)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, "task-eval.md"), []byte(evals.FormatAgentTaskEvalMarkdown(report.TaskEval)), 0o600); err != nil {
 		return err
 	}
 	if err := writeJSON(filepath.Join(outDir, "interview-bench.json"), report.Benchmark); err != nil {
@@ -155,53 +155,53 @@ func WriteArtifacts(outDir string, report Report) error {
 	if err := writeJSON(filepath.Join(outDir, "resume-eval.json"), report); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(outDir, "resume-eval.md"), []byte(FormatMarkdown(report)), 0o644)
+	return os.WriteFile(filepath.Join(outDir, "resume-eval.md"), []byte(FormatMarkdown(report)), 0o600)
 }
 
 func FormatMarkdown(report Report) string {
 	var b strings.Builder
 	b.WriteString("# AllCallAll Resume Eval Summary\n\n")
-	b.WriteString(fmt.Sprintf("- Generated at: `%s`\n", report.GeneratedAt))
-	b.WriteString(fmt.Sprintf("- Provider: `%s`\n", report.Provider))
-	b.WriteString(fmt.Sprintf("- Task eval runtime: `%s`\n", firstNonEmpty(report.TaskRuntime, agent.WorkflowRuntimeGo)))
+	fmt.Fprintf(&b, "- Generated at: `%s`\n", report.GeneratedAt)
+	fmt.Fprintf(&b, "- Provider: `%s`\n", report.Provider)
+	fmt.Fprintf(&b, "- Task eval runtime: `%s`\n", firstNonEmpty(report.TaskRuntime, agent.WorkflowRuntimeGo))
 	b.WriteString("- Recommended resume-safe scope: `current deterministic fixture set + local SQLite functional benchmark`\n")
 	b.WriteString("- Interpretation note: `these metrics validate regression stability and safety boundaries, not open-ended user satisfaction`\n\n")
 
 	b.WriteString("## KPI Summary\n\n")
 	b.WriteString("| Area | Metric | Value |\n")
 	b.WriteString("| --- | --- | --- |\n")
-	b.WriteString(fmt.Sprintf("| Regression | planner pass rate | %.1f%% |\n", pct(report.Summary.Regression.PlannerPassRate)))
-	b.WriteString(fmt.Sprintf("| Regression | workflow pass rate | %.1f%% |\n", pct(report.Summary.Regression.WorkflowPassRate)))
-	b.WriteString(fmt.Sprintf("| Regression | task success rate | %.1f%% |\n", pct(report.Summary.Regression.TaskSuccessRate)))
-	b.WriteString(fmt.Sprintf("| Regression | approval safety rate | %.1f%% |\n", pct(report.Summary.Regression.ApprovalSafetyRate)))
-	b.WriteString(fmt.Sprintf("| RAG IR | answerable / negative cases | %d / %d |\n", report.Summary.RAGIRMetrics.AnswerableCases, report.Summary.RAGIRMetrics.NegativeCases))
-	b.WriteString(fmt.Sprintf("| RAG IR | Top-K hit rate | %.1f%% |\n", pct(report.Summary.RAGIRMetrics.TopKHitRate)))
-	b.WriteString(fmt.Sprintf("| RAG IR | negative pass rate | %.1f%% |\n", pct(report.Summary.RAGIRMetrics.NegativePassRate)))
-	b.WriteString(fmt.Sprintf("| RAG IR | citation hit rate | %.1f%% |\n", pct(report.Summary.RAGIRMetrics.CitationHitRate)))
-	b.WriteString(fmt.Sprintf("| RAG IR | citation error rate | %.1f%% |\n", pct(report.Summary.RAGIRMetrics.CitationErrorRate)))
-	b.WriteString(fmt.Sprintf("| RAG IR | Recall@K | %.2f |\n", report.Summary.RAGIRMetrics.RecallAtK))
-	b.WriteString(fmt.Sprintf("| RAG IR | Precision@K | %.2f |\n", report.Summary.RAGIRMetrics.PrecisionAtK))
-	b.WriteString(fmt.Sprintf("| RAG IR | MRR | %.2f |\n", report.Summary.RAGIRMetrics.MRR))
-	b.WriteString(fmt.Sprintf("| RAG IR | NDCG@K | %.2f |\n", report.Summary.RAGIRMetrics.NDCGAtK))
-	b.WriteString(fmt.Sprintf("| RAG IR | latency p50 / p95 | %d ms / %d ms |\n", report.Summary.RAGIRMetrics.LatencyP50Ms, report.Summary.RAGIRMetrics.LatencyP95Ms))
-	b.WriteString(fmt.Sprintf("| Benchmark | ready run rate | %.1f%% |\n", pct(report.Summary.Benchmark.ReadyRunRate)))
-	b.WriteString(fmt.Sprintf("| Benchmark | execute-run p95 | %d ms |\n", report.Summary.Benchmark.ExecuteRunP95Ms))
-	b.WriteString(fmt.Sprintf("| Benchmark | tool calls per run | %.1f |\n", report.Summary.Benchmark.ToolCallsPerRun))
-	b.WriteString(fmt.Sprintf("| Benchmark | context chunks per run | %.1f |\n\n", report.Summary.Benchmark.ContextChunksPerRun))
+	fmt.Fprintf(&b, "| Regression | planner pass rate | %.1f%% |\n", pct(report.Summary.Regression.PlannerPassRate))
+	fmt.Fprintf(&b, "| Regression | workflow pass rate | %.1f%% |\n", pct(report.Summary.Regression.WorkflowPassRate))
+	fmt.Fprintf(&b, "| Regression | task success rate | %.1f%% |\n", pct(report.Summary.Regression.TaskSuccessRate))
+	fmt.Fprintf(&b, "| Regression | approval safety rate | %.1f%% |\n", pct(report.Summary.Regression.ApprovalSafetyRate))
+	fmt.Fprintf(&b, "| RAG IR | answerable / negative cases | %d / %d |\n", report.Summary.RAGIRMetrics.AnswerableCases, report.Summary.RAGIRMetrics.NegativeCases)
+	fmt.Fprintf(&b, "| RAG IR | Top-K hit rate | %.1f%% |\n", pct(report.Summary.RAGIRMetrics.TopKHitRate))
+	fmt.Fprintf(&b, "| RAG IR | negative pass rate | %.1f%% |\n", pct(report.Summary.RAGIRMetrics.NegativePassRate))
+	fmt.Fprintf(&b, "| RAG IR | citation hit rate | %.1f%% |\n", pct(report.Summary.RAGIRMetrics.CitationHitRate))
+	fmt.Fprintf(&b, "| RAG IR | citation error rate | %.1f%% |\n", pct(report.Summary.RAGIRMetrics.CitationErrorRate))
+	fmt.Fprintf(&b, "| RAG IR | Recall@K | %.2f |\n", report.Summary.RAGIRMetrics.RecallAtK)
+	fmt.Fprintf(&b, "| RAG IR | Precision@K | %.2f |\n", report.Summary.RAGIRMetrics.PrecisionAtK)
+	fmt.Fprintf(&b, "| RAG IR | MRR | %.2f |\n", report.Summary.RAGIRMetrics.MRR)
+	fmt.Fprintf(&b, "| RAG IR | NDCG@K | %.2f |\n", report.Summary.RAGIRMetrics.NDCGAtK)
+	fmt.Fprintf(&b, "| RAG IR | latency p50 / p95 | %d ms / %d ms |\n", report.Summary.RAGIRMetrics.LatencyP50Ms, report.Summary.RAGIRMetrics.LatencyP95Ms)
+	fmt.Fprintf(&b, "| Benchmark | ready run rate | %.1f%% |\n", pct(report.Summary.Benchmark.ReadyRunRate))
+	fmt.Fprintf(&b, "| Benchmark | execute-run p95 | %d ms |\n", report.Summary.Benchmark.ExecuteRunP95Ms)
+	fmt.Fprintf(&b, "| Benchmark | tool calls per run | %.1f |\n", report.Summary.Benchmark.ToolCallsPerRun)
+	fmt.Fprintf(&b, "| Benchmark | context chunks per run | %.1f |\n\n", report.Summary.Benchmark.ContextChunksPerRun)
 
 	b.WriteString("## Resume-Ready Lines\n\n")
-	b.WriteString(fmt.Sprintf("- On the current deterministic fixture set, planner/RAG/workflow regression cases all passed: planner `%d/%d`, RAG `%d/%d`, workflow `%d/%d`.\n",
+	fmt.Fprintf(&b, "- On the current deterministic fixture set, planner/RAG/workflow regression cases all passed: planner `%d/%d`, RAG `%d/%d`, workflow `%d/%d`.\n",
 		report.Eval.Planner.Passed, report.Eval.Planner.Cases,
 		report.Eval.RAG.Passed, report.Eval.RAG.Cases,
-		report.Eval.Workflow.Passed, report.Eval.Workflow.Cases))
-	b.WriteString(fmt.Sprintf("- RAG retrieval on the current deterministic fixture set covers `%d` answerable and `%d` negative cases, tracking `Recall@K`, `Precision@K`, `MRR`, Top-K hit rate, negative pass rate, citation error rate, and p50/p95 latency.\n",
-		report.Summary.RAGIRMetrics.AnswerableCases, report.Summary.RAGIRMetrics.NegativeCases))
-	b.WriteString(fmt.Sprintf("- Workflow regression achieved `%.1f%%` pass rate; `%.1f%%` of cases triggered approval interception and meeting-transcript coverage was `%.1f%%` on transcript-required cases.\n",
-		pct(report.Summary.Regression.WorkflowPassRate), pct(report.Summary.Regression.ApprovalInterceptionRate), pct(report.Summary.Regression.MeetingTranscriptCoverage)))
-	b.WriteString(fmt.Sprintf("- A deterministic black-box task eval fixture set now checks natural-language task completion, tool selection, approval safety, and grounding; current task success rate is `%.1f%%` on `%d` cases.\n",
-		pct(report.Summary.Regression.TaskSuccessRate), report.TaskEval.Cases))
-	b.WriteString(fmt.Sprintf("- Local Agent/outbox benchmark completed `%d/%d` ready runs with `0` failures, `p95=%d ms` execute-run latency, and `%.1f` tool calls per run.\n",
-		report.Benchmark.ReadyRuns, report.Benchmark.QueuedRuns, report.Summary.Benchmark.ExecuteRunP95Ms, report.Summary.Benchmark.ToolCallsPerRun))
+		report.Eval.Workflow.Passed, report.Eval.Workflow.Cases)
+	fmt.Fprintf(&b, "- RAG retrieval on the current deterministic fixture set covers `%d` answerable and `%d` negative cases, tracking `Recall@K`, `Precision@K`, `MRR`, Top-K hit rate, negative pass rate, citation error rate, and p50/p95 latency.\n",
+		report.Summary.RAGIRMetrics.AnswerableCases, report.Summary.RAGIRMetrics.NegativeCases)
+	fmt.Fprintf(&b, "- Workflow regression achieved `%.1f%%` pass rate; `%.1f%%` of cases triggered approval interception and meeting-transcript coverage was `%.1f%%` on transcript-required cases.\n",
+		pct(report.Summary.Regression.WorkflowPassRate), pct(report.Summary.Regression.ApprovalInterceptionRate), pct(report.Summary.Regression.MeetingTranscriptCoverage))
+	fmt.Fprintf(&b, "- A deterministic black-box task eval fixture set now checks natural-language task completion, tool selection, approval safety, and grounding; current task success rate is `%.1f%%` on `%d` cases.\n",
+		pct(report.Summary.Regression.TaskSuccessRate), report.TaskEval.Cases)
+	fmt.Fprintf(&b, "- Local Agent/outbox benchmark completed `%d/%d` ready runs with `0` failures, `p95=%d ms` execute-run latency, and `%.1f` tool calls per run.\n",
+		report.Benchmark.ReadyRuns, report.Benchmark.QueuedRuns, report.Summary.Benchmark.ExecuteRunP95Ms, report.Summary.Benchmark.ToolCallsPerRun)
 	return b.String()
 }
 
@@ -383,7 +383,7 @@ func writeJSON(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(raw, '\n'), 0o644)
+	return os.WriteFile(path, append(raw, '\n'), 0o600)
 }
 
 func (opts Options) withDefaults() Options {

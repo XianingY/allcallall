@@ -89,7 +89,7 @@ func (h *Hub) Poll(ctx context.Context, email string, timeout time.Duration) ([]
 	key := signalQueuePrefix + email
 	res, err := h.redis.BRPop(ctx, timeout, key).Result()
 	if err != nil {
-		if err == redis.Nil {
+		if errors.Is(err, redis.Nil) {
 			return nil, false, nil
 		}
 		return nil, false, err

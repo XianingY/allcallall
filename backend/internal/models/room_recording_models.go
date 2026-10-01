@@ -3,8 +3,12 @@ package models
 import "time"
 
 type CallRoom struct {
-	ID             uint64     `gorm:"primaryKey;autoIncrement"`
-	OrganizationID uint64     `gorm:"not null;index"`
+	// idx_call_rooms_org_updated_id supports organization-scoped room
+	// listings that order by updated_at DESC, id DESC (admin summary and
+	// ListRooms). Its leading organization column replaces the former
+	// single-column organization index.
+	ID             uint64     `gorm:"primaryKey;autoIncrement;index:idx_call_rooms_org_updated_id,priority:3"`
+	OrganizationID uint64     `gorm:"not null;index:idx_call_rooms_org_updated_id,priority:1"`
 	TeamID         *uint64    `gorm:"index"`
 	ConversationID *uint64    `gorm:"index"`
 	Title          string     `gorm:"size:180;not null"`
@@ -13,7 +17,7 @@ type CallRoom struct {
 	StartedAt      *time.Time `gorm:"index"`
 	EndedAt        *time.Time `gorm:"index"`
 	CreatedAt      time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`
+	UpdatedAt      time.Time  `gorm:"autoUpdateTime;index:idx_call_rooms_org_updated_id,priority:2"`
 }
 
 func (CallRoom) TableName() string {
@@ -49,15 +53,18 @@ func (CallRoomEvent) TableName() string {
 }
 
 type RecordingSession struct {
-	ID             uint64     `gorm:"primaryKey;autoIncrement"`
-	OrganizationID uint64     `gorm:"not null;index"`
+	// idx_recording_sessions_org_updated_id supports organization-scoped
+	// recording listings ordered by updated_at DESC, id DESC. Its leading
+	// organization column replaces the former single-column organization index.
+	ID             uint64     `gorm:"primaryKey;autoIncrement;index:idx_recording_sessions_org_updated_id,priority:3"`
+	OrganizationID uint64     `gorm:"not null;index:idx_recording_sessions_org_updated_id,priority:1"`
 	RoomID         uint64     `gorm:"not null;index"`
 	StartedBy      uint64     `gorm:"not null;index"`
 	Status         string     `gorm:"size:32;not null;index"`
 	StartedAt      *time.Time `gorm:"index"`
 	StoppedAt      *time.Time `gorm:"index"`
 	CreatedAt      time.Time  `gorm:"autoCreateTime"`
-	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`
+	UpdatedAt      time.Time  `gorm:"autoUpdateTime;index:idx_recording_sessions_org_updated_id,priority:2"`
 }
 
 func (RecordingSession) TableName() string {

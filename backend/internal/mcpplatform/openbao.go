@@ -89,7 +89,7 @@ func (s *OpenBaoSecretStore) request(ctx context.Context, method, path string, b
 	if err != nil {
 		return fmt.Errorf("call OpenBao: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	limited := io.LimitReader(resp.Body, 64*1024)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, limited)

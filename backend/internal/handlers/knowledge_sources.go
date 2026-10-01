@@ -133,7 +133,7 @@ func (h *KnowledgeHandler) parseCreateSourceInput(c *gin.Context) (knowledge.Cre
 		if err != nil {
 			return knowledge.CreateSourceInput{}, err
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		if header.Size > knowledge.MaxUploadBytes {
 			return knowledge.CreateSourceInput{}, errors.New("file is too large")
 		}

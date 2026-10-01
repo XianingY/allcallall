@@ -2,6 +2,7 @@ package contact
 
 import (
 	"context"
+	"errors"
 
 	"gorm.io/gorm"
 
@@ -144,7 +145,7 @@ func (r *Repository) UpsertContactProfile(ctx context.Context, profile *models.C
 			existing.Note = profile.Note
 			return tx.Save(&existing).Error
 		}
-		if err != nil && err != gorm.ErrRecordNotFound {
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 		return tx.Create(profile).Error

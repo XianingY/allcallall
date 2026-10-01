@@ -87,7 +87,7 @@ func isStopword(token string) bool {
 	}
 	if utf8.RuneCountInString(token) == 1 {
 		r, _ := utf8.DecodeRuneInString(token)
-		if r < 128 && !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
+		if r < 128 && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
 			return true
 		}
 	}

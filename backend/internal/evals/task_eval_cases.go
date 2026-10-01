@@ -20,8 +20,10 @@ func runAgentTaskEvalCase(ctx context.Context, index int, item AgentTaskEvalCase
 	if err != nil {
 		return AgentTaskEvalResult{}, err
 	}
+	// #nosec G115 -- index is a non-negative loop counter for eval cases.
 	orgID := uint64(300 + index)
 	userID := uint64(7)
+	// #nosec G115 -- index is a non-negative loop counter for eval cases.
 	conversationID := uint64(3000 + index)
 	if err := seedTaskEvalScope(db, orgID, userID, conversationID, item); err != nil {
 		return AgentTaskEvalResult{}, err

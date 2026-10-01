@@ -62,7 +62,7 @@ func (r *HTTPRunner) post(ctx context.Context, path string, input, output any) e
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	limited := io.LimitReader(resp.Body, int64(mcpplatform.DefaultOutputLimit)+1)
 	data, err := io.ReadAll(limited)
 	if err != nil {

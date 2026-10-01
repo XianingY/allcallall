@@ -3,6 +3,7 @@ package tasksched
 import (
 	"context"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -179,10 +180,14 @@ func (s *Service) ListRuns(ctx context.Context, ownerID, id, limit uint64) ([]mo
 	if err != nil {
 		return nil, err
 	}
-	lim := int(limit)
+	lim := pagination.DefaultLimit
+	if limit > 0 && limit <= uint64(math.MaxInt) {
+		lim = int(limit)
+	}
 	if lim <= 0 {
 		lim = 50
-	} else if lim > pagination.MaxLimit {
+	}
+	if lim > pagination.MaxLimit {
 		lim = pagination.MaxLimit
 	}
 	if s.listRunsFn != nil {

@@ -4,15 +4,21 @@
     "module": "esnext",
     "jsx": "react-native",
     "strict": true,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "baseUrl": ".",
+    "types": [
+      "jest",
+      "node"
+    ],
     "paths": {
+      "event-target-shim/index": [
+        "./node_modules/event-target-shim/index.d.ts"
+      ],
       "~/*": [
-        "src/*"
+        "./src/*"
       ]
     }
   },

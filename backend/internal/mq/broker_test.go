@@ -2,6 +2,7 @@ package mq
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -66,7 +67,7 @@ func TestMemoryBrokerEnqueueDequeueSameMessage(t *testing.T) {
 	}
 
 	// Second fetch should be exhausted.
-	if _, err := cons.Fetch(context.Background()); err != ErrNoMessages {
+	if _, err := cons.Fetch(context.Background()); !errors.Is(err, ErrNoMessages) {
 		t.Errorf("expected ErrNoMessages, got %v", err)
 	}
 }

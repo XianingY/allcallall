@@ -129,7 +129,7 @@ func (e *ElasticsearchIndexer) createIndex(
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
@@ -187,7 +187,7 @@ func (e *ElasticsearchIndexer) verifyIKMapping(
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf(
 			"elasticsearch read index mapping failed: index=%s status=%d",
@@ -241,7 +241,7 @@ func (e *ElasticsearchIndexer) IndexMessage(ctx context.Context, doc MessageDocu
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("elasticsearch index failed: status=%d body=%s", resp.StatusCode, string(body))
@@ -281,7 +281,7 @@ func (e *ElasticsearchIndexer) SearchMessages(ctx context.Context, query Message
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, fmt.Errorf("elasticsearch search failed: status=%d body=%s", resp.StatusCode, string(body))
@@ -415,7 +415,7 @@ func (e *ElasticsearchIndexer) IndexChunk(ctx context.Context, doc ContextChunkD
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("elasticsearch chunk index failed: status=%d body=%s", resp.StatusCode, string(body))
@@ -516,7 +516,7 @@ func (e *ElasticsearchIndexer) SearchChunksVector(ctx context.Context, query Con
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, fmt.Errorf("elasticsearch chunk search failed: status=%d body=%s", resp.StatusCode, string(body))
@@ -567,7 +567,7 @@ func (e *ElasticsearchIndexer) SearchChunksHybrid(ctx context.Context, query Con
 	}()
 	wg.Wait()
 	if bm25Err != nil && vectorErr != nil {
-		return nil, fmt.Errorf("hybrid chunk search failed: bm25=%v vector=%w", bm25Err, vectorErr)
+		return nil, fmt.Errorf("hybrid chunk search failed: bm25=%w vector=%w", bm25Err, vectorErr)
 	}
 	if bm25Err != nil {
 		return trimChunkResults(vectorResults, limit), nil
@@ -608,7 +608,7 @@ func (e *ElasticsearchIndexer) searchChunkPayload(ctx context.Context, payload m
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, fmt.Errorf("elasticsearch chunk search failed: status=%d body=%s", resp.StatusCode, string(body))

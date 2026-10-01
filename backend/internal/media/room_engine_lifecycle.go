@@ -31,7 +31,7 @@ func (r *RoomEngine) StartRecording(roomID, baseDir string) error {
 	if strings.TrimSpace(baseDir) == "" {
 		return fmt.Errorf("recording base dir is required")
 	}
-	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+	if err := os.MkdirAll(baseDir, 0o750); err != nil {
 		return err
 	}
 

@@ -23,6 +23,7 @@ func (s TrivyScanner) Scan(ctx context.Context, imageRef string) (ImageScanResul
 	if _, err := exec.LookPath(binary); err != nil {
 		return ImageScanResult{}, fmt.Errorf("find Trivy: %w", err)
 	}
+	// #nosec G204 -- Trivy binary comes from deployment configuration and is resolved via exec.LookPath.
 	command := exec.CommandContext(ctx, binary, "image", "--quiet", "--format", "json", "--scanners", "vuln,secret", imageRef)
 	output, err := command.Output()
 	if err != nil {
@@ -47,11 +48,13 @@ func (s TrivyScanner) Scan(ctx context.Context, imageRef string) (ImageScanResul
 		}
 	}
 	sbomFile := filepath.Join(os.TempDir(), "allcallall-sbom-"+fmt.Sprintf("%x", sha256.Sum256([]byte(imageRef)))+".json")
-	defer os.Remove(sbomFile)
+	defer func() { _ = os.Remove(sbomFile) }()
+	// #nosec G204 -- Trivy binary comes from deployment configuration and is resolved via exec.LookPath.
 	sbomCommand := exec.CommandContext(ctx, binary, "image", "--quiet", "--format", "cyclonedx", "--output", sbomFile, imageRef)
 	if err := sbomCommand.Run(); err != nil {
 		return ImageScanResult{}, fmt.Errorf("generate image SBOM: %w", err)
 	}
+	// #nosec G304 -- sbomFile is a server-generated path under the process temporary directory.
 	sbom, err := os.ReadFile(sbomFile)
 	if err != nil {
 		return ImageScanResult{}, fmt.Errorf("read image SBOM: %w", err)

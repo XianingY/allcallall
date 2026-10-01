@@ -182,7 +182,7 @@ func (s *Service) fetchURLText(ctx context.Context, rawURL string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("url fetch failed: status=%d", resp.StatusCode)
 	}

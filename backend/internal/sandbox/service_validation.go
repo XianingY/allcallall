@@ -21,7 +21,7 @@ func (s *Service) Validate(ctx context.Context, request mcpplatform.ValidationRe
 			return result, err
 		}
 		if s.scanner == nil {
-			return result, fmt.Errorf("Trivy scanner unavailable")
+			return result, fmt.Errorf("trivy scanner unavailable")
 		}
 		scan, err := s.scanner.Scan(ctx, request.Definition.ImageRef)
 		if err != nil {

@@ -147,8 +147,8 @@ func (h *AuthHandler) handleRegister(c *gin.Context) {
 		DisplayName: req.DisplayName,
 	})
 	if err != nil {
-		switch err {
-		case user.ErrEmailAlreadyUsed:
+		switch {
+		case errors.Is(err, user.ErrEmailAlreadyUsed):
 			JSONError(c, http.StatusConflict, "email already registered")
 		default:
 			h.logger.Error().Err(err).Msg("register failed")
@@ -192,11 +192,11 @@ func (h *AuthHandler) handleLogin(c *gin.Context) {
 		Password: req.Password,
 	})
 	if err != nil {
-		if err == user.ErrInvalidCredentials {
+		if errors.Is(err, user.ErrInvalidCredentials) {
 			JSONError(c, http.StatusUnauthorized, "invalid credentials")
 			return
 		}
-		if err == user.ErrUserDeleted {
+		if errors.Is(err, user.ErrUserDeleted) {
 			JSONError(c, http.StatusForbidden, "account deleted")
 			return
 		}
@@ -374,6 +374,7 @@ func refreshSessionInputFromRequest(c *gin.Context, token string, expiresAt time
 }
 
 func setRefreshCookie(c *gin.Context, value string, maxAge int) {
+	// #nosec G124 -- Secure is derived from the actual request scheme by isSecureRequest.
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     refreshCookieName,
 		Value:    value,

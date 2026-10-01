@@ -116,18 +116,18 @@ func runAIPortfolioEval(args []string) error {
 			"black-box user task completion",
 		},
 	}
-	if err := os.MkdirAll(*outDir, 0o755); err != nil {
+	if err := os.MkdirAll(*outDir, 0o750); err != nil {
 		return err
 	}
 	raw, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(*outDir, "ai-portfolio-eval.json"), append(raw, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(*outDir, "ai-portfolio-eval.json"), append(raw, '\n'), 0o600); err != nil {
 		return err
 	}
 	md := formatAIPortfolioMarkdown(demo, rerank, pythonReport)
-	if err := os.WriteFile(filepath.Join(*outDir, "ai-portfolio-eval.md"), []byte(md), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(*outDir, "ai-portfolio-eval.md"), []byte(md), 0o600); err != nil {
 		return err
 	}
 	fmt.Printf("wrote AI portfolio eval report to %s\n", *outDir)
@@ -193,17 +193,17 @@ func runTaskEval(args []string) error {
 		return err
 	}
 	if strings.TrimSpace(*outDir) != "" {
-		if err := os.MkdirAll(*outDir, 0o755); err != nil {
+		if err := os.MkdirAll(*outDir, 0o750); err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(*outDir, "task-eval.md"), []byte(evals.FormatAgentTaskEvalMarkdown(report)), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(*outDir, "task-eval.md"), []byte(evals.FormatAgentTaskEvalMarkdown(report)), 0o600); err != nil {
 			return err
 		}
 		raw, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(*outDir, "task-eval.json"), append(raw, '\n'), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(*outDir, "task-eval.json"), append(raw, '\n'), 0o600); err != nil {
 			return err
 		}
 	}
@@ -290,16 +290,17 @@ func runSkill(args []string) error {
 		fmt.Print(text)
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(*out), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(*out), 0o750); err != nil {
 		return err
 	}
-	return os.WriteFile(*out, []byte(text), 0o644)
+	return os.WriteFile(*out, []byte(text), 0o600)
 }
 
 func loadOptionalJSON(path string) any {
 	if strings.TrimSpace(path) == "" {
 		return map[string]any{"status": "not_configured"}
 	}
+	// #nosec G304 -- the path is an operator-supplied CLI flag in a local reporting tool.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return map[string]any{"status": "missing", "path": path}
@@ -318,19 +319,19 @@ func formatAIPortfolioMarkdown(demo evals.DemoEvalReport, rerank evals.RAGEvalRe
 	b.WriteString("## Evidence Layers\n\n")
 	b.WriteString("| Layer | Result | Scope |\n")
 	b.WriteString("| --- | --- | --- |\n")
-	b.WriteString(fmt.Sprintf("| Deterministic regression | Planner %d/%d, RAG %d/%d, Workflow %d/%d | Current fixture set |\n", demo.Planner.Passed, demo.Planner.Cases, demo.RAG.Passed, demo.RAG.Cases, demo.Workflow.Passed, demo.Workflow.Cases))
-	b.WriteString(fmt.Sprintf("| Retrieval + rerank | MRR %.3f, NDCG@K %.3f, MRR delta %.3f | Hybrid RAG fixture set with rules reranker |\n", rerank.Summary.MRR, rerank.Summary.NDCGAtK, rerank.Summary.RerankMRRDelta))
+	fmt.Fprintf(&b, "| Deterministic regression | Planner %d/%d, RAG %d/%d, Workflow %d/%d | Current fixture set |\n", demo.Planner.Passed, demo.Planner.Cases, demo.RAG.Passed, demo.RAG.Cases, demo.Workflow.Passed, demo.Workflow.Cases)
+	fmt.Fprintf(&b, "| Retrieval + rerank | MRR %.3f, NDCG@K %.3f, MRR delta %.3f | Hybrid RAG fixture set with rules reranker |\n", rerank.Summary.MRR, rerank.Summary.NDCGAtK, rerank.Summary.RerankMRRDelta)
 	b.WriteString("| Python Agent Runtime | See bundled Python report when present | LangGraph task-level eval |\n\n")
 
 	b.WriteString("## Rerank Details\n\n")
 	for _, result := range rerank.Results {
-		b.WriteString(fmt.Sprintf("- `%s`: %s, MRR %.3f -> %.3f, NDCG@K %.3f -> %.3f\n", result.Name, passFailLabel(result.Passed), result.BaselineMRR, result.MRR, result.BaselineNDCGAtK, result.NDCGAtK))
+		fmt.Fprintf(&b, "- `%s`: %s, MRR %.3f -> %.3f, NDCG@K %.3f -> %.3f\n", result.Name, passFailLabel(result.Passed), result.BaselineMRR, result.MRR, result.BaselineNDCGAtK, result.NDCGAtK)
 	}
 	b.WriteString("\n## Python Runtime Report Presence\n\n")
 	switch value := pythonReport.(type) {
 	case map[string]any:
 		if status, ok := value["status"]; ok {
-			b.WriteString(fmt.Sprintf("- Python eval report status: `%v`\n", status))
+			fmt.Fprintf(&b, "- Python eval report status: `%v`\n", status)
 		} else {
 			b.WriteString("- Python eval report: loaded\n")
 		}
@@ -362,7 +363,7 @@ func buildSkillMarkdown() string {
 		if tool.RequiresApproval {
 			approval = "yes"
 		}
-		b.WriteString(fmt.Sprintf("- `%s` [%s, approval: %s]: %s\n", tool.Name, tool.Kind, approval, tool.Description))
+		fmt.Fprintf(&b, "- `%s` [%s, approval: %s]: %s\n", tool.Name, tool.Kind, approval, tool.Description)
 	}
 	b.WriteString("\n## Operating Rules\n\n")
 	b.WriteString("- Prefer `query_context_chunks` before answering evidence-sensitive questions.\n")

@@ -11,8 +11,10 @@ import (
 )
 
 const (
-	authTokenMissingCode = "AUTH_TOKEN_MISSING"
-	authTokenInvalidCode = "AUTH_TOKEN_INVALID"
+	// #nosec G101 -- stable public error codes, not credentials.
+	authBearerMissingCode = "AUTH_TOKEN_MISSING"
+	// #nosec G101 -- stable public error codes, not credentials.
+	authBearerInvalidCode = "AUTH_TOKEN_INVALID"
 )
 
 // Middleware 返回 Gin 中间件
@@ -38,13 +40,13 @@ func MiddlewareWithValidator(validator TokenValidator) gin.HandlerFunc {
 		}
 
 		if token == "" {
-			abortAuthError(c, authTokenMissingCode, "missing bearer token")
+			abortAuthError(c, authBearerMissingCode, "missing bearer token")
 			return
 		}
 
 		claims, err := validator.ValidateAccessToken(c.Request.Context(), token)
 		if err != nil {
-			abortAuthError(c, authTokenInvalidCode, "invalid token")
+			abortAuthError(c, authBearerInvalidCode, "invalid token")
 			return
 		}
 

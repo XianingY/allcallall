@@ -14,7 +14,13 @@ import (
 func OpenSQLite(t testing.TB, name string) *gorm.DB {
 	t.Helper()
 
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), name)+"?_busy_timeout=5000"), &gorm.Config{})
+	// Tests do not need SQLite's durability, and macOS can spend hundreds of
+	// milliseconds fsyncing each index DDL. Keep a normal file-backed database
+	// so nested transactions and concurrent writers can use additional pooled
+	// connections. WAL applies consistently to every connection in the pool;
+	// synchronous=OFF removes test-only commit fsyncs.
+	dsn := filepath.Join(t.TempDir(), name) + "?_busy_timeout=5000&_journal_mode=WAL&_synchronous=OFF"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite failed: %v", err)
 	}

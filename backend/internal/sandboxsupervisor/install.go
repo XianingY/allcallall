@@ -22,11 +22,12 @@ func installFrom(source, target string) error {
 		return errors.New("supervisor install target must be a clean absolute path")
 	}
 	parent := filepath.Dir(target)
+	// #nosec G304 -- source is the fixed /proc/self/exe path.
 	sourceFile, err := os.Open(source)
 	if err != nil {
 		return fmt.Errorf("open supervisor source: %w", err)
 	}
-	defer sourceFile.Close()
+	defer func() { _ = sourceFile.Close() }()
 
 	temporary, err := os.CreateTemp(parent, ".sandbox-supervisor-*")
 	if err != nil {
@@ -57,11 +58,12 @@ func installFrom(source, target string) error {
 		return fmt.Errorf("activate supervisor: %w", err)
 	}
 	keepTemporary = false
+	// #nosec G304 -- parent is derived from the validated clean absolute target path.
 	directory, err := os.Open(parent)
 	if err != nil {
 		return fmt.Errorf("open supervisor directory: %w", err)
 	}
-	defer directory.Close()
+	defer func() { _ = directory.Close() }()
 	if err := directory.Sync(); err != nil {
 		return fmt.Errorf("sync supervisor directory: %w", err)
 	}

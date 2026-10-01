@@ -57,7 +57,7 @@ func (r *RoomEngine) writeRecordingPacket(roomID, participantID string, track *w
 			artifact.writer = writer
 		} else {
 			clockRate = 0
-			if err := os.WriteFile(path, nil, 0o644); err != nil {
+			if err := os.WriteFile(path, nil, 0o600); err != nil {
 				r.logger.Warn().Err(err).Str("room_id", roomID).Msg("failed to create raw recording file")
 				return
 			}

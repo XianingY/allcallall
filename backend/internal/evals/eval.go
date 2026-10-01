@@ -48,6 +48,7 @@ type EvalReport struct {
 }
 
 func LoadEvalCases(path string) ([]EvalCase, error) {
+	// #nosec G304 -- eval fixtures are operator-supplied local files.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -98,6 +99,7 @@ func RunPlannerEval(ctx context.Context, planner agent.Planner, cases []EvalCase
 }
 
 func (item EvalCase) toPlannerInput(index int) agent.PlannerInput {
+	// #nosec G115 -- index is a non-negative loop counter for eval cases.
 	conversationID := uint64(index)
 	organizationID := uint64(100)
 	conversation := models.Conversation{

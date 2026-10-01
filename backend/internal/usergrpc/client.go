@@ -32,7 +32,7 @@ func DialClientAuthenticator(ctx context.Context, addr string, timeout time.Dura
 	if addr == "" {
 		return nil, nil, errors.New("user service grpc addr is required")
 	}
-	conn, err := grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, nil, err
 	}

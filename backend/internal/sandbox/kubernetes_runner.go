@@ -82,11 +82,11 @@ func NewKubernetesRunner(client kubernetes.Interface, config KubernetesRunnerCon
 	for index, name := range config.ImagePullSecrets {
 		config.ImagePullSecrets[index] = strings.TrimSpace(name)
 		if config.ImagePullSecrets[index] == "" {
-			return nil, fmt.Errorf("Kubernetes sandbox image pull secret name is empty")
+			return nil, fmt.Errorf("kubernetes sandbox image pull secret name is empty")
 		}
 	}
 	if client == nil || config.Namespace == "" || config.RunnerImage == "" || config.SupervisorImage == "" || config.RuntimeClass == "" || config.ServiceAccount == "" || config.AppName == "" || config.Instance == "" {
-		return nil, fmt.Errorf("Kubernetes sandbox runner configuration is incomplete")
+		return nil, fmt.Errorf("kubernetes sandbox runner configuration is incomplete")
 	}
 	if config.CPU == "" {
 		config.CPU = "500m"

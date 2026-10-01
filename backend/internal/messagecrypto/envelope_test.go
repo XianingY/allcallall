@@ -3,6 +3,7 @@ package messagecrypto
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -136,7 +137,7 @@ func TestEnvelopeCipherRejectsWrongMasterKey(t *testing.T) {
 }
 
 func TestNewEnvelopeCipherRejectsShortKey(t *testing.T) {
-	if _, err := NewEnvelopeCipher([]byte("too-short"), "kid"); err != ErrMasterKeyRequired {
+	if _, err := NewEnvelopeCipher([]byte("too-short"), "kid"); !errors.Is(err, ErrMasterKeyRequired) {
 		t.Fatalf("expected ErrMasterKeyRequired, got %v", err)
 	}
 }

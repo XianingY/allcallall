@@ -85,7 +85,9 @@ func (s *Scheduler) Run(ctx context.Context, interval time.Duration) {
 		interval = time.Minute
 	}
 	// 启动即处理一次，避免等待首个 tick。
-	s.ProcessOnce(ctx)
+	if _, err := s.ProcessOnce(ctx); err != nil {
+		s.logger.Error().Err(err).Msg("process weekly tasks failed")
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -93,7 +95,9 @@ func (s *Scheduler) Run(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.ProcessOnce(ctx)
+			if _, err := s.ProcessOnce(ctx); err != nil {
+				s.logger.Error().Err(err).Msg("process weekly tasks failed")
+			}
 		}
 	}
 }

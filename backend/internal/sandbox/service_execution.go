@@ -50,7 +50,7 @@ func (s *Service) Execute(ctx context.Context, request mcpplatform.ExecutionRequ
 	}
 	stored, winner, err := s.receipts.Acquire(ctx, candidate)
 	if err != nil {
-		return ExecutionReceipt{}, fmt.Errorf("%w: %v", ErrReceiptUnavailable, err)
+		return ExecutionReceipt{}, fmt.Errorf("%w: %w", ErrReceiptUnavailable, err)
 	}
 	if !winner {
 		if stored.RequestDigest != digest {
@@ -106,7 +106,7 @@ func (s *Service) Execute(ctx context.Context, request mcpplatform.ExecutionRequ
 					}
 				}()
 				persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), terminalReceiptWriteTimeout)
-				stored, executionErr = s.receipts.SetJobID(persistCtx, request.ExecutionID, digest, prepared.JobID())
+				_, executionErr = s.receipts.SetJobID(persistCtx, request.ExecutionID, digest, prepared.JobID())
 				persistCancel()
 				if executionErr == nil {
 					result, executionErr = prepared.Execute(executionCtx)
@@ -157,7 +157,7 @@ func (s *Service) Execute(ctx context.Context, request mcpplatform.ExecutionRequ
 			stored, err = s.receipts.Get(persistCtx, request.ExecutionID)
 		}
 		if err != nil {
-			return ExecutionReceipt{}, fmt.Errorf("%w: persist terminal sandbox receipt: %v", ErrReceiptUnavailable, err)
+			return ExecutionReceipt{}, fmt.Errorf("%w: persist terminal sandbox receipt: %w", ErrReceiptUnavailable, err)
 		}
 	}
 	return executionReceiptFromModel(stored)
@@ -191,7 +191,7 @@ func (s *Service) LookupExecution(ctx context.Context, executionID string) (Exec
 	stored, err := s.receipts.Get(ctx, executionID)
 	if err != nil {
 		if !errors.Is(err, ErrReceiptNotFound) {
-			return ExecutionReceipt{}, fmt.Errorf("%w: %v", ErrReceiptUnavailable, err)
+			return ExecutionReceipt{}, fmt.Errorf("%w: %w", ErrReceiptUnavailable, err)
 		}
 		return ExecutionReceipt{}, err
 	}

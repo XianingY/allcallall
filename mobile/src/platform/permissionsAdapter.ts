@@ -52,17 +52,17 @@ const nativeAdapter: PermissionsAdapter = {
       // iOS used to return "granted" without asking anything, so the app
       // reported success and then produced a call with no audio - the user
       // had no idea a permission was involved. Ask for the microphone for
-      // real via expo-av.
+      // real via expo-audio.
       //
       // Camera has to stay implicit: expo-camera is not a dependency, so the
       // iOS camera prompt comes from getUserMedia when the stream opens. That
       // means its status cannot be known up front, and a denial surfaces at
       // stream time.
       //
-      // Imported lazily so the web build never pulls in expo-av.
+      // Imported lazily so the web build never pulls in expo-audio.
       try {
-        const { Audio } = await import("expo-av");
-        const audio = await Audio.requestPermissionsAsync();
+        const { requestRecordingPermissionsAsync } = await import("expo-audio");
+        const audio = await requestRecordingPermissionsAsync();
         return {
           camera: true,
           microphone: audio.granted,

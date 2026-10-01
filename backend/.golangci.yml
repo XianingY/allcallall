@@ -19,14 +19,22 @@ linters:
     # Assignments whose value is never read - usually a real bug (a result
     # computed and dropped), and the codebase is already clean of them.
     - ineffassign
-
-  # Not yet enabled, in rough priority order:
-  #   errcheck    - unchecked errors; the largest finding set, needs a sweep
-  #   staticcheck - broad correctness and simplification checks
-  #   unused      - dead code
-  #   bodyclose   - leaked HTTP response bodies
-  #   gosec       - security-oriented checks; overlaps with the Trivy scan
-  #   errorlint   - enforces errors.Is/As over == comparisons
+    # Unchecked errors. Deferred resource cleanup is explicit about ignoring
+    # close failures; meaningful errors are propagated or logged.
+    - errcheck
+    # Broad correctness and simplification checks, including deprecated APIs.
+    - staticcheck
+    # Dead unexported code; production and test code both stay lean.
+    - unused
+    # Leaked HTTP response bodies; websocket handshake responses are exempt
+    # where the library owns the body.
+    - bodyclose
+    # Security-oriented checks. Justified false positives carry inline #nosec
+    # annotations with the reason; test setup noise is excluded below.
+    - gosec
+    # Wrapped-error correctness; sentinel and typed errors are matched with
+    # errors.Is/As and wrapping preserves the full chain.
+    - errorlint
 
   settings:
     govet:
@@ -42,11 +50,16 @@ linters:
       - path: _test\.go
         linters:
           - ineffassign
+          - errcheck
+          - gosec
       # Generated protobuf code is not ours to lint.
       - path: \.pb\.go
         linters:
           - govet
           - ineffassign
+          - errcheck
+          - staticcheck
+          - unused
 
 formatters:
   enable:

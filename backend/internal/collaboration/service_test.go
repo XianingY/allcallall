@@ -748,11 +748,11 @@ func TestServiceRoomOfferAndRecordingArtifacts(t *testing.T) {
 		t.Fatal("expected non-empty room answer sdp")
 	}
 
-	recording, err := svc.StartRecording(ctx, org.ID, owner.ID, roomState.Room.ID)
+	_, err = svc.StartRecording(ctx, org.ID, owner.ID, roomState.Room.ID)
 	if err != nil {
 		t.Fatalf("start recording failed: %v", err)
 	}
-	recording, err = svc.StopRecording(ctx, org.ID, owner.ID, roomState.Room.ID)
+	recording, err := svc.StopRecording(ctx, org.ID, owner.ID, roomState.Room.ID)
 	if err != nil {
 		t.Fatalf("stop recording failed: %v", err)
 	}
@@ -819,11 +819,11 @@ func TestStopRecordingQueuesTranscriptionRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create room failed: %v", err)
 	}
-	recording, err := svc.StartRecording(ctx, org.ID, owner.ID, roomState.Room.ID)
+	_, err = svc.StartRecording(ctx, org.ID, owner.ID, roomState.Room.ID)
 	if err != nil {
 		t.Fatalf("start recording failed: %v", err)
 	}
-	recording, err = svc.StopRecording(ctx, org.ID, owner.ID, roomState.Room.ID)
+	recording, err := svc.StopRecording(ctx, org.ID, owner.ID, roomState.Room.ID)
 	if err != nil {
 		t.Fatalf("stop recording failed: %v", err)
 	}

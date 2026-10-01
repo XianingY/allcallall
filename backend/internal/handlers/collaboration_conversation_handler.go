@@ -370,7 +370,7 @@ func (h *CollaborationHandler) handleUploadConversationAttachment(c *gin.Context
 		JSONError(c, http.StatusBadRequest, "failed to read upload")
 		return
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	item, err := h.service.SaveConversationAttachment(c.Request.Context(), orgID, claims.UserID, conversationID, collaboration.AttachmentInput{
 		FileName:    file.Filename,
 		ContentType: file.Header.Get("Content-Type"),
@@ -399,7 +399,7 @@ func (h *CollaborationHandler) handleDownloadConversationAttachment(c *gin.Conte
 		h.writeServiceError(c, err, "failed to open attachment")
 		return
 	}
-	defer download.Reader.Close()
+	defer func() { _ = download.Reader.Close() }()
 	c.Header("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(download.Attachment.FileName, `"`, "")+`"`)
 	c.DataFromReader(http.StatusOK, download.Attachment.FileSize, download.Attachment.ContentType, download.Reader, nil)
 }

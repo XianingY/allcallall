@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/allcallall/backend/internal/models"
@@ -400,12 +399,4 @@ func roleReActTraceContainsSource(task models.WorkflowTask, sourceType string) b
 		}
 	}
 	return false
-}
-
-func roleReActMaxIterationString(task models.WorkflowTask) string {
-	count := RoleReActIterationCount(task)
-	if count == 0 {
-		return ""
-	}
-	return strconv.Itoa(count)
 }

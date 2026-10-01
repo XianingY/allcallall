@@ -2,8 +2,9 @@ package settlement
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
-	"math/rand/v2"
+	"math/big"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -151,9 +152,19 @@ func exponentialBackoff(failures int, base, max time.Duration) time.Duration {
 	if delay <= 0 || delay > max {
 		delay = max
 	}
-	jittered := time.Duration(float64(delay) * (0.8 + 0.4*rand.Float64()))
+	jittered := jitterDuration(delay)
 	if jittered > max {
 		jittered = max
 	}
 	return jittered
+}
+
+func jitterDuration(delay time.Duration) time.Duration {
+	// 800..1199 千分比对应原有 ±20% 抖动；失败时退回无抖动延迟，
+	// 避免把随机源故障升级为结算 worker 故障。
+	jitter, err := rand.Int(rand.Reader, big.NewInt(400))
+	if err != nil {
+		return delay
+	}
+	return delay * time.Duration(800+jitter.Int64()) / 1000
 }

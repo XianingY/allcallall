@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -282,12 +283,12 @@ func (h *UserHandler) handleAddContact(c *gin.Context) {
 	}
 
 	if err := h.contacts.AddByEmail(c.Request.Context(), claims.UserID, claims.Email, strings.TrimSpace(req.Email)); err != nil {
-		switch err {
-		case contact.ErrContactExists:
+		switch {
+		case errors.Is(err, contact.ErrContactExists):
 			JSONError(c, http.StatusConflict, "contact already exists")
-		case contact.ErrSelfContact:
+		case errors.Is(err, contact.ErrSelfContact):
 			JSONError(c, http.StatusBadRequest, "cannot add yourself")
-		case commerce.ErrUserBlocked:
+		case errors.Is(err, commerce.ErrUserBlocked):
 			JSONErrorWithCode(c, http.StatusForbidden, "USER_BLOCKED", "user is blocked")
 		default:
 			h.logger.Error().Err(err).Msg("add contact failed")
@@ -388,22 +389,22 @@ func (h *UserHandler) handleChangePassword(c *gin.Context) {
 	})
 
 	if err != nil {
-		switch err {
-		case user.ErrInvalidCredentials:
+		switch {
+		case errors.Is(err, user.ErrInvalidCredentials):
 			JSONError(c, http.StatusUnauthorized, "invalid old password")
-		case user.ErrPasswordTooShort:
+		case errors.Is(err, user.ErrPasswordTooShort):
 			JSONError(c, http.StatusBadRequest, "password must be at least 8 characters")
-		case user.ErrPasswordTooLong:
+		case errors.Is(err, user.ErrPasswordTooLong):
 			JSONError(c, http.StatusBadRequest, "password must be at most 128 characters")
-		case user.ErrPasswordWeak:
+		case errors.Is(err, user.ErrPasswordWeak):
 			JSONError(c, http.StatusBadRequest, "password must contain both letters and numbers")
-		case user.ErrSpecialCharacters:
+		case errors.Is(err, user.ErrSpecialCharacters):
 			JSONError(c, http.StatusBadRequest, "password cannot contain special characters")
-		case user.ErrPasswordMismatch:
+		case errors.Is(err, user.ErrPasswordMismatch):
 			JSONError(c, http.StatusBadRequest, "new password and confirm password do not match")
-		case user.ErrPasswordUnchanged:
+		case errors.Is(err, user.ErrPasswordUnchanged):
 			JSONError(c, http.StatusBadRequest, "new password must be different from old password")
-		case user.ErrNotFound:
+		case errors.Is(err, user.ErrNotFound):
 			JSONError(c, http.StatusNotFound, "user not found")
 		default:
 			h.logger.Error().Err(err).Msg("change password failed")

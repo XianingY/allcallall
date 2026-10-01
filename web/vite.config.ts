@@ -39,13 +39,12 @@ export default defineConfig({
         "src/components/**/*.{ts,tsx}",
         "src/pages/**/*.{ts,tsx}",
       ],
-      // These thresholds are a regression floor set at the honest baseline
-      // measured after fixing the coverage include (previously it only covered
-      // lib/realtime/stores and excluded the api/components/pages tests) and
-      // adding realtime unit tests. They prevent coverage from dropping. The
-      // large untested React page/component tree is tracked follow-up work;
-      // raise these numbers as more unit tests land.
-      thresholds: { lines: 15, functions: 35, branches: 55, statements: 15 },
+      // Regression floor, measured after the coverage include fix and the
+      // realtime/api/page/MCP/settings panel unit tests landed (actuals:
+      // ~58.5% lines, ~70.9% branches, ~49% functions). Small slack below the
+      // measured value keeps CI stable across minor report variance.
+      // Raise these as more unit tests land.
+      thresholds: { lines: 57, functions: 48, branches: 69, statements: 57 },
     },
   },
 });

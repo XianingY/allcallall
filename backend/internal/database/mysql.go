@@ -1,8 +1,6 @@
 package database
 
 import (
-	"fmt"
-
 	"github.com/rs/zerolog"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -38,14 +36,4 @@ func NewMySQL(cfg appcfg.DatabaseConfig, log zerolog.Logger) (*gorm.DB, error) {
 	sqlDB.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
 
 	return db, nil
-}
-
-type logWriter struct {
-	logger zerolog.Logger
-}
-
-// Printf 实现 gorm logger.Writer 接口
-// Printf implements gorm logger.Writer.
-func (w logWriter) Printf(msg string, data ...interface{}) {
-	w.logger.Warn().Msg(fmt.Sprintf(msg, data...))
 }

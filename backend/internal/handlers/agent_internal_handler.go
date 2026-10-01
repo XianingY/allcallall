@@ -188,7 +188,7 @@ func (h *AgentHandler) handleInternalMCPToolExecute(c *gin.Context) {
 			return
 		}
 		if execution != nil && errors.Is(err, mcpplatform.ErrExecutionTerminal) {
-			c.Error(err)
+			_ = c.Error(err)
 			c.JSON(http.StatusConflict, gin.H{
 				"code":      "MCP_EXECUTION_TERMINAL",
 				"error":     "execution is already in a terminal state",

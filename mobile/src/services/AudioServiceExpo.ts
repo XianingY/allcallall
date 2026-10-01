@@ -1,49 +1,50 @@
 /**
- * 基于 expo-av 的音频服务 - 增强版
- * 支持真实音频文件播放
+ * Notification-audio service built on the maintained `expo-audio` API.
  *
- * 功能特性：
- * - 真实音频文件支持
- * - 音频预加载
- * - 循环播放
- * - 音量控制
- * - 后台播放
+ * The service owns two preloaded alert players. Callers only need `play`,
+ * `stopAll`, and speakerphone routing; keeping the lower-level player state
+ * private prevents signalling contexts from leaking native audio resources.
  */
 
-import { Audio, AVPlaybackStatus } from "expo-av";
+import {
+  createAudioPlayer,
+  setAudioModeAsync,
+  type AudioPlayer,
+  type AudioSource,
+  type AudioStatus,
+} from "expo-audio";
 
 export type AudioType = "incoming_call" | "ringback";
 
 interface AudioFile {
   type: AudioType;
-  source: any; // require() 或 URI 字符串
+  source: AudioSource;
   name: string;
 }
 
 class AudioServiceExpo {
   private static instance: AudioServiceExpo;
-  private enabled: boolean = true;
-  private soundObjects: Map<AudioType, Audio.Sound> = new Map();
-  private initialized: boolean = false;
-  private loading: boolean = false;
-  private isSpeakerOn: boolean = false;
+  private enabled = true;
+  private players = new Map<AudioType, AudioPlayer>();
+  private initialized = false;
+  private loading = false;
+  private isSpeakerOn = false;
 
-  // 音频文件配置 - 支持MP3格式，推荐使用MP3以减小文件大小
   private readonly audioFiles: AudioFile[] = [
     {
       type: "incoming_call",
       source: require("../assets/sounds/incoming_call.mp3"),
-      name: "incoming_call.mp3"
+      name: "incoming_call.mp3",
     },
     {
       type: "ringback",
       source: require("../assets/sounds/ringback.mp3"),
-      name: "ringback.mp3"
-    }
+      name: "ringback.mp3",
+    },
   ];
 
   private constructor() {
-    this.initializeAudio();
+    void this.initializeAudio();
   }
 
   public static getInstance(): AudioServiceExpo {
@@ -53,305 +54,212 @@ class AudioServiceExpo {
     return AudioServiceExpo.instance;
   }
 
-  /**
-   * 初始化音频系统
-   */
-  private async initializeAudio() {
-    try {
-      // 设置音频模式
-      await Audio.setAudioModeAsync({
-        staysActiveInBackground: true,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false
-      });
-      this.initialized = true;
+  private async configureAudioMode(shouldRouteThroughEarpiece: boolean): Promise<void> {
+    await setAudioModeAsync({
+      interruptionMode: "duckOthers",
+      playsInSilentMode: true,
+      shouldPlayInBackground: true,
+      shouldRouteThroughEarpiece,
+    });
+  }
 
-      // 预加载音频文件
+  private async initializeAudio(): Promise<void> {
+    try {
+      await this.configureAudioMode(false);
+      this.initialized = true;
       await this.preloadAudioFiles();
     } catch (error) {
       console.warn("[AudioService] Failed to initialize audio:", error);
     }
   }
 
-  /**
-   * 预加载所有音频文件
-   */
   private async preloadAudioFiles(): Promise<void> {
     if (this.loading) {
       return;
     }
 
     this.loading = true;
-
     try {
-      const loadPromises = this.audioFiles.map(async (audioFile) => {
+      for (const audioFile of this.audioFiles) {
+        if (this.players.has(audioFile.type)) {
+          continue;
+        }
+
         try {
-          const sound = new Audio.Sound();
-
-          // 加载音频文件
-          await sound.loadAsync(audioFile.source, {
-            shouldPlay: false,
-            isLooping: audioFile.type === "incoming_call" || audioFile.type === "ringback"
-          });
-
-          // 设置音量
-          await sound.setVolumeAsync(0.8);
-
-          this.soundObjects.set(audioFile.type, sound);
+          const player = createAudioPlayer(audioFile.source);
+          player.loop = true;
+          player.volume = 0.8;
+          this.players.set(audioFile.type, player);
         } catch (error) {
           console.error(`[AudioService] Failed to load ${audioFile.name}:`, error);
-          // 如果加载失败，创建一个空的Sound对象作为占位符
-          const emptySound = new Audio.Sound();
-          this.soundObjects.set(audioFile.type, emptySound);
         }
-      });
-
-      await Promise.all(loadPromises);
-    } catch (error) {
-      console.error("[AudioService] Error preloading audio files:", error);
+      }
     } finally {
       this.loading = false;
     }
   }
 
-  /**
-   * 重新加载音频文件
-   */
   public async reloadAudioFiles(): Promise<void> {
     await this.unloadAudioFiles();
     await this.preloadAudioFiles();
   }
 
-  /**
-   * 卸载所有音频文件
-   */
   private async unloadAudioFiles(): Promise<void> {
-
-    try {
-      const unloadPromises = Array.from(this.soundObjects.values()).map(
-        async (sound) => {
-          try {
-            await sound.unloadAsync();
-          } catch (error) {
-            console.warn("[AudioService] Error unloading sound:", error);
-          }
-        }
-      );
-
-      await Promise.all(unloadPromises);
-      this.soundObjects.clear();
-    } catch (error) {
-      console.error("[AudioService] Error unloading audio files:", error);
+    for (const [type, player] of this.players) {
+      try {
+        player.remove();
+      } catch (error) {
+        console.warn(`[AudioService] Error unloading ${type}:`, error);
+      }
     }
+    this.players.clear();
   }
 
-  /**
-   * 设置音频提醒开关
-   */
   public setEnabled(enabled: boolean) {
     this.enabled = enabled;
     if (!enabled) {
-      this.stopAll();
+      void this.stopAll();
     }
   }
 
-  /**
-   * 获取当前音频提醒状态
-   */
   public isEnabled(): boolean {
     return this.enabled;
   }
 
-  /**
-   * 播放音频
-   */
   public async play(audioType: AudioType): Promise<void> {
     if (!this.enabled) {
       return;
     }
 
-
     try {
       if (!this.initialized) {
         await this.initializeAudio();
       }
-
-      // 确保音频已加载
-      if (!this.soundObjects.has(audioType)) {
-        console.warn(`[AudioService] Audio not loaded: ${audioType}, attempting to reload...`);
+      if (!this.players.has(audioType)) {
+        console.warn(
+          `[AudioService] Audio not loaded: ${audioType}, attempting to reload...`,
+        );
         await this.preloadAudioFiles();
       }
 
-      // 停止之前的音频
-      this.stopAll();
+      // Alert types overlap in time, so make switching alerts deterministic:
+      // finish stopping the previous one before starting the requested one.
+      await this.stopAll();
 
-      const sound = this.soundObjects.get(audioType);
-      if (sound) {
-        // 设置循环播放（来电和回铃音需要循环）
-        if (audioType === "incoming_call" || audioType === "ringback") {
-          await sound.setIsLoopingAsync(true);
-        }
-
-        // 播放音频
-        await sound.setPositionAsync(0); // 从头开始播放
-        await sound.playAsync();
-
-      } else {
-        console.warn(`[AudioService] No sound object for: ${audioType}`);
+      const player = this.players.get(audioType);
+      if (!player) {
+        console.warn(`[AudioService] No audio player for: ${audioType}`);
+        return;
       }
+
+      player.loop = true;
+      await player.seekTo(0);
+      player.play();
     } catch (error) {
       console.error(`[AudioService] Error playing ${audioType}:`, error);
     }
   }
 
-  /**
-   * 停止音频
-   */
   public async stop(audioType: AudioType): Promise<void> {
+    const player = this.players.get(audioType);
+    if (!player) {
+      return;
+    }
 
     try {
-      const sound = this.soundObjects.get(audioType);
-      if (sound) {
-        // 停止并重置位置
-        await sound.stopAsync();
-        await sound.setPositionAsync(0);
-        await sound.setIsLoopingAsync(false);
-
-      }
+      player.pause();
+      await player.seekTo(0);
+      player.loop = false;
     } catch (error) {
       console.error(`[AudioService] Error stopping ${audioType}:`, error);
     }
   }
 
-  /**
-   * 暂停音频
-   */
   public async pause(audioType: AudioType): Promise<void> {
+    const player = this.players.get(audioType);
+    if (!player) {
+      return;
+    }
 
     try {
-      const sound = this.soundObjects.get(audioType);
-      if (sound) {
-        await sound.pauseAsync();
-      }
+      player.pause();
     } catch (error) {
       console.error(`[AudioService] Error pausing ${audioType}:`, error);
     }
   }
 
-  /**
-   * 恢复音频播放
-   */
   public async resume(audioType: AudioType): Promise<void> {
+    const player = this.players.get(audioType);
+    if (!player) {
+      return;
+    }
 
     try {
-      const sound = this.soundObjects.get(audioType);
-      if (sound) {
-        await sound.playAsync();
-      }
+      player.play();
     } catch (error) {
       console.error(`[AudioService] Error resuming ${audioType}:`, error);
     }
   }
 
-  /**
-   * 设置音量 (0.0 - 1.0)
-   */
   public async setVolume(audioType: AudioType, volume: number): Promise<void> {
+    const player = this.players.get(audioType);
+    if (!player) {
+      return;
+    }
+
     try {
-      const sound = this.soundObjects.get(audioType);
-      if (sound) {
-        await sound.setVolumeAsync(volume);
-      }
+      player.volume = volume;
     } catch (error) {
       console.error(`[AudioService] Error setting volume for ${audioType}:`, error);
     }
   }
 
-  /**
-   * 获取当前播放状态
-   */
-  public async getStatus(audioType: AudioType): Promise<AVPlaybackStatus | null> {
-    try {
-      const sound = this.soundObjects.get(audioType);
-      if (sound) {
-        const status = await sound.getStatusAsync();
-        return status;
-      }
-      return null;
-    } catch (error) {
-      console.error(`[AudioService] Error getting status for ${audioType}:`, error);
-      return null;
-    }
+  public async getStatus(audioType: AudioType): Promise<AudioStatus | null> {
+    const player = this.players.get(audioType);
+    return player?.currentStatus ?? null;
   }
 
-  /**
-   * 停止所有音频
-   */
   public async stopAll(): Promise<void> {
-
     try {
-      const stopPromises = Array.from(this.soundObjects.entries()).map(
-        async ([type, sound]) => {
+      await Promise.all(
+        Array.from(this.players.entries()).map(async ([type, player]) => {
           try {
-            await sound.stopAsync();
-            await sound.setPositionAsync(0);
-            await sound.setIsLoopingAsync(false);
+            player.pause();
+            await player.seekTo(0);
+            player.loop = false;
           } catch (error) {
             console.warn(`[AudioService] Error stopping ${type}:`, error);
           }
-        }
+        }),
       );
-
-      await Promise.all(stopPromises);
     } catch (error) {
       console.error("[AudioService] Error stopping all audio:", error);
     }
   }
 
-  /**
-   * 检查音频文件是否存在
-   */
-  public checkAudioFiles(): { [key: string]: boolean } {
-    const result: { [key: string]: boolean } = {};
-
-    this.audioFiles.forEach((audioFile) => {
-      result[audioFile.name] = this.soundObjects.has(audioFile.type);
-    });
-
-    return result;
+  public checkAudioFiles(): Record<string, boolean> {
+    return Object.fromEntries(
+      this.audioFiles.map((audioFile) => [
+        audioFile.name,
+        this.players.has(audioFile.type),
+      ]),
+    );
   }
 
-  /**
-   * 设置免提/扬声器状态
-   */
   public async setSpeakerphone(on: boolean): Promise<void> {
     try {
       this.isSpeakerOn = on;
-      
-      await Audio.setAudioModeAsync({
-        staysActiveInBackground: true,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: !on // true=earpiece, false=speaker
-      });
+      await this.configureAudioMode(!on);
     } catch (error) {
       console.error("[AudioService] Failed to set speakerphone:", error);
     }
   }
 
-  /**
-   * 获取当前免提状态
-   */
   public getSpeakerphone(): boolean {
     return this.isSpeakerOn;
   }
 
-  /**
-   * 释放资源
-   */
   public async dispose(): Promise<void> {
-
     try {
       await this.stopAll();
       await this.unloadAudioFiles();
@@ -362,5 +270,4 @@ class AudioServiceExpo {
   }
 }
 
-// 导出单例实例
 export default AudioServiceExpo.getInstance();

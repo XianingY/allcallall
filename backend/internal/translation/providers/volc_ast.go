@@ -101,6 +101,7 @@ func (p *VolcASTProvider) Start(
 		headers.Set("X-Api-App-Id", appID)
 	}
 
+	//nolint:bodyclose // gorilla/websocket handshake response bodies do not need application-side close.
 	conn, resp, err := p.dialer.DialContext(ctx, parsed.String(), headers)
 	if err != nil {
 		statusCode := 0
@@ -192,7 +193,9 @@ func (s *volcASTSession) sendStart(req translation.StartRequest) error {
 		return fmt.Errorf("marshal start request failed: %w", err)
 	}
 
-	s.conn.SetWriteDeadline(time.Now().Add(volcStartWriteTimeout))
+	if err := s.conn.SetWriteDeadline(time.Now().Add(volcStartWriteTimeout)); err != nil {
+		return fmt.Errorf("set start-frame write deadline failed: %w", err)
+	}
 	if err := s.conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
 		return fmt.Errorf("send start frame failed: %w", err)
 	}
@@ -235,9 +238,13 @@ func (s *volcASTSession) SendAudio(ctx context.Context, chunk translation.AudioC
 	}
 
 	if deadline, ok := ctx.Deadline(); ok {
-		s.conn.SetWriteDeadline(deadline)
+		if err := s.conn.SetWriteDeadline(deadline); err != nil {
+			return fmt.Errorf("set audio write deadline failed: %w", err)
+		}
 	} else {
-		s.conn.SetWriteDeadline(time.Now().Add(volcAudioWriteTimeout))
+		if err := s.conn.SetWriteDeadline(time.Now().Add(volcAudioWriteTimeout)); err != nil {
+			return fmt.Errorf("set audio write deadline failed: %w", err)
+		}
 	}
 
 	if err := s.conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
@@ -256,12 +263,13 @@ func (s *volcASTSession) Stop(ctx context.Context) error {
 			Event:       volcevent.Type_FinishSession,
 		}
 		if frame, err := proto.Marshal(payload); err == nil {
-			if deadline, ok := ctx.Deadline(); ok {
-				s.conn.SetWriteDeadline(deadline)
-			} else {
-				s.conn.SetWriteDeadline(time.Now().Add(volcStopWriteTimeout))
+			deadline := time.Now().Add(volcStopWriteTimeout)
+			if ctxDeadline, ok := ctx.Deadline(); ok {
+				deadline = ctxDeadline
 			}
-			if writeErr := s.conn.WriteMessage(websocket.BinaryMessage, frame); writeErr != nil {
+			if deadlineErr := s.conn.SetWriteDeadline(deadline); deadlineErr != nil {
+				closeErr = fmt.Errorf("set finish-session write deadline failed: %w", deadlineErr)
+			} else if writeErr := s.conn.WriteMessage(websocket.BinaryMessage, frame); writeErr != nil {
 				s.logger.Warn().Err(writeErr).Msg("failed to send finish session frame")
 			}
 		}
@@ -518,10 +526,7 @@ func isSuccessStatus(code int32, message string) bool {
 	}
 
 	trimmed := strings.TrimSpace(message)
-	if strings.EqualFold(trimmed, "ok") {
-		return true
-	}
-	return false
+	return strings.EqualFold(trimmed, "ok")
 }
 
 func providerErrorFromStatus(code int32, message string) translation.ProviderError {
@@ -591,6 +596,7 @@ func normalizePCM16LE(raw []byte, sampleRate, channels int) ([]byte, error) {
 		if idx+1 >= len(raw) {
 			break
 		}
+		// #nosec G115 -- PCM conversion intentionally preserves the raw 16-bit sample bits.
 		mono[i] = int16(binary.LittleEndian.Uint16(raw[idx : idx+2]))
 	}
 
@@ -608,6 +614,7 @@ func normalizePCM16LE(raw []byte, sampleRate, channels int) ([]byte, error) {
 
 	out := make([]byte, len(resampled)*2)
 	for i, sample := range resampled {
+		// #nosec G115 -- PCM conversion intentionally preserves the raw 16-bit sample bits.
 		binary.LittleEndian.PutUint16(out[i*2:i*2+2], uint16(sample))
 	}
 	return out, nil

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/allcallall/backend/internal/auth"
@@ -32,11 +33,11 @@ func TestClientAuthenticatorValidatesTokenOverGRPC(t *testing.T) {
 	t.Cleanup(server.Stop)
 
 	ctx := context.Background()
-	conn, err := grpc.DialContext(ctx, "bufnet",
+	conn, err := grpc.NewClient("bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return listener.Dial()
 		}),
-		grpc.WithInsecure(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
 		t.Fatal(err)

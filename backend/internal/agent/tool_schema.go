@@ -18,10 +18,10 @@ func ValidateToolArguments(toolName, inputJSON string) error {
 	}
 	var value any
 	if err := json.Unmarshal([]byte(inputJSON), &value); err != nil {
-		return fmt.Errorf("%w: %v", ErrToolArgumentsInvalid, err)
+		return fmt.Errorf("%w: %w", ErrToolArgumentsInvalid, err)
 	}
 	if err := validateJSONValue("$", value, descriptor.InputSchema); err != nil {
-		return fmt.Errorf("%w: %v", ErrToolArgumentsInvalid, err)
+		return fmt.Errorf("%w: %w", ErrToolArgumentsInvalid, err)
 	}
 	return nil
 }

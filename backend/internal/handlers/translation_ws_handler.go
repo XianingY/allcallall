@@ -80,7 +80,7 @@ func (h *TranslationWSHandler) Handle(c *gin.Context) {
 		h.logger.Warn().Err(err).Msg("failed to upgrade translation websocket")
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	outbound := make(chan []byte, 64)
 	writerDone := make(chan struct{})
@@ -218,7 +218,10 @@ func (h *TranslationWSHandler) Handle(c *gin.Context) {
 func (h *TranslationWSHandler) writeLoop(conn *websocket.Conn, outbound <-chan []byte, done chan<- struct{}) {
 	defer close(done)
 	for msg := range outbound {
-		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			h.logger.Warn().Err(err).Msg("failed to set translation websocket write deadline")
+			return
+		}
 		if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 			return
 		}

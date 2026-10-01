@@ -404,7 +404,7 @@ func (s *FollowUpService) generateFollowupForUser(ctx context.Context, call mode
 			followup.KeyPointsJSON = mustJSON(keyPoints)
 			followup.ActionItemsJSON = mustJSON(actionItems)
 			followup.RiskFlagsJSON = mustJSON(riskFlags)
-			followup.FollowupDraftCN = fmt.Sprintf("你好，感谢刚才的沟通。我整理了本次通话的重点，建议我们按约定推进下一步。")
+			followup.FollowupDraftCN = "你好，感谢刚才的沟通。我整理了本次通话的重点，建议我们按约定推进下一步。"
 			followup.FollowupDraftEN = "Thanks for the call. I have summarized the key points and suggest we move on to the agreed next step."
 		} else {
 			if s.metrics != nil {

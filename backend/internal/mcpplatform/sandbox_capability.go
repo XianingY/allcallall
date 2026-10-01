@@ -168,7 +168,7 @@ func (v *SandboxCapabilityVerifier) Verify(raw, method, path, requestDigest stri
 	if claims.ExpiresAt == nil || claims.NotBefore == nil || claims.IssuedAt == nil || strings.TrimSpace(claims.ID) == "" {
 		return fmt.Errorf("%w: incomplete registered claims", ErrInvalidSandboxCapability)
 	}
-	validity := claims.ExpiresAt.Time.Sub(claims.IssuedAt.Time)
+	validity := claims.ExpiresAt.Sub(claims.IssuedAt.Time)
 	if validity <= 0 || validity > sandboxCapabilityMaxTTL {
 		return fmt.Errorf("%w: invalid token lifetime", ErrInvalidSandboxCapability)
 	}

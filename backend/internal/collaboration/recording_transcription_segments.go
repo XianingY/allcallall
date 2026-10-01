@@ -51,6 +51,28 @@ func (s *Service) loadRecordingTranscriptionView(ctx context.Context, recordingI
 	return toRecordingTranscriptionView(item), nil
 }
 
+func (s *Service) loadRecordingTranscriptionViewsForSessions(ctx context.Context, sessions []models.RecordingSession) (map[uint64]*RecordingTranscriptionView, error) {
+	result := make(map[uint64]*RecordingTranscriptionView, len(sessions))
+	ids := make([]uint64, 0, len(sessions))
+	for _, session := range sessions {
+		ids = append(ids, session.ID)
+	}
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	var jobs []models.RecordingTranscription
+	if err := s.db.WithContext(ctx).
+		Where("recording_session_id IN ?", ids).
+		Find(&jobs).Error; err != nil {
+		return nil, err
+	}
+	for _, job := range jobs {
+		result[job.RecordingSessionID] = toRecordingTranscriptionView(job)
+	}
+	return result, nil
+}
+
 func toRecordingTranscriptionView(item models.RecordingTranscription) *RecordingTranscriptionView {
 	return &RecordingTranscriptionView{
 		ID:           item.ID,

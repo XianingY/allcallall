@@ -70,6 +70,7 @@ type AgentTaskEvalOptions struct {
 }
 
 func LoadAgentTaskEvalCases(path string) ([]AgentTaskEvalCase, error) {
+	// #nosec G304 -- eval fixtures are operator-supplied local files.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -114,27 +115,27 @@ func FormatAgentTaskEvalMarkdown(report AgentTaskEvalReport) string {
 	var b strings.Builder
 	b.WriteString("# AllCallAll Agent Task Eval Report\n\n")
 	b.WriteString("- Scope: `current deterministic task fixture set`\n")
-	b.WriteString(fmt.Sprintf("- Runtime: `%s`\n", agent.FirstNonEmptyString(report.Runtime, agent.WorkflowRuntimeGo)))
+	fmt.Fprintf(&b, "- Runtime: `%s`\n", agent.FirstNonEmptyString(report.Runtime, agent.WorkflowRuntimeGo))
 	b.WriteString("- Positioning: `black-box task completion and safety checks, not open-ended user satisfaction`\n\n")
 
 	b.WriteString("## Summary\n\n")
 	b.WriteString("| Metric | Value |\n")
 	b.WriteString("| --- | ---: |\n")
-	b.WriteString(fmt.Sprintf("| cases | %d |\n", report.Cases))
-	b.WriteString(fmt.Sprintf("| passed | %d |\n", report.Passed))
-	b.WriteString(fmt.Sprintf("| failed | %d |\n", report.Failed))
-	b.WriteString(fmt.Sprintf("| task_success_rate | %.1f%% |\n", taskEvalPct(report.Summary.TaskSuccessRate)))
-	b.WriteString(fmt.Sprintf("| tool_intent_match_rate | %.1f%% |\n", taskEvalPct(report.Summary.ToolIntentMatchRate)))
-	b.WriteString(fmt.Sprintf("| approval_safety_rate | %.1f%% |\n", taskEvalPct(report.Summary.ApprovalSafetyRate)))
-	b.WriteString(fmt.Sprintf("| citation_presence_rate | %.1f%% |\n", taskEvalPct(report.Summary.CitationPresenceRate)))
-	b.WriteString(fmt.Sprintf("| meeting_grounding_rate | %.1f%% |\n\n", taskEvalPct(report.Summary.MeetingGroundingRate)))
+	fmt.Fprintf(&b, "| cases | %d |\n", report.Cases)
+	fmt.Fprintf(&b, "| passed | %d |\n", report.Passed)
+	fmt.Fprintf(&b, "| failed | %d |\n", report.Failed)
+	fmt.Fprintf(&b, "| task_success_rate | %.1f%% |\n", taskEvalPct(report.Summary.TaskSuccessRate))
+	fmt.Fprintf(&b, "| tool_intent_match_rate | %.1f%% |\n", taskEvalPct(report.Summary.ToolIntentMatchRate))
+	fmt.Fprintf(&b, "| approval_safety_rate | %.1f%% |\n", taskEvalPct(report.Summary.ApprovalSafetyRate))
+	fmt.Fprintf(&b, "| citation_presence_rate | %.1f%% |\n", taskEvalPct(report.Summary.CitationPresenceRate))
+	fmt.Fprintf(&b, "| meeting_grounding_rate | %.1f%% |\n\n", taskEvalPct(report.Summary.MeetingGroundingRate))
 
 	b.WriteString("## Cases\n\n")
 	for _, result := range report.Results {
-		b.WriteString(fmt.Sprintf("- `%s` [%s]: %s - status `%s`, tools %d, approvals %d, citations %d\n",
-			result.Name, result.Mode, passFail(result.Passed), result.Status, len(result.UsedTools), result.Approvals, result.Citations))
+		fmt.Fprintf(&b, "- `%s` [%s]: %s - status `%s`, tools %d, approvals %d, citations %d\n",
+			result.Name, result.Mode, passFail(result.Passed), result.Status, len(result.UsedTools), result.Approvals, result.Citations)
 		if len(result.Errors) > 0 {
-			b.WriteString(fmt.Sprintf("  - errors: %s\n", strings.Join(result.Errors, "; ")))
+			fmt.Fprintf(&b, "  - errors: %s\n", strings.Join(result.Errors, "; "))
 		}
 	}
 	return b.String()

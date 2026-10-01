@@ -22,9 +22,14 @@ func (h *Hub) HandleConnection(ctx context.Context, email string, conn *websocke
 
 	// Detect dead/half-open connections: require a pong (or any inbound frame)
 	// within pongWait, and refresh that deadline whenever a pong arrives.
-	cl.conn.SetReadDeadline(time.Now().Add(pongWait))
+	if err := cl.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+		h.logger.Error().Err(err).Str("email", email).Msg("failed to set signaling read deadline")
+		return
+	}
 	cl.conn.SetPongHandler(func(string) error {
-		cl.conn.SetReadDeadline(time.Now().Add(pongWait))
+		if err := cl.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+			return err
+		}
 		if h.presence != nil {
 			if err := h.presence.Heartbeat(ctx, email, "signaling", ""); err != nil {
 				h.logger.Debug().Err(err).Str("email", email).Msg("presence heartbeat on pong failed")
@@ -54,7 +59,7 @@ func (h *Hub) HandleConnection(ctx context.Context, email string, conn *websocke
 
 	// Redis channel for cross-instance delivery.
 	sub := h.redis.Subscribe(ctx, h.channelName(email))
-	defer sub.Close()
+	defer func() { _ = sub.Close() }()
 
 	go h.redisForwarder(ctx, sub, cl)
 
@@ -144,7 +149,10 @@ func (h *Hub) pingTicker(ctx context.Context, cl *client) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			cl.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if err := cl.conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+				h.logger.Warn().Err(err).Str("email", cl.email).Msg("failed to set signaling write deadline")
+				return
+			}
 			if err := cl.conn.WriteMessage(websocket.TextMessage, ping); err != nil {
 				return
 			}

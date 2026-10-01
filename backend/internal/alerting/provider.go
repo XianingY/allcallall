@@ -89,7 +89,7 @@ func (p WebhookProvider) Notify(ctx context.Context, a Alert) error {
 	if err != nil {
 		return fmt.Errorf("alerting: post webhook: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("alerting: webhook returned %d", resp.StatusCode)
 	}

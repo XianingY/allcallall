@@ -92,7 +92,7 @@ func TestMiddleware(t *testing.T) {
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("unexpected status: %d", rec.Code)
 		}
-		assertAuthError(t, rec, authTokenMissingCode, "missing bearer token", "req-auth-missing-1")
+		assertAuthError(t, rec, authBearerMissingCode, "missing bearer token", "req-auth-missing-1")
 	})
 
 	t.Run("invalid token", func(t *testing.T) {
@@ -109,7 +109,7 @@ func TestMiddleware(t *testing.T) {
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("unexpected status: %d", rec.Code)
 		}
-		assertAuthError(t, rec, authTokenInvalidCode, "invalid token", "req-auth-invalid-1")
+		assertAuthError(t, rec, authBearerInvalidCode, "invalid token", "req-auth-invalid-1")
 	})
 
 	t.Run("header token", func(t *testing.T) {

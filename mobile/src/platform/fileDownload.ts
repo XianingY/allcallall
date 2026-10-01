@@ -1,4 +1,7 @@
 import { Linking, Platform } from "react-native";
+import { File, Paths } from "expo-file-system";
+
+import { resolveSafeDownloadFileName } from "./downloadFileName";
 
 export interface FileDownloadRequest {
   fromUrl: string;
@@ -40,23 +43,19 @@ const webAdapter: FileDownloadAdapter = {
 
 const nativeAdapter: FileDownloadAdapter = {
   async download(request, fileName) {
-    const RNFS = require("react-native-fs");
-    const destination = `${RNFS.DocumentDirectoryPath}/${fileName}`;
-    const result = await RNFS.downloadFile({
-      fromUrl: request.fromUrl,
+    const destination = new File(
+      Paths.document,
+      resolveSafeDownloadFileName(fileName),
+    );
+    const file = await File.downloadFileAsync(request.fromUrl, destination, {
       headers: request.headers,
-      toFile: destination,
-      background: true,
-      discretionary: true,
-    }).promise;
-    if (result.statusCode < 200 || result.statusCode >= 300) {
-      throw new Error(`download failed with status ${result.statusCode}`);
-    }
-    return { location: destination };
+      idempotent: true,
+    });
+    return { location: file.uri };
   },
   async open(result) {
     try {
-      await Linking.openURL(`file://${result.location}`);
+      await Linking.openURL(result.location);
     } catch {
       // Caller can show fallback UI.
     }

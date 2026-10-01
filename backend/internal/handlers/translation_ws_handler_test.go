@@ -3,9 +3,11 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,19 +50,44 @@ func (s *testProviderSession) Stop(ctx context.Context) error {
 }
 
 type testSubtitleDispatcher struct {
-	calls []translation.Result
+	mu        sync.Mutex
+	calls     []translation.Result
+	firstDone chan struct{}
+}
+
+func newTestSubtitleDispatcher() *testSubtitleDispatcher {
+	return &testSubtitleDispatcher{firstDone: make(chan struct{})}
 }
 
 func (d *testSubtitleDispatcher) DispatchSubtitle(ctx context.Context, fromEmail, toEmail, callID string, result translation.Result) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.calls = append(d.calls, result)
+	if len(d.calls) == 1 {
+		close(d.firstDone)
+	}
 	return nil
+}
+
+func (d *testSubtitleDispatcher) waitForCall(t *testing.T) {
+	t.Helper()
+	select {
+	case <-d.firstDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected dispatcher to receive a subtitle")
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.calls) != 1 {
+		t.Fatalf("expected 1 dispatched subtitle, got %d", len(d.calls))
+	}
 }
 
 func TestTranslationWSHandlerLifecycle(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	provider := &testProvider{}
 	svc := translation.NewService(zerolog.Nop(), provider, 1)
-	dispatcher := &testSubtitleDispatcher{}
+	dispatcher := newTestSubtitleDispatcher()
 	handler := NewTranslationWSHandlerWithDispatcher(zerolog.Nop(), svc, dispatcher, nil)
 
 	router := gin.New()
@@ -73,6 +100,7 @@ func TestTranslationWSHandlerLifecycle(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
+	//nolint:bodyclose // gorilla/websocket handshake response bodies do not need application-side close.
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -110,7 +138,8 @@ func TestTranslationWSHandlerLifecycle(t *testing.T) {
 		_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 		_, payload, err := conn.ReadMessage()
 		if err != nil {
-			if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+			var nerr net.Error
+			if errors.As(err, &nerr) && nerr.Timeout() {
 				continue
 			}
 			t.Fatalf("read message failed: %v", err)
@@ -136,9 +165,7 @@ func TestTranslationWSHandlerLifecycle(t *testing.T) {
 	if !gotFinal {
 		t.Fatal("expected translation.final")
 	}
-	if len(dispatcher.calls) != 1 {
-		t.Fatalf("expected 1 dispatched subtitle, got %d", len(dispatcher.calls))
-	}
+	dispatcher.waitForCall(t)
 
 	if err := conn.WriteJSON(map[string]any{"type": "translation.stop"}); err != nil {
 		t.Fatalf("send stop failed: %v", err)

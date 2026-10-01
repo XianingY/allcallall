@@ -171,7 +171,8 @@ func (s *Service) upsertContextChunk(ctx context.Context, organizationID, conver
 
 		// 未注入池时回退旧行为（尽力而为，不阻塞）。
 		go func() {
-			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			// WithOutCancel 保留 trace 等请求值，同时避免索引在响应返回后被取消。
+			bgCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 			defer cancel()
 			if err := index(bgCtx); err != nil {
 				s.metrics.Inc("rag_index_dropped_total")

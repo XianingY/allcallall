@@ -71,14 +71,14 @@ func main() {
 		payload["growth"] = rep
 	}
 
-	var w *os.File = os.Stdout
+	var w = os.Stdout
 	if *out != "" {
 		f, err := os.Create(*out)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "create out: %v\n", err)
 			os.Exit(1)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		w = f
 	}
 

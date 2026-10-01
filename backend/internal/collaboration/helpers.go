@@ -3,6 +3,7 @@ package collaboration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -106,19 +107,30 @@ func (s *Service) createMeetingConversationTx(ctx context.Context, tx *gorm.DB, 
 }
 
 func (s *Service) ensureConversationMember(ctx context.Context, organizationID, userID, conversationID uint64) error {
-	var count int64
-	err := s.db.WithContext(ctx).
+	return ensureConversationMemberIn(ctx, s.db, organizationID, userID, conversationID)
+}
+
+// ensureConversationMemberIn 是会话访问检查的单一实现。
+// conversation_members 上有 (conversation_id, user_id) 唯一索引，命中最多一行，
+// 因此用 LIMIT 1 的半连接存在性探测替代 COUNT(*)：授权检查只需「存在与否」，
+// 不需要数完全部匹配行；这也是每条消息读写的必经路径。
+// ensureConversationMemberIn is the single implementation shared by the
+// transactional and non-transactional access checks. A LIMIT 1 existence
+// probe replaces COUNT(*) on the hot authorization path.
+func ensureConversationMemberIn(ctx context.Context, db *gorm.DB, organizationID, userID, conversationID uint64) error {
+	var member struct {
+		ConversationID uint64 `gorm:"column:conversation_id"`
+	}
+	err := db.WithContext(ctx).
 		Table("conversation_members").
+		Select("conversation_members.conversation_id").
 		Joins("JOIN conversations ON conversations.id = conversation_members.conversation_id").
 		Where("conversation_members.conversation_id = ? AND conversation_members.user_id = ? AND conversations.organization_id = ?", conversationID, userID, organizationID).
-		Count(&count).Error
-	if err != nil {
-		return err
-	}
-	if count == 0 {
+		Take(&member).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrConversationAccessDenied
 	}
-	return nil
+	return err
 }
 
 func (s *Service) loadMessageRecord(ctx context.Context, messageID uint64) (*MessageRecord, error) {

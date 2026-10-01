@@ -69,7 +69,7 @@ func (s *Service) executeDecomposeTask(ctx context.Context, run models.WorkflowR
 
 func (s *Service) executeParallelAgentTasks(ctx context.Context, run models.WorkflowRun, conversationCtx *conversationContext) error {
 	roles := []string{models.WorkflowTaskSearcher, models.WorkflowTaskSummarizer, models.WorkflowTaskRiskAnalyst}
-	if s.db.Dialector.Name() == "sqlite" {
+	if s.db.Name() == "sqlite" {
 		for _, role := range roles {
 			if err := s.executeWorkflowRoleTask(ctx, run, role, conversationCtx); err != nil {
 				return err

@@ -40,7 +40,8 @@ func JSONErrorWithCode(c *gin.Context, status int, code string, message string) 
 
 // JSONAppError automatically maps an error to the appropriate JSONErrorWithCode response.
 func JSONAppError(c *gin.Context, err error) {
-	if appErr, ok := err.(*apperror.AppError); ok {
+	var appErr *apperror.AppError
+	if errors.As(err, &appErr) {
 		JSONErrorWithCode(c, appErr.HTTPStatus, appErr.Code, appErr.Message)
 		return
 	}

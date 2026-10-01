@@ -154,17 +154,5 @@ func (s *Service) createConversationSystemMessageTx(ctx context.Context, tx *gor
 	return err
 }
 func (s *Service) ensureConversationMemberTx(ctx context.Context, tx *gorm.DB, organizationID, userID, conversationID uint64) error {
-	var count int64
-	err := tx.WithContext(ctx).
-		Table("conversation_members").
-		Joins("JOIN conversations ON conversations.id = conversation_members.conversation_id").
-		Where("conversation_members.conversation_id = ? AND conversation_members.user_id = ? AND conversations.organization_id = ?", conversationID, userID, organizationID).
-		Count(&count).Error
-	if err != nil {
-		return err
-	}
-	if count == 0 {
-		return ErrConversationAccessDenied
-	}
-	return nil
+	return ensureConversationMemberIn(ctx, tx, organizationID, userID, conversationID)
 }

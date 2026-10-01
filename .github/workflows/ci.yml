@@ -199,12 +199,12 @@ jobs:
         # auditing from web/ and mobile/ separately was the same tree twice.
         #
         # Was `npm audit --audit-level=high || true` with continue-on-error, so
-        # it could never fail. Now blocking at critical. Raising it to high
-        # needs a baseline taken in CI first - the local registry mirror does
-        # not implement the audit endpoint, so it cannot be measured here, and
-        # guessing would either leave it toothless or break every build.
+        # it could never fail. It was temporarily blocking only at critical
+        # while the workspace had unresolved high findings. The current lockfile
+        # has no high/critical findings against the official npm registry, so
+        # high is now a real, blocking gate.
         working-directory: .
-        run: npm audit --audit-level=critical
+        run: npm audit --audit-level=high
 
   web:
     name: Web

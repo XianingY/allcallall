@@ -147,6 +147,7 @@ func (p *OpenAICompatibleProvider) prepareChunks(ctx context.Context, sourcePath
 	}
 	cleanup := func() { _ = os.RemoveAll(tempDir) }
 	outputPattern := filepath.Join(tempDir, "chunk-%06d.ogg")
+	// #nosec G204 -- ffmpeg path is deployment configuration; source is a server-created temporary file.
 	command := exec.CommandContext(ctx, p.ffmpegPath,
 		"-hide_banner", "-loglevel", "error", "-y",
 		"-i", sourcePath,
@@ -205,11 +206,12 @@ type openAITranscriptionResponse struct {
 }
 
 func (p *OpenAICompatibleProvider) transcribeChunk(ctx context.Context, path string) ([]Segment, error) {
+	// #nosec G304 -- path is a server-controlled upload or process-created chunk file.
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, &ProviderError{Operation: "upload", Err: err}
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -248,7 +250,7 @@ func (p *OpenAICompatibleProvider) transcribeChunk(ctx context.Context, path str
 	if err != nil {
 		return nil, &ProviderError{Operation: "request", Retryable: ctx.Err() == nil, Err: err}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxTranscriptionResponseBytes+1))
 	if err != nil {
 		return nil, &ProviderError{Operation: "response", Retryable: true, StatusCode: resp.StatusCode, Err: err}

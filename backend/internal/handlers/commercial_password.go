@@ -92,8 +92,11 @@ func (h *CommercialHandler) handlePasswordResetConfirm(c *gin.Context) {
 	}
 
 	if err := h.users.ResetPassword(c.Request.Context(), userModel.ID, req.NewPassword); err != nil {
-		switch err {
-		case user.ErrPasswordTooShort, user.ErrPasswordTooLong, user.ErrPasswordWeak, user.ErrSpecialCharacters:
+		switch {
+		case errors.Is(err, user.ErrPasswordTooShort),
+			errors.Is(err, user.ErrPasswordTooLong),
+			errors.Is(err, user.ErrPasswordWeak),
+			errors.Is(err, user.ErrSpecialCharacters):
 			JSONServiceError(c, err, "failed to complete the password operation")
 		default:
 			h.logger.Error().Err(err).Msg("reset password failed")

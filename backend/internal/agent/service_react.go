@@ -136,7 +136,9 @@ func (s *Service) executeReActRun(ctx context.Context, run models.AgentRun, goal
 			if !ok {
 				tc.Status = models.ToolCallStatusFailed
 				tc.ErrorMessage = "Unknown tool: " + tc.ToolName
-				s.recordToolCall(ctx, tc)
+				if err := s.recordToolCall(ctx, tc); err != nil {
+					return nil, fmt.Errorf("record unknown tool call %q: %w", tc.CallID, err)
+				}
 				messageHistory = append(messageHistory, map[string]any{
 					"role":         "tool",
 					"tool_call_id": tc.CallID,
@@ -147,7 +149,9 @@ func (s *Service) executeReActRun(ctx context.Context, run models.AgentRun, goal
 			if err := ValidateToolArguments(tc.ToolName, tc.InputJSON); err != nil {
 				tc.Status = models.ToolCallStatusFailed
 				tc.ErrorMessage = err.Error()
-				s.recordToolCall(ctx, tc)
+				if recordErr := s.recordToolCall(ctx, tc); recordErr != nil {
+					return nil, fmt.Errorf("record invalid tool call %q: %w", tc.CallID, recordErr)
+				}
 				messageHistory = append(messageHistory, map[string]any{
 					"role":         "tool",
 					"tool_call_id": tc.CallID,
@@ -159,7 +163,9 @@ func (s *Service) executeReActRun(ctx context.Context, run models.AgentRun, goal
 			if toolDef.RequiresApproval {
 				// Human-in-the-loop pause!
 				tc.Status = models.ToolCallStatusPending // Wait for approval
-				s.recordToolCall(ctx, tc)
+				if err := s.recordToolCall(ctx, tc); err != nil {
+					return nil, fmt.Errorf("record approval-pending tool call %q: %w", tc.CallID, err)
+				}
 
 				if err := s.db.WithContext(ctx).Model(&models.AgentRun{}).Where("id = ?", run.ID).
 					Updates(map[string]any{
@@ -182,7 +188,9 @@ func (s *Service) executeReActRun(ctx context.Context, run models.AgentRun, goal
 				tc.Status = models.ToolCallStatusSuccess
 				tc.OutputJSON = outputJSON
 			}
-			s.recordToolCall(ctx, tc)
+			if err := s.recordToolCall(ctx, tc); err != nil {
+				return nil, fmt.Errorf("record completed tool call %q: %w", tc.CallID, err)
+			}
 
 			content := tc.OutputJSON
 			if tc.Status == models.ToolCallStatusFailed {
@@ -232,7 +240,7 @@ func (s *Service) executeToolLocally(ctx context.Context, run models.AgentRun, t
 	}
 	var params map[string]any
 	if err := json.Unmarshal([]byte(tc.InputJSON), &params); err != nil {
-		return "", fmt.Errorf("invalid tool input json: %v", err)
+		return "", fmt.Errorf("invalid tool input json: %w", err)
 	}
 
 	summary, _ := params["summary"].(string)
@@ -323,7 +331,7 @@ func (s *Service) executeApprovedMCPTool(ctx context.Context, run models.AgentRu
 func (s *Service) executeDelegateTask(ctx context.Context, run models.AgentRun, tc models.AgentToolCall) (models.AgentToolCall, error) {
 	var params map[string]string
 	if err := json.Unmarshal([]byte(tc.InputJSON), &params); err != nil {
-		return tc, fmt.Errorf("invalid delegate task input: %v", err)
+		return tc, fmt.Errorf("invalid delegate task input: %w", err)
 	}
 
 	targetRole := params["target_role"]

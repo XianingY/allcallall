@@ -28,6 +28,7 @@ describe("web e2ee", () => {
     // Shared encrypts, WebCrypto decrypts.
     const encrypted = encryptMessage(key, "one direction");
     const [version, ivHex, ciphertextHex] = encrypted.split(".");
+    expect(version).toBe("v1");
     const iv = Uint8Array.from(ivHex.match(/.{2}/g)!.map((pair) => parseInt(pair, 16)));
     const ciphertext = Uint8Array.from(ciphertextHex.match(/.{2}/g)!.map((pair) => parseInt(pair, 16)));
     const cryptoKey = await webcrypto.subtle.importKey("raw", key, "AES-GCM", false, ["decrypt"]);

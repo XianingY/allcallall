@@ -157,25 +157,6 @@ func (s *Service) processWorkflowTimer(ctx context.Context, timer models.Workflo
 	return runID, err
 }
 
-func (s *Service) createWorkflowSignal(ctx context.Context, run models.WorkflowRun, signalName string, receivedBy *uint64, payload any) error {
-	signal := models.WorkflowSignal{
-		WorkflowRunID:  run.ID,
-		OrganizationID: run.OrganizationID,
-		SignalName:     signalName,
-		PayloadJSON:    mustJSONString(payload),
-		Status:         models.WorkflowSignalStatusReceived,
-		ReceivedBy:     receivedBy,
-	}
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&signal).Error; err != nil {
-			return err
-		}
-		return s.appendWorkflowHistoryTx(ctx, tx, run, models.WorkflowHistoryEventSignalReceived, "workflow_signal", &signal.ID, map[string]any{
-			"name": signalName,
-		})
-	})
-}
-
 func (s *Service) syncBackingAgentRun(ctx context.Context, run models.WorkflowRun, status, errorMessage string) {
 	if run.AgentRunID == nil {
 		return

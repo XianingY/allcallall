@@ -197,10 +197,20 @@ func (s *Service) ListRecordings(ctx context.Context, organizationID, userID uin
 		return pagination.Result[RecordingView]{}, err
 	}
 	result := make([]RecordingView, 0, len(sessions))
+	filesBySession, err := s.loadRecordingFilesForSessions(ctx, sessions)
+	if err != nil {
+		return pagination.Result[RecordingView]{}, err
+	}
+	transcriptionsBySession, err := s.loadRecordingTranscriptionViewsForSessions(ctx, sessions)
+	if err != nil {
+		return pagination.Result[RecordingView]{}, err
+	}
 	for _, session := range sessions {
-		files, _ := s.loadRecordingFiles(ctx, session)
-		transcription, _ := s.loadRecordingTranscriptionView(ctx, session.ID)
-		result = append(result, RecordingView{Session: session, Files: files, Transcription: transcription})
+		result = append(result, RecordingView{
+			Session:       session,
+			Files:         filesBySession[session.ID],
+			Transcription: transcriptionsBySession[session.ID],
+		})
 	}
 	return pagination.NewResult(result, total, np), nil
 }
@@ -353,6 +363,47 @@ func (s *Service) loadRecordingFiles(ctx context.Context, session models.Recordi
 	return result, nil
 }
 
+func (s *Service) loadRecordingFilesForSessions(ctx context.Context, sessions []models.RecordingSession) (map[uint64][]RecordingFileView, error) {
+	result := make(map[uint64][]RecordingFileView, len(sessions))
+	ids := make([]uint64, 0, len(sessions))
+	for _, session := range sessions {
+		result[session.ID] = make([]RecordingFileView, 0)
+		ids = append(ids, session.ID)
+	}
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	var files []models.RecordingFile
+	if err := s.db.WithContext(ctx).
+		Where("recording_session_id IN ? AND deleted_at IS NULL", ids).
+		Order("id ASC").
+		Find(&files).Error; err != nil {
+		return nil, err
+	}
+	for _, file := range files {
+		fileName := filepath.Base(file.ObjectKey)
+		fileSize := file.FileSizeBytes
+		if fileSize == 0 && strings.EqualFold(file.StorageDriver, string(storage.DriverLocal)) {
+			if info, err := os.Stat(file.ObjectKey); err == nil {
+				fileSize = info.Size()
+			}
+		}
+		recordingKind := "mixed_audio"
+		if strings.EqualFold(fileName, "session.json") || strings.Contains(strings.ToLower(file.ContentType), "json") {
+			recordingKind = "manifest"
+		}
+		result[file.RecordingSessionID] = append(result[file.RecordingSessionID], RecordingFileView{
+			RecordingFile: file,
+			DownloadURL:   fmt.Sprintf("/api/v1/recordings/%d/files/%d", file.RecordingSessionID, file.ID),
+			FileName:      fileName,
+			FileSizeBytes: fileSize,
+			RecordingKind: recordingKind,
+		})
+	}
+	return result, nil
+}
+
 func (s *Service) recordingBaseDir() string {
 	if value := strings.TrimSpace(os.Getenv("RECORDING_STORAGE_DIR")); value != "" {
 		return value
@@ -393,11 +444,11 @@ func (s *Service) persistRecordingArtifacts(ctx context.Context, organizationID,
 		"participants":    members,
 	}
 	manifestPath := filepath.Join(s.recordingSessionDir(organizationID, roomID, session.ID), "session.json")
-	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o750); err != nil {
 		return err
 	}
 	if raw, err := json.MarshalIndent(manifest, "", "  "); err == nil {
-		if err := os.WriteFile(manifestPath, raw, 0o644); err != nil {
+		if err := os.WriteFile(manifestPath, raw, 0o600); err != nil {
 			return err
 		}
 		artifacts = append(artifacts, media.RecordingArtifact{

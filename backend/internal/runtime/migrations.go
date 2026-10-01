@@ -21,7 +21,7 @@ import (
 // stamped with. Bump it, and the assertion in migrations_test.go, when adding
 // a migration - see migrations/README.md for why this is a single stamp rather
 // than one per applied file.
-const currentSchemaVersion = 14
+const currentSchemaVersion = 20
 
 // RunMigrations applies the ordered schema migrations using golang-migrate.
 //
@@ -41,7 +41,7 @@ func RunMigrations(db *gorm.DB, dataSourceNames ...string) error {
 		return fmt.Errorf("failed to get sql.DB: %w", err)
 	}
 
-	dialectName := db.Dialector.Name()
+	dialectName := db.Name()
 	var migrationDB *sql.DB
 	if dialectName == "mysql" && len(dataSourceNames) > 0 && dataSourceNames[0] != "" {
 		config, parseErr := drivermysql.ParseDSN(dataSourceNames[0])
@@ -53,21 +53,22 @@ func RunMigrations(db *gorm.DB, dataSourceNames ...string) error {
 		if err != nil {
 			return fmt.Errorf("open mysql migration connection: %w", err)
 		}
-		defer migrationDB.Close()
+		defer func() { _ = migrationDB.Close() }()
 		sqlDB = migrationDB
 	}
 	var driver database.Driver
-	if dialectName == "mysql" {
+	switch dialectName {
+	case "mysql":
 		driver, err = migratemysql.WithInstance(sqlDB, &migratemysql.Config{})
 		if err != nil {
 			return fmt.Errorf("failed to create mysql driver: %w", err)
 		}
-	} else if dialectName == "sqlite" {
+	case "sqlite":
 		driver, err = sqlite.WithInstance(sqlDB, &sqlite.Config{})
 		if err != nil {
 			return fmt.Errorf("failed to create sqlite driver: %w", err)
 		}
-	} else {
+	default:
 		return fmt.Errorf("unsupported database dialect: %s", dialectName)
 	}
 

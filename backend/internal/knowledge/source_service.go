@@ -115,11 +115,12 @@ func (s *Service) CreateSource(ctx context.Context, organizationID, userID uint6
 				Version:        1,
 				ContentHash:    HashText(rawText),
 				NormalizedHash: HashText(rawText),
-				SimHash64:      int64(SimHashText(rawText)),
-				RawText:        rawText,
-				Status:         models.RAGSourceVersionStatusPending,
-				CreatedAt:      now,
-				UpdatedAt:      now,
+				// #nosec G115 -- the signed column stores the complete 64-bit SimHash value.
+				SimHash64: int64(SimHashText(rawText)),
+				RawText:   rawText,
+				Status:    models.RAGSourceVersionStatusPending,
+				CreatedAt: now,
+				UpdatedAt: now,
 			}
 			if err := tx.Create(&version).Error; err != nil {
 				return err
@@ -332,17 +333,6 @@ func (s *Service) prepareVersionForIngest(ctx context.Context, source models.RAG
 	return models.RAGSourceVersion{}, "", errors.New("no pending knowledge source version found")
 }
 
-func (s *Service) nextVersionNumber(ctx context.Context, tx *gorm.DB, sourceID uint64) (int, error) {
-	var latest models.RAGSourceVersion
-	if err := tx.WithContext(ctx).Where("source_id = ?", sourceID).Order("version DESC").Take(&latest).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 1, nil
-		}
-		return 0, err
-	}
-	return latest.Version + 1, nil
-}
-
 func (s *Service) ensureSourceGroupTx(ctx context.Context, tx *gorm.DB, source *models.RAGSource, now time.Time) error {
 	if source.SourceGroupID != nil {
 		return nil
@@ -402,6 +392,7 @@ func (s *Service) createDuplicateCandidatesTx(ctx context.Context, tx *gorm.DB, 
 			kind = models.RAGSourceDuplicateKindExact
 			similarity = 1
 		case candidate.SimHash64 != 0 && simHash != 0:
+			// #nosec G115 -- converting back restores the exact SimHash bits for Hamming distance.
 			distance := bits.OnesCount64(uint64(candidate.SimHash64) ^ simHash)
 			if distance <= nearDuplicateHammingMax {
 				kind = models.RAGSourceDuplicateKindNear

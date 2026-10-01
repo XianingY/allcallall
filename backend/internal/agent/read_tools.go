@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"gorm.io/gorm"
@@ -215,7 +216,8 @@ func uint64FromToolParam(value any) uint64 {
 }
 
 func intFromToolParam(value any, fallback int) int {
-	if parsed := uint64FromToolParam(value); parsed > 0 {
+	parsed := uint64FromToolParam(value)
+	if parsed > 0 && parsed <= math.MaxInt {
 		return int(parsed)
 	}
 	return fallback

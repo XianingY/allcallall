@@ -17,12 +17,12 @@ import {
   renderHook,
   act,
   type RenderHookResult,
-} from "@testing-library/react-hooks";
+} from "@testing-library/react-native";
 
 import { SignalingProvider } from "../../SignalingContext";
 import { useSignaling } from "../../signalingContextValue";
 
-type SignalingHookResult = RenderHookResult<unknown, ReturnType<typeof useSignaling>>;
+type SignalingHookResult = RenderHookResult<ReturnType<typeof useSignaling>, unknown>;
 
 // ---------------------------------------------------------------------------
 // react-native-webrtc — each peer connection gets its own fresh jest.fns so we

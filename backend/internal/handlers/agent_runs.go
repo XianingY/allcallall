@@ -170,7 +170,7 @@ func (h *AgentHandler) handleStreamRunEvents(c *gin.Context) {
 	var redisCh <-chan *redis.Message
 	if h.redis != nil {
 		sub := h.redis.Subscribe(c.Request.Context(), fmt.Sprintf("agent_run:%d:stream", runID))
-		defer sub.Close()
+		defer func() { _ = sub.Close() }()
 		redisCh = sub.Channel()
 	}
 

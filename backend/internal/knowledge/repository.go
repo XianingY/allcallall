@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -271,7 +272,7 @@ func (r *Repository) NextVersionNumber(ctx context.Context, sourceID uint64) (in
 	var latest models.RAGSourceVersion
 	err := r.db.WithContext(ctx).Where("source_id = ?", sourceID).Order("version DESC").Take(&latest).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return 1, nil
 		}
 		return 0, err
@@ -284,7 +285,7 @@ func (r *Repository) NextVersionNumberTx(ctx context.Context, tx *gorm.DB, sourc
 	var latest models.RAGSourceVersion
 	err := tx.WithContext(ctx).Where("source_id = ?", sourceID).Order("version DESC").Take(&latest).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return 1, nil
 		}
 		return 0, err
@@ -339,13 +340,14 @@ func (r *Repository) ActivateVersion(ctx context.Context, versionID uint64, cont
 	return r.db.WithContext(ctx).Model(&models.RAGSourceVersion{}).Where("id = ?", versionID).Updates(map[string]any{
 		"content_hash":    contentHash,
 		"normalized_hash": contentHash,
-		"sim_hash64":      int64(simHash),
-		"raw_text":        rawText,
-		"status":          models.RAGSourceVersionStatusActive,
-		"chunk_count":     chunkCount,
-		"last_error":      "",
-		"activated_at":    now,
-		"updated_at":      now,
+		// #nosec G115 -- the signed column stores the complete 64-bit SimHash value.
+		"sim_hash64":   int64(simHash),
+		"raw_text":     rawText,
+		"status":       models.RAGSourceVersionStatusActive,
+		"chunk_count":  chunkCount,
+		"last_error":   "",
+		"activated_at": now,
+		"updated_at":   now,
 	}).Error
 }
 

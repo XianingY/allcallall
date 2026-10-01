@@ -131,6 +131,18 @@ AUDIT_LOG_RETENTION_DAYS=180
 
 组织开启该策略后，未核验用户在 `AcceptOrganizationInvite` 阶段被拒绝，返回 `ErrIdentityVerificationRequired`。核验流程本身对接外部实名服务，仓库内只保留开关与判定。
 
+### 10. 实时事件留存（chat_events）
+
+`chat_events` 表服务 websocket 重连回放：每条实时事件按收件人各写一行，事件被客户端游标越过或超过回放窗口后即无用途。`StartRealtimeEventRetentionWorker` 周期性调用 `PurgeExpiredRealtimeEvents` 分批清理过期事件，防止该表只增不删。
+
+```bash
+CHAT_EVENT_RETENTION_DAYS=7                  # 回放窗口，默认 7 天；<=0 禁用
+CHAT_EVENT_RETENTION_CLEANUP_INTERVAL_MIN=60 # 清理周期，默认每小时
+CHAT_EVENT_RETENTION_CLEANUP_BATCH_LIMIT=500 # 单批删除上限，防大事务锁表
+```
+
+注意：改小保留窗口只影响清理时机，不影响在线连接。客户端断线重连携带的 `since_id` 游标若早于窗口起点，只能回放窗口内仍然留存的事件；更早的增量由客户端已有的会话列表/消息分页补齐。升级存量部署后建议手动触发一次清理（或等待首个周期），历史积压会按批次逐步消化。
+
 ## 运维检查清单
 
 - [ ] 生产环境 `SECURITY_REQUIRE_TLS=true`，且反向代理正确透传 `X-Forwarded-Proto`
@@ -138,6 +150,7 @@ AUDIT_LOG_RETENTION_DAYS=180
 - [ ] 留存 TTL 与业务/法务确认后再调整，不要为了「方便排查」而无限拉长
 - [ ] 清理 worker 已启动（检查 `cmd/cleanup-worker` 或 `EMBEDDED_WORKERS=1`）
 - [ ] 审计留存不低于监管要求的最短年限
+- [ ] `CHAT_EVENT_RETENTION_DAYS` 与产品确认的断线回放窗口一致（默认 7 天）
 - [ ] 搜索索引集群若在信任边界外，确认 `SEARCH_INDEX_BODY_SNIPPET_MAX_RUNES` 足够小
 
 ## 新增迁移注意事项

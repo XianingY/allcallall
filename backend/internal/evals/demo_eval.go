@@ -81,7 +81,7 @@ func WriteDemoEvalArtifacts(outDir string, report DemoEvalReport) error {
 	if strings.TrimSpace(outDir) == "" {
 		return fmt.Errorf("output directory is required")
 	}
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
 		return err
 	}
 	files := []struct {
@@ -98,56 +98,56 @@ func WriteDemoEvalArtifacts(outDir string, report DemoEvalReport) error {
 		if err != nil {
 			return fmt.Errorf("marshal %s: %w", file.name, err)
 		}
-		if err := os.WriteFile(filepath.Join(outDir, file.name), append(raw, '\n'), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(outDir, file.name), append(raw, '\n'), 0o600); err != nil {
 			return fmt.Errorf("write %s: %w", file.name, err)
 		}
 	}
-	return os.WriteFile(filepath.Join(outDir, "agent-demo-report.md"), []byte(FormatDemoEvalMarkdown(report)), 0o644)
+	return os.WriteFile(filepath.Join(outDir, "agent-demo-report.md"), []byte(FormatDemoEvalMarkdown(report)), 0o600)
 }
 
 func FormatDemoEvalMarkdown(report DemoEvalReport) string {
 	var b strings.Builder
 	b.WriteString("# AllCallAll Agent Demo Eval Report\n\n")
-	b.WriteString(fmt.Sprintf("- Generated at: `%s`\n", report.GeneratedAt))
-	b.WriteString(fmt.Sprintf("- agent.Planner provider: `%s`\n", report.Provider))
-	b.WriteString(fmt.Sprintf("- Overall status: `%s`\n\n", passFail(report.Failed == 0)))
+	fmt.Fprintf(&b, "- Generated at: `%s`\n", report.GeneratedAt)
+	fmt.Fprintf(&b, "- agent.Planner provider: `%s`\n", report.Provider)
+	fmt.Fprintf(&b, "- Overall status: `%s`\n\n", passFail(report.Failed == 0))
 
 	b.WriteString("## Summary\n\n")
 	b.WriteString("| Suite | Cases | Passed | Failed |\n")
 	b.WriteString("| --- | ---: | ---: | ---: |\n")
-	b.WriteString(fmt.Sprintf("| agent.Planner | %d | %d | %d |\n", report.Planner.Cases, report.Planner.Passed, report.Planner.Failed))
-	b.WriteString(fmt.Sprintf("| RAG | %d | %d | %d |\n", report.RAG.Cases, report.RAG.Passed, report.RAG.Failed))
-	b.WriteString(fmt.Sprintf("| Workflow | %d | %d | %d |\n\n", report.Workflow.Cases, report.Workflow.Passed, report.Workflow.Failed))
+	fmt.Fprintf(&b, "| agent.Planner | %d | %d | %d |\n", report.Planner.Cases, report.Planner.Passed, report.Planner.Failed)
+	fmt.Fprintf(&b, "| RAG | %d | %d | %d |\n", report.RAG.Cases, report.RAG.Passed, report.RAG.Failed)
+	fmt.Fprintf(&b, "| Workflow | %d | %d | %d |\n\n", report.Workflow.Cases, report.Workflow.Passed, report.Workflow.Failed)
 
 	b.WriteString("## agent.Planner Cases\n\n")
 	for _, result := range report.Planner.Results {
-		b.WriteString(fmt.Sprintf("- `%s`: %s", result.Name, passFail(result.Passed)))
+		fmt.Fprintf(&b, "- `%s`: %s", result.Name, passFail(result.Passed))
 		if len(result.Errors) > 0 {
-			b.WriteString(fmt.Sprintf(" - %s", strings.Join(result.Errors, "; ")))
+			fmt.Fprintf(&b, " - %s", strings.Join(result.Errors, "; "))
 		}
 		if result.EstimatedPromptTokens > 0 {
-			b.WriteString(fmt.Sprintf(" - estimated tokens %d", result.EstimatedPromptTokens))
+			fmt.Fprintf(&b, " - estimated tokens %d", result.EstimatedPromptTokens)
 		}
 		b.WriteString("\n")
 	}
 
 	b.WriteString("\n## RAG Cases\n\n")
 	for _, result := range report.RAG.Results {
-		b.WriteString(fmt.Sprintf("- `%s`: %s - mode `%s`, hits %d", result.Name, passFail(result.Passed), result.Mode, len(result.Hits)))
+		fmt.Fprintf(&b, "- `%s`: %s - mode `%s`, hits %d", result.Name, passFail(result.Passed), result.Mode, len(result.Hits))
 		if len(result.Errors) > 0 {
-			b.WriteString(fmt.Sprintf(" - %s", strings.Join(result.Errors, "; ")))
+			fmt.Fprintf(&b, " - %s", strings.Join(result.Errors, "; "))
 		}
 		b.WriteString("\n")
 		for _, hit := range result.Hits {
-			b.WriteString(fmt.Sprintf("  - `%s` via `%s`: %s\n", hit.SourceTitle, hit.RetrievalMode, compactEvalSnippet(hit.Snippet, 120)))
+			fmt.Fprintf(&b, "  - `%s` via `%s`: %s\n", hit.SourceTitle, hit.RetrievalMode, compactEvalSnippet(hit.Snippet, 120))
 		}
 	}
 
 	b.WriteString("\n## Workflow Cases\n\n")
 	for _, result := range report.Workflow.Results {
-		b.WriteString(fmt.Sprintf("- `%s`: %s - status `%s`, tasks %d, approvals %d", result.Name, passFail(result.Passed), result.Status, result.Tasks, result.Approvals))
+		fmt.Fprintf(&b, "- `%s`: %s - status `%s`, tasks %d, approvals %d", result.Name, passFail(result.Passed), result.Status, result.Tasks, result.Approvals)
 		if len(result.Errors) > 0 {
-			b.WriteString(fmt.Sprintf(" - %s", strings.Join(result.Errors, "; ")))
+			fmt.Fprintf(&b, " - %s", strings.Join(result.Errors, "; "))
 		}
 		b.WriteString("\n")
 	}

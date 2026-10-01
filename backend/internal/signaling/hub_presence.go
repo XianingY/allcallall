@@ -14,7 +14,7 @@ func (h *Hub) StartPresenceFeed(ctx context.Context) {
 	const prefix = "presence:feed:"
 	sub := h.redis.PSubscribe(ctx, prefix+"*")
 	go func() {
-		defer sub.Close()
+		defer func() { _ = sub.Close() }()
 		ch := sub.Channel()
 		for {
 			select {

@@ -13,6 +13,28 @@ export interface AuthBridge {
 }
 
 /**
+ * A bridge the provider can safely register its session-end path with.
+ * Mutating prop objects trips react-hooks/immutability; an explicit
+ * register/unregister pair keeps the same lifetime semantics without it.
+ */
+export interface MutableAuthBridge extends AuthBridge {
+  registerEndSession(handler: () => void | Promise<void>): () => void;
+}
+
+export function createAuthBridge(): MutableAuthBridge {
+  let handler: () => void | Promise<void> = () => undefined;
+  return {
+    endSession: () => handler(),
+    registerEndSession(next) {
+      handler = next;
+      return () => {
+        handler = () => undefined;
+      };
+    },
+  };
+}
+
+/**
  * One refresh attempt fails once, but every in-flight query/mutation rejects
  * with that same dead-session 401 in the same tick. Collapse the burst into a
  * single endSession call, while a cooldown (not a permanent latch) keeps a

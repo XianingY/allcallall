@@ -201,16 +201,54 @@ func (s *Service) ListOrganizationAuditEvents(ctx context.Context, organizationI
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	var events []OrganizationAuditEventView
-	err := s.db.WithContext(ctx).
-		Table("organization_audit_events").
-		Select("organization_audit_events.*, users.email AS actor_email, users.display_name AS actor_display_name").
-		Joins("JOIN users ON users.id = organization_audit_events.actor_user_id").
-		Where("organization_audit_events.organization_id = ?", organizationID).
-		Order("organization_audit_events.id DESC").
+	var records []models.OrganizationAuditEvent
+	if err := s.db.WithContext(ctx).
+		Model(&models.OrganizationAuditEvent{}).
+		Where("organization_id = ?", organizationID).
+		Order("id DESC").
 		Limit(limit).
-		Find(&events).Error
-	return events, err
+		Find(&records).Error; err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return []OrganizationAuditEventView{}, nil
+	}
+	events := make([]OrganizationAuditEventView, 0, len(records))
+	for _, record := range records {
+		events = append(events, OrganizationAuditEventView{OrganizationAuditEvent: record})
+	}
+
+	// Fetch actors in one query after the bounded page. A direct JOIN makes
+	// MySQL estimate a hash join over the whole organization as cheaper than
+	// reading the newest rows in reverse index order; measured on MySQL 8.0,
+	// that plan scanned every matching audit row before sorting.
+	actorIDs := make([]uint64, 0, len(events))
+	seenActors := make(map[uint64]struct{}, len(events))
+	for _, event := range events {
+		if _, ok := seenActors[event.ActorUserID]; ok {
+			continue
+		}
+		seenActors[event.ActorUserID] = struct{}{}
+		actorIDs = append(actorIDs, event.ActorUserID)
+	}
+	var actors []models.User
+	if err := s.db.WithContext(ctx).
+		Select("id, email, display_name").
+		Where("id IN ?", actorIDs).
+		Find(&actors).Error; err != nil {
+		return nil, err
+	}
+	actorByID := make(map[uint64]models.User, len(actors))
+	for _, actor := range actors {
+		actorByID[actor.ID] = actor
+	}
+	for i := range events {
+		if actor, ok := actorByID[events[i].ActorUserID]; ok {
+			events[i].ActorEmail = actor.Email
+			events[i].ActorDisplayName = actor.DisplayName
+		}
+	}
+	return events, nil
 }
 
 func (s *Service) getOrganizationMemberView(ctx context.Context, organizationID, userID uint64) (*OrganizationMemberView, error) {

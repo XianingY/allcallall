@@ -205,7 +205,30 @@ func (s *Service) latestConversationRoom(ctx context.Context, organizationID, co
 		Take(&room).Error; err != nil {
 		return nil, err
 	}
-	return s.latestRoomByID(ctx, organizationID, room.ID)
+	// 原实现先 Take 最新 room，再按同一个 id 交给 latestRoomByID 重查同一行。
+	// latestRoomByID 的 title 补查在这里也是多余的：调用方 GetConversation
+	// 已经持有 conversation。直接组装省掉两次查询；latestRoomByID 保留给
+	// support_service 按 id 取房间的路径。
+	item := &RoomListItem{
+		ID:             room.ID,
+		OrganizationID: room.OrganizationID,
+		TeamID:         room.TeamID,
+		ConversationID: room.ConversationID,
+		Title:          room.Title,
+		Status:         room.Status,
+		CreatedBy:      room.CreatedBy,
+		StartedAt:      room.StartedAt,
+		EndedAt:        room.EndedAt,
+		CreatedAt:      room.CreatedAt,
+		UpdatedAt:      room.UpdatedAt,
+	}
+	if room.ConversationID != nil {
+		var conv models.Conversation
+		if err := s.db.WithContext(ctx).Select("title").Where("id = ?", *room.ConversationID).Take(&conv).Error; err == nil {
+			item.ConversationTitle = conv.Title
+		}
+	}
+	return item, nil
 }
 func (s *Service) latestRoomByID(ctx context.Context, organizationID, roomID uint64) (*RoomListItem, error) {
 	var room models.CallRoom

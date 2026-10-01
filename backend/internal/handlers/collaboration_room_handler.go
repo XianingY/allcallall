@@ -180,28 +180,6 @@ func (h *CollaborationHandler) handleRoomMediaState(c *gin.Context) {
 	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
 }
 
-func (h *CollaborationHandler) handleRoomSignalEvent(c *gin.Context, eventType string) {
-	claims, orgID, ok := h.requireCurrentOrganization(c)
-	if !ok {
-		return
-	}
-	roomID, err := parseUintParam(c.Param("roomId"))
-	if err != nil {
-		JSONError(c, http.StatusBadRequest, "invalid room id")
-		return
-	}
-	var payload map[string]any
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		JSONBindingError(c, err)
-		return
-	}
-	if err := h.service.SaveRoomSignalEvent(c.Request.Context(), orgID, claims.UserID, roomID, eventType, payload); err != nil {
-		JSONServiceError(c, err, "failed to complete the room operation")
-		return
-	}
-	JSONSuccess(c, http.StatusOK, gin.H{"success": true})
-}
-
 func (h *CollaborationHandler) handleRoomState(c *gin.Context) {
 	claims, orgID, ok := h.requireCurrentOrganization(c)
 	if !ok {

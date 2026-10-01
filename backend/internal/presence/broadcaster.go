@@ -36,7 +36,7 @@ func (b *Broadcaster) Start(ctx context.Context) {
 		return
 	}
 	sub := b.redis.Subscribe(ctx, eventsChannel)
-	defer sub.Close()
+	defer func() { _ = sub.Close() }()
 	ch := sub.Channel()
 	for {
 		select {

@@ -190,6 +190,12 @@ func (s *Service) ListRealtimeEventsSince(ctx context.Context, organizationID, u
 	return NewRealtimeEventStore(s.db).ListSince(ctx, organizationID, userID, sinceID, limit)
 }
 
+// PurgeExpiredRealtimeEvents 清理超过回放窗口的实时事件，供留存 worker 调用。
+// PurgeExpiredRealtimeEvents prunes realtime events past the replay window.
+func (s *Service) PurgeExpiredRealtimeEvents(ctx context.Context, before time.Time, batchLimit int) (int64, error) {
+	return NewRealtimeEventStore(s.db).PurgeBefore(ctx, before, batchLimit)
+}
+
 func (s *Service) publishConversationPatchUpdate(ctx context.Context, organizationID, conversationID uint64, changes map[string]any) {
 	normalized := map[string]any{}
 	for key, value := range changes {

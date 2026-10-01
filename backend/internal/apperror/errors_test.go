@@ -45,7 +45,7 @@ func TestUnwrap(t *testing.T) {
 	if !errors.Is(e, inner) {
 		t.Fatal("errors.Is should find the wrapped internal error")
 	}
-	if e.Unwrap() != inner {
+	if !errors.Is(e.Unwrap(), inner) {
 		t.Fatal("Unwrap should return the internal error")
 	}
 }
@@ -53,7 +53,7 @@ func TestUnwrap(t *testing.T) {
 func TestWrap(t *testing.T) {
 	inner := errors.New("inner")
 	e := Wrap(inner, "CODE", "msg", http.StatusBadGateway)
-	if e.Internal != inner {
+	if !errors.Is(e.Internal, inner) {
 		t.Fatal("Wrap should store the internal error")
 	}
 	if e.Code != "CODE" || e.Message != "msg" || e.HTTPStatus != http.StatusBadGateway {

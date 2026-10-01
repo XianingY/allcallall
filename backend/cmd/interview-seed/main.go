@@ -36,7 +36,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("obtain sql db failed")
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	if err := migrateDemoTables(db); err != nil {
 		log.Fatal().Err(err).Msg("auto migrate demo tables failed")

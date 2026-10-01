@@ -103,6 +103,7 @@ func main() {
 }
 
 func checkFile(fset *token.FileSet, path string, out *[]finding) error {
+	// #nosec G304 -- path comes from the repository file walk and is read-only source analysis.
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return err

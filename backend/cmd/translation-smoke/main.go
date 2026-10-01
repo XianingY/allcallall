@@ -93,7 +93,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "start session failed: %v\n", err)
 		report.ErrorCount++
 		report.NonRecoverableErrors = append(report.NonRecoverableErrors, err.Error())
-		finishReport(report, *reportPath)
+		if reportErr := finishReport(report, *reportPath); reportErr != nil {
+			fmt.Fprintf(os.Stderr, "write report failed: %v\n", reportErr)
+		}
 		os.Exit(1)
 	}
 	defer func() {
@@ -151,10 +153,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "build audio source failed: %v\n", err)
 		os.Exit(1)
 	}
+loop:
 	for time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
-			break
+			break loop
 		case <-ticker.C:
 			pcmBase64, sampleRate, channels := chunkEncoder.Next()
 			err := session.SendAudio(ctx, translation.AudioChunk{
@@ -358,12 +361,12 @@ func finishReport(report smokeReport, path string) error {
 	if report.EndedAt.IsZero() {
 		report.EndedAt = time.Now().UTC()
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Clean(path), data, 0o644)
+	return os.WriteFile(filepath.Clean(path), data, 0o600)
 }

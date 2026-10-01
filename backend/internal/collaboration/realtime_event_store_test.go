@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -148,5 +149,45 @@ func TestRealtimeEventStoreCreateWithDedupReturnsExistingEvent(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected one persisted event, got %d", count)
+	}
+}
+
+func TestRealtimeEventStorePurgeBefore(t *testing.T) {
+	db := newRealtimeEventStoreTestDB(t)
+	store := NewRealtimeEventStore(db)
+
+	now := time.Now()
+	old := now.Add(-8 * 24 * time.Hour)
+	for i := 0; i < 5; i++ {
+		if err := db.Create(&models.ChatEvent{
+			OrganizationID: 1,
+			UserID:         7,
+			Event:          "message.created",
+			PayloadJSON:    "{}",
+			CreatedAt:      old,
+		}).Error; err != nil {
+			t.Fatalf("create old event failed: %v", err)
+		}
+	}
+	fresh, err := store.Create(context.Background(), 1, 7, "room.member.updated", map[string]any{"room_id": 22})
+	if err != nil {
+		t.Fatalf("create fresh event failed: %v", err)
+	}
+
+	// batchLimit 2 forces the loop through multiple delete batches.
+	purged, err := store.PurgeBefore(context.Background(), now.Add(-7*24*time.Hour), 2)
+	if err != nil {
+		t.Fatalf("purge expired realtime events failed: %v", err)
+	}
+	if purged != 5 {
+		t.Fatalf("expected 5 purged events, got %d", purged)
+	}
+
+	remaining, err := store.ListSince(context.Background(), 1, 7, 0, 100)
+	if err != nil {
+		t.Fatalf("list remaining events failed: %v", err)
+	}
+	if len(remaining) != 1 || remaining[0].ID != fresh.ID {
+		t.Fatalf("expected only the fresh event to survive, got %+v", remaining)
 	}
 }

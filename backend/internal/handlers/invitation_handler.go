@@ -109,8 +109,8 @@ func (h *InvitationHandler) handleCreateInvitation(c *gin.Context) {
 func (h *InvitationHandler) handleGetInvitation(c *gin.Context) {
 	item, err := h.invitations.GetByCode(c.Request.Context(), c.Param("code"))
 	if err != nil {
-		switch err {
-		case invitation.ErrInvitationNotFound:
+		switch {
+		case errors.Is(err, invitation.ErrInvitationNotFound):
 			JSONError(c, http.StatusNotFound, "invitation not found")
 		default:
 			h.logger.Error().Err(err).Msg("get invitation failed")
@@ -182,18 +182,18 @@ func (h *InvitationHandler) handleAcceptInvitation(c *gin.Context) {
 
 	item, err := h.invitations.Accept(c.Request.Context(), c.Param("code"), claims.UserID, claims.Email)
 	if err != nil {
-		switch err {
-		case invitation.ErrInvitationNotFound:
+		switch {
+		case errors.Is(err, invitation.ErrInvitationNotFound):
 			JSONError(c, http.StatusNotFound, "invitation not found")
-		case invitation.ErrInvitationExpired:
+		case errors.Is(err, invitation.ErrInvitationExpired):
 			JSONError(c, http.StatusGone, "invitation expired")
-		case invitation.ErrInvitationAlreadyUsed:
+		case errors.Is(err, invitation.ErrInvitationAlreadyUsed):
 			JSONError(c, http.StatusConflict, "invitation already accepted")
-		case invitation.ErrInvitationEmailMismatch:
+		case errors.Is(err, invitation.ErrInvitationEmailMismatch):
 			JSONError(c, http.StatusForbidden, "invitation email mismatch")
-		case contact.ErrSelfContact:
+		case errors.Is(err, contact.ErrSelfContact):
 			JSONError(c, http.StatusBadRequest, "invalid invitation")
-		case commerce.ErrUserBlocked:
+		case errors.Is(err, commerce.ErrUserBlocked):
 			JSONErrorWithCode(c, http.StatusForbidden, "USER_BLOCKED", "user is blocked")
 		default:
 			h.logger.Error().Err(err).Uint64("user_id", claims.UserID).Msg("accept invitation failed")

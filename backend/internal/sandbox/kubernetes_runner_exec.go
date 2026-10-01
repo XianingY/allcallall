@@ -112,7 +112,7 @@ func (r *KubernetesRunner) post(ctx context.Context, endpoint string, input, out
 	if err != nil {
 		return fmt.Errorf("call isolated Runner: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	limited := io.LimitReader(response.Body, int64(mcpplatform.DefaultOutputLimit+64*1024)+1)
 	responseBody, err := io.ReadAll(limited)
 	if err != nil {

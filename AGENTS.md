@@ -53,9 +53,9 @@ Mobile:
   Add new pure-logic tests to the `test:unit` list; add new RN-dependent tests
   under one of the jest `testMatch` globs. An unlisted test silently never runs.
 
-  `.npmrc` sets `legacy-peer-deps=true`: `@testing-library/react-hooks@8`
-  declares a `react@^16||^17` peer while the app is on React 18.2. This is the
-  standard Expo 51 workaround and keeps both `npm ci` and local installs green.
+  npm's normal peer resolution is intentionally kept enabled. Mobile hook tests
+  use `@testing-library/react-native@13` (React 18-compatible), and
+  `react-test-renderer` is pinned to `18.2.0` to match the app's React version.
 
 Desktop:
   cd desktop && npm run dev

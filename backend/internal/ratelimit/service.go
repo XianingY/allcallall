@@ -129,7 +129,9 @@ func (sw *SlidingWindow) Allow(ctx context.Context, key string) (bool, error) {
 	// If adding this request would exceed limit, remove it and deny
 	if count >= int64(sw.maxRequests) {
 		pipe.ZRem(ctx, key, member)
-		pipe.Exec(ctx)
+		if _, err := pipe.Exec(ctx); err != nil {
+			return false, fmt.Errorf("redis rollback failed: %w", err)
+		}
 		return false, nil
 	}
 

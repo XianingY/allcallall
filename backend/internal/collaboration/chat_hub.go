@@ -75,7 +75,7 @@ func (h *ChatHub) Start(ctx context.Context) {
 	}
 	sub := h.redis.PSubscribe(ctx, "chat:user:*")
 	go func() {
-		defer sub.Close()
+		defer func() { _ = sub.Close() }()
 		h.redisForwarder(ctx, sub)
 	}()
 }

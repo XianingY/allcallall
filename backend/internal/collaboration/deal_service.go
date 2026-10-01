@@ -57,7 +57,7 @@ func (s *Service) ListDeals(ctx context.Context, organizationID, userID uint64, 
 	}
 	result := make([]DealView, 0, len(rows))
 	for _, item := range rows {
-		result = append(result, DealView{Deal: item.Deal, StageName: item.StageName})
+		result = append(result, DealView(item))
 	}
 	return pagination.NewResult(result, total, np), nil
 }

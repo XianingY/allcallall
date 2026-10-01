@@ -250,17 +250,3 @@ func (s *Service) recordOrganizationAuditTx(ctx context.Context, tx *gorm.DB, or
 		MetadataJSON:   metadataJSON,
 	}).Error
 }
-
-func (s *Service) recordOrganizationAudit(ctx context.Context, organizationID, actorID uint64, action, targetType, targetID string, metadata map[string]any) error {
-	return s.recordOrganizationAuditTx(ctx, s.db, organizationID, actorID, action, targetType, targetID, metadata)
-}
-
-func requireAffected(result *gorm.DB, label string) error {
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("%s not found", label)
-	}
-	return nil
-}

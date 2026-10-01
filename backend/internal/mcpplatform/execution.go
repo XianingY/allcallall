@@ -201,7 +201,7 @@ func (s *Service) execute(ctx context.Context, input ExecuteInput, approvalGrant
 		if reconcileErr == nil || errors.Is(reconcileErr, ErrExecutionTerminal) || errors.Is(reconcileErr, ErrForbidden) {
 			return reconciled, reconcileErr
 		}
-		return reconciled, fmt.Errorf("%w: sandbox request outcome is ambiguous: %v", ErrExecutionInProgress, executeErr)
+		return reconciled, fmt.Errorf("%w: sandbox request outcome is ambiguous: %w", ErrExecutionInProgress, executeErr)
 	}
 	completed, _, completeErr := s.applySandboxReceipt(ctx, &execution, identity, result)
 	return completed, completeErr
@@ -248,7 +248,7 @@ func (s *Service) reconcileExecution(ctx context.Context, execution *models.MCPE
 		loaded, err := s.loadSandboxExpectedIdentity(ctx, execution)
 		if err != nil {
 			if isDeterministicReconciliationIdentityError(err) {
-				contractErr := fmt.Errorf("%w: sandbox execution identity cannot be recovered: %v", ErrForbidden, err)
+				contractErr := fmt.Errorf("%w: sandbox execution identity cannot be recovered: %w", ErrForbidden, err)
 				failed, transitioned, persistErr := s.failExecution(ctx, execution, contractErr)
 				if persistErr != nil {
 					return failed, transitioned, errors.Join(contractErr, persistErr)
@@ -276,7 +276,7 @@ func (s *Service) reconcileExecution(ctx context.Context, execution *models.MCPE
 			if persistErr != nil {
 				return completed, transitioned, persistErr
 			}
-			return completed, transitioned, fmt.Errorf("%w: %v", ErrExecutionTerminal, outcomeErr)
+			return completed, transitioned, fmt.Errorf("%w: %w", ErrExecutionTerminal, outcomeErr)
 		}
 		scheduled, scheduleErr := s.deferExecutionReconciliation(ctx, execution, now)
 		return scheduled, false, errors.Join(ErrExecutionInProgress, fmt.Errorf("lookup sandbox execution receipt: %w", err), scheduleErr)
@@ -369,7 +369,7 @@ func (s *Service) applySandboxReceipt(
 	receipt SandboxExecutionReceipt,
 ) (*models.MCPExecution, bool, error) {
 	if err := validateSandboxReceiptIdentity(execution, expected, receipt); err != nil {
-		contractErr := fmt.Errorf("%w: %v", ErrForbidden, err)
+		contractErr := fmt.Errorf("%w: %w", ErrForbidden, err)
 		failed, transitioned, persistErr := s.failExecution(ctx, execution, contractErr)
 		if persistErr != nil {
 			return failed, transitioned, errors.Join(contractErr, persistErr)
@@ -722,7 +722,7 @@ func (s *Service) ReconcilePendingExecutions(ctx context.Context, limit int) (in
 		case err == nil, errors.Is(err, ErrExecutionTerminal):
 			continue
 		case errors.Is(err, ErrExecutionInProgress) &&
-			(err == ErrExecutionInProgress || errors.Is(err, ErrSandboxExecutionNotFound)):
+			(errors.Is(err, ErrExecutionInProgress) || errors.Is(err, ErrSandboxExecutionNotFound)):
 			continue
 		default:
 			aggregateErr = errors.Join(aggregateErr, fmt.Errorf("reconcile MCP execution %q: %w", executions[index].ExecutionID, err))

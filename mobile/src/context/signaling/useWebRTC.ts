@@ -28,6 +28,14 @@ interface WebRTCHook {
 }
 
 export function useWebRTC(config: WebRTCConfig): WebRTCHook {
+  const {
+    iceServers,
+    onOfferCreated,
+    onAnswerCreated,
+    onIceCandidate,
+    onRemoteStream,
+    onConnectionStateChange,
+  } = config;
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -36,13 +44,13 @@ export function useWebRTC(config: WebRTCConfig): WebRTCHook {
   // Initialize peer connection
   useEffect(() => {
     const pc = new RTCPeerConnection({
-      iceServers: config.iceServers,
+      iceServers,
     });
 
     // Handle ICE candidates
     pc.addEventListener('icecandidate', (event) => {
       if (event.candidate) {
-        config.onIceCandidate(event.candidate);
+        onIceCandidate(event.candidate);
       }
     });
 
@@ -50,14 +58,14 @@ export function useWebRTC(config: WebRTCConfig): WebRTCHook {
     pc.addEventListener('track', (event) => {
       if (event.streams && event.streams[0]) {
         setRemoteStream(event.streams[0]);
-        config.onRemoteStream?.(event.streams[0]);
+        onRemoteStream?.(event.streams[0]);
       }
     });
 
     // Handle connection state changes
     pc.addEventListener('connectionstatechange', () => {
       setConnectionState(pc.connectionState);
-      config.onConnectionStateChange?.(pc.connectionState);
+      onConnectionStateChange?.(pc.connectionState);
     });
 
     peerConnectionRef.current = pc;
@@ -66,7 +74,7 @@ export function useWebRTC(config: WebRTCConfig): WebRTCHook {
       pc.close();
       peerConnectionRef.current = null;
     };
-  }, [config.iceServers, config.onIceCandidate, config.onRemoteStream, config.onConnectionStateChange]);
+  }, [iceServers, onIceCandidate, onRemoteStream, onConnectionStateChange]);
 
   const createOffer = useCallback(async () => {
     const pc = peerConnectionRef.current;
@@ -74,8 +82,8 @@ export function useWebRTC(config: WebRTCConfig): WebRTCHook {
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    config.onOfferCreated(offer);
-  }, [config.onOfferCreated]);
+    onOfferCreated(offer);
+  }, [onOfferCreated]);
 
   const createAnswer = useCallback(async (offer: any) => {
     const pc = peerConnectionRef.current;
@@ -84,8 +92,8 @@ export function useWebRTC(config: WebRTCConfig): WebRTCHook {
     await pc.setRemoteDescription(offer);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    config.onAnswerCreated(answer);
-  }, [config.onAnswerCreated]);
+    onAnswerCreated(answer);
+  }, [onAnswerCreated]);
 
   const setRemoteDescription = useCallback(async (desc: any) => {
     const pc = peerConnectionRef.current;

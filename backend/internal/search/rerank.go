@@ -158,7 +158,7 @@ func (r *CrossEncoderCompatibleReranker) Rerank(ctx context.Context, input Reran
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, fmt.Errorf("rerank provider failed: status=%d body=%s", resp.StatusCode, string(body))

@@ -24,12 +24,6 @@ func (f *fakePublisher) PublishToUser(_ context.Context, e collaboration.Realtim
 	return nil
 }
 
-func (f *fakePublisher) count() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return len(f.events)
-}
-
 func (f *fakePublisher) toUser(userID uint64) []collaboration.RealtimeEventRecord {
 	f.mu.Lock()
 	defer f.mu.Unlock()

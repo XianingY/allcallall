@@ -2,8 +2,12 @@
 # Common commands for development
 
 PYTHON ?= python3
-AGENT_RUNTIME_PYTHON ?= $(if $(wildcard allcallall-agent-runtime/services/agent-runtime/.venv/bin/python),allcallall-agent-runtime/services/agent-runtime/.venv/bin/python,$(PYTHON))
-RAG_RUNTIME_PYTHON ?= $(if $(wildcard allcallall-agent-runtime/services/rag-runtime/.venv/bin/python),allcallall-agent-runtime/services/rag-runtime/.venv/bin/python,$(PYTHON))
+# CI checks the runtime out inside this repository; developers use a sibling.
+AGENT_RUNTIME_DIR ?= $(firstword $(wildcard allcallall-agent-runtime ../allcallall-agent-runtime))
+AGENT_RUNTIME_ABS_DIR = $(abspath $(AGENT_RUNTIME_DIR))
+RUNTIME_VENV_PYTHON = $(if $(wildcard $(AGENT_RUNTIME_DIR)/.venv/bin/python),$(AGENT_RUNTIME_ABS_DIR)/.venv/bin/python,$(PYTHON))
+AGENT_RUNTIME_PYTHON ?= $(if $(wildcard $(AGENT_RUNTIME_DIR)/services/agent-runtime/.venv/bin/python),$(AGENT_RUNTIME_ABS_DIR)/services/agent-runtime/.venv/bin/python,$(RUNTIME_VENV_PYTHON))
+RAG_RUNTIME_PYTHON ?= $(if $(wildcard $(AGENT_RUNTIME_DIR)/services/rag-runtime/.venv/bin/python),$(AGENT_RUNTIME_ABS_DIR)/services/rag-runtime/.venv/bin/python,$(RUNTIME_VENV_PYTHON))
 
 .PHONY: help setup install-hooks build-android build-android-release build-ios clean clean-android test test-backend run-backend run-api run-agent-runtime run-rag-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed dev-android dev-ios fmt lint verify interview-up interview-smoke interview-chaos interview-status interview-down interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval python-rag-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval ai-agent-jd-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check helm-check
 
@@ -115,11 +119,11 @@ run-api:
 
 run-agent-runtime:
 	@echo "Starting Python LangGraph Agent Runtime (standalone repo)..."
-	cd allcallall-agent-runtime/services/agent-runtime && uvicorn allcallall_agent_runtime.main:app --reload --port $${PY_AGENT_RUNTIME_PORT:-8090}
+	cd "$(AGENT_RUNTIME_DIR)/services/agent-runtime" && uvicorn allcallall_agent_runtime.main:app --reload --port $${PY_AGENT_RUNTIME_PORT:-8090}
 
 run-rag-runtime:
 	@echo "Starting Python RAG Runtime (standalone repo)..."
-	cd allcallall-agent-runtime/services/rag-runtime && uvicorn allcallall_rag_runtime.main:app --reload --port $${PY_RAG_RUNTIME_PORT:-8091}
+	cd "$(AGENT_RUNTIME_DIR)/services/rag-runtime" && uvicorn allcallall_rag_runtime.main:app --reload --port $${PY_RAG_RUNTIME_PORT:-8091}
 
 run-user-service:
 	@echo "Starting standalone gRPC User Service..."
@@ -252,17 +256,17 @@ task-eval:
 
 agent-runtime-test:
 	@echo "Running Python Agent Runtime tests..."
-	cd allcallall-agent-runtime/services/agent-runtime && pytest
-	cd allcallall-agent-runtime/services/agent-runtime && ruff check .
-	cd allcallall-agent-runtime/services/agent-runtime && mypy .
+	cd "$(AGENT_RUNTIME_DIR)/services/agent-runtime" && $(AGENT_RUNTIME_PYTHON) -m pytest -p no:langsmith
+	cd "$(AGENT_RUNTIME_DIR)/services/agent-runtime" && $(AGENT_RUNTIME_PYTHON) -m ruff check .
+	cd "$(AGENT_RUNTIME_DIR)/services/agent-runtime" && $(AGENT_RUNTIME_PYTHON) -m mypy .
 
 python-agent-eval:
 	@echo "Running Python LangGraph Agent Runtime eval..."
-	cd allcallall-agent-runtime/services/agent-runtime && $(AGENT_RUNTIME_PYTHON) -m allcallall_agent_runtime.eval_runner --out evals/reports
+	cd "$(AGENT_RUNTIME_DIR)/services/agent-runtime" && $(AGENT_RUNTIME_PYTHON) -m allcallall_agent_runtime.eval_runner --out evals/reports
 
 python-rag-eval:
 	@echo "Running Python RAG Runtime eval..."
-	cd allcallall-agent-runtime/services/rag-runtime && $(RAG_RUNTIME_PYTHON) -m allcallall_rag_runtime.eval_runner --out evals/reports
+	cd "$(AGENT_RUNTIME_DIR)/services/rag-runtime" && $(RAG_RUNTIME_PYTHON) -m allcallall_rag_runtime.eval_runner --out evals/reports
 
 agent-demo-report:
 	@echo "Generating combined Agent demo report..."
@@ -277,8 +281,8 @@ resume-eval:
 ai-portfolio-eval:
 	@echo "Generating AI Agent portfolio eval bundle..."
 	@mkdir -p /tmp/allcallall-go-cache
-	cd allcallall-agent-runtime/services/agent-runtime && $(AGENT_RUNTIME_PYTHON) -m allcallall_agent_runtime.eval_runner --out evals/reports
-	cd allcallall-agent-runtime/services/rag-runtime && $(RAG_RUNTIME_PYTHON) -m allcallall_rag_runtime.eval_runner --out evals/reports
+	cd "$(AGENT_RUNTIME_DIR)/services/agent-runtime" && $(AGENT_RUNTIME_PYTHON) -m allcallall_agent_runtime.eval_runner --out evals/reports
+	cd "$(AGENT_RUNTIME_DIR)/services/rag-runtime" && $(RAG_RUNTIME_PYTHON) -m allcallall_rag_runtime.eval_runner --out evals/reports
 	cd backend && GOCACHE=$${GOCACHE:-/tmp/allcallall-go-cache} go run ./cmd/allcallallctl ai-portfolio-eval -provider $${AGENT_PROVIDER:-rules} -out ../docs/interview/generated-ai-portfolio-eval
 
 ai-agent-jd-eval: python-agent-eval python-rag-eval
@@ -325,9 +329,9 @@ verify:
 	cd backend && go test ./...
 	cd web && npm run typecheck
 	cd mobile && npm run typecheck
-	@if [ -d allcallall-agent-runtime ]; then \
-		cd allcallall-agent-runtime/services/agent-runtime && pytest; \
-		cd "$(CURDIR)/allcallall-agent-runtime/services/rag-runtime" && pytest; \
+	@if [ -d "$(AGENT_RUNTIME_DIR)" ]; then \
+		cd "$(AGENT_RUNTIME_DIR)/services/agent-runtime" && $(AGENT_RUNTIME_PYTHON) -m pytest -p no:langsmith; \
+		cd "$(AGENT_RUNTIME_ABS_DIR)/services/rag-runtime" && $(RAG_RUNTIME_PYTHON) -m pytest -p no:langsmith; \
 	else \
 		echo "NOTICE: allcallall-agent-runtime is not checked out, so the Python"; \
 		echo "        runtime tests did NOT run. An all-green 'make verify' here"; \
@@ -350,13 +354,14 @@ verify-full:
 	cd mobile && npm run typecheck
 	cd mobile && npm run lint
 	cd mobile && npm test
-	@if [ ! -d allcallall-agent-runtime ]; then \
+	cd desktop && npm run check
+	@if [ ! -d "$(AGENT_RUNTIME_DIR)" ]; then \
 		echo "ERROR: allcallall-agent-runtime is required for verify-full."; \
 		echo "       Clone it as a sibling directory (see AGENTS.md)."; \
 		exit 1; \
 	fi
-	cd allcallall-agent-runtime/services/agent-runtime && pytest
-	cd "$(CURDIR)/allcallall-agent-runtime/services/rag-runtime" && pytest
+	cd "$(AGENT_RUNTIME_DIR)/services/agent-runtime" && $(AGENT_RUNTIME_PYTHON) -m pytest -p no:langsmith
+	cd "$(AGENT_RUNTIME_ABS_DIR)/services/rag-runtime" && $(RAG_RUNTIME_PYTHON) -m pytest -p no:langsmith
 	@echo "verify-full passed."
 
 # ===========================
@@ -380,7 +385,8 @@ fmt:
 	cd backend && gofmt -w .
 
 lint:
-	@echo "Vetting backend and linting web..."
+	@echo "Vetting backend, running backend linters, and linting web..."
 	cd backend && go vet ./...
+	cd backend && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run
 	cd backend && go run ./cmd/check-unbounded-find
 	cd web && npm run lint

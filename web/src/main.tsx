@@ -5,7 +5,7 @@ import { BrowserRouter } from "react-router-dom";
 
 import { App } from "@/app/App";
 import { AuthProvider } from "@/auth/AuthProvider";
-import { createQueryClient, type AuthBridge } from "@/api/queryClient";
+import { createAuthBridge, createQueryClient } from "@/api/queryClient";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { OrganizationProvider } from "@/organizations/OrganizationProvider";
 import { CallProvider } from "@/calls/CallProvider";
@@ -13,7 +13,7 @@ import { ChatRealtimeProvider } from "@/realtime/ChatRealtimeProvider";
 import "@/i18n";
 import "@/styles.css";
 
-const authBridge: AuthBridge = { endSession: () => undefined };
+const authBridge = createAuthBridge();
 const queryClient = createQueryClient(authBridge);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

@@ -34,7 +34,10 @@ func main() {
 		}
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
-		encoder.Encode(report)
+		if err := encoder.Encode(report); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to encode eval report: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Printf("Eval type %s is configured via allcallallctl\n", *evalType)
 	}

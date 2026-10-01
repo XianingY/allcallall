@@ -15,7 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -88,7 +88,7 @@ func (s *localRecordingStorage) SaveFile(_ context.Context, srcPath, objectKey, 
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
 		return nil, err
 	}
 	if srcPath != targetPath {
@@ -126,6 +126,7 @@ func (s *localRecordingStorage) Open(_ context.Context, objectRef ObjectRef) (io
 	if !ok {
 		return nil, os.ErrNotExist
 	}
+	// #nosec G304 -- localPath was normalized and confined to the recording root.
 	return os.Open(localPath)
 }
 
@@ -240,16 +241,16 @@ func (s *s3RecordingStorage) SaveFile(ctx context.Context, srcPath, objectKey, c
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
-	uploader := manager.NewUploader(s.client)
-	input := &s3.PutObjectInput{
+	uploader := transfermanager.New(s.client)
+	input := &transfermanager.UploadObjectInput{
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(normalizedKey),
 		Body:        file,
 		ContentType: aws.String(strings.TrimSpace(contentType)),
 	}
-	result, err := uploader.Upload(ctx, input)
+	result, err := uploader.UploadObject(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -357,19 +358,23 @@ func normalizeS3ObjectKey(value string) (string, error) {
 	return path.Join(cleanParts...), nil
 }
 
-func copyFile(srcPath, dstPath string) error {
+func copyFile(srcPath, dstPath string) (err error) {
+	// #nosec G304 -- srcPath is a server-controlled temporary recording file.
 	src, err := os.Open(srcPath)
 	if err != nil {
 		return err
 	}
-	defer src.Close()
-	dst, err := os.Create(dstPath)
+	defer func() { _ = src.Close() }()
+	// #nosec G304 -- dstPath was normalized and confined to the recording root.
+	dst, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
-	defer dst.Close()
-	if _, err := io.Copy(dst, src); err != nil {
-		return err
-	}
-	return dst.Close()
+	defer func() {
+		if closeErr := dst.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+	_, err = io.Copy(dst, src)
+	return err
 }
