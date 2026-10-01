@@ -1,7 +1,12 @@
 {
   "name": "@allcallall/shared",
   "version": "1.0.0",
-  "description": "Shared business rules for the AllCallAll web and mobile clients",
+  "description": "Shared business rules and protocol primitives for the AllCallAll web and mobile clients",
   "main": "index.ts",
-  "types": "index.ts"
+  "types": "index.ts",
+  "dependencies": {
+    "@noble/ciphers": "^1.3.0",
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0"
+  }
 }
