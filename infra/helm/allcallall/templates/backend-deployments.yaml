@@ -67,6 +67,11 @@ spec:
             {{- include "allcallall.backendSecretEnv" $root | nindent 12 }}
             - name: CONFIG_PATH
               value: /app/configs/config.yaml
+            # internal/logger only emits structured JSON when GIN_MODE is
+            # release; unset, the cluster logs colourised text that the log
+            # pipeline cannot parse.
+            - name: GIN_MODE
+              value: "release"
             - name: HTTP_PORT
               value: "8080"
             - name: EMBEDDED_WORKERS

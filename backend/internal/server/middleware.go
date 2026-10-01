@@ -1,8 +1,10 @@
 package server
 
 import (
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -14,6 +16,39 @@ import (
 )
 
 const requestIDHeader = "X-Request-ID"
+
+// maskLoggedIP redacts the host portion of an address before it is logged.
+//
+// A full IP is personal data (GDPR and PIPL both treat it as such), and logs
+// are usually the widest-retained, least-controlled store in a system. Keeping
+// the network is enough to debug routing and spot abuse patterns; the host is
+// what identifies a person.
+//
+// Set LOG_FULL_IP=true when an incident genuinely needs host-level detail -
+// temporarily, not as the default.
+func maskLoggedIP(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	if os.Getenv("LOG_FULL_IP") == "true" {
+		return value
+	}
+
+	ip := net.ParseIP(value)
+	if ip == nil {
+		// Not a parseable address (a proxy may have sent something odd).
+		// Return a marker rather than the raw value: the whole point is not to
+		// log something we cannot reason about.
+		return "invalid"
+	}
+
+	if ipv4 := ip.To4(); ipv4 != nil {
+		// 203.0.113.45 -> 203.0.113.0/24
+		return (&net.IPNet{IP: ipv4.Mask(net.CIDRMask(24, 32)), Mask: net.CIDRMask(24, 32)}).String()
+	}
+	// Keep the routing prefix, drop the interface identifier.
+	return (&net.IPNet{IP: ip.Mask(net.CIDRMask(48, 128)), Mask: net.CIDRMask(48, 128)}).String()
+}
 
 // RequireTLS 返回一个强制使用 HTTPS 的中间件（当 enabled 为 true 时）。
 // 判定顺序：请求直接携带 TLS 状态（c.Request.TLS != nil）视为安全；
@@ -153,7 +188,7 @@ func requestLogger(log zerolog.Logger, counters *metrics.CounterStore) gin.Handl
 			Str("method", c.Request.Method).
 			Str("path", path).
 			Int("status", c.Writer.Status()).
-			Str("client_ip", c.ClientIP()).
+			Str("client_ip", maskLoggedIP(c.ClientIP())).
 			Dur("duration", duration).
 			Msg("http_request_completed")
 	}

@@ -68,6 +68,10 @@ services:
         condition: service_healthy
     environment:
       APP_ENV: production
+      # internal/logger already switches to structured JSON when GIN_MODE is
+      # release, but nothing ever set it, so production logged colourised
+      # console output that Promtail/Loki cannot parse.
+      GIN_MODE: release
       DB_AUTO_MIGRATE: "0"
       DB_DSN: allcallall:${MYSQL_PASSWORD}@tcp(mysql:3306)/allcallall_db?parseTime=true&charset=utf8mb4&loc=Local
       REDIS_ADDR: redis:6379
