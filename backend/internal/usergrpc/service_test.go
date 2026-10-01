@@ -33,7 +33,7 @@ func TestClientAuthenticatorValidatesTokenOverGRPC(t *testing.T) {
 	t.Cleanup(server.Stop)
 
 	ctx := context.Background()
-	conn, err := grpc.NewClient("bufnet",
+	conn, err := grpc.NewClient("passthrough:///bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return listener.Dial()
 		}),

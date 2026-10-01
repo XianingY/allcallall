@@ -143,10 +143,10 @@ jobs:
             | grep -F '供应商'
       - name: Start MinIO
         run: |
-          docker run -d --name allcallall-minio -p 9000:9000 \
+          docker run -d --name allcallall-minio --user root -p 9000:9000 \
             -e MINIO_ROOT_USER=integration-access \
             -e MINIO_ROOT_PASSWORD=integration-secret \
-            quay.io/minio/minio:latest server /data
+            docker.io/alpine/minio:latest-release@sha256:cf23643a6cf9ce159c57643ceb88279e431262282428c9e0bf3a7ef1a97e84b4 server /data
           for attempt in $(seq 1 30); do
             curl -fsS http://127.0.0.1:9000/minio/health/live && exit 0
             echo "waiting for MinIO ($attempt/30)"

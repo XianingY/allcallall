@@ -285,7 +285,10 @@ jobs:
               {"apiGroups": ["networking.k8s.io"], "resources": ["networkpolicies"], "verbs": ["create", "delete"]},
           ]
 
-          config = next(item for item in resources if item["kind"] == "ConfigMap")
+          config = next(
+              item for item in resources
+              if item["kind"] == "ConfigMap" and item["metadata"]["name"].endswith("-config")
+          )
           assert config["data"]["APP_ENV"] == "production"
           for component in ("api", "agent-worker"):
               environment = {
