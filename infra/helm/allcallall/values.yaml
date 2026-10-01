@@ -232,7 +232,14 @@ backup:
   timeZone: "UTC"
   image:
     repository: mysql
-    tag: "8.4"
+    # Pinned by digest as well as tag. A tag is mutable: whoever controls the
+    # registry can repoint it at different content, so the digest is what makes
+    # the backup image reproducible and the Trivy scan meaningful (it scanned
+    # this content, not "whatever 8.4 means today").
+    #
+    # To update: docker buildx imagetools inspect mysql:<new-version>, then
+    # replace both the tag and the digest here.
+    tag: "8.4@sha256:6ea90827b1100f8f2ae306a539f86d2c264a26ed435a2a9f75551dd5c3aeb242"
     pullPolicy: IfNotPresent
   dir: /var/backups/allcallall
   retainDays: 30
