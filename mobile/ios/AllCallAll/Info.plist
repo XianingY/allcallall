@@ -27,7 +27,8 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
-          <string>com.allcall.mobile</string>
+          <string>allcallall</string>
+          <string>com.allcallall.mobile</string>
         </array>
       </dict>
     </array>
@@ -42,6 +43,16 @@
       <key>NSAllowsLocalNetworking</key>
       <true/>
     </dict>
+    <key>NSCameraUsageDescription</key>
+    <string>Allow AllCallAll to access the camera for video meetings and calls</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Allow AllCallAll to access the microphone for voice calls and meetings</string>
+    <key>RCTMetroPort</key>
+    <string>$(RCT_METRO_PORT)</string>
+    <key>UIBackgroundModes</key>
+    <array>
+      <string>audio</string>
+    </array>
     <key>UILaunchStoryboardName</key>
     <string>SplashScreen</string>
     <key>UIRequiredDeviceCapabilities</key>

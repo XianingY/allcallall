@@ -31,8 +31,8 @@
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		FAC715A2D49A985799AEE119 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-AllCallAll/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
-		B3CE8D3FA5B4439799CB6C91 /* noop-file.swift */ = {isa = PBXFileReference; name = "noop-file.swift"; path = "AllCall/noop-file.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; explicitFileType = undefined; includeInIndex = 0; };
-		647157D562BD4152A6609A65 /* AllCallAll-Bridging-Header.h */ = {isa = PBXFileReference; name = "AllCallAll-Bridging-Header.h"; path = "AllCall/AllCallAll-Bridging-Header.h"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; explicitFileType = undefined; includeInIndex = 0; };
+		B3CE8D3FA5B4439799CB6C91 /* noop-file.swift */ = {isa = PBXFileReference; name = "noop-file.swift"; path = "AllCallAll/noop-file.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; explicitFileType = undefined; includeInIndex = 0; };
+		647157D562BD4152A6609A65 /* AllCallAll-Bridging-Header.h */ = {isa = PBXFileReference; name = "AllCallAll-Bridging-Header.h"; path = "AllCallAll/AllCallAll-Bridging-Header.h"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; explicitFileType = undefined; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -198,7 +198,6 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				0735F698CD474578BF6424E1 /* AllCallAll-Bridging-Header.h in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -293,7 +292,7 @@
 					"$(inherited)",
 					"FB_SONARKIT_ENABLED=1",
 				);
-				INFOPLIST_FILE = AllCall/Info.plist;
+				INFOPLIST_FILE = AllCallAll/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
@@ -302,14 +301,14 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.allcall.mobile";
-				PRODUCT_NAME = "AllCall";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.allcallall.mobile";
+				PRODUCT_NAME = "AllCallAll";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
 				TARGETED_DEVICE_FAMILY = "1,2";
-				SWIFT_OBJC_BRIDGING_HEADER = AllCall/AllCallAll-Bridging-Header.h;
-				CODE_SIGN_ENTITLEMENTS = AllCall/AllCall.entitlements;
+				SWIFT_OBJC_BRIDGING_HEADER = AllCallAll/AllCallAll-Bridging-Header.h;
+				CODE_SIGN_ENTITLEMENTS = AllCallAll/AllCallAll.entitlements;
 			};
 			name = Debug;
 		};
@@ -320,7 +319,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				INFOPLIST_FILE = AllCall/Info.plist;
+				INFOPLIST_FILE = AllCallAll/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
@@ -329,13 +328,13 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.allcall.mobile";
-				PRODUCT_NAME = "AllCall";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.allcallall.mobile";
+				PRODUCT_NAME = "AllCallAll";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
 				TARGETED_DEVICE_FAMILY = "1,2";
-				SWIFT_OBJC_BRIDGING_HEADER = AllCall/AllCallAll-Bridging-Header.h;
-				CODE_SIGN_ENTITLEMENTS = AllCall/AllCall.entitlements;
+				SWIFT_OBJC_BRIDGING_HEADER = AllCallAll/AllCallAll-Bridging-Header.h;
+				CODE_SIGN_ENTITLEMENTS = AllCallAll/AllCallAll.entitlements;
 			};
 			name = Release;
 		};
