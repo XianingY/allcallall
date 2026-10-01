@@ -19,18 +19,26 @@ const MessagePane = ({
   sending,
   workflowLoading,
   currentUserId,
+  pendingAttachments,
+  uploadingAttachment,
   onRefresh,
   onLoadMorePrev,
   onDraftChange,
   onSend,
   onAskAgent,
   onOpenTranscript,
+  onLongPressMessage,
+  onDownloadAttachment,
+  onPickAttachment,
+  onRemovePendingAttachment,
 }: Props) => {
   const renderMessage = ({ item }: { item: MessageRecord }) => (
     <MessageRow
       item={item}
       currentUserId={currentUserId}
       onOpenTranscript={onOpenTranscript}
+      onLongPress={onLongPressMessage}
+      onDownloadAttachment={onDownloadAttachment}
     />
   );
 
@@ -63,7 +71,29 @@ const MessagePane = ({
               onChangeText={onDraftChange}
               placeholder="输入线程消息，或输入自定义 Agent goal"
             />
+            {pendingAttachments.length ? (
+              <View style={styles.pendingAttachmentRow}>
+                {pendingAttachments.map((attachment) => (
+                  <TouchableOpacity
+                    key={attachment.id}
+                    style={styles.pendingAttachmentChip}
+                    onPress={() => onRemovePendingAttachment(attachment.id)}
+                  >
+                    <Text style={styles.pendingAttachmentName} numberOfLines={1}>
+                      {attachment.file_name}
+                    </Text>
+                    <Text style={styles.pendingAttachmentRemove}>✕</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
             <View style={styles.buttonRow}>
+              <PrimaryButton
+                title={uploadingAttachment ? "上传中…" : "＋附件"}
+                onPress={onPickAttachment}
+                disabled={uploadingAttachment}
+                style={styles.buttonSecondary}
+              />
               <PrimaryButton
                 title={sending ? "发送中…" : "发送消息"}
                 onPress={onSend}

@@ -1,11 +1,120 @@
 import { Linking, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import PrimaryButton from "../../components/PrimaryButton";
+import TextField from "../../components/TextField";
 import { styles } from "./styles";
 import type {
   CitationPreviewModalProps,
+  EditMessageModalProps,
   KnowledgePreviewModalProps,
+  MessageActionMenuModalProps,
   WorkflowDebugModalProps,
 } from "./types";
+
+/** 长按消息弹出的操作菜单：编辑/撤回仅限本人，删除额外允许组织管理员。 */
+export const MessageActionMenuModal = ({
+  visible,
+  message,
+  currentUserId,
+  canDeleteAny,
+  onClose,
+  onEdit,
+  onRecall,
+  onDelete,
+}: MessageActionMenuModalProps) => {
+  const isMine = message != null && message.sender_id === currentUserId;
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable style={styles.modalBackdrop} onPress={onClose}>
+        <Pressable style={styles.modalCard} onPress={() => undefined}>
+          <Text style={styles.modalTitle}>消息操作</Text>
+          {isMine && message?.type === "text" && !message.recalled_at && !message.deleted_at ? (
+            <Pressable
+              style={styles.actionMenuOption}
+              onPress={() => message && onEdit(message)}
+            >
+              <Text style={styles.actionMenuOptionText}>编辑</Text>
+            </Pressable>
+          ) : null}
+          {isMine && !message?.recalled_at && !message?.deleted_at ? (
+            <Pressable
+              style={[styles.actionMenuOption, { marginTop: 8 }]}
+              onPress={() => message && onRecall(message)}
+            >
+              <Text style={styles.actionMenuOptionText}>撤回</Text>
+            </Pressable>
+          ) : null}
+          {isMine || canDeleteAny ? (
+            <Pressable
+              style={[styles.actionMenuOption, styles.actionMenuOptionDanger, { marginTop: 8 }]}
+              onPress={() => message && onDelete(message)}
+            >
+              <Text
+                style={[
+                  styles.actionMenuOptionText,
+                  styles.actionMenuOptionDangerText,
+                ]}
+              >
+                删除
+              </Text>
+            </Pressable>
+          ) : null}
+          <PrimaryButton
+            title="取消"
+            onPress={onClose}
+            style={styles.modalButton}
+          />
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+};
+
+/** 编辑消息正文（仅发送者本人）。 */
+export const EditMessageModal = ({
+  visible,
+  message,
+  draft,
+  saving,
+  onDraftChange,
+  onClose,
+  onSave,
+}: EditMessageModalProps) => (
+  <Modal
+    visible={visible && message !== null}
+    transparent
+    animationType="fade"
+    onRequestClose={onClose}
+  >
+    <View style={styles.modalBackdrop}>
+      <View style={styles.modalCard}>
+        <Text style={styles.modalTitle}>编辑消息</Text>
+        <TextField
+          value={draft}
+          onChangeText={onDraftChange}
+          placeholder="修改消息内容"
+        />
+        <View style={styles.buttonRow}>
+          <PrimaryButton
+            title="取消"
+            onPress={onClose}
+            style={styles.button}
+          />
+          <PrimaryButton
+            title={saving ? "保存中…" : "保存"}
+            onPress={onSave}
+            disabled={!draft.trim() || saving}
+            style={styles.buttonSecondary}
+          />
+        </View>
+      </View>
+    </View>
+  </Modal>
+);
 
 export const KnowledgePreviewModal = ({
   knowledgePreview,

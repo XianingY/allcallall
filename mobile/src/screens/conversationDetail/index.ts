@@ -5,6 +5,8 @@ export {
   KnowledgePreviewModal,
   CitationPreviewModal,
   WorkflowDebugModal,
+  MessageActionMenuModal,
+  EditMessageModal,
 } from "./Modals";
 export { styles } from "./styles";
 export * from "./types";

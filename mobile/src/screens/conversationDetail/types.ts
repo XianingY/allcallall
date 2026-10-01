@@ -1,5 +1,6 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type {
+  AttachmentRecord,
   ConversationRecord,
   ConversationWorkspaceRecord,
   ConversationNoteRecord,
@@ -49,6 +50,10 @@ export interface MessageRowProps {
   item: MessageRecord;
   currentUserId?: number | string;
   onOpenTranscript: (recordingId: number) => void;
+  /** 长按消息弹出操作菜单（编辑/撤回/删除）。 */
+  onLongPress: (message: MessageRecord) => void;
+  /** 点击附件触发授权下载。 */
+  onDownloadAttachment: (attachment: AttachmentRecord) => void;
 }
 
 export interface WorkspacePaneProps {
@@ -110,12 +115,40 @@ export interface MessagePaneProps {
   draft: string;
   workflowLoading: boolean;
   currentUserId: number | string | undefined;
+  /** 已上传、待随下一条消息发送的附件。 */
+  pendingAttachments: AttachmentRecord[];
+  uploadingAttachment: boolean;
   onRefresh: () => void;
   onLoadMorePrev: () => Promise<void>;
   onDraftChange: (text: string) => void;
   onSend: () => Promise<void>;
   onAskAgent: () => Promise<void>;
   onOpenTranscript: (recordingId: number) => void;
+  onLongPressMessage: (message: MessageRecord) => void;
+  onDownloadAttachment: (attachment: AttachmentRecord) => void;
+  onPickAttachment: () => void;
+  onRemovePendingAttachment: (attachmentId: number) => void;
+}
+
+export interface MessageActionMenuModalProps {
+  visible: boolean;
+  message: MessageRecord | null;
+  currentUserId: number | string | undefined;
+  canDeleteAny: boolean;
+  onClose: () => void;
+  onEdit: (message: MessageRecord) => void;
+  onRecall: (message: MessageRecord) => void;
+  onDelete: (message: MessageRecord) => void;
+}
+
+export interface EditMessageModalProps {
+  visible: boolean;
+  message: MessageRecord | null;
+  draft: string;
+  saving: boolean;
+  onDraftChange: (text: string) => void;
+  onClose: () => void;
+  onSave: () => void;
 }
 
 export interface KnowledgePreviewModalProps {

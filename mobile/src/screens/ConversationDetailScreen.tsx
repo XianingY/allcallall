@@ -4,19 +4,26 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
 
 import {
+  buildAttachmentDownloadSource,
   buildRecordingDownloadRequest,
   createConversationNote,
   createConversationRoom,
   createMessage,
+  deleteMessage,
   fetchConversationDetail,
   fetchRecording,
   listConversationNotes,
   listMessages,
   markConversationRead,
+  recallMessage,
   updateConversation,
+  updateMessage,
+  uploadConversationAttachment,
+  type AttachmentRecord,
   type ConversationNoteRecord,
   type ConversationDetailRecord,
   type MessageRecord,
+  type RecallMessageError,
   type RecordingRecord,
 } from "../api/collaboration";
 import { listContacts, type User } from "../api/users";
@@ -24,6 +31,11 @@ import { useAuthContext } from "../context/AuthContext";
 import { useOrganization } from "../context/OrganizationContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import fileDownloadAdapter from "../platform/fileDownload";
+import {
+  MAX_ATTACHMENT_BYTES,
+  hasNativeAttachmentPicker,
+  pickAttachmentFile,
+} from "../platform/attachmentPicker";
 import ChatRealtimeService from "../services/ChatRealtimeService";
 import {
   createWorkflowRun,
@@ -59,6 +71,8 @@ import {
   KnowledgePreviewModal,
   CitationPreviewModal,
   WorkflowDebugModal,
+  MessageActionMenuModal,
+  EditMessageModal,
   styles,
 } from "./conversationDetail";
 import { createSingleFlight } from "./launchActionGuards";
@@ -92,6 +106,19 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   );
   const [knowledgePreview, setKnowledgePreview] =
     useState<KnowledgeSourceDetail | null>(null);
+  // 附件发送：先上传拿 id，随下一条消息一起提交；用户可在发送前移除。
+  const [pendingAttachments, setPendingAttachments] = useState<
+    AttachmentRecord[]
+  >([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  // 长按消息的操作菜单与编辑弹窗。
+  const [actionMenuMessage, setActionMenuMessage] =
+    useState<MessageRecord | null>(null);
+  const [editingMessage, setEditingMessage] = useState<MessageRecord | null>(
+    null,
+  );
+  const [editDraft, setEditDraft] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
   const conversationId =
     route.params.conversationId ?? route.params.conversation?.id ?? 0;
 
@@ -225,6 +252,19 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     });
   }, [conversationId]);
 
+  // 编辑/撤回/删除的定点替换：按 id 原位覆盖，保序且不丢"加载更早"历史。
+  // 后端在这三种操作后都会发布携带完整 MessageRecord 的窄事件。
+  const mergeMessage = useCallback((incoming: MessageRecord) => {
+    if (incoming.conversation_id !== conversationId) {
+      return;
+    }
+    setMessages((previous) =>
+      previous.some((item) => item.id === incoming.id)
+        ? previous.map((item) => (item.id === incoming.id ? incoming : item))
+        : [...previous, incoming],
+    );
+  }, [conversationId]);
+
   useEffect(() => {
     void loadData();
   }, [loadData]);
@@ -257,6 +297,15 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         appendMessage(event.payload as MessageRecord);
         return;
       }
+      if (
+        event.event === "message.updated" ||
+        event.event === "message.recalled" ||
+        event.event === "message.deleted"
+      ) {
+        // 编辑/撤回/删除都是对既有行的原位覆盖，复用 merge 增量刷新。
+        mergeMessage(event.payload as MessageRecord);
+        return;
+      }
       // 窄事件只做定点增量刷新（#25）；会改变会话状态本身的事件仍走全量兜底。
       if (event.event === "conversation.note.created") {
         void refreshNotes();
@@ -278,9 +327,11 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       ChatRealtimeService.off("event", handleEvent);
     };
   }, [
+    appendMessage,
     conversationId,
     currentOrganization,
     loadData,
+    mergeMessage,
     refreshNotes,
     refreshRecording,
     token,
@@ -424,8 +475,15 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     if (sendFlight.isBusy()) return;
     setSending(true);
     try {
+      const attachmentIds = pendingAttachments.map((item) => item.id);
       const result = await sendFlight.run(() =>
-        createMessage(token, conversationId, { body: draft.trim() }),
+        createMessage(token, conversationId, {
+          body: draft.trim(),
+          // 附件已提前上传（uploader_id 归属校验在服务端），此处只随消息认领。
+          ...(attachmentIds.length
+            ? { attachment_ids: attachmentIds }
+            : {}),
+        }),
       );
       if (result.status === "busy") {
         return;
@@ -434,6 +492,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         throw result.error;
       }
       setDraft("");
+      setPendingAttachments([]);
       // Append rather than full-reload: preserves any "load earlier" history and
       // avoids flicker. The realtime echo of this message is deduped by id.
       appendMessage(result.value);
@@ -443,7 +502,172 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     } finally {
       setSending(false);
     }
-  }, [token, draft, conversationId, appendMessage, sendFlight]);
+  }, [
+    token,
+    draft,
+    conversationId,
+    appendMessage,
+    pendingAttachments,
+    sendFlight,
+  ]);
+
+  const handlePickAttachment = useCallback(async () => {
+    if (!token) return;
+    if (!hasNativeAttachmentPicker()) {
+      Alert.alert(
+        "暂不支持",
+        "当前客户端未安装文件选择组件（expo-document-picker），请在 Web 端发送附件。",
+      );
+      return;
+    }
+    const picked = await pickAttachmentFile();
+    if (!picked) return;
+    if (picked.size > MAX_ATTACHMENT_BYTES) {
+      Alert.alert(
+        "文件过大",
+        "附件大小不能超过 26MB，请压缩后重试。",
+      );
+      return;
+    }
+    try {
+      setUploadingAttachment(true);
+      const attachment = await uploadConversationAttachment(
+        token,
+        conversationId,
+        picked,
+      );
+      setPendingAttachments((previous) => [...previous, attachment]);
+    } catch (error) {
+      console.error(
+        "[ConversationDetailScreen] Failed to upload attachment:",
+        error,
+      );
+      Alert.alert("上传失败", "附件上传失败，请稍后再试。");
+    } finally {
+      setUploadingAttachment(false);
+    }
+  }, [token, conversationId]);
+
+  const handleRemovePendingAttachment = useCallback((attachmentId: number) => {
+    setPendingAttachments((previous) =>
+      previous.filter((item) => item.id !== attachmentId),
+    );
+  }, []);
+
+  const handleDownloadAttachment = useCallback(
+    async (attachment: AttachmentRecord) => {
+      if (!token) return;
+      try {
+        const source = buildAttachmentDownloadSource(token, attachment.id);
+        const result = await fileDownloadAdapter.download(
+          source,
+          attachment.file_name,
+        );
+        await fileDownloadAdapter.open(result);
+      } catch (error) {
+        console.error(
+          "[ConversationDetailScreen] Failed to download attachment:",
+          error,
+        );
+        Alert.alert("下载失败", "附件下载失败，请稍后再试。");
+      }
+    },
+    [token],
+  );
+
+  const handleOpenActionMenu = useCallback((message: MessageRecord) => {
+    setActionMenuMessage(message);
+  }, []);
+
+  const handleStartEditMessage = useCallback((message: MessageRecord) => {
+    setActionMenuMessage(null);
+    setEditingMessage(message);
+    setEditDraft(message.body);
+  }, []);
+
+  const handleSaveEditMessage = useCallback(async () => {
+    if (!token || !editingMessage || !editDraft.trim()) return;
+    try {
+      setSavingEdit(true);
+      const updated = await updateMessage(
+        token,
+        conversationId,
+        editingMessage.id,
+        { body: editDraft.trim() },
+      );
+      mergeMessage(updated);
+      setEditingMessage(null);
+      setEditDraft("");
+    } catch (error) {
+      console.error(
+        "[ConversationDetailScreen] Failed to update message:",
+        error,
+      );
+      Alert.alert("编辑失败", "消息未能保存，请稍后再试。");
+    } finally {
+      setSavingEdit(false);
+    }
+  }, [token, conversationId, editingMessage, editDraft, mergeMessage]);
+
+  // 撤回有明确的错误分类：超窗提示改用删除，权限不足单独提示。
+  const handleRecallMessage = useCallback(
+    async (message: MessageRecord) => {
+      if (!token) return;
+      setActionMenuMessage(null);
+      try {
+        const updated = await recallMessage(
+          token,
+          conversationId,
+          message.id,
+        );
+        mergeMessage(updated);
+      } catch (error) {
+        const recallError = error as RecallMessageError;
+        if (recallError?.kind === "window-expired") {
+          Alert.alert(
+            "无法撤回",
+            "已超过可撤回时限，可改用「删除」。",
+          );
+          return;
+        }
+        if (recallError?.kind === "forbidden") {
+          Alert.alert("无法撤回", "没有权限撤回这条消息。");
+          return;
+        }
+        console.error(
+          "[ConversationDetailScreen] Failed to recall message:",
+          error,
+        );
+        Alert.alert(
+          "撤回失败",
+          recallError?.kind === "error" ? recallError.message : "请稍后再试。",
+        );
+      }
+    },
+    [token, conversationId, mergeMessage],
+  );
+
+  const handleDeleteMessage = useCallback(
+    async (message: MessageRecord) => {
+      if (!token) return;
+      setActionMenuMessage(null);
+      try {
+        const updated = await deleteMessage(
+          token,
+          conversationId,
+          message.id,
+        );
+        mergeMessage(updated);
+      } catch (error) {
+        console.error(
+          "[ConversationDetailScreen] Failed to delete message:",
+          error,
+        );
+        Alert.alert("删除失败", "消息未能删除，请稍后再试。");
+      }
+    },
+    [token, conversationId, mergeMessage],
+  );
 
   const runMeetingAgent = useCallback(
     async (input: {
@@ -824,12 +1048,18 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     sending,
     workflowLoading,
     currentUserId: user?.id,
+    pendingAttachments,
+    uploadingAttachment,
     onRefresh: () => void loadData(),
     onLoadMorePrev: loadMorePrev,
     onDraftChange: setDraft,
     onSend: handleSend,
     onAskAgent: handleAskAgent,
     onOpenTranscript: handleOpenTranscript,
+    onLongPressMessage: handleOpenActionMenu,
+    onDownloadAttachment: handleDownloadAttachment,
+    onPickAttachment: handlePickAttachment,
+    onRemovePendingAttachment: handleRemovePendingAttachment,
   };
 
   return (
@@ -869,6 +1099,28 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         token={token}
         onClose={() => setWorkflowDebugVisible(false)}
         onProcess={handleProcessCurrentWorkflow}
+      />
+      <MessageActionMenuModal
+        visible={actionMenuMessage !== null}
+        message={actionMenuMessage}
+        currentUserId={user?.id}
+        canDeleteAny={false}
+        onClose={() => setActionMenuMessage(null)}
+        onEdit={handleStartEditMessage}
+        onRecall={handleRecallMessage}
+        onDelete={handleDeleteMessage}
+      />
+      <EditMessageModal
+        visible={editingMessage !== null}
+        message={editingMessage}
+        draft={editDraft}
+        saving={savingEdit}
+        onDraftChange={setEditDraft}
+        onClose={() => {
+          setEditingMessage(null);
+          setEditDraft("");
+        }}
+        onSave={handleSaveEditMessage}
       />
     </View>
   );

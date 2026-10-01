@@ -459,6 +459,133 @@ export const markConversationRead = async (
   await api.post(`/conversations/${conversationId}/read`);
 };
 
+export type UpdateMessagePayload = APISchemas["UpdateMessageRequest"];
+
+// 编辑消息正文。仅发送者本人可编辑；成功返回更新后的消息。
+export const updateMessage = async (
+  token: string,
+  conversationId: number,
+  messageId: number,
+  payload: UpdateMessagePayload,
+) => {
+  const api = createApiClient(token);
+  const response = await api.patch<{ message: MessageRecord }>(
+    `/conversations/${conversationId}/messages/${messageId}`,
+    payload,
+  );
+  return response.data.message;
+};
+
+// 删除消息（逻辑删除，服务端保留墓碑记录）。
+export const deleteMessage = async (
+  token: string,
+  conversationId: number,
+  messageId: number,
+) => {
+  const api = createApiClient(token);
+  const response = await api.delete<{ message: MessageRecord }>(
+    `/conversations/${conversationId}/messages/${messageId}`,
+  );
+  return response.data.message;
+};
+
+/** recallMessage 抛出的已分类错误，调用方据此决定提示文案。 */
+export type RecallMessageError =
+  | { kind: "window-expired" }
+  | { kind: "forbidden" }
+  | { kind: "error"; message: string };
+
+// 按 axios 错误的形状提取后端 code（{error, code, request_id, success}）。
+const toRecallError = (error: unknown): RecallMessageError => {
+  const data = (
+    error as { response?: { data?: { code?: unknown; error?: unknown } } }
+  )?.response?.data;
+  if (data?.code === "MESSAGE_RECALL_WINDOW_EXPIRED") {
+    return { kind: "window-expired" };
+  }
+  if (data?.code === "MESSAGE_RECALL_FORBIDDEN") {
+    return { kind: "forbidden" };
+  }
+  if (typeof data?.error === "string" && data.error) {
+    return { kind: "error", message: data.error };
+  }
+  return { kind: "error", message: "撤回失败，请稍后重试" };
+};
+
+// 撤回消息（微信式超窗校验）。超窗抛 window-expired、无权限抛 forbidden。
+export const recallMessage = async (
+  token: string,
+  conversationId: number,
+  messageId: number,
+): Promise<MessageRecord> => {
+  const api = createApiClient(token);
+  try {
+    const response = await api.post<{ message: MessageRecord }>(
+      `/conversations/${conversationId}/messages/${messageId}/recall`,
+    );
+    return response.data.message;
+  } catch (error) {
+    throw toRecallError(error);
+  }
+};
+
+export type AttachmentRecord = APISchemas["Attachment"];
+
+/** 待上传文件描述：native 为 file:// uri，web 保留原始 Blob。 */
+export interface AttachmentFileInfo {
+  uri: string;
+  name: string;
+  type?: string;
+  blob?: Blob;
+}
+
+// 上传会话附件（multipart form，字段名 file）。先上传拿 id，再随消息发送。
+export const uploadConversationAttachment = async (
+  token: string,
+  conversationId: number,
+  file: AttachmentFileInfo,
+) => {
+  const api = createApiClient(token);
+  const form = new FormData();
+  // web 端必须 append Blob 本体；RN FormData 才认 {uri, name, type} 描述符。
+  form.append(
+    "file",
+    file.blob ??
+      ({
+        uri: file.uri,
+        name: file.name,
+        type: file.type ?? "application/octet-stream",
+      } as unknown as Blob),
+  );
+  // 拦截器默认写死 application/json，会破坏 multipart boundary，必须清除交给 axios/RN 自动设置。
+  const response = await api.post<{ attachment: AttachmentRecord }>(
+    `/conversations/${conversationId}/attachments`,
+    form,
+    { headers: { "Content-Type": undefined as unknown as string } },
+  );
+  return response.data.attachment;
+};
+
+// 构造附件授权下载源（fromUrl + headers），交给 platform/fileDownload 适配器下载。
+// 后端 requireCurrentOrganization 只认 X-Organization-ID 请求头，不能走查询串。
+export const buildAttachmentDownloadSource = (
+  token: string,
+  attachmentId: number,
+) => {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: "*/*",
+  };
+  const organizationId = getActiveOrganizationHeader();
+  if (organizationId) {
+    headers["X-Organization-ID"] = String(organizationId);
+  }
+  return {
+    fromUrl: `${API_BASE_URL}/attachments/${attachmentId}/download`,
+    headers,
+  };
+};
+
 export const listConversationNotes = async (
   token: string,
   conversationId: number,
