@@ -1,8 +1,15 @@
+import { formatShortDateTime } from "@allcallall/shared";
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, FlatList, Pressable, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 
-import { createConversation, listConversations, type ConversationRecord } from "../api/collaboration";
+import {
+  createConversation,
+  listConversations,
+  searchMessages,
+  type ConversationRecord,
+  type MessageSearchHit,
+} from "../api/collaboration";
 import { useAuthContext } from "../context/AuthContext";
 import { useOrganization } from "../context/OrganizationContext";
 import { RootStackParamList } from "../navigation/AppNavigator";
@@ -51,6 +58,38 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
   const [creating, setCreating] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<InboxFilter>("");
+  // Message-content search. Kept separate from the status filter because it
+  // queries the server and replaces the list, rather than narrowing the
+  // already-loaded conversations.
+  const [searchText, setSearchText] = useState("");
+  const [searchResults, setSearchResults] = useState<MessageSearchHit[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
+  const runSearch = useCallback(async () => {
+    const query = searchText.trim();
+    if (!token || query.length < 2) {
+      return;
+    }
+    setSearching(true);
+    setSearchError(null);
+    try {
+      setSearchResults(await searchMessages(token, query));
+    } catch (error) {
+      console.error("[ConversationsScreen] Message search failed:", error);
+      setSearchError(error instanceof Error ? error.message : "搜索失败");
+      setSearchResults(null);
+    } finally {
+      setSearching(false);
+    }
+  }, [searchText, token]);
+
+  const clearSearch = useCallback(() => {
+    setSearchText("");
+    setSearchResults(null);
+    setSearchError(null);
+  }, []);
+
   const isWideScreen = width >= 1100;
 
   const loadData = useCallback(async () => {
@@ -168,6 +207,26 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
           </View>
 
           <TextField
+            label="搜索消息内容"
+            value={searchText}
+            onChangeText={setSearchText}
+            placeholder="输入关键词后提交"
+            returnKeyType="search"
+            onSubmitEditing={() => void runSearch()}
+          />
+          <View style={styles.searchActions}>
+            <PrimaryButton
+              title={searching ? "搜索中…" : "搜索"}
+              onPress={() => void runSearch()}
+              disabled={searchText.trim().length < 2 || searching}
+              style={styles.searchButton}
+            />
+            {searchResults ? (
+              <PrimaryButton title="退出搜索" onPress={clearSearch} style={styles.searchButton} />
+            ) : null}
+          </View>
+
+          <TextField
             label="新建频道"
             value={channelName}
             onChangeText={setChannelName}
@@ -185,6 +244,32 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
           {view === "error" && items.length > 0 ? (
             <LoadError message={LOAD_ERROR_MESSAGE} onRetry={() => void loadData()} />
           ) : null}
+          {/* Results replace the conversation list while a search is active.
+              The detail route accepts a conversationId, so a hit only needs to
+              pass the id rather than fabricate a full record. */}
+          {searchResults !== null ? (
+            <View>
+              {searchError ? <LoadError message={searchError} onRetry={() => void runSearch()} /> : null}
+              {searchResults.length === 0 ? (
+                <View style={styles.empty}>
+                  <Text style={styles.emptyText}>没有匹配的消息。</Text>
+                </View>
+              ) : (
+                searchResults.map((hit) => (
+                  <TouchableOpacity
+                    key={hit.id}
+                    style={styles.card}
+                    onPress={() => navigation.navigate("ConversationDetail", { conversationId: hit.conversation_id })}
+                  >
+                    <Text style={styles.title}>{hit.sender_display_name || hit.sender_email || "未知发送者"}</Text>
+                    <Text style={styles.meta}>{hit.body}</Text>
+                    <Text style={styles.meta}>{formatShortDateTime(hit.created_at)}</Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </View>
+          ) : null}
+          {searchResults === null ? (
           <FlatList
             data={items}
             keyExtractor={(item) => String(item.id)}
@@ -247,6 +332,7 @@ const ConversationsScreen: React.FC<Props> = ({ navigation }) => {
               )
             }
           />
+          ) : null}
         </View>
       </View>
     </View>
@@ -258,6 +344,19 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8fafc",
     padding: 16
+  },
+  searchActions: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 12
+  },
+  searchButton: {
+    flex: 1
+  },
+  meta: {
+    marginTop: 4,
+    color: "#64748b",
+    fontSize: 12
   },
   desktopLayout: {
     flex: 1,

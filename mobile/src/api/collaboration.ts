@@ -670,3 +670,28 @@ export const listDealActivities = async (token: string, dealId: number) => {
   );
   return response.data.activities;
 };
+
+export interface MessageSearchHit {
+  id: string;
+  conversation_id: number;
+  message_id: number;
+  sender_display_name?: string;
+  sender_email?: string;
+  body: string;
+  created_at: string;
+}
+
+/**
+ * Full-text search over message bodies.
+ *
+ * Search was web-only until now, and even there it only filtered conversation
+ * titles on the client - the server endpoint was never called from either
+ * app, so message content was unsearchable on a phone.
+ */
+export const searchMessages = async (token: string, query: string) => {
+  const api = createApiClient(token);
+  const response = await api.get<{ results: MessageSearchHit[] }>("/search/messages", {
+    params: { q: query },
+  });
+  return response.data.results;
+};
