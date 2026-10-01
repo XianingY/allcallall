@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDateTime } from "@allcallall/shared";
-import { Bell, ExternalLink, Globe2, LogOut, Trash2, Unlock } from "lucide-react";
+import { Bell, ExternalLink, LogOut, Trash2, Unlock } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -54,9 +54,18 @@ export function NotificationSettingsPage() {
 }
 
 export function PreferencesSettingsPage() {
-  const { i18n } = useTranslation(); const [language, setLanguage] = useState(i18n.language.startsWith("en") ? "en" : "zh");
+  const { i18n } = useTranslation();
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return <SettingsPanel title="偏好设置" description="本地浏览器偏好，不影响其他设备。"><div className="form-stack max-w-lg"><label><Globe2 size={17} />界面语言<select className="field" value={language} onChange={(event) => { const next = event.target.value; setLanguage(next); localStorage.setItem("allcallall.language", next); void i18n.changeLanguage(next); }}><option value="zh">中文</option><option value="en">English</option></select></label><dl className="detail-list"><div><dt>浏览器时区</dt><dd>{timezone}</dd></div><div><dt>时间显示</dt><dd>{dateTime(new Date().toISOString())}</dd></div></dl></div></SettingsPanel>;
+  // The language selector is deliberately not rendered. Only 7 of 62
+  // components consume i18n, so choosing English translated the navigation and
+  // the call UI and left everything else in Chinese - which reads as a broken
+  // interface rather than an untranslated one, and is worse than not offering
+  // the choice. The locale bundles and the i18n provider stay wired up, so
+  // restoring the <select> is a small change once coverage justifies it.
+  //
+  // Current language is still shown, so the setting is visible rather than
+  // mysterious.
+  return <SettingsPanel title="偏好设置" description="本地浏览器偏好，不影响其他设备。"><div className="form-stack max-w-lg"><dl className="detail-list"><div><dt>界面语言</dt><dd>{i18n.language.startsWith("en") ? "English" : "中文"}（暂不支持切换 / switching not yet available）</dd></div><div><dt>浏览器时区</dt><dd>{timezone}</dd></div><div><dt>时间显示</dt><dd>{dateTime(new Date().toISOString())}</dd></div></dl></div></SettingsPanel>;
 }
 
 export function DangerSettingsPage() {
