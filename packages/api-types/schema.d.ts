@@ -1307,6 +1307,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/conversations/{conversationId}/messages/{messageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Soft-delete a message (sender only). Body is destroyed but reactions/pins may persist. */
+        delete: operations["deleteMessage"];
+        options?: never;
+        head?: never;
+        /** @description Edit a message body (sender only, not deleted, not recalled). */
+        patch: operations["updateMessage"];
+        trace?: never;
+    };
+    "/conversations/{conversationId}/messages/{messageId}/recall": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description WeChat-style recall; destroys body, media, and search copy while keeping the message skeleton. */
+        post: operations["recallMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Upload a file to a conversation. Returns an attachment that can be referenced by CreateMessageRequest.attachment_ids. */
+        post: operations["uploadConversationAttachment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attachments/{attachmentId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Stream an attachment. Requires Authorization header (native clients fetch with bearer token; browsers must not use top-level navigation). */
+        get: operations["downloadAttachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/conversations/{conversationId}/read": {
         parameters: {
             query?: never;
@@ -2019,6 +2088,10 @@ export interface components {
             /** Format: int64 */
             deleted_by?: number | null;
             /** Format: date-time */
+            recalled_at?: string | null;
+            /** Format: int64 */
+            recalled_by?: number | null;
+            /** Format: date-time */
             created_at: string;
         };
         MessageReply: {
@@ -2030,6 +2103,7 @@ export interface components {
             sender_display_name: string;
             body: string;
             deleted: boolean;
+            recalled?: boolean;
         };
         Attachment: {
             /** Format: int64 */
@@ -3212,9 +3286,16 @@ export interface components {
         CreateMessageRequest: {
             type?: string;
             body: string;
+            /** Format: int64 */
+            reply_to_message_id?: number | null;
+            /** @description Attachment IDs returned by uploadConversationAttachment. */
+            attachment_ids?: number[];
             metadata?: {
                 [key: string]: unknown;
             };
+        };
+        UpdateMessageRequest: {
+            body: string;
         };
         CreateRoomRequest: {
             title: string;
@@ -5555,6 +5636,175 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    deleteMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: number;
+                messageId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Message deleted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: components["schemas"]["Message"];
+                    };
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    updateMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: number;
+                messageId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Message updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: components["schemas"]["Message"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    recallMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: number;
+                messageId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Message recalled. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message: components["schemas"]["Message"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            /** @description Recall forbidden or disabled (code MESSAGE_RECALL_FORBIDDEN). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            404: components["responses"]["Error"];
+            /** @description Recall window expired (code MESSAGE_RECALL_WINDOW_EXPIRED); client should stop retrying. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    uploadConversationAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description Up to 26MB (conversation attachment body limit).
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Attachment stored. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        attachment: components["schemas"]["Attachment"];
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+        };
+    };
+    downloadAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attachmentId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File stream. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
         };
     };
     markConversationRead: {

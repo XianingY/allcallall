@@ -871,6 +871,90 @@ paths:
         '201':
           description: Message created.
           content: { application/json: { schema: { type: object, required: [message], properties: { message: { $ref: '#/components/schemas/Message' } } } } }
+  /conversations/{conversationId}/messages/{messageId}:
+    patch:
+      operationId: updateMessage
+      description: Edit a message body (sender only, not deleted, not recalled).
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: messageId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateMessageRequest' } } } }
+      responses:
+        '200':
+          description: Message updated.
+          content: { application/json: { schema: { type: object, required: [message], properties: { message: { $ref: '#/components/schemas/Message' } } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deleteMessage
+      description: Soft-delete a message (sender only). Body is destroyed but reactions/pins may persist.
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: messageId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Message deleted.
+          content: { application/json: { schema: { type: object, required: [message], properties: { message: { $ref: '#/components/schemas/Message' } } } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /conversations/{conversationId}/messages/{messageId}/recall:
+    post:
+      operationId: recallMessage
+      description: WeChat-style recall; destroys body, media, and search copy while keeping the message skeleton.
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: messageId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: Message recalled.
+          content: { application/json: { schema: { type: object, required: [message], properties: { message: { $ref: '#/components/schemas/Message' } } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403':
+          description: Recall forbidden or disabled (code MESSAGE_RECALL_FORBIDDEN).
+          content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409':
+          description: Recall window expired (code MESSAGE_RECALL_WINDOW_EXPIRED); client should stop retrying.
+          content: { application/json: { schema: { $ref: '#/components/schemas/APIError' } } }
+  /conversations/{conversationId}/attachments:
+    post:
+      operationId: uploadConversationAttachment
+      description: Upload a file to a conversation. Returns an attachment that can be referenced by CreateMessageRequest.attachment_ids.
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary, description: 'Up to 26MB (conversation attachment body limit).' }
+      responses:
+        '201':
+          description: Attachment stored.
+          content: { application/json: { schema: { type: object, required: [attachment], properties: { attachment: { $ref: '#/components/schemas/Attachment' } } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+  /attachments/{attachmentId}/download:
+    get:
+      operationId: downloadAttachment
+      description: Stream an attachment. Requires Authorization header (native clients fetch with bearer token; browsers must not use top-level navigation).
+      parameters:
+        - { name: attachmentId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: File stream.
+          content: { application/octet-stream: { schema: { type: string, format: binary } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
   /conversations/{conversationId}/read:
     post:
       operationId: markConversationRead
@@ -1438,6 +1522,8 @@ components:
         edited_at: { type: [string, 'null'], format: date-time }
         deleted_at: { type: [string, 'null'], format: date-time }
         deleted_by: { type: [integer, 'null'], format: int64 }
+        recalled_at: { type: [string, 'null'], format: date-time }
+        recalled_by: { type: [integer, 'null'], format: int64 }
         created_at: { type: string, format: date-time }
     MessageReply:
       type: object
@@ -1449,6 +1535,7 @@ components:
         sender_display_name: { type: string }
         body: { type: string }
         deleted: { type: boolean }
+        recalled: { type: boolean }
     Attachment:
       type: object
       required: [id, organization_id, conversation_id, uploader_id, file_name, content_type, file_size, download_url, created_at]
@@ -2464,7 +2551,14 @@ components:
       properties:
         type: { type: string }
         body: { type: string }
+        reply_to_message_id: { type: [integer, 'null'], format: int64 }
+        attachment_ids: { type: array, items: { type: integer, format: int64 }, description: 'Attachment IDs returned by uploadConversationAttachment.' }
         metadata: { type: object, additionalProperties: true }
+    UpdateMessageRequest:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string }
     CreateRoomRequest:
       type: object
       required: [title]
