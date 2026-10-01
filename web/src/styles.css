@@ -365,6 +365,13 @@
 .attachment-list .attachment-link span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attachment-list small { color: #7d8784; }
 .attachment-error { color: #b91c1c; margin-left: .35rem; }
+/* Post-call summary, expanded from a call history row. */
+.call-summary { display: flex; flex-direction: column; gap: .6rem; padding: .75rem .25rem; text-align: left; }
+.call-summary > p { margin: 0; line-height: 1.6; }
+.call-summary strong { display: block; margin-bottom: .25rem; font-size: .78rem; color: #64748b; }
+.call-summary ul { margin: 0; padding-left: 1.1rem; }
+.call-summary li { margin-bottom: .2rem; }
+.call-summary-empty { display: flex; flex-direction: column; align-items: flex-start; gap: .6rem; padding: .75rem .25rem; text-align: left; }
 .reaction-row { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem; }
 .reaction-row button { border-radius: 10px; background: #e7efec; padding: .12rem .45rem; color: #31584e; font-size: .68rem; }
 .pinned-strip { display: flex; gap: .4rem; overflow-x: auto; border-bottom: 1px solid #dfe4e2; background: #fbf7e8; padding: .45rem .75rem; }

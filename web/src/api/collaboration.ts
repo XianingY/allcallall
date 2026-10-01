@@ -17,6 +17,8 @@ export type PipelineStage = components["schemas"]["PipelineStage"];
 export type Deal = components["schemas"]["Deal"];
 export type DealActivity = components["schemas"]["DealActivity"];
 export type CallHistory = components["schemas"]["CallHistory"];
+export type CallFollowup = components["schemas"]["CallFollowup"];
+export type FollowUpTaskRecord = components["schemas"]["FollowUpTask"];
 
 export interface ConversationPage { conversations: Conversation[]; pagination: Pagination }
 
@@ -55,6 +57,18 @@ export const listFollowUps = () => apiRequest<{ items: FollowUpItem[] }>("/follo
 export const createFollowUp = (input: { peer_user_id: number; type: string; title: string; description?: string; due_at?: string | null; reminder_mode?: string }) => apiRequest<{ task: FollowUpTask }>("/follow-ups", { method: "POST", body: JSON.stringify(input) }).then((value) => value.task);
 export const updateFollowUp = (id: number, input: { status?: string; description?: string; due_at?: string | null; reminder_mode?: string }) => apiRequest<{ task: FollowUpTask }>(`/follow-ups/${id}`, { method: "PATCH", body: JSON.stringify(input) }).then((value) => value.task);
 export const listCallHistory = (days = 30) => apiRequest<{ calls: CallHistory[] }>(`/calls/history${buildQuery({ days })}`).then((value) => value.calls);
+
+// Post-call summary. Mobile has had these for a while; web only ever showed a
+// read-only call table, so on the desktop there was no way to see or produce a
+// summary at all.
+export const fetchCallFollowup = (callId: string) =>
+  apiRequest<{ followup: CallFollowup; tasks: FollowUpTaskRecord[] }>(`/calls/${callId}/followup`);
+
+export const generateCallFollowup = (callId: string, force = false) =>
+  apiRequest<{ followup: CallFollowup; tasks: FollowUpTaskRecord[] }>(
+    `/calls/${callId}/followup/${force ? "regenerate" : "generate"}`,
+    { method: "POST" },
+  );
 
 export const listPipelines = () => apiRequest<{ pipelines: Pipeline[] }>("/pipelines").then((value) => value.pipelines);
 export interface DealPage { deals: Deal[]; pagination: Pagination }

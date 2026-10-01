@@ -164,8 +164,11 @@ const AppNavigator: React.FC = () => {
           />
           <Stack.Screen
             name="KnowledgeCenter"
+            // Reuses AgentDemoScreen with knowledgeOnly set, which narrows the
+            // tabs to the knowledge one - the knowledge base is implemented, it
+            // just shares a screen. Title made bilingual like its neighbours.
             component={AgentSurfaceScreen}
-            options={{ title: "Knowledge Center" }}
+            options={{ title: "知识中心 / Knowledge Center" }}
           />
           <Stack.Screen
             name="Rooms"
