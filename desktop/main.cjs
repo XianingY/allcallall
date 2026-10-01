@@ -42,8 +42,21 @@ const DESKTOP_CSP = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
+  // Kept as a scheme wildcard on purpose: a desktop build can be pointed at a
+  // self-hosted backend, so the API origin is not known at build time. The web
+  // app's own CSP (infra/nginx.tls.conf) enumerates origins because there the
+  // backend is known. Narrowing this one requires knowing every origin a
+  // deployment uses, which is not something to guess at.
   "connect-src 'self' https: wss:",
   "media-src 'self' blob:",
+  // Directives the nginx CSP already had and this one was missing. They cost
+  // nothing: nothing in the app loads plugins, workers or a manifest, and
+  // without base-uri an injected <base> tag can redirect every relative URL.
+  "object-src 'none'",
+  "base-uri 'self'",
+  "worker-src 'self'",
+  "manifest-src 'self'",
+  "frame-ancestors 'none'",
 ].join("; ");
 
 session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
