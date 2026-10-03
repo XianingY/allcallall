@@ -117,6 +117,7 @@
 | 标题 | 仓库 | 路径 |
 | --- | --- | --- |
 | Beta 冒烟检查清单 | 主仓 | [`docs/testing/beta-smoke-checklist.md`](docs/testing/beta-smoke-checklist.md) |
+| SaaS 上线 readiness 检查清单 | 主仓 | [`docs/testing/saas-launch-readiness.md`](docs/testing/saas-launch-readiness.md) |
 | Web 冒烟清单 | 主仓 | [`docs/testing/web-smoke.md`](docs/testing/web-smoke.md) |
 | 单测覆盖盘点（2026-07-23） | 主仓 | [`docs/unit-test-coverage-analysis.md`](docs/unit-test-coverage-analysis.md) |
 | 评测方法论与当前证据 | 运行时仓 | `docs/eval-methodology.md` |

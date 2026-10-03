@@ -71,6 +71,7 @@ Historical status reports, temporary migration notes, and duplicated setup guide
 - [Security Guidelines](./configuration/security-guidelines.md): infrastructure/network security rules.
 - [Message Privacy & Compliance](./configuration/message-privacy-compliance.md): retention TTL, envelope encryption, recall, search minimization, erasure, moderation, TLS enforcement, audit retention, identity verification.
 - [Beta Smoke Checklist](./testing/beta-smoke-checklist.md): small-team Beta validation checklist and seed-data flow.
+- [SaaS Launch Readiness Checklist](./testing/saas-launch-readiness.md): public-release gates for deployment, security, support, billing, and rollback evidence.
 
 ## Client / Development
 
