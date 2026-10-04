@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useDeferredValue, useMemo } from "react";
 
 import { PAGE_SIZE } from "@/api/pagination";
 import {
@@ -26,6 +26,7 @@ export function useConversationQueries(input: {
   filter: ConversationFilterState;
 }) {
   const { organizationId, conversationId, filter } = input;
+  const deferredKeyword = useDeferredValue(filter.keyword);
 
   const messageHits = useQuery({
     queryKey: conversationKeys.messageSearch(organizationId, filter.messageQuery),
@@ -77,7 +78,7 @@ export function useConversationQueries(input: {
 
   const visibleConversations = useMemo(() => {
     const loaded = (conversations.data?.pages ?? []).flatMap((page) => page.conversations);
-    const needle = filter.keyword.trim().toLowerCase();
+    const needle = deferredKeyword.trim().toLowerCase();
     return loaded.filter((item) => {
       if (filter.unreadOnly && !(item.unread_count > 0)) return false;
       if (!needle) return true;
@@ -85,7 +86,7 @@ export function useConversationQueries(input: {
         .toLowerCase()
         .includes(needle);
     });
-  }, [conversations.data?.pages, filter.keyword, filter.unreadOnly]);
+  }, [conversations.data?.pages, deferredKeyword, filter.unreadOnly]);
 
   const messageItems = useMemo(() => {
     const pages = messages.data?.pages ?? [];

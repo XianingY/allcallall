@@ -337,4 +337,49 @@ describe("ConversationSidebar", () => {
     expect(screen.getByRole("link", { name: /升级处理/ })).toBeInTheDocument();
     expect(vi.mocked(formatTime)).toHaveBeenCalledTimes(2);
   });
+
+  it("only re-renders the rows whose selection changes", () => {
+    const conversations = [
+      { ...conversation, id: 1, title: "Alpha" },
+      { ...conversation, id: 2, title: "Beta" },
+      { ...conversation, id: 3, title: "Gamma" },
+    ];
+    const onFilterChange = vi.fn();
+    const onCreateConversation = vi.fn();
+    const onOpenConversation = vi.fn();
+    const queries = {
+      messageHits: { data: [], isLoading: false, isError: false },
+      conversations: {
+        data: { pages: [{ conversations, pagination: { total: 3 } }] },
+        isLoading: false,
+        isError: false,
+      },
+      visibleConversations: conversations,
+    } as never;
+
+    const view = (selectedId: number) => (
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <ConversationSidebar
+            filter={{ status: "", keyword: "", unreadOnly: false, messageQuery: "" }}
+            onFilterChange={onFilterChange}
+            queries={queries}
+            selectedId={selectedId}
+            onCreateConversation={onCreateConversation}
+            onOpenConversation={onOpenConversation}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    const { rerender } = render(view(1));
+    expect(vi.mocked(formatTime)).toHaveBeenCalledTimes(3);
+
+    rerender(view(2));
+    expect(vi.mocked(formatTime)).toHaveBeenCalledTimes(5);
+    expect(screen.getByRole("link", { name: /Beta/ })).toHaveClass("conversation-item-active");
+    expect(screen.getByRole("link", { name: /Beta/ })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: /Alpha/ })).not.toHaveClass("conversation-item-active");
+    expect(screen.getByRole("link", { name: /Alpha/ })).not.toHaveAttribute("aria-current");
+  });
 });

@@ -2,6 +2,7 @@ import { Search } from "lucide-react";
 import { memo, useState } from "react";
 import { Link } from "react-router-dom";
 
+import type { Conversation } from "@/api/collaboration";
 import { PageEmpty, PageError, PageLoading } from "@/components/PageState";
 import { formatTime } from "@/pages/collaboration/InboxFormat";
 import { NewConversationDialog } from "@/pages/collaboration/InboxParts";
@@ -53,6 +54,42 @@ const PRIORITY_LABELS: Record<string, string> = {
   urgent: "紧急",
 };
 
+const priorityLabel = (priority: string) => PRIORITY_LABELS[priority] ?? priority;
+
+interface ConversationListItemProps {
+  item: Conversation;
+  active: boolean;
+}
+
+const ConversationListItem = memo(function ConversationListItem({
+  item,
+  active,
+}: ConversationListItemProps) {
+  return (
+    <Link
+      to={`/conversations/${item.id}`}
+      className={`conversation-item ${active ? "conversation-item-active" : ""}`}
+      aria-label={`${item.title}，${item.unread_count > 0 ? `${item.unread_count} 条未读` : "无未读"}，优先级${priorityLabel(item.priority)}`}
+      aria-current={active ? "page" : undefined}
+    >
+      <div className="conversation-avatar">{item.title.slice(0, 1).toUpperCase()}</div>
+      <div className="conversation-copy">
+        <div>
+          <strong title={item.title}>{item.title}</strong>
+          <time>{formatTime(item.last_message_at)}</time>
+        </div>
+        <p>{item.last_message_preview || item.topic || "暂无消息"}</p>
+        <span className="conversation-priority">{priorityLabel(item.priority)}</span>
+      </div>
+      {item.unread_count > 0 && (
+        <b className="unread-count" title={`${item.unread_count} 条未读`}>
+          {item.unread_count}
+        </b>
+      )}
+    </Link>
+  );
+});
+
 export const ConversationSidebar = memo(function ConversationSidebar({
   filter,
   onFilterChange,
@@ -68,7 +105,6 @@ export const ConversationSidebar = memo(function ConversationSidebar({
     onCreateConversation();
     setCreating(true);
   };
-  const priorityLabel = (priority: string) => PRIORITY_LABELS[priority] ?? priority;
 
   return (
     <aside className="conversation-list">
@@ -224,27 +260,11 @@ export const ConversationSidebar = memo(function ConversationSidebar({
       ) : (
           <div className="conversation-items">
             {visibleConversations.map((item) => (
-              <Link
+              <ConversationListItem
                 key={item.id}
-                to={`/conversations/${item.id}`}
-                className={`conversation-item ${selectedId === item.id ? "conversation-item-active" : ""}`}
-                aria-label={`${item.title}，${item.unread_count > 0 ? `${item.unread_count} 条未读` : "无未读"}，优先级${priorityLabel(item.priority)}`}
-              >
-                <div className="conversation-avatar">{item.title.slice(0, 1).toUpperCase()}</div>
-                <div className="conversation-copy">
-                  <div>
-                    <strong title={item.title}>{item.title}</strong>
-                    <time>{formatTime(item.last_message_at)}</time>
-                  </div>
-                  <p>{item.last_message_preview || item.topic || "暂无消息"}</p>
-                  <span className="conversation-priority">{priorityLabel(item.priority)}</span>
-                </div>
-                {item.unread_count > 0 && (
-                  <b className="unread-count" title={`${item.unread_count} 条未读`}>
-                    {item.unread_count}
-                  </b>
-                )}
-              </Link>
+                item={item}
+                active={selectedId === item.id}
+              />
             ))}
           </div>
       )}
