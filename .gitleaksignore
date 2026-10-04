@@ -1,0 +1,4 @@
+# Vendored node-forge 1.3.1 false positives. Keep these fingerprint-scoped so
+# any changed line or a match under another rule is scanned again.
+patches/node-forge/README.md:generic-api-key:877
+patches/node-forge/lib/pkcs12.js:generic-api-key:1078

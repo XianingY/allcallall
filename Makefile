@@ -326,6 +326,7 @@ verify:
 	@echo "NOTE: this does NOT run lint, the web/mobile test suites, or the"
 	@echo "      Python runtime tests. Use 'make verify-full' before declaring"
 	@echo "      a change ready - see AGENTS.md."
+	npm run deps:patch-check
 	cd backend && go test ./...
 	cd web && npm run typecheck
 	cd mobile && npm run typecheck
@@ -344,6 +345,7 @@ verify:
 # tests - with no silent skips.
 verify-full:
 	@echo "Running the FULL verification suite..."
+	npm run deps:patch-check
 	cd backend && go build ./...
 	cd backend && go vet ./...
 	cd backend && go run ./cmd/check-unbounded-find

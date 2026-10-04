@@ -2,6 +2,7 @@
   "name": "allcallall-root",
   "private": true,
   "scripts": {
+    "deps:patch-check": "node --test scripts/check-vendored-patches.test.mjs",
     "docs:check": "node scripts/check-docs-consistency.mjs",
     "test:docs": "node --test scripts/check-docs-consistency.test.mjs"
   },
@@ -12,6 +13,8 @@
     "desktop"
   ],
   "devDependencies": {
+    "braces": "file:patches/braces",
+    "node-forge": "file:patches/node-forge",
     "vite": "^8.3.2"
   },
   "overrides": {
@@ -22,6 +25,7 @@
     "brace-expansion@^1.1.0": "1.1.21",
     "brace-expansion@^2.0.0": "2.1.7",
     "brace-expansion@^5.0.0": "5.0.12",
+    "braces": "$braces",
     "browserslist@^4.0.0": "4.29.3",
     "glob@^10.2.0": "10.5.0",
     "joi@^17.0.0": "17.13.8",
@@ -29,6 +33,7 @@
     "js-yaml@^4.0.0": "4.3.2",
     "minimatch@^8.0.0": "8.0.7",
     "nanoid@^3.0.0": "3.3.19",
+    "node-forge": "$node-forge",
     "postcss@^8.0.0": "8.5.28",
     "protobufjs": "7.6.6",
     "tar": "7.5.22",
