@@ -9,25 +9,36 @@
     "assetBundlePatterns": [
       "**/*"
     ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.allcallall.mobile",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow AllCallAll to access the camera for video meetings and calls",
+        "NSMicrophoneUsageDescription": "Allow AllCallAll to access the microphone for voice calls and meetings",
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      }
+    },
     "android": {
       "package": "com.allcallall.mobile",
+      "versionCode": 1,
       "permissions": [
         "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_WIFI_STATE",
         "RECORD_AUDIO",
         "MODIFY_AUDIO_SETTINGS",
         "CAMERA",
         "BLUETOOTH",
         "BLUETOOTH_ADMIN",
-        "BLUETOOTH_CONNECT"
+        "BLUETOOTH_CONNECT",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "POST_NOTIFICATIONS",
+        "VIBRATE"
       ]
-    },
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.allcallall.mobile",
-      "infoPlist": {
-        "NSCameraUsageDescription": "Allow AllCallAll to access the camera for video meetings and calls",
-        "NSMicrophoneUsageDescription": "Allow AllCallAll to access the microphone for voice calls and meetings"
-      }
     },
     "web": {
       "bundler": "metro"
