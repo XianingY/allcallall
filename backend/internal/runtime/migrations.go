@@ -107,10 +107,27 @@ func bootstrapMySQLSchema(db *gorm.DB, migration *migrate.Migrate) (bool, error)
 	if db.Migrator().HasTable(&models.User{}) {
 		_, _, err := migration.Version()
 		if errors.Is(err, migrate.ErrNilVersion) {
-			if err := migration.Force(1); err != nil {
-				return false, fmt.Errorf("mark existing MySQL schema at version 1: %w", err)
-			}
-			return false, nil
+			// Tables exist but golang-migrate has no version recorded. This used
+			// to Force(1) and return, which sent the caller into migration.Up()
+			// starting at 000002 - and 000002 alters columns AutoMigrate already
+			// created, so it fails on the first statement and leaves
+			// schema_migrations marked dirty, needing manual repair. The forced
+			// version was also a lie: it claimed 000001 had been applied when the
+			// schema never came from these files.
+			//
+			// Refuse instead, with the two ways out. Guessing here is how a
+			// database ends up half-migrated.
+			return false, fmt.Errorf(
+				"MySQL schema has tables but no recorded migration version. "+
+					"These migration files are not the source of truth for MySQL "+
+					"(see backend/migrations/README.md): 000001 is SQLite dialect and "+
+					"000002 onward re-adds columns AutoMigrate creates, so replaying "+
+					"them will fail and mark schema_migrations dirty. "+
+					"Resolve deliberately: if this database was created by this service, "+
+					"mark it with `migrate force %d`; otherwise restore the correct "+
+					"version from whatever tooling created it",
+				currentSchemaVersion,
+			)
 		}
 		if err != nil {
 			return false, fmt.Errorf("read MySQL migration version: %w", err)
