@@ -22,7 +22,9 @@ export function useTypingSignal({
   const refreshTimerRef = useRef<number | null>(null);
   const onBeforeStopRef = useRef(onBeforeStop);
 
-  onBeforeStopRef.current = onBeforeStop;
+  useEffect(() => {
+    onBeforeStopRef.current = onBeforeStop;
+  }, [onBeforeStop]);
 
   const clearTimers = useCallback(() => {
     if (stopTimerRef.current !== null) {
