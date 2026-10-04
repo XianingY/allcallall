@@ -67,7 +67,12 @@ func NewManager(ctx context.Context, logger zerolog.Logger, serviceAccountPath s
 		return nil, fmt.Errorf("stat fcm service account: %w", err)
 	}
 
-	app, err := firebase.NewApp(ctx, nil, option.WithCredentialsFile(serviceAccountPath))
+	// option.WithCredentialsFile is deprecated in google.golang.org/api
+	// v0.287.0: it accepts any credential JSON, so a file that is not a service
+	// account can be loaded with more authority than intended. Pinning the
+	// credential type keeps the failure mode narrow, and this env var is
+	// documented as a service account path.
+	app, err := firebase.NewApp(ctx, nil, option.WithAuthCredentialsFile(option.ServiceAccount, serviceAccountPath))
 	if err != nil {
 		return nil, fmt.Errorf("initialize firebase app: %w", err)
 	}
