@@ -41,12 +41,6 @@ export default defineConfig({
             },
             { name: "vendor-revenuecat", test: /node_modules[\\/](@revenuecat[\\/]|[^\\/]*[Pp]urchases)/, priority: 20 },
             { name: "vendor-firebase", test: /node_modules[\\/]firebase/, priority: 20 },
-            {
-              name: "vendor-agent-graph",
-              test: /node_modules[\\/]@xyflow[\\/]/,
-              priority: 20,
-              includeDependenciesRecursively: false,
-            },
             // Catch-all last, and lowest priority so it only takes what no
             // other group claimed. Restricting it to `$initial` keeps
             // dynamic-only dependencies out of the public vendor chunk.

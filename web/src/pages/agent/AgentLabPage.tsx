@@ -1,8 +1,7 @@
 import * as Tabs from "@radix-ui/react-tabs";
-import "@xyflow/react/dist/style.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, FileText, GitBranch, Play, Search, ShieldCheck } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { createAgentRun, createWorkflow, decideApproval, getAgentRun, getWorkflow, listApprovals, listWorkflows, processWorkflow, streamAgentRun, submitAgentToolOutputs, type AgentCitation } from "@/api/agent";
@@ -10,12 +9,13 @@ import { listConversations } from "@/api/collaboration";
 import { FormError } from "@/components/AuthLayout";
 import { PageError, PageLoading } from "@/components/PageState";
 import { useOrganization } from "@/organizations/OrganizationContext";
-import { ApprovalList, CitationCard, RerankPanel, ResultView, TraceView, WorkflowGraph } from "@/pages/agent/AgentLabPanels";
+import { ApprovalList, CitationCard, RerankPanel, ResultView, TraceView } from "@/pages/agent/AgentLabPanels";
 import { extractAgenticRAG, sourceLabel, workflowRuntimeLabel } from "@/pages/agent/AgentLabUtils";
 
 const terminal = new Set(["ready", "failed", "requires_action"]);
 const presets = [{ value: "meeting_brief", label: "会议复盘" }, { value: "follow_up", label: "跟进建议" }, { value: "risk_review", label: "风险审查" }];
 const presetValues = new Set(presets.map((item) => item.value));
+const WorkflowGraph = lazy(() => import("@/pages/agent/WorkflowGraph").then((module) => ({ default: module.WorkflowGraph })));
 
 export function AgentLabPage() {
   const { activeOrganization } = useOrganization(); const orgId = activeOrganization?.id; const queryClient = useQueryClient(); const [params, setParams] = useSearchParams();
@@ -47,7 +47,7 @@ export function AgentLabPage() {
   return <div className="agent-lab"><header className="agent-header"><div><p className="eyebrow">Agent Lab</p><h1>运行与审计</h1></div><label>会话<select className="field" value={selectedId} onChange={(event) => setParams({ conversationId: event.target.value, preset })}>{conversations.data?.conversations?.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label></header>
     <Tabs.Root className="agent-tabs" defaultValue="run"><Tabs.List className="agent-tab-list"><Tabs.Trigger value="run"><Play size={16} />运行</Tabs.Trigger><Tabs.Trigger value="graph"><GitBranch size={16} />任务图</Tabs.Trigger><Tabs.Trigger value="rag"><Search size={16} />RAG/Rerank</Tabs.Trigger><Tabs.Trigger value="approvals"><ShieldCheck size={16} />审批 <span>{approvals.data?.filter((item) => item.status === "pending").length ?? 0}</span></Tabs.Trigger><Tabs.Trigger value="citations"><FileText size={16} />引用</Tabs.Trigger></Tabs.List>
       <Tabs.Content value="run" className="agent-tab-content"><div className="agent-run-grid"><section className="panel panel-body"><div className="segmented"><button className={mode === "react" ? "active" : ""} onClick={() => setMode("react")}>ReAct</button><button className={mode === "workflow" ? "active" : ""} onClick={() => setMode("workflow")}>Workflow</button></div>{mode === "workflow" && <label className="agent-field">Preset<select className="field" value={preset} onChange={(event) => { if (selectedId) setParams({ conversationId: String(selectedId), preset: event.target.value }); }}>{presets.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>}<label className="agent-field">目标<textarea className="field" rows={6} value={goal} onChange={(event) => setGoal(event.target.value)} /></label><FormError error={start.error || agentDecision.error || decision.error} /><button className="button-primary w-full" disabled={!selectedId || start.isPending} onClick={() => start.mutate()}><Bot size={17} />启动 {mode === "react" ? "ReAct" : "Workflow"}</button></section><section className="panel trace-panel"><TraceView run={run.data} workflow={workflow.data} events={streamEvents} runtimeLabel={runtimeLabel} deciding={agentDecision.isPending} onAgentDecision={(callId, value) => agentDecision.mutate({ callId, value })} />{Boolean(activeWorkflowId) && workflow.data && !terminal.has(workflow.data.workflow.status) && <button className="button-secondary mx-4 mb-4" onClick={() => process.mutate()}>推进 Workflow</button>}</section><aside className="panel result-panel"><ResultView summary={run.data?.run.summary || workflow.data?.workflow.summary} risks={run.data?.run.risk_flags || workflow.data?.workflow.risk_flags} actions={run.data?.run.action_items || workflow.data?.workflow.action_items} next={run.data?.run.next_step || workflow.data?.workflow.next_step} status={run.data?.run.status || workflow.data?.workflow.status} runtimeLabel={runtimeLabel} /></aside></div></Tabs.Content>
-      <Tabs.Content value="graph" className="agent-tab-content"><WorkflowGraph tasks={workflow.data?.tasks ?? []} /> </Tabs.Content>
+      <Tabs.Content value="graph" className="agent-tab-content"><Suspense fallback={<PageLoading />}><WorkflowGraph tasks={workflow.data?.tasks ?? []} /></Suspense></Tabs.Content>
       <Tabs.Content value="rag" className="agent-tab-content"><RerankPanel citations={citations} agenticRAG={agenticRAG} /></Tabs.Content>
       <Tabs.Content value="approvals" className="agent-tab-content"><FormError error={decision.error} /><ApprovalList approvals={approvals.data ?? []} loading={approvals.isLoading} error={approvals.error} retry={() => void approvals.refetch()} deciding={decision.isPending} decide={(id, value) => decision.mutate({ id, value })} /></Tabs.Content>
       <Tabs.Content value="citations" className="agent-tab-content"><div className="citation-groups">{Object.entries(groupedCitations).map(([source, items]) => <section key={source}><h2>{sourceLabel(source)}<span>{items?.length ?? 0}</span></h2>{items?.map((citation) => <CitationCard key={`${citation.source_type}-${citation.source_id}`} citation={citation} />)}</section>)}</div></Tabs.Content>

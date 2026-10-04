@@ -15,6 +15,7 @@ plan in `docs/superpowers/plans/2026-10-04-web-experience-performance.md`.
 | ESLint | Passed (`eslint .`) |
 | Unit and component tests | Passed: 55 files, 207 tests |
 | Coverage gate | Passed |
+| Browser E2E | Passed: 33 tests across desktop, tablet, and mobile |
 | Production build | Passed |
 | Semantic bundle budget | Passed |
 | Responsive visual states | Captured at 390, 768, and 1440 px |
@@ -33,13 +34,13 @@ and the initial stylesheet with Node's gzip implementation.
 | Metric | Measured | Budget | Result |
 | --- | ---: | ---: | --- |
 | Public entry JavaScript | 100.2 KiB | 180.0 KiB | Pass |
-| Inbox first-use JavaScript | 124.7 KiB | 240.0 KiB | Pass |
+| Inbox first-use JavaScript | 124.6 KiB | 240.0 KiB | Pass |
 | Initial CSS | 15.5 KiB | 16.0 KiB | Pass |
 
 ### Public entry JavaScript
 
 ```text
-index-Tr5OYyII.js             14.6 KiB
+index-D4FAITE-.js             14.6 KiB
 rolldown-runtime-hePW80VL.js   0.4 KiB
 vendor-react-D7AwK3gx.js      57.6 KiB
 vendor-core-CdBaUX03.js       27.5 KiB
@@ -51,14 +52,14 @@ No Agent Graph, RevenueCat, or Firebase asset is present in the public preload g
 
 ```text
 AuthLayout-7wXE9CVG.js          0.9 KiB
-InboxPage-D6xoi_Br.js           8.3 KiB
+InboxPage-BGAcHPS3.js           8.3 KiB
 check-DKr-NVbG.js               0.1 KiB
-collaboration-nAwmL_ow.js       0.9 KiB
+collaboration-BN-dhttw.js       0.9 KiB
 dist-BiFAxcwg.js                2.4 KiB
 dist-CDqL9Gdt.js                8.5 KiB
 format-PX4uqa90.js              0.4 KiB
-index-Tr5OYyII.js              14.6 KiB
-meetings-B8mu7XWa.js            0.4 KiB
+index-D4FAITE-.js              14.6 KiB
+meetings-B5SYzva0.js            0.4 KiB
 pen-line-9V54effa.js            0.2 KiB
 plus-Bxcv45lb.js                0.1 KiB
 rolldown-runtime-hePW80VL.js   0.4 KiB
@@ -70,6 +71,13 @@ useMutation-DZ5Zzv6q.js         0.9 KiB
 vendor-core-CdBaUX03.js       27.5 KiB
 vendor-react-D7AwK3gx.js      57.6 KiB
 ```
+
+### Agent Lab graph loading
+
+`WorkflowGraph` is a second-level dynamic import. Opening Agent Lab loads the run, approval, and
+citation surfaces first; selecting the task graph loads the graph chunk only then. The current
+production graph chunk is `WorkflowGraph-U9Hmyuoa.js` at 56.95 KiB gzip, and browser E2E asserts
+that the task node renders after selecting the graph tab.
 
 ### Initial CSS
 
@@ -162,10 +170,10 @@ Coverage summary:
 
 | Metric | Coverage |
 | --- | ---: |
-| Statements | 55.93% |
+| Statements | 55.86% |
 | Branches | 49.56% |
-| Functions | 41.27% |
-| Lines | 69.90% |
+| Functions | 41.20% |
+| Lines | 69.86% |
 
 ## Completion audit
 
@@ -175,6 +183,7 @@ Coverage summary:
 | Public JavaScript and CSS are within budget | Verified |
 | Inbox first-use JavaScript is within budget | Verified |
 | Agent Graph, RevenueCat, and Firebase are absent from public preload | Verified |
+| Agent Lab loads the task graph only when its tab is selected | Verified by browser E2E |
 | Inbox is split into the planned hooks and components | Verified |
 | Realtime events use targeted cache updates | Verified by tests |
 | Typing events issue no query invalidation | Verified by tests |
