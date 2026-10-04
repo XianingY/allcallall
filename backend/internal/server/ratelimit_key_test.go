@@ -45,17 +45,26 @@ func TestRateLimitKeySeparatesUsersSharingAnAddress(t *testing.T) {
 	}
 }
 
-func TestRateLimitKeyIsStablePerToken(t *testing.T) {
+// The point of keying on identity: one user moving between networks (wifi to
+// cellular, or a carrier that changes egress IP) keeps one bucket. The earlier
+// version of this test compared two calls of the same helper, which staticcheck
+// correctly flagged as a tautology - it could not fail.
+func TestRateLimitKeyIsStablePerTokenAcrossNetworks(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	make1 := func() string {
+
+	keyFor := func(token, ip string) string {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = httptest.NewRequest("GET", "/api/v1/conversations", nil)
-		c.Request.RemoteAddr = "198.51.100.4:51000"
-		c.Request.Header.Set("Authorization", "Bearer stable-token")
+		c.Request.RemoteAddr = ip + ":51000"
+		c.Request.Header.Set("Authorization", token)
 		return rateLimitKey(c)
 	}
-	if make1() != make1() {
-		t.Fatal("the same token must map to the same bucket, or the limit is per-request")
+
+	onWifi := keyFor("Bearer stable-token", "198.51.100.4")
+	onCellular := keyFor("Bearer stable-token", "203.0.113.9")
+
+	if onWifi != onCellular {
+		t.Fatalf("the same user must keep one bucket across networks, got %q and %q", onWifi, onCellular)
 	}
 }
 
