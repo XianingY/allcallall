@@ -174,6 +174,8 @@ test("applyConversationDetailPatch clears the workspace assignee summary", () =>
 
   assert.notEqual(next, previous);
   assert.equal(next?.conversation.assignee_user_id, null);
+  assert.equal(next?.conversation.assignee_display_name, undefined);
+  assert.equal(next?.conversation.assignee_email, undefined);
   assert.equal(next?.workspace.assignee_user_id, null);
   assert.equal(next?.workspace.assignee_label, "未指派");
 });

@@ -56,7 +56,6 @@ export const applyConversationDetailPatch = (
   }
 
   const changes = payload.changes;
-  const nextConversation = { ...detail.conversation, ...changes };
   const hasAssigneeIdentityPatch =
     changes.assignee_user_id !== undefined ||
     changes.assignee_display_name !== undefined ||
@@ -65,6 +64,13 @@ export const applyConversationDetailPatch = (
     changes.assignee_user_id !== undefined
       ? changes.assignee_user_id
       : detail.workspace.assignee_user_id;
+  const nextConversation = {
+    ...detail.conversation,
+    ...changes,
+    ...(changes.assignee_user_id === null
+      ? { assignee_display_name: undefined, assignee_email: undefined }
+      : {}),
+  };
   const nextWorkspace = {
     ...detail.workspace,
     assignee_user_id: assigneeId,
