@@ -1,5 +1,7 @@
 # AllCallAll 架构 · 代码质量 · 性能 · 可维护性 · 可扩展性 深度分析
 
+> **Archive status:** Historical material; not part of the maintained product documentation.
+
 > 分析基线：2026-09-22 工作区（4 项技术债收尾后，全部未提交）。
 > 数据来源：`git ls-files` / `wc -l` 实测 + 既有架构约定（Go↔Python JSON Schema 契约、agent-runtime submodule、outbox、SFU、dual-channel recall 等）。
 

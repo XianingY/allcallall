@@ -1,5 +1,7 @@
 # Historical Auto-Env Detection Note
 
+> This compatibility page preserves an older link. The maintained references are listed below.
+
 Older docs described automatic dev/prod IP switching. That is no longer the active configuration model.
 
 Current rule:

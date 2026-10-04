@@ -1,6 +1,10 @@
 {
   "name": "allcallall-root",
   "private": true,
+  "scripts": {
+    "docs:check": "node scripts/check-docs-consistency.mjs",
+    "test:docs": "node --test scripts/check-docs-consistency.test.mjs"
+  },
   "workspaces": [
     "packages/*",
     "web",

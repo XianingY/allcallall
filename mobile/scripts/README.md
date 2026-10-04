@@ -21,7 +21,7 @@ chmod +x ./verify-app-env.sh
 - ✅ 开发工具可用性
 
 **输出示例**:
-```
+```text
 ✅ 应用配置正确
 ✅ 环境变量已设置
 ⚠️  需要更新依赖：npm install
@@ -51,7 +51,7 @@ chmod +x ./verify-alarm-setup.sh
 - ✅ 权限和可读性
 
 **输出示例**:
-```
+```text
 ✅ 铃声文件已找到: assets/sounds/incoming_call.mp3
 ✅ 音频格式正确: MP3, 128kbps
 ⚠️  缺少背景音乐: assets/sounds/background.mp3

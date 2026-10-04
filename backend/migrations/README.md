@@ -59,7 +59,7 @@ that already contains orphans fails, and on a large table it fails slowly.
 `check-orphans.sql` in this directory reports the violations for the ten
 relationships most worth constraining. It is read-only:
 
-```
+```bash
 mysql -h <host> -u <user> -p <database> < backend/migrations/check-orphans.sql
 ```
 

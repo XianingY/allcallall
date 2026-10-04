@@ -1,5 +1,7 @@
 # Mobile 手写 API 层 vs `openapi.yaml` 端点覆盖清单
 
+> **Archive status:** Historical material; not part of the maintained product documentation.
+
 > 生成日期：2026-09-23 · 任务 #22 的前置产物
 > **2026-09-25 更新：第 2 节列出的 5 个缺口域已全部补入 spec 并完成迁移，详见第 6 节。**
 > 数据来源：`docs/api/openapi.yaml`（顶层 path 项）与 `mobile/src/api/*.ts` 中的端点字符串字面量。

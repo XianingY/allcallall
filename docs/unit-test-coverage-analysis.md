@@ -1,5 +1,7 @@
 # AllCallAll 架构与单元测试覆盖分析
 
+> **Archive status:** Historical material; not part of the maintained product documentation.
+
 > 生成日期：2026-07-23
 > 范围：主仓 `AllCallAll`（Go backend / web / mobile / infra）及独立 Python 运行时仓库 `allcallall-agent-runtime`
 > 本次工作：架构梳理 + 测试覆盖盘点 + 缺失用例补齐 + CI/CD 修正

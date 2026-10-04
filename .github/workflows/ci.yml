@@ -37,11 +37,8 @@ jobs:
           version: v2.14.0
           working-directory: backend
       - name: Docs consistency
-        # Docs previously pointed at files that do not exist (AGENTS.md named
-        # a workflow that was never created), which costs anyone who believes
-        # them. Checks that referenced paths resolve; not prose.
         working-directory: .
-        run: node scripts/check-docs-consistency.mjs
+        run: npm run test:docs && npm run docs:check
       - name: Pagination gate (no unbounded list Find)
         # 拦截新增的"面向用户列表端点裸写 .Find(&...) 不加 .Limit"回归。
         # 存量违规在 cmd/check-unbounded-find 的 allowlist 中豁免，治理后移除。

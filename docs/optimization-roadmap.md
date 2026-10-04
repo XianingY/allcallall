@@ -1,5 +1,7 @@
 # 优化改造路线图（Optimization Roadmap）
 
+> **Archive status:** Historical material; not part of the maintained product documentation.
+
 本项目审查遗留项的可执行改造方案。编号与审查报告对应：
 - **P1#8** 媒体 RoomEngine 外置（录制上传已落地 / 房间状态 Redis 外置仅设计）
 - **P2** 架构与技术债：#15 巨型文件拆分、#16 mobile `any` 清理、#17 i18n 覆盖、#18 web/mobile SDK 统一、#24 样板收敛

@@ -1,5 +1,7 @@
 # AllCallAll 代码审查报告（Code Review）
 
+> **Archive status:** Historical material; not part of the maintained product documentation.
+
 > 审查日期：2026-07-29 ｜ 范围：AllCallAll 主仓（`/Users/byzantium/github/AllCallAll`）
 > 标准：可维护的优秀开源项目（结构 / 质量 / 配置依赖 / 测试 / 文档 / 安全）
 > 方法：6 路并行只读 Explore 审计（后端 Go / web+desktop / mobile / 配置+CI+密钥 / 文档 / 测试），逐项带回 `file:line` 与严重度，再由重构 agent 分阶段落地。
