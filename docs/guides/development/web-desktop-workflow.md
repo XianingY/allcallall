@@ -14,8 +14,9 @@ CONFIG_PATH=./configs/config.yaml go run ./cmd/server
 Run the Web app:
 
 ```bash
+cd /path/to/AllCallAll
+npm ci
 cd web
-npm install
 npm run dev
 ```
 
@@ -38,6 +39,24 @@ Browser auth uses:
 - access token in memory only
 - HttpOnly refresh cookie `allcallall_refresh`
 - one-shot realtime tickets for browser WebSocket connections
+
+### Application boundaries
+
+`src/main.tsx` is the browser composition root. `AppProviders` owns the stable
+Query Client → authentication → organization → call → chat-realtime provider
+order, while `BrowserRouter` remains inside those providers as before.
+
+`src/app/App.tsx` only combines route groups:
+
+- `routes/publicRoutes.tsx` — anonymous authentication and invitation routes
+- `routes/workspaceRoutes.tsx` — authenticated shell, collaboration, Agent,
+  recordings, organizations, and settings routes
+- `routes/meetingRoutes.tsx` — preflight and in-meeting routes outside the shell
+- `routes/legacyRoutes.tsx` — compatibility redirects and the catch-all fallback
+
+When adding a route, place it with the feature group that owns its layout and
+authentication boundary. Keep redirect behavior covered in
+`src/app/routes/routes.test.tsx`.
 
 Web verification:
 
