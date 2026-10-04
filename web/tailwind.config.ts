@@ -6,13 +6,13 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#17202a",
-        muted: "#667085",
-        line: "#dfe3e8",
-        canvas: "#f7f8fa",
+        ink: "#17211c",
+        muted: "#5d6a63",
+        line: "#d9e4de",
+        canvas: "#f3f7f4",
         panel: "#ffffff",
-        brand: "#146c5a",
-        accent: "#d97706",
+        brand: "#12372a",
+        accent: "#e9a83a",
         danger: "#b42318"
       },
       boxShadow: { panel: "0 1px 2px rgba(16,24,40,.06)" },

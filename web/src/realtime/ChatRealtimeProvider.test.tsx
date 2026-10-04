@@ -43,6 +43,9 @@ vi.mock("@/realtime/TicketSocket", () => ({
 vi.mock("@/organizations/OrganizationContext", () => ({
   useOrganization: () => ({ activeOrganization }),
 }));
+vi.mock("@/auth/AuthContext", () => ({
+  useAuth: () => ({ user: { id: 1 } }),
+}));
 
 function Probe() {
   const connected = useChatConnected();
@@ -113,7 +116,7 @@ describe("ChatRealtimeProvider", () => {
     expect(view.getByTestId("connected").textContent).toBe("false");
   });
 
-  it("persists the cursor and invalidates conversation queries on events", () => {
+  it("persists the cursor and invalidates only affected conversation queries on incomplete events", () => {
     const windowEvents: Array<{ type: string; detail: ChatEvent }> = [];
     const listener = (event: Event) => {
       windowEvents.push({ type: event.type, detail: (event as CustomEvent<ChatEvent>).detail });
@@ -126,8 +129,15 @@ describe("ChatRealtimeProvider", () => {
       expect(windowEvents).toHaveLength(1);
       expect(windowEvents[0].detail.event_id).toBe(42);
       expect(window.sessionStorage.getItem("allcallall:chat-cursor:7")).toBe("42");
-      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["organizations", 7, "conversations"] });
-      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["organizations", 7, "conversations", 99] });
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ["organizations", 7, "conversations", 99, "messages"],
+      });
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ["organizations", 7, "conversations", 99],
+      });
+      expect(invalidateQueries).not.toHaveBeenCalledWith({
+        queryKey: ["organizations", 7, "conversations"],
+      });
     } finally {
       window.removeEventListener("allcallall:chat-event", listener);
     }

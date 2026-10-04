@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Outlet, useLocation } from "react-router-dom";
 
@@ -37,6 +38,8 @@ vi.mock("@/pages/meetings/MeetingPreflightPage", () => ({ MeetingPreflightPage: 
 vi.mock("@/pages/meetings/MeetingRoomPage", () => ({ MeetingRoomPage: () => <div data-testid="meeting-room" /> }));
 
 afterEach(cleanup);
+
+const routeSource = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8");
 
 function LocationProbe() {
   const location = useLocation();
@@ -77,5 +80,24 @@ describe("application route compatibility", () => {
 
   it("redirects unknown paths to the inbox", async () => {
     await expectRoute("/not-a-route", "inbox", "/inbox");
+  });
+
+  it("keeps public authentication pages out of the eager route graph", () => {
+    const source = routeSource("publicRoutes.tsx");
+
+    expect(source).not.toMatch(/import \{ LoginPage \}/);
+    expect(source).not.toMatch(/import \{ RegisterPage \}/);
+    expect(source).not.toMatch(/import \{ VerifyEmailPage \}/);
+    expect(source).not.toMatch(/import \{ ForgotPasswordPage \}/);
+    expect(source).not.toMatch(/import \{ InvitePage \}/);
+  });
+
+  it("keeps heavy workspace pages out of the eager route graph", () => {
+    const source = routeSource("workspaceRoutes.tsx");
+
+    expect(source).not.toMatch(/import \{ InboxPage \}/);
+    expect(source).not.toMatch(/import \{ OrganizationsPage \}/);
+    expect(source).not.toMatch(/import \{ SettingsLayout \}/);
+    expect(source).not.toMatch(/from "@\/pages\/settings\/SettingsPages"/);
   });
 });

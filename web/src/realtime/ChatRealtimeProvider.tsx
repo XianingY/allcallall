@@ -1,7 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
+import { useAuth } from "@/auth/AuthContext";
 import { useOrganization } from "@/organizations/OrganizationContext";
+import { applyChatEventToQueryCache } from "@/realtime/chatCache";
 import { ChatConnectionContext } from "@/realtime/ChatRealtimeContext";
 import { initialChatCursor, reduceChatCursor, type ChatCursorState, type ChatEvent } from "@/realtime/chatEvents";
 import { TicketSocket } from "@/realtime/TicketSocket";
@@ -15,6 +17,7 @@ const loadCursor = (organizationId: number): ChatCursorState => {
 
 export function ChatRealtimeProvider({ children }: { children: React.ReactNode }) {
   const { activeOrganization } = useOrganization();
+  const { user } = useAuth();
   const organizationId = activeOrganization?.id;
   const queryClient = useQueryClient();
   const cursor = useRef<ChatCursorState>(initialChatCursor);
@@ -33,13 +36,11 @@ export function ChatRealtimeProvider({ children }: { children: React.ReactNode }
       if (next === cursor.current) return;
       cursor.current = next;
       window.sessionStorage.setItem(cursorStorageKey(organizationId), String(next.cursor));
-      const conversationId = Number(event.payload.conversation_id || 0);
-      void queryClient.invalidateQueries({ queryKey: ["organizations", organizationId, "conversations"] });
-      if (conversationId) void queryClient.invalidateQueries({ queryKey: ["organizations", organizationId, "conversations", conversationId] });
+      applyChatEventToQueryCache(queryClient, organizationId, event, user?.id);
     }, setConnected);
     socket.connect();
     return () => socket.disconnect();
-  }, [organizationId, queryClient]);
+  }, [organizationId, queryClient, user?.id]);
 
   return <ChatConnectionContext.Provider value={connected}>{children}</ChatConnectionContext.Provider>;
 }

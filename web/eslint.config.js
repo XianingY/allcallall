@@ -19,4 +19,8 @@ export default tseslint.config(
       "max-lines": ["warn", 400]
     },
   },
+  {
+    files: ["src/app/routes/*.{ts,tsx}"],
+    rules: { "react-refresh/only-export-components": "off" },
+  },
 );

@@ -1,55 +1,24 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Bot,
-  Check,
-  ChevronLeft,
-  Edit3,
-  FileAudio,
-  MessageSquarePlus,
-  Paperclip,
-  Pin,
-  Reply,
-  Search,
-  Send,
-  StickyNote,
-  Video,
-  X,
-} from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PAGE_SIZE } from "@/api/pagination";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
 import {
-  addReaction,
-  createNote,
-  deleteMessage,
-  editMessage,
-  getConversation,
-  listConversations,
-  listMessages,
-  listNotes,
-  listPinnedMessages,
   markConversationRead,
-  pinMessage,
-  searchMessages,
-  sendMessage,
-  sendTyping,
   type Attachment,
   type Message,
-  unpinMessage,
-  updateConversation,
-  uploadAttachment,
 } from "@/api/collaboration";
-import { createRoom } from "@/api/meetings";
 import { useAuth } from "@/auth/AuthContext";
-import { FormError } from "@/components/AuthLayout";
-import { PageEmpty, PageError, PageLoading } from "@/components/PageState";
 import { useOrganization } from "@/organizations/OrganizationContext";
-import { formatTime } from "@/pages/collaboration/InboxFormat";
-import { MessageBubble, Metric, NewConversationDialog } from "@/pages/collaboration/InboxParts";
-import { windowMessages } from "@/pages/collaboration/messageWindow";
-
-const messageQueryKey = (orgId?: number, conversationId?: number | null) => ["organizations", orgId, "conversations", conversationId, "messages"] as const;
+import { ConversationContextPanel } from "@/pages/collaboration/ConversationContextPanel";
+import { ConversationSidebar } from "@/pages/collaboration/ConversationSidebar";
+import { ConversationWorkspace } from "@/pages/collaboration/ConversationWorkspace";
+import { conversationKeys } from "@/pages/collaboration/conversationQueryKeys";
+import {
+  useConversationQueries,
+  type ConversationFilterState,
+} from "@/pages/collaboration/useConversationQueries";
+import { useConversationMutations } from "@/pages/collaboration/useConversationMutations";
+import { useTypingSignal } from "@/pages/collaboration/useTypingSignal";
 
 export function InboxPage() {
   const { conversationId } = useParams();
@@ -59,75 +28,78 @@ export function InboxPage() {
   const { user } = useAuth();
   const { activeOrganization } = useOrganization();
   const orgId = activeOrganization?.id;
-  // Two separate pieces of state, because `filter` is a server-side status
-  // enum (my/open/pending/resolved/channels - see collaboration
-  // conversation_service.go). It was previously shared with the search box,
-  // so typing in the box sent a free-text value the backend does not
-  // recognise, which silently degrades to "all" - search did nothing. The
-  // tabs also passed "unread", which is not in that enum either.
-  //
-  // `status` goes to the server; `keyword` and `unreadOnly` filter the loaded
-  // pages on the client, which also stops every keystroke from issuing a
-  // request.
-  const [status, setStatus] = useState("");
-  const [keyword, setKeyword] = useState("");
-  const [unreadOnly, setUnreadOnly] = useState(false);
-  // Committed on Enter: `keyword` filters the loaded conversation titles on the
-  // client, which is instant and needs no request. Searching message *bodies*
-  // is a server query, so it only runs when the user asks for it.
-  const [messageQuery, setMessageQuery] = useState("");
 
-  const messageHits = useQuery({
-    queryKey: ["organizations", orgId, "search", "messages", messageQuery],
-    queryFn: () => searchMessages(messageQuery),
-    enabled: Boolean(orgId) && messageQuery.trim().length >= 2,
-    retry: false,
+  // `status` is a server-side filter; `keyword` and `unreadOnly` filter loaded
+  // pages locally. Message-body search is committed only on Enter.
+  const [filter, setFilter] = useState<ConversationFilterState>({
+    status: "",
+    keyword: "",
+    unreadOnly: false,
+    messageQuery: "",
   });
   const [composer, setComposer] = useState("");
   const [note, setNote] = useState("");
-  const [creating, setCreating] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [typingUsers, setTypingUsers] = useState<Record<number, number>>({});
-  const typingTimer = useRef<number>();
-  const fileInput = useRef<HTMLInputElement>(null);
+  const [typingClock, setTypingClock] = useState(0);
+  const [isNarrow, setIsNarrow] = useState(false);
+  const [contextOpen, setContextOpen] = useState(true);
+  const [mobileContextConversationId, setMobileContextConversationId] = useState<number | null>(
+    null,
+  );
+  const contextButtonRef = useRef<HTMLButtonElement>(null);
 
-  const conversations = useInfiniteQuery({
-    queryKey: ["organizations", orgId, "conversations", status],
-    queryFn: ({ pageParam }) => listConversations(status, { limit: PAGE_SIZE, offset: pageParam }),
-    initialPageParam: 0 as number,
-    getNextPageParam: (lastPage) => (lastPage.pagination.has_more ? lastPage.pagination.offset + lastPage.pagination.limit : undefined),
-    maxPages: 20,
-    enabled: Boolean(orgId),
+  const { signalTyping, stopTyping } = useTypingSignal({
+    conversationId: selectedId,
+    onBeforeStop: () => setComposer(""),
   });
-  const detail = useQuery({ queryKey: ["organizations", orgId, "conversations", selectedId], queryFn: () => getConversation(selectedId!), enabled: Boolean(orgId && selectedId) });
-  const messages = useInfiniteQuery({
-    queryKey: messageQueryKey(orgId, selectedId),
-    queryFn: ({ pageParam }) => listMessages(selectedId!, { beforeId: pageParam, limit: 50 }),
-    initialPageParam: undefined as number | undefined,
-    getNextPageParam: (page) => page.has_more_prev ? page.next_before_id ?? undefined : undefined,
-    enabled: Boolean(orgId && selectedId),
+
+  const queries = useConversationQueries({
+    organizationId: orgId,
+    conversationId: selectedId,
+    filter,
   });
-  const pins = useQuery({ queryKey: ["organizations", orgId, "conversations", selectedId, "pins"], queryFn: () => listPinnedMessages(selectedId!), enabled: Boolean(orgId && selectedId) });
-  const notes = useQuery({ queryKey: ["organizations", orgId, "conversations", selectedId, "notes"], queryFn: () => listNotes(selectedId!), enabled: Boolean(orgId && selectedId) });
 
-  const visibleConversations = useMemo(() => {
-    const loaded = (conversations.data?.pages ?? []).flatMap((page) => page.conversations);
-    const needle = keyword.trim().toLowerCase();
-    return loaded.filter((item) => {
-      if (unreadOnly && !(item.unread_count > 0)) return false;
-      if (!needle) return true;
-      return `${item.title} ${item.last_message_preview ?? ""} ${item.topic ?? ""}`.toLowerCase().includes(needle);
-    });
-  }, [conversations.data?.pages, keyword, unreadOnly]);
+  const mutations = useConversationMutations({
+    organizationId: orgId,
+    conversationId: selectedId,
+    meetingTitle: queries.detail.data?.conversation.title || "Team Meeting",
+    draft: { composer, note, replyTo, editing, attachments },
+    onMessageSent: () => {
+      stopTyping();
+      setComposer("");
+      setReplyTo(null);
+      setEditing(null);
+      setAttachments([]);
+    },
+    onNoteSaved: () => setNote(""),
+    onAttachmentUploaded: (item) => setAttachments((items) => [...items, item]),
+    onMeetingStarted: (room) => navigate(`/meetings/${room.room.id}/preflight`),
+  });
 
-  const messageItems = useMemo(() => {
-    const pages = messages.data?.pages ?? [];
-    return pages.slice().reverse().flatMap((page) => page.messages);
-  }, [messages.data?.pages]);
-  const messageWindow = useMemo(() => windowMessages(messageItems), [messageItems]);
-  const activeTypingUsers = useMemo(() => Object.entries(typingUsers).filter(([id, until]) => Number(id) !== user?.id && until > Date.now()).map(([id]) => Number(id)), [typingUsers, user?.id]);
+  const activeTypingUsers = useMemo(
+    () =>
+      Object.entries(typingUsers)
+        .filter(([id, until]) => Number(id) !== user?.id && (typingClock === 0 || until > typingClock))
+        .map(([id]) => Number(id)),
+    [typingClock, typingUsers, user?.id],
+  );
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 900px)");
+    const updateNarrow = () => setIsNarrow(query.matches);
+    updateNarrow();
+    query.addEventListener("change", updateNarrow);
+    return () => query.removeEventListener("change", updateNarrow);
+  }, []);
+
+  useEffect(() => {
+    if (!Object.values(typingUsers).some((until) => until > 0)) return;
+    const timer = window.setInterval(() => setTypingClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [typingUsers]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -135,148 +107,152 @@ export function InboxPage() {
       setEditing(null);
       setAttachments([]);
     });
-    if (selectedId) void markConversationRead(selectedId).then(() => queryClient.invalidateQueries({ queryKey: ["organizations", orgId, "conversations"] }));
+    if (selectedId) {
+      void markConversationRead(selectedId).then(() =>
+        queryClient.invalidateQueries({ queryKey: conversationKeys.all(orgId) }),
+      );
+    }
   }, [selectedId, orgId, queryClient]);
 
   useEffect(() => {
     const listener = (event: Event) => {
-      const detailEvent = event as CustomEvent<{ event: string; payload: { conversation_id?: number; user_id?: number; typing?: boolean } }>;
-      if (!selectedId || detailEvent.detail.payload.conversation_id !== selectedId || !detailEvent.detail.payload.user_id) return;
-      if (!detailEvent.detail.event.startsWith("typing.")) return;
-      setTypingUsers((current) => ({ ...current, [detailEvent.detail.payload.user_id!]: detailEvent.detail.payload.typing ? Date.now() + 3000 : 0 }));
+      const detail = event as CustomEvent<{
+        event: string;
+        payload: { conversation_id?: number; user_id?: number; typing?: boolean };
+      }>;
+      const payload = detail.detail.payload;
+      if (!selectedId || payload.conversation_id !== selectedId || !payload.user_id) return;
+      if (!detail.detail.event.startsWith("typing.")) return;
+      setTypingUsers((current) => ({
+        ...current,
+        [payload.user_id!]: payload.typing ? Date.now() + 3000 : 0,
+      }));
     };
     window.addEventListener("allcallall:chat-event", listener);
     return () => window.removeEventListener("allcallall:chat-event", listener);
   }, [selectedId]);
 
-  const refreshMessages = () => {
-    void queryClient.invalidateQueries({ queryKey: messageQueryKey(orgId, selectedId) });
-    void queryClient.invalidateQueries({ queryKey: ["organizations", orgId, "conversations", selectedId, "pins"] });
-    void queryClient.invalidateQueries({ queryKey: ["organizations", orgId, "conversations"] });
+  const onFilterChange = (next: Partial<ConversationFilterState>) => {
+    setFilter((current) => ({ ...current, ...next }));
   };
-  const send = useMutation({
-    mutationFn: () => {
-      if (!selectedId) throw new Error("missing conversation");
-      if (editing) return editMessage(selectedId, editing.id, composer);
-      return sendMessage(selectedId, { body: composer, reply_to_message_id: replyTo?.id, attachment_ids: attachments.map((item) => item.id) });
-    },
-    onSuccess: () => {
-      setComposer("");
-      setReplyTo(null);
-      setEditing(null);
-      setAttachments([]);
-      refreshMessages();
-    },
-  });
-  const upload = useMutation({ mutationFn: (file: File) => uploadAttachment(selectedId!, file), onSuccess: (item) => setAttachments((items) => [...items, item]) });
-  const addNote = useMutation({ mutationFn: () => createNote(selectedId!, note), onSuccess: () => { setNote(""); void queryClient.invalidateQueries({ queryKey: ["organizations", orgId, "conversations", selectedId, "notes"] }); void detail.refetch(); } });
-  const update = useMutation({ mutationFn: (input: { status?: string; priority?: string }) => updateConversation(selectedId!, input), onSuccess: () => { void detail.refetch(); void conversations.refetch(); } });
-  const messageAction = useMutation({
-    mutationFn: async (input: { action: "delete" | "pin" | "unpin" | "react"; message: Message; emoji?: string }) => {
-      if (!selectedId) throw new Error("missing conversation");
-      if (input.action === "delete") return deleteMessage(selectedId, input.message.id);
-      if (input.action === "pin") return pinMessage(selectedId, input.message.id);
-      if (input.action === "unpin") return unpinMessage(selectedId, input.message.id);
-      return addReaction(selectedId, input.message.id, input.emoji ?? "+1");
-    },
-    onSuccess: refreshMessages,
-  });
-  const startMeeting = useMutation({
-    mutationFn: () => createRoom({ title: detail.data?.conversation.title || "Team Meeting", conversation_id: selectedId ?? undefined }),
-    onSuccess: (room) => { void detail.refetch(); navigate(`/meetings/${room.room.id}/preflight`); },
-  });
 
   const onComposerChange = (value: string) => {
     setComposer(value);
-    if (!selectedId) return;
-    window.clearTimeout(typingTimer.current);
-    void sendTyping(selectedId, true).catch((err) => console.error("[InboxPage] sendTyping failed", err));
-    typingTimer.current = window.setTimeout(() => { void sendTyping(selectedId, false).catch((err) => console.error("[InboxPage] sendTyping failed", err)); }, 1200);
+    if (value.trim()) signalTyping(value);
+    else stopTyping();
   };
 
-  return <div className={`inbox-layout ${selectedId ? "inbox-selected" : ""}`}>
-    <aside className="conversation-list">
-      <header className="workspace-pane-header"><div><span className="eyebrow">Workspace</span><h1>Inbox</h1></div><NewConversationDialog open={creating} onOpenChange={setCreating} orgId={orgId} onCreated={(id) => navigate(`/conversations/${id}`)} /></header>
-      <div className="search-field">
-        <Search size={16} />
-        <input
-          aria-label="搜索会话，按回车搜索消息内容"
-          placeholder="搜索会话；回车搜索消息内容"
-          value={keyword}
-          onChange={(event) => {
-            const next = event.target.value;
-            setKeyword(next);
-            // Leaving the field blank drops out of message-search mode.
-            if (!next.trim()) setMessageQuery("");
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter") return;
-            event.preventDefault();
-            setMessageQuery(keyword.trim());
+  const onSubmit = () => {
+    if (composer.trim() || attachments.length) mutations.send.mutate();
+  };
+
+  const clearComposerContext = () => {
+    stopTyping();
+    setReplyTo(null);
+    setEditing(null);
+    setAttachments([]);
+    setComposer("");
+  };
+
+  const mobileRegion =
+    mobileContextConversationId !== null && mobileContextConversationId === selectedId
+      ? "context"
+      : selectedId
+        ? "conversation"
+        : "list";
+
+  const closeContext = () => {
+    setContextOpen(false);
+    setMobileContextConversationId(null);
+    window.requestAnimationFrame(() => contextButtonRef.current?.focus());
+  };
+
+  const toggleContext = () => {
+    if (isNarrow) {
+      setContextOpen(true);
+      setMobileContextConversationId((current) => (current === selectedId ? null : selectedId));
+      return;
+    }
+    setContextOpen((open) => !open);
+  };
+
+  const regionProps = (region: "list" | "conversation" | "context") => ({
+    className: `inbox-region inbox-region-${region}`,
+    hidden:
+      (isNarrow && mobileRegion !== region) ||
+      (!isNarrow && region === "context" && !contextOpen),
+    inert:
+      (isNarrow && mobileRegion !== region) ||
+      (!isNarrow && region === "context" && !contextOpen)
+        ? ""
+        : undefined,
+  });
+
+  return (
+    <div
+      className={`inbox-layout ${selectedId ? "inbox-selected" : ""}`}
+      data-mobile-region={mobileRegion}
+    >
+      <div {...regionProps("list")}>
+        <ConversationSidebar
+          filter={filter}
+          onFilterChange={onFilterChange}
+          queries={queries}
+          selectedId={selectedId}
+          organizationId={orgId}
+          onCreateConversation={() => undefined}
+          onOpenConversation={(id) => {
+            setMobileContextConversationId(null);
+            navigate(`/conversations/${id}`);
           }}
         />
       </div>
-      {messageQuery ? (
-        <div className="search-scope">
-          <span>搜索消息内容：{messageQuery}</span>
-          <button className="button-secondary" onClick={() => setMessageQuery("")}>退出消息搜索</button>
-        </div>
-      ) : null}
-      <div className="filter-tabs">
-        <button className={!status && !unreadOnly ? "active" : ""} onClick={() => { setStatus(""); setUnreadOnly(false); }}>全部</button>
-        {/* "未读" has no server-side equivalent, so it filters locally. */}
-        <button className={unreadOnly ? "active" : ""} onClick={() => { setUnreadOnly(true); setStatus(""); }}>未读</button>
-        <button className={status === "my" ? "active" : ""} onClick={() => { setStatus("my"); setUnreadOnly(false); }}>我的</button>
-        <button className={status === "open" ? "active" : ""} onClick={() => { setStatus("open"); setUnreadOnly(false); }}>处理中</button>
-        <button className={status === "pending" ? "active" : ""} onClick={() => { setStatus("pending"); setUnreadOnly(false); }}>待处理</button>
-        <button className={status === "resolved" ? "active" : ""} onClick={() => { setStatus("resolved"); setUnreadOnly(false); }}>已解决</button>
-        <button className={status === "channels" ? "active" : ""} onClick={() => { setStatus("channels"); setUnreadOnly(false); }}>频道</button>
+
+      <div {...regionProps("conversation")}>
+        <ConversationWorkspace
+          selectedId={selectedId}
+          currentUserId={user?.id}
+          queries={queries}
+          mutations={mutations}
+          draft={{ composer, replyTo, editing, attachments }}
+          typingUsers={activeTypingUsers}
+          onComposerChange={onComposerChange}
+          onSubmit={onSubmit}
+          onSetReplyTo={setReplyTo}
+          onSetEditing={(message) => {
+            setEditing(message);
+            setComposer(message.body);
+          }}
+          onClearComposerContext={clearComposerContext}
+          onBackToList={() => {
+            setMobileContextConversationId(null);
+            navigate("/inbox");
+          }}
+          contextOpen={contextOpen}
+          onToggleContext={toggleContext}
+          contextButtonRef={contextButtonRef}
+        />
       </div>
-      {/* Server-side message search. The Inbox box only filters conversation
-          titles, so body text was previously unsearchable from the UI even
-          though the endpoint existed. */}
-      {messageQuery ? (
-        messageHits.isLoading ? <PageLoading label="正在搜索消息" /> : messageHits.isError ? <PageError error={messageHits.error} retry={() => void messageHits.refetch()} /> : (messageHits.data?.length ?? 0) === 0 ? <PageEmpty label="没有匹配的消息" hint={`“${messageQuery}” 没有找到消息内容，换个关键词试试`} /> : <div className="conversation-items">{messageHits.data!.map((hit) => <Link key={hit.id} to={`/conversations/${hit.conversation_id}`} className="conversation-item"><div className="conversation-avatar">{(hit.sender_display_name || hit.sender_email || "?").slice(0, 1).toUpperCase()}</div><div className="conversation-copy"><div><strong>{hit.sender_display_name || hit.sender_email || "未知发送者"}</strong><time>{formatTime(hit.created_at)}</time></div><p>{hit.body}</p></div></Link>)}</div>
-      ) : null}
-      {messageQuery ? null : conversations.isLoading ? <PageLoading /> : conversations.isError ? <PageError error={conversations.error} /> : visibleConversations.length === 0 ? <PageEmpty label={keyword || unreadOnly ? "没有匹配的会话" : "还没有会话"} hint={keyword || unreadOnly ? "换个关键词，或清除筛选条件" : "新建会话开始协作，或邀请联系人加入组织"} action={keyword || unreadOnly ? <button className="button-secondary" onClick={() => { setKeyword(""); setUnreadOnly(false); setStatus(""); }}>清除筛选</button> : <button className="button-secondary" onClick={() => setCreating(true)}>新建会话</button>} /> : <div className="conversation-items">{visibleConversations.map((item) => <Link key={item.id} to={`/conversations/${item.id}`} className={`conversation-item ${selectedId === item.id ? "conversation-item-active" : ""}`}><div className="conversation-avatar">{item.title.slice(0, 1).toUpperCase()}</div><div className="conversation-copy"><div><strong>{item.title}</strong><time>{formatTime(item.last_message_at)}</time></div><p>{item.last_message_preview || item.topic || "暂无消息"}</p><span>{item.priority}</span></div>{item.unread_count > 0 && <b className="unread-count">{item.unread_count}</b>}</Link>)}</div>}
-      {conversations.data?.pages?.length ? <div className="conversation-list-footer"><span>共 {(conversations.data.pages[conversations.data.pages.length - 1]?.pagination.total ?? 0)} 个会话</span>{conversations.hasNextPage ? <button className="button-secondary" disabled={conversations.isFetchingNextPage} onClick={() => void conversations.fetchNextPage()}>加载更多</button> : null}</div> : null}
-    </aside>
-    <main className="message-pane">
-      {!selectedId ? <div className="pane-empty"><MessageSquarePlus size={28} /><strong>选择一个会话</strong><span>消息、备注和 Agent 上下文会在这里显示</span></div> : detail.isLoading ? <PageLoading /> : detail.isError ? <PageError error={detail.error} /> : <>
-        <header className="workspace-pane-header"><button className="icon-button mobile-only" aria-label="返回会话列表" onClick={() => navigate("/inbox")}><ChevronLeft size={20} /></button><div className="min-w-0"><h2>{detail.data?.conversation.title}</h2><p>{detail.data?.conversation.topic || "无主题"}</p></div><div className="button-row"><button className="button-secondary" disabled={startMeeting.isPending} onClick={() => startMeeting.mutate()}><Video size={16} />开会</button><span className={`status-dot status-${detail.data?.conversation.status}`} /></div></header>
-        <FormError error={startMeeting.error} />
-        {pins.data?.length ? <div className="pinned-strip">{pins.data.slice(0, 3).map((message) => <button key={message.id} onClick={() => document.getElementById(`message-${message.id}`)?.scrollIntoView({ block: "center" })}><Pin size={13} /><span>{message.body || "已撤回消息"}</span></button>)}</div> : null}
-        <div className="message-stream">
-          {messages.hasNextPage && <button className="button-secondary load-older" disabled={messages.isFetchingNextPage} onClick={() => void messages.fetchNextPage()}>加载更早消息</button>}
-          {messageWindow.hiddenCount > 0 && <div className="windowed-message-note">已折叠 {messageWindow.hiddenCount} 条较早消息，使用搜索或继续加载定位历史内容。</div>}
-          {messages.isLoading ? <PageLoading /> : messages.isError ? <PageError error={messages.error} retry={() => void messages.refetch()} /> : messageItems.length ? messageWindow.visible.map((message) => <MessageBubble key={message.id} message={message} currentUserId={user?.id} onReply={setReplyTo} onEdit={(item) => { setEditing(item); setComposer(item.body); }} onAction={(action, item, emoji) => messageAction.mutate({ action, message: item, emoji })} />) : <div className="pane-empty"><span>还没有消息</span></div>}
-          {activeTypingUsers.length ? <div className="typing-line">对方正在输入...</div> : null}
-        </div>
-        <FormError error={messageAction.error} />
-        <form className="message-composer beta-composer" onSubmit={(event) => { event.preventDefault(); if (composer.trim() || attachments.length) send.mutate(); }}>
-          {(replyTo || editing || attachments.length > 0) && <div className="composer-context">
-            {replyTo && <span><Reply size={13} />回复 {replyTo.sender_display_name || replyTo.sender_email}: {replyTo.body}</span>}
-            {editing && <span><Edit3 size={13} />编辑消息 #{editing.id}</span>}
-            {attachments.map((item) => <span key={item.id}><Paperclip size={13} />{item.file_name}</span>)}
-            <button type="button" className="icon-button" aria-label="清空上下文" onClick={() => { setReplyTo(null); setEditing(null); setAttachments([]); setComposer(""); }}><X size={15} /></button>
-          </div>}
-          <textarea aria-label="输入消息" placeholder="输入消息" rows={2} value={composer} onChange={(event) => onComposerChange(event.target.value)} />
-          <input ref={fileInput} className="hidden" type="file" onChange={(event) => { const file = event.target.files?.[0]; if (file) upload.mutate(file); event.currentTarget.value = ""; }} />
-          <FormError error={upload.error} />
-          <FormError error={send.error} />
-          <button type="button" className="icon-button" aria-label="上传附件" disabled={upload.isPending} onClick={() => fileInput.current?.click()}><Paperclip size={18} /></button>
-          <button className="icon-button composer-send" aria-label="发送消息" disabled={(!composer.trim() && attachments.length === 0) || send.isPending}><Send size={18} /></button>
-        </form>
-      </>}
-    </main>
-    <aside className="context-pane">
-      {!selectedId || !detail.data ? <div className="pane-empty"><Bot size={24} /><span>业务上下文</span></div> : <div className="context-scroll">
-        <section className="context-section"><h3>会话状态</h3><label>状态<select className="field" value={detail.data.conversation.status} onChange={(event) => update.mutate({ status: event.target.value })}><option value="open">处理中</option><option value="pending">待处理</option><option value="resolved">已解决</option></select></label><label>优先级<select className="field" value={detail.data.conversation.priority} onChange={(event) => update.mutate({ priority: event.target.value })}><option value="low">低</option><option value="normal">普通</option><option value="high">高</option><option value="urgent">紧急</option></select></label><FormError error={update.error} /></section>
-        <section className="context-section"><h3><Bot size={16} />Agent 上下文</h3><Metric label="会议转写" value={String(detail.data.workspace.agent_context.meeting_transcript_segment_count ?? 0)} /><Metric label="知识来源" value={String(detail.data.workspace.agent_context.knowledge_source_count ?? 0)} /><Metric label="待审批" value={String(detail.data.workspace.agent_context.pending_approval_count ?? 0)} />{detail.data.workspace.agent_context.meeting_transcription_status && <span className="context-status">转写 {detail.data.workspace.agent_context.meeting_transcription_status}</span>}<Link className="button-secondary w-full" to={`/agent-lab?conversationId=${selectedId}`}>打开 Agent Lab</Link>{detail.data.workspace.agent_context.meeting_transcription_status === "ready" && <Link className="button-primary w-full mt-2" to={`/agent-lab?conversationId=${selectedId}&preset=meeting_brief`}>生成会议复盘</Link>}</section>
-        <section className="context-section"><h3><Video size={16} />会议</h3><button className="button-secondary w-full" disabled={startMeeting.isPending} onClick={() => startMeeting.mutate()}>从当前会话开会</button></section>
-        {detail.data.conversation.latest_recording_id && <section className="context-section"><h3><FileAudio size={16} />最新录音</h3><Link to={`/recordings/${detail.data.conversation.latest_recording_id}`} className="button-secondary w-full">查看转写</Link></section>}
-        <section className="context-section"><h3><StickyNote size={16} />内部备注</h3><div className="notes-list">{notes.data?.map((item) => <article key={item.id}><p>{item.body}</p><small>{item.author_display_name} · {formatTime(item.created_at)}</small></article>)}</div><textarea className="field" rows={3} placeholder="仅团队可见" value={note} onChange={(event) => setNote(event.target.value)} /><FormError error={addNote.error} /><button className="button-secondary w-full" disabled={!note.trim()} onClick={() => addNote.mutate()}><Check size={16} />添加备注</button></section>
-      </div>}
-    </aside>
-  </div>;
+
+      <div id="inbox-context-region" {...regionProps("context")}>
+        <ConversationContextPanel
+          selectedId={selectedId}
+          detail={queries.detail}
+          notes={queries.notes}
+          note={note}
+          onNoteChange={setNote}
+          onUpdateConversation={(input) => mutations.update.mutate(input)}
+          onAddNote={() => mutations.addNote.mutate()}
+          onStartMeeting={() => mutations.startMeeting.mutate()}
+          onClose={isNarrow ? closeContext : undefined}
+          errors={{
+            update: mutations.update.error,
+            addNote: mutations.addNote.error,
+            startMeeting: mutations.startMeeting.error,
+          }}
+          meetingPending={mutations.startMeeting.isPending}
+        />
+      </div>
+    </div>
+  );
 }

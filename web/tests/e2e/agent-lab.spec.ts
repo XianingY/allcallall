@@ -17,6 +17,10 @@ test("renders workflow trace, approvals, and transcript citations", async ({ pag
   await page.getByRole("tab", { name: "引用" }).click({ force: true });
   await expect(page.getByText("下周完成 Beta 回归")).toBeVisible();
   await expect(page.getByRole("link", { name: /会议录音/ })).toHaveAttribute("href", /recordings\/9/);
+  const graphTab = page.getByRole("tab", { name: /任务图/ });
+  await expect(graphTab).toBeVisible();
+  await graphTab.click({ force: true });
+  await expect(page.getByText(/collect_context/)).toBeVisible();
 });
 
 test("approves a checkpoint-owned MCP tool call from React Agent trace", async ({ page }) => {

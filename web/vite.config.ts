@@ -14,7 +14,7 @@ export default defineConfig({
   // components/PageState.tsx documents the same hazard from the other side by
   // avoiding the hook entirely.
   resolve: {
-    alias: { "@": path.resolve(__dirname, "src") },
+    alias: { "@": path.resolve(import.meta.dirname, "src") },
     dedupe: ["react", "react-dom"],
   },
   build: {
@@ -41,10 +41,10 @@ export default defineConfig({
             },
             { name: "vendor-revenuecat", test: /node_modules[\\/](@revenuecat[\\/]|[^\\/]*[Pp]urchases)/, priority: 20 },
             { name: "vendor-firebase", test: /node_modules[\\/]firebase/, priority: 20 },
-            { name: "vendor-agent-graph", test: /node_modules[\\/]@xyflow[\\/]/, priority: 20 },
             // Catch-all last, and lowest priority so it only takes what no
-            // other group claimed.
-            { name: "vendor-core", test: /node_modules/, priority: 0 },
+            // other group claimed. Restricting it to `$initial` keeps
+            // dynamic-only dependencies out of the public vendor chunk.
+            { name: "vendor-core", test: /node_modules/, priority: 0, tags: ["$initial"] },
           ],
         },
       },
