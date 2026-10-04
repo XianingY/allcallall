@@ -8,6 +8,19 @@ export interface ConversationUpdatedPayload {
   changes?: Partial<ConversationRecord>;
 }
 
+const sameOptionalValue = (left: unknown, right: unknown): boolean =>
+  Object.is(left, right) || (left == null && right == null);
+
+const shallowEqual = (left: object, right: object): boolean => {
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const keys = new Set([...Object.keys(leftRecord), ...Object.keys(rightRecord)]);
+
+  return (
+    [...keys].every((key) => sameOptionalValue(leftRecord[key], rightRecord[key]))
+  );
+};
+
 export const applyConversationListPatch = (
   conversations: ConversationRecord[],
   payload: ConversationUpdatedPayload | undefined
@@ -21,8 +34,12 @@ export const applyConversationListPatch = (
     if (conversation.id !== payload.conversation_id) {
       return conversation;
     }
+    const patched = { ...conversation, ...payload.changes };
+    if (shallowEqual(patched, conversation)) {
+      return conversation;
+    }
     changed = true;
-    return { ...conversation, ...payload.changes };
+    return patched;
   });
   return changed ? next : conversations;
 };
@@ -40,18 +57,24 @@ export const applyConversationDetailPatch = (
 
   const changes = payload.changes;
   const nextConversation = { ...detail.conversation, ...changes };
+  const nextWorkspace = {
+    ...detail.workspace,
+    assignee_user_id: changes.assignee_user_id ?? detail.workspace.assignee_user_id,
+    assignee_label:
+      changes.assignee_display_name ||
+      changes.assignee_email ||
+      detail.workspace.assignee_label,
+    status: changes.status || detail.workspace.status,
+    priority: changes.priority || detail.workspace.priority,
+  };
+
+  if (shallowEqual(nextConversation, detail.conversation) && shallowEqual(nextWorkspace, detail.workspace)) {
+    return detail;
+  }
+
   return {
     ...detail,
     conversation: nextConversation,
-    workspace: {
-      ...detail.workspace,
-      assignee_user_id: changes.assignee_user_id ?? detail.workspace.assignee_user_id,
-      assignee_label:
-        changes.assignee_display_name ||
-        changes.assignee_email ||
-        detail.workspace.assignee_label,
-      status: changes.status || detail.workspace.status,
-      priority: changes.priority || detail.workspace.priority,
-    },
+    workspace: nextWorkspace,
   };
 };

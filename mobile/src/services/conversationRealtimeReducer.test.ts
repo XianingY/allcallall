@@ -67,6 +67,32 @@ test("applyConversationListPatch preserves array reference when event is irrelev
   );
 });
 
+test("applyConversationListPatch preserves references when the target is unchanged", () => {
+  const first = conversation({ id: 1, status: "open" });
+  const second = conversation({ id: 2, status: "pending", priority: "high" });
+  const items = [first, second];
+
+  const next = applyConversationListPatch(items, {
+    conversation_id: 2,
+    changes: { status: "pending", priority: "high" },
+  });
+
+  assert.equal(next, items);
+  assert.equal(next[0], first);
+  assert.equal(next[1], second);
+});
+
+test("applyConversationListPatch treats an explicit null optional field as a no-op", () => {
+  const items = [conversation({ id: 1, status: "open" })];
+
+  const next = applyConversationListPatch(items, {
+    conversation_id: 1,
+    changes: { contact_id: null },
+  });
+
+  assert.equal(next, items);
+});
+
 test("applyConversationDetailPatch updates conversation and workspace summary", () => {
   const previous = detail(
     conversation({
@@ -102,4 +128,44 @@ test("applyConversationDetailPatch ignores updates for other conversations", () 
     }),
     previous,
   );
+});
+
+test("applyConversationDetailPatch preserves the detail when the patch is a no-op", () => {
+  const previous = detail(
+    conversation({
+      status: "open",
+      priority: "normal",
+      assignee_user_id: 1,
+      assignee_display_name: "Alice",
+    }),
+  );
+
+  const next = applyConversationDetailPatch(previous, {
+    conversation_id: 1,
+    changes: { status: "open", priority: "normal" },
+  });
+
+  assert.equal(next, previous);
+});
+
+test("applyConversationDetailPatch treats an explicit null optional field as a no-op", () => {
+  const previous = detail(conversation({ id: 1, status: "open" }));
+
+  const next = applyConversationDetailPatch(previous, {
+    conversation_id: 1,
+    changes: { contact_id: null },
+  });
+
+  assert.equal(next, previous);
+});
+
+test("applyConversationDetailPatch preserves the detail when re-clearing the assignee", () => {
+  const previous = detail(conversation({ id: 1, status: "open" }));
+
+  const next = applyConversationDetailPatch(previous, {
+    conversation_id: 1,
+    changes: { assignee_user_id: null },
+  });
+
+  assert.equal(next, previous);
 });
