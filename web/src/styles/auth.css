@@ -1,0 +1,224 @@
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(360px, .85fr) minmax(420px, 1.15fr);
+  background: var(--color-mist);
+}
+
+.auth-brand {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 2.4rem;
+  overflow: hidden;
+  padding: clamp(2rem, 5vw, 4.5rem);
+  background:
+    radial-gradient(circle at 82% 12%, rgba(233, 168, 58, .12), transparent 34%),
+    linear-gradient(155deg, var(--color-forest) 0%, #173f2d 64%, #102b20 100%);
+  color: #eaf3ee;
+}
+
+.auth-brand-copy {
+  display: grid;
+  gap: .55rem;
+}
+
+.auth-brand-link {
+  color: #fff;
+  font-size: 1.35rem;
+  font-weight: 750;
+  letter-spacing: -.02em;
+  text-decoration: none;
+}
+
+.auth-brand-link:hover,
+.auth-brand-link:focus-visible {
+  text-decoration: underline;
+}
+
+.auth-brand-copy p {
+  max-width: 30rem;
+  margin: 0;
+  color: rgba(233, 248, 238, .72);
+  font-size: .95rem;
+  line-height: 1.6;
+}
+
+.auth-activity {
+  display: grid;
+  gap: .9rem;
+  border: 1px solid rgba(233, 248, 238, .14);
+  border-radius: .7rem;
+  background: rgba(9, 29, 21, .25);
+  padding: 1rem;
+}
+
+.auth-activity h2 {
+  margin: 0;
+  color: rgba(233, 248, 238, .62);
+  font-family: var(--font-mono);
+  font-size: .64rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.auth-activity-list {
+  display: grid;
+  gap: .72rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.auth-activity-item {
+  display: grid;
+  grid-template-columns: .62rem minmax(0, 1fr);
+  align-items: start;
+  gap: .68rem;
+}
+
+.auth-activity-dot {
+  width: .55rem;
+  height: .55rem;
+  margin-top: .3rem;
+  border-radius: 50%;
+  background: #9fd7bd;
+}
+
+.auth-activity-item .auth-activity-dot.auth-activity-agent {
+  background: var(--color-signal);
+}
+
+.auth-activity-item .auth-activity-dot.auth-activity-teammate {
+  background: #b9d2cb;
+}
+
+.auth-activity-item .auth-activity-dot.auth-activity-archive {
+  background: #eaf3ee;
+}
+
+.auth-activity-item strong {
+  display: block;
+  color: #fff;
+  font-size: .78rem;
+  font-weight: 650;
+}
+
+.auth-activity-item p {
+  margin: .18rem 0 0;
+  color: rgba(233, 248, 238, .68);
+  font-size: .76rem;
+  line-height: 1.5;
+}
+
+.auth-form-wrap {
+  display: grid;
+  place-items: center;
+  padding: clamp(1.5rem, 4vw, 3rem);
+  background:
+    linear-gradient(rgba(243, 247, 244, .94), rgba(243, 247, 244, .94)),
+    #fff;
+}
+
+.auth-form-card {
+  width: min(100%, 440px);
+  border: 1px solid rgba(18, 55, 42, .1);
+  border-radius: .8rem;
+  background: #fff;
+  padding: clamp(1.25rem, 4vw, 2.1rem);
+  box-shadow: 0 24px 70px rgba(18, 55, 42, .1);
+}
+
+.auth-form-card > header {
+  margin-bottom: 1.6rem;
+}
+
+.auth-form-card h1 {
+  margin: 0;
+  font-size: 1.65rem;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+
+.auth-form-card header p,
+.auth-footer {
+  margin-top: .4rem;
+  color: #65706d;
+  font-size: .88rem;
+  line-height: 1.5;
+}
+
+.auth-footer {
+  margin-top: 1.4rem;
+  text-align: center;
+}
+
+.auth-form-card .field {
+  min-height: 2.65rem;
+  border-color: rgba(18, 55, 42, .16);
+  box-shadow: inset 0 1px 2px rgba(18, 55, 42, .04);
+}
+
+.auth-form-card .field:focus-visible {
+  border-color: var(--color-moss);
+  box-shadow: 0 0 0 3px rgba(47, 107, 82, .14);
+}
+
+.auth-form-card .button-primary,
+.auth-form-card .button-secondary {
+  min-height: 2.65rem;
+  justify-content: center;
+}
+
+.auth-form-card .button-primary {
+  background: var(--color-forest);
+}
+
+.auth-form-card .button-primary:hover:not(:disabled) {
+  background: var(--color-moss);
+}
+
+.auth-form-card .status-error,
+.auth-form-card .status-success {
+  overflow-wrap: anywhere;
+}
+
+.invite-code {
+  border-color: rgba(18, 55, 42, .12);
+  border-radius: .55rem;
+  background: var(--color-mist);
+}
+
+.invite-code svg {
+  color: var(--color-moss);
+}
+
+@media (max-width: 900px) {
+  .auth-page {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .auth-form-wrap {
+    order: -1;
+    padding: 1.1rem 1rem 1.6rem;
+  }
+
+  .auth-brand {
+    gap: 1.2rem;
+    padding: 1.2rem 1rem 1.6rem;
+  }
+
+  .auth-brand-copy p {
+    font-size: .85rem;
+  }
+
+  .auth-activity {
+    padding: .8rem;
+  }
+
+  .auth-activity-list {
+    gap: .6rem;
+  }
+}
