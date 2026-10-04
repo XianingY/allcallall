@@ -8,5 +8,6 @@ export {
   MessageActionMenuModal,
   EditMessageModal,
 } from "./Modals";
+export { default as ConversationDetailModals } from "./ConversationDetailModals";
 export { styles } from "./styles";
 export * from "./types";
