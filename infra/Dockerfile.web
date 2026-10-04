@@ -2,6 +2,7 @@ FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35
 
 WORKDIR /src
 COPY package.json package-lock.json ./
+COPY patches ./patches
 COPY web/package.json ./web/package.json
 COPY packages/api-types/package.json ./packages/api-types/package.json
 COPY packages/shared/package.json ./packages/shared/package.json

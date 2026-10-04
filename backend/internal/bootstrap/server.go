@@ -465,7 +465,9 @@ func RunServer(ctx context.Context, cfg *config.Config, appLogger zerolog.Logger
 		go gateway.Start(rootCtx)
 		go func() {
 			<-rootCtx.Done()
-			if derr := gateway.Deregister(context.Background()); derr != nil {
+			// The shutdown context is already cancelled, but deregistration still
+			// needs a usable context for the final Redis cleanup.
+			if derr := gateway.Deregister(context.WithoutCancel(rootCtx)); derr != nil {
 				appLogger.Warn().Err(derr).Msg("connection gateway deregister failed")
 			}
 		}()

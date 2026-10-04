@@ -307,10 +307,10 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: desktop/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Install
-        working-directory: desktop
-        run: npm ci
+        working-directory: .
+        run: npm ci --workspace=desktop
       - name: Check
         working-directory: desktop
         run: npm run check

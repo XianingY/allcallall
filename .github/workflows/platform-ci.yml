@@ -24,7 +24,7 @@ jobs:
       matrix:
         # These runtimes now live in the standalone repo (XianingY/allcallall-agent-runtime).
         # The in-tree copies were removed; see contracts/README.md.
-        runtime: [agent-runtime, rag-runtime, sandbox-runner, interview-mcp]
+        runtime: [agent-runtime, rag-runtime, sandbox-runner, reference-mcp]
     steps:
       - uses: actions/checkout@v7
         with:
