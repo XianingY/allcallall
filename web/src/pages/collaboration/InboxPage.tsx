@@ -33,7 +33,6 @@ import {
   pinMessage,
   searchMessages,
   sendMessage,
-  sendTyping,
   type Attachment,
   type Message,
   unpinMessage,
@@ -48,6 +47,7 @@ import { useOrganization } from "@/organizations/OrganizationContext";
 import { conversationKeys } from "@/pages/collaboration/conversationQueryKeys";
 import { formatTime } from "@/pages/collaboration/InboxFormat";
 import { MessageBubble, Metric, NewConversationDialog } from "@/pages/collaboration/InboxParts";
+import { useTypingSignal } from "@/pages/collaboration/useTypingSignal";
 import { windowMessages } from "@/pages/collaboration/messageWindow";
 
 export function InboxPage() {
@@ -89,8 +89,11 @@ export function InboxPage() {
   const [editing, setEditing] = useState<Message | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [typingUsers, setTypingUsers] = useState<Record<number, number>>({});
-  const typingTimer = useRef<number>();
   const fileInput = useRef<HTMLInputElement>(null);
+  const { signalTyping, stopTyping } = useTypingSignal({
+    conversationId: selectedId,
+    onBeforeStop: () => setComposer(""),
+  });
 
   const conversations = useInfiniteQuery({
     queryKey: conversationKeys.list(orgId, status),
@@ -160,6 +163,7 @@ export function InboxPage() {
       return sendMessage(selectedId, { body: composer, reply_to_message_id: replyTo?.id, attachment_ids: attachments.map((item) => item.id) });
     },
     onSuccess: () => {
+      stopTyping();
       setComposer("");
       setReplyTo(null);
       setEditing(null);
@@ -187,10 +191,8 @@ export function InboxPage() {
 
   const onComposerChange = (value: string) => {
     setComposer(value);
-    if (!selectedId) return;
-    window.clearTimeout(typingTimer.current);
-    void sendTyping(selectedId, true).catch((err) => console.error("[InboxPage] sendTyping failed", err));
-    typingTimer.current = window.setTimeout(() => { void sendTyping(selectedId, false).catch((err) => console.error("[InboxPage] sendTyping failed", err)); }, 1200);
+    if (value.trim()) signalTyping(value);
+    else stopTyping();
   };
 
   return <div className={`inbox-layout ${selectedId ? "inbox-selected" : ""}`}>

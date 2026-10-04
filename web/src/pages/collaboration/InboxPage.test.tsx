@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,6 +10,7 @@ const {
   updateConversationMock,
   pinMessageMock,
   createRoomMock,
+  sendTypingMock,
   conversation,
   detail,
   message,
@@ -57,6 +58,7 @@ const {
     updateConversationMock: vi.fn<(...args: unknown[]) => Promise<unknown>>(() => Promise.resolve(undefined)),
     pinMessageMock: vi.fn<(...args: unknown[]) => Promise<unknown>>(() => Promise.resolve(undefined)),
     createRoomMock: vi.fn<(...args: unknown[]) => Promise<unknown>>(() => Promise.resolve(undefined)),
+    sendTypingMock: vi.fn<(...args: unknown[]) => Promise<unknown>>(() => Promise.resolve(undefined)),
     conversation,
     detail,
     message,
@@ -75,7 +77,7 @@ vi.mock("@/api/collaboration", async (importOriginal) => ({
   listPinnedMessages: () => Promise.resolve([]),
   listNotes: () => Promise.resolve([]),
   markConversationRead: () => Promise.resolve(),
-  sendTyping: () => Promise.resolve(),
+  sendTyping: (...args: unknown[]) => sendTypingMock(...args),
   sendMessage: (...args: unknown[]) => sendMessageMock(...args),
   uploadAttachment: (...args: unknown[]) => uploadAttachmentMock(...args),
   createNote: (...args: unknown[]) => createNoteMock(...args),
@@ -192,5 +194,39 @@ describe("InboxPage mutation failures", () => {
     fireEvent.click(await screen.findByRole("button", { name: "开会" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("开会失败");
+  });
+});
+
+describe("InboxPage typing lifecycle", () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+  beforeEach(() => vi.clearAllMocks());
+
+  it("refreshes typing on an interval and stops after a successful send", async () => {
+    const { container } = renderPage();
+    const field = await screen.findByLabelText("输入消息");
+    vi.useFakeTimers();
+
+    fireEvent.change(field, { target: { value: "h" } });
+    act(() => vi.advanceTimersByTime(1000));
+    fireEvent.change(field, { target: { value: "he" } });
+    act(() => vi.advanceTimersByTime(1000));
+    fireEvent.change(field, { target: { value: "hel" } });
+    act(() => vi.advanceTimersByTime(500));
+
+    expect(sendTypingMock).toHaveBeenCalledTimes(2);
+    expect(sendTypingMock).toHaveBeenNthCalledWith(1, 5, true);
+    expect(sendTypingMock).toHaveBeenNthCalledWith(2, 5, true);
+
+    fireEvent.submit(container.querySelector("form.message-composer") as HTMLFormElement);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(sendTypingMock).toHaveBeenCalledTimes(3);
+    expect(sendTypingMock).toHaveBeenLastCalledWith(5, false);
+    expect(field).toHaveValue("");
   });
 });
