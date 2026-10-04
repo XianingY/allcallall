@@ -29,6 +29,7 @@ import {
 import { listContacts, type User } from "../api/users";
 import { useAuthContext } from "../context/AuthContext";
 import { useOrganization } from "../context/OrganizationContext";
+import { useConversationRealtime } from "../hooks/useConversationRealtime";
 import { RootStackParamList } from "../navigation/AppNavigator";
 import fileDownloadAdapter from "../platform/fileDownload";
 import {
@@ -54,7 +55,6 @@ import {
 } from "../api/knowledge";
 import {
   applyConversationDetailPatch,
-  type ConversationUpdatedPayload,
 } from "../services/conversationRealtimeReducer";
 import { buildConversationShareLinks } from "../utils/invitations";
 import {
@@ -68,11 +68,7 @@ import {
 import {
   WorkspacePane,
   MessagePane,
-  KnowledgePreviewModal,
-  CitationPreviewModal,
-  WorkflowDebugModal,
-  MessageActionMenuModal,
-  EditMessageModal,
+  ConversationDetailModals,
   styles,
 } from "./conversationDetail";
 import { createSingleFlight } from "./launchActionGuards";
@@ -276,73 +272,34 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     void loadData();
   }, [loadData]);
 
-  useEffect(() => {
-    if (!token || !currentOrganization) {
-      ChatRealtimeService.disconnect();
-      return;
-    }
-    const handleOpen = () => {
-      void loadData();
-    };
-    const handleEvent = (event: {
-      event: string;
-      organization_id: number;
-      payload: unknown;
-    }) => {
-      if (event.event === "conversation.updated") {
-        setDetail((previous) =>
-          applyConversationDetailPatch(
-            previous,
-            event.payload as ConversationUpdatedPayload,
-          ),
-        );
-        return;
-      }
-      if (event.event === "message.created") {
-        // Append in place instead of full reload so any "load earlier" history
-        // the user scrolled into is preserved; dedupe by id guards the echo.
-        appendMessage(event.payload as MessageRecord);
-        return;
-      }
-      if (
-        event.event === "message.updated" ||
-        event.event === "message.recalled" ||
-        event.event === "message.deleted"
-      ) {
-        // 编辑/撤回/删除都是对既有行的原位覆盖，复用 merge 增量刷新。
-        mergeMessage(event.payload as MessageRecord);
-        return;
-      }
-      // 窄事件只做定点增量刷新（#25）；会改变会话状态本身的事件仍走全量兜底。
-      if (event.event === "conversation.note.created") {
-        void refreshNotes();
-        return;
-      }
-      if (event.event === "room.recording.updated") {
-        void refreshRecording();
-        return;
-      }
-      if (["room.state.updated", "room.ended"].includes(event.event)) {
-        void loadData();
-      }
-    };
-    ChatRealtimeService.connect(token, currentOrganization.id);
-    ChatRealtimeService.on("open", handleOpen);
-    ChatRealtimeService.on("event", handleEvent);
-    return () => {
-      ChatRealtimeService.off("open", handleOpen);
-      ChatRealtimeService.off("event", handleEvent);
-    };
-  }, [
-    appendMessage,
-    conversationId,
-    currentOrganization,
-    loadData,
-    mergeMessage,
-    refreshNotes,
-    refreshRecording,
+  // 订阅只依赖 token / 组织；回调通过 hook 内的 ref 保持最新，
+  // 避免业务回调身份变化导致实时通道反复断开重连。
+  useConversationRealtime({
     token,
-  ]);
+    organizationId: currentOrganization?.id,
+    onOpen: () => {
+      void loadData();
+    },
+    onConversationUpdated: (payload) => {
+      setDetail((previous) => applyConversationDetailPatch(previous, payload));
+    },
+    onMessageCreated: appendMessage,
+    onMessageUpdated: mergeMessage,
+    onMessageRecalled: mergeMessage,
+    onMessageDeleted: mergeMessage,
+    onNoteCreated: () => {
+      void refreshNotes();
+    },
+    onRecordingUpdated: () => {
+      void refreshRecording();
+    },
+    onRoomStateUpdated: () => {
+      void loadData();
+    },
+    onRoomEnded: () => {
+      void loadData();
+    },
+  });
 
   const activeWorkflowId = activeWorkflow?.workflow.id;
   const activeWorkflowStatus = activeWorkflow?.workflow.status;
@@ -1077,6 +1034,23 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     onRemovePendingAttachment: handleRemovePendingAttachment,
   };
 
+  const handleCloseKnowledgePreview = useCallback(() => {
+    setKnowledgePreview(null);
+  }, []);
+  const handleCloseCitationPreview = useCallback(() => {
+    setCitationPreview(null);
+  }, []);
+  const handleCloseWorkflowDebug = useCallback(() => {
+    setWorkflowDebugVisible(false);
+  }, []);
+  const handleCloseActionMenu = useCallback(() => {
+    setActionMenuMessage(null);
+  }, []);
+  const handleCloseEditMessage = useCallback(() => {
+    setEditingMessage(null);
+    setEditDraft("");
+  }, []);
+
   return (
     <View style={styles.container}>
       {isWideScreen ? (
@@ -1098,44 +1072,30 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         </>
       )}
 
-      <KnowledgePreviewModal
+      <ConversationDetailModals
         knowledgePreview={knowledgePreview}
-        onClose={() => setKnowledgePreview(null)}
-      />
-      <CitationPreviewModal
         citationPreview={citationPreview}
-        onClose={() => setCitationPreview(null)}
-      />
-      <WorkflowDebugModal
-        visible={workflowDebugVisible}
+        workflowDebugVisible={workflowDebugVisible}
         activeWorkflow={activeWorkflow}
         orderedTasks={orderedWorkflowTasks}
         workflowLoading={workflowLoading}
         token={token}
-        onClose={() => setWorkflowDebugVisible(false)}
-        onProcess={handleProcessCurrentWorkflow}
-      />
-      <MessageActionMenuModal
-        visible={actionMenuMessage !== null}
-        message={actionMenuMessage}
+        actionMenuMessage={actionMenuMessage}
+        editingMessage={editingMessage}
+        editDraft={editDraft}
+        savingEdit={savingEdit}
         currentUserId={user?.id}
-        canDeleteAny={false}
-        onClose={() => setActionMenuMessage(null)}
-        onEdit={handleStartEditMessage}
-        onRecall={handleRecallMessage}
-        onDelete={handleDeleteMessage}
-      />
-      <EditMessageModal
-        visible={editingMessage !== null}
-        message={editingMessage}
-        draft={editDraft}
-        saving={savingEdit}
+        onCloseKnowledgePreview={handleCloseKnowledgePreview}
+        onCloseCitationPreview={handleCloseCitationPreview}
+        onCloseWorkflowDebug={handleCloseWorkflowDebug}
+        onCloseActionMenu={handleCloseActionMenu}
+        onStartEditMessage={handleStartEditMessage}
+        onRecallMessage={handleRecallMessage}
+        onDeleteMessage={handleDeleteMessage}
         onDraftChange={setEditDraft}
-        onClose={() => {
-          setEditingMessage(null);
-          setEditDraft("");
-        }}
-        onSave={handleSaveEditMessage}
+        onCloseEditMessage={handleCloseEditMessage}
+        onSaveEditMessage={handleSaveEditMessage}
+        onProcessCurrentWorkflow={handleProcessCurrentWorkflow}
       />
     </View>
   );
