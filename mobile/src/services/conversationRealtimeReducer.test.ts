@@ -202,6 +202,26 @@ test("applyConversationDetailPatch does not reuse the old assignee label when id
   assert.equal(next?.workspace.assignee_label, "未指派");
 });
 
+test("applyConversationDetailPatch updates an identity-only patch without clearing the assignee", () => {
+  const previous = detail(
+    conversation({
+      assignee_user_id: 1,
+      assignee_display_name: "Alice",
+    }),
+  );
+
+  const next = applyConversationDetailPatch(previous, {
+    conversation_id: 1,
+    changes: { assignee_display_name: "" },
+  });
+
+  assert.notEqual(next, previous);
+  assert.equal(next?.conversation.assignee_user_id, 1);
+  assert.equal(next?.conversation.assignee_display_name, "");
+  assert.equal(next?.workspace.assignee_user_id, 1);
+  assert.equal(next?.workspace.assignee_label, "未指派");
+});
+
 test("applyConversationDetailPatch preserves the detail when re-clearing the assignee", () => {
   const previous = detail(conversation({ id: 1, status: "open" }));
 
