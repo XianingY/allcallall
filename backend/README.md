@@ -36,13 +36,15 @@ cmd/beta-seed       Idempotent small-team Beta demo data seed.
 the dominant dependency direction is `handlers` → domain services → `models`/`database`/`cache`/`mq`.
 
 **API & transport**
-- `server` — Gin router, middleware (`RequireTLS`), process wiring.
+- `bootstrap` — API dependency assembly plus HTTP serve, drain, and shutdown lifecycle.
+- `server` — Gin engine, route registration, middleware, readiness, and drain state.
 - `handlers` — HTTP handlers (auth, push, webhooks, etc.).
 - `auth` — JWT access tokens, HttpOnly refresh-session, realtime ticket.
 - `ratelimit` — request rate limiting.
 
 **Config & persistence**
-- `config`, `models`, `database` — config loading, Gorm models, MySQL access.
+- `config` — stable `Load()` entrypoint with declarations grouped into core, privacy, realtime, and worker concerns.
+- `models`, `database` — Gorm models and MySQL access.
 - `pagination` — bounded `Limit/Offset` helper that defends list endpoints from unbounded `Find`.
 - `cache` (Redis), `mq` (Kafka-compatible).
 
@@ -110,6 +112,11 @@ cd backend && go vet ./...
 ## Config Loading
 
 `config.Load()` reads `CONFIG_PATH` YAML, defaulting to `./configs/config.yaml` when the process runs from `backend/`, then applies supported environment overrides.
+
+Configuration loading and environment expansion remain in `internal/config/config.go`.
+Public configuration types and their feature-local defaults are organized in
+`core.go`, `privacy.go`, `realtime.go`, and `workers.go`; this is an internal
+layout change and does not alter existing YAML keys or environment variables.
 
 The API server, Agent Worker, and MCP tool server call `godotenv.Load()` as a local-development convenience. Other workers rely on the environment already being injected by the shell, supervisor, or Docker Compose. Treat `.env` as convenience, not as the single source of runtime configuration.
 

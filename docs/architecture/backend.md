@@ -14,7 +14,9 @@ Python.
 
 | Area | Packages |
 | --- | --- |
-| HTTP and process assembly | `internal/server`, `internal/handlers`, `internal/runtime`, `cmd/*` |
+| Process assembly and lifecycle | `internal/bootstrap`, `cmd/*` |
+| HTTP transport | `internal/server`, `internal/handlers` |
+| Shared runtime factories | `internal/runtime` |
 | Identity and tenancy | `auth`, `user`, `usergrpc`, `contact`, `invitation` |
 | Collaboration | `collaboration`, `chat`, `presence`, `signaling`, `media` |
 | Agent platform | `agent`, `mcpplatform`, `knowledge`, `sandbox` |
@@ -24,6 +26,18 @@ Python.
 Handlers translate HTTP concerns. Domain services enforce authorization and
 business rules. Infrastructure packages provide persistence and external
 adapters. Process assembly must not leak back into domain packages.
+
+`cmd/server` is intentionally a thin executable boundary: it loads local
+environment values and configuration, creates the logger and signal-aware root
+context, and delegates to `bootstrap.RunServer`. The bootstrap package owns
+dependency assembly, route registration, worker startup, listener errors, and
+the readiness-first drain sequence. This keeps process exit policy out of
+reusable startup code while preserving the existing routes and shutdown order.
+
+The `config` package keeps `Load()` and environment expansion in `config.go`.
+Its stable public types are grouped by concern in `core.go`, `privacy.go`,
+`realtime.go`, and `workers.go`; package names, exported identifiers, YAML tags,
+environment variables, and defaults remain compatible.
 
 ## Data and Authorization
 

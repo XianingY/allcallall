@@ -11,6 +11,35 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// These named-field literals make public configuration compatibility a
+// compile-time contract while declarations move between files in this package.
+var (
+	_ = Config{
+		Server:            ServerConfig{},
+		Database:          DatabaseConfig{},
+		Redis:             RedisConfig{},
+		Mail:              Mail{},
+		JWT:               JWTConfig{},
+		WebRTC:            WebRTCConfig{},
+		Translation:       TranslationConfig{},
+		Logging:           LoggingConfig{},
+		TaskScheduler:     TaskSchedulerConfig{},
+		ConnectionGateway: ConnectionGatewayConfig{},
+		Events:            EventsConfig{},
+		Privacy:           PrivacyConfig{},
+		ContentModeration: ContentModerationConfig{},
+		Security:          SecurityConfig{},
+		Metrics:           MetricsConfig{},
+	}
+	_ = ICEServer{URLs: []string{}, Username: "", Credential: ""}
+	_ = PrivacyConfig{
+		MessageRetention: MessageRetentionConfig{},
+		Encryption:       MessageEncryptionConfig{},
+		MessageRecall:    MessageRecallConfig{},
+		SearchIndex:      SearchIndexConfig{},
+	}
+)
+
 func resetLoadState() {
 	cfg = nil
 	cfgErr = nil
