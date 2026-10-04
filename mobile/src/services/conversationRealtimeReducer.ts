@@ -56,14 +56,30 @@ export const applyConversationDetailPatch = (
   }
 
   const changes = payload.changes;
-  const nextConversation = { ...detail.conversation, ...changes };
+  const hasAssigneeIdentityPatch =
+    changes.assignee_user_id !== undefined ||
+    changes.assignee_display_name !== undefined ||
+    changes.assignee_email !== undefined;
+  const assigneeId =
+    changes.assignee_user_id !== undefined
+      ? changes.assignee_user_id
+      : detail.workspace.assignee_user_id;
+  const nextConversation = {
+    ...detail.conversation,
+    ...changes,
+    ...(changes.assignee_user_id === null
+      ? { assignee_display_name: undefined, assignee_email: undefined }
+      : {}),
+  };
   const nextWorkspace = {
     ...detail.workspace,
-    assignee_user_id: changes.assignee_user_id ?? detail.workspace.assignee_user_id,
+    assignee_user_id: assigneeId,
     assignee_label:
-      changes.assignee_display_name ||
-      changes.assignee_email ||
-      detail.workspace.assignee_label,
+      hasAssigneeIdentityPatch
+        ? changes.assignee_display_name ||
+            changes.assignee_email ||
+            "未指派"
+        : detail.workspace.assignee_label,
     status: changes.status || detail.workspace.status,
     priority: changes.priority || detail.workspace.priority,
   };
