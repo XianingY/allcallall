@@ -45,11 +45,10 @@ import { useAuth } from "@/auth/AuthContext";
 import { FormError } from "@/components/AuthLayout";
 import { PageEmpty, PageError, PageLoading } from "@/components/PageState";
 import { useOrganization } from "@/organizations/OrganizationContext";
+import { conversationKeys } from "@/pages/collaboration/conversationQueryKeys";
 import { formatTime } from "@/pages/collaboration/InboxFormat";
 import { MessageBubble, Metric, NewConversationDialog } from "@/pages/collaboration/InboxParts";
 import { windowMessages } from "@/pages/collaboration/messageWindow";
-
-const messageQueryKey = (orgId?: number, conversationId?: number | null) => ["organizations", orgId, "conversations", conversationId, "messages"] as const;
 
 export function InboxPage() {
   const { conversationId } = useParams();
@@ -78,7 +77,7 @@ export function InboxPage() {
   const [messageQuery, setMessageQuery] = useState("");
 
   const messageHits = useQuery({
-    queryKey: ["organizations", orgId, "search", "messages", messageQuery],
+    queryKey: conversationKeys.messageSearch(orgId, messageQuery),
     queryFn: () => searchMessages(messageQuery),
     enabled: Boolean(orgId) && messageQuery.trim().length >= 2,
     retry: false,
@@ -94,23 +93,23 @@ export function InboxPage() {
   const fileInput = useRef<HTMLInputElement>(null);
 
   const conversations = useInfiniteQuery({
-    queryKey: ["organizations", orgId, "conversations", status],
+    queryKey: conversationKeys.list(orgId, status),
     queryFn: ({ pageParam }) => listConversations(status, { limit: PAGE_SIZE, offset: pageParam }),
     initialPageParam: 0 as number,
     getNextPageParam: (lastPage) => (lastPage.pagination.has_more ? lastPage.pagination.offset + lastPage.pagination.limit : undefined),
     maxPages: 20,
     enabled: Boolean(orgId),
   });
-  const detail = useQuery({ queryKey: ["organizations", orgId, "conversations", selectedId], queryFn: () => getConversation(selectedId!), enabled: Boolean(orgId && selectedId) });
+  const detail = useQuery({ queryKey: conversationKeys.detail(orgId, selectedId), queryFn: () => getConversation(selectedId!), enabled: Boolean(orgId && selectedId) });
   const messages = useInfiniteQuery({
-    queryKey: messageQueryKey(orgId, selectedId),
+    queryKey: conversationKeys.messages(orgId, selectedId),
     queryFn: ({ pageParam }) => listMessages(selectedId!, { beforeId: pageParam, limit: 50 }),
     initialPageParam: undefined as number | undefined,
     getNextPageParam: (page) => page.has_more_prev ? page.next_before_id ?? undefined : undefined,
     enabled: Boolean(orgId && selectedId),
   });
-  const pins = useQuery({ queryKey: ["organizations", orgId, "conversations", selectedId, "pins"], queryFn: () => listPinnedMessages(selectedId!), enabled: Boolean(orgId && selectedId) });
-  const notes = useQuery({ queryKey: ["organizations", orgId, "conversations", selectedId, "notes"], queryFn: () => listNotes(selectedId!), enabled: Boolean(orgId && selectedId) });
+  const pins = useQuery({ queryKey: conversationKeys.pins(orgId, selectedId), queryFn: () => listPinnedMessages(selectedId!), enabled: Boolean(orgId && selectedId) });
+  const notes = useQuery({ queryKey: conversationKeys.notes(orgId, selectedId), queryFn: () => listNotes(selectedId!), enabled: Boolean(orgId && selectedId) });
 
   const visibleConversations = useMemo(() => {
     const loaded = (conversations.data?.pages ?? []).flatMap((page) => page.conversations);
@@ -135,7 +134,7 @@ export function InboxPage() {
       setEditing(null);
       setAttachments([]);
     });
-    if (selectedId) void markConversationRead(selectedId).then(() => queryClient.invalidateQueries({ queryKey: ["organizations", orgId, "conversations"] }));
+    if (selectedId) void markConversationRead(selectedId).then(() => queryClient.invalidateQueries({ queryKey: conversationKeys.all(orgId) }));
   }, [selectedId, orgId, queryClient]);
 
   useEffect(() => {
@@ -150,9 +149,9 @@ export function InboxPage() {
   }, [selectedId]);
 
   const refreshMessages = () => {
-    void queryClient.invalidateQueries({ queryKey: messageQueryKey(orgId, selectedId) });
-    void queryClient.invalidateQueries({ queryKey: ["organizations", orgId, "conversations", selectedId, "pins"] });
-    void queryClient.invalidateQueries({ queryKey: ["organizations", orgId, "conversations"] });
+    void queryClient.invalidateQueries({ queryKey: conversationKeys.messages(orgId, selectedId) });
+    void queryClient.invalidateQueries({ queryKey: conversationKeys.pins(orgId, selectedId) });
+    void queryClient.invalidateQueries({ queryKey: conversationKeys.all(orgId) });
   };
   const send = useMutation({
     mutationFn: () => {
@@ -169,7 +168,7 @@ export function InboxPage() {
     },
   });
   const upload = useMutation({ mutationFn: (file: File) => uploadAttachment(selectedId!, file), onSuccess: (item) => setAttachments((items) => [...items, item]) });
-  const addNote = useMutation({ mutationFn: () => createNote(selectedId!, note), onSuccess: () => { setNote(""); void queryClient.invalidateQueries({ queryKey: ["organizations", orgId, "conversations", selectedId, "notes"] }); void detail.refetch(); } });
+  const addNote = useMutation({ mutationFn: () => createNote(selectedId!, note), onSuccess: () => { setNote(""); void queryClient.invalidateQueries({ queryKey: conversationKeys.notes(orgId, selectedId) }); void detail.refetch(); } });
   const update = useMutation({ mutationFn: (input: { status?: string; priority?: string }) => updateConversation(selectedId!, input), onSuccess: () => { void detail.refetch(); void conversations.refetch(); } });
   const messageAction = useMutation({
     mutationFn: async (input: { action: "delete" | "pin" | "unpin" | "react"; message: Message; emoji?: string }) => {
