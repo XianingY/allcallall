@@ -159,6 +159,47 @@ test("applyConversationDetailPatch treats an explicit null optional field as a n
   assert.equal(next, previous);
 });
 
+test("applyConversationDetailPatch clears the workspace assignee summary", () => {
+  const previous = detail(
+    conversation({
+      assignee_user_id: 1,
+      assignee_display_name: "Alice",
+    }),
+  );
+
+  const next = applyConversationDetailPatch(previous, {
+    conversation_id: 1,
+    changes: { assignee_user_id: null },
+  });
+
+  assert.notEqual(next, previous);
+  assert.equal(next?.conversation.assignee_user_id, null);
+  assert.equal(next?.workspace.assignee_user_id, null);
+  assert.equal(next?.workspace.assignee_label, "未指派");
+});
+
+test("applyConversationDetailPatch does not reuse the old assignee label when identity fields are empty", () => {
+  const previous = detail(
+    conversation({
+      assignee_user_id: 1,
+      assignee_display_name: "Alice",
+    }),
+  );
+
+  const next = applyConversationDetailPatch(previous, {
+    conversation_id: 1,
+    changes: {
+      assignee_user_id: 2,
+      assignee_display_name: "",
+      assignee_email: "",
+    },
+  });
+
+  assert.notEqual(next, previous);
+  assert.equal(next?.workspace.assignee_user_id, 2);
+  assert.equal(next?.workspace.assignee_label, "未指派");
+});
+
 test("applyConversationDetailPatch preserves the detail when re-clearing the assignee", () => {
   const previous = detail(conversation({ id: 1, status: "open" }));
 
