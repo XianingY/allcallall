@@ -27,7 +27,7 @@ const message = {
   created_at: "2026-09-27T08:00:00Z",
 };
 
-const renderWorkspace = () => {
+const renderWorkspace = ({ typingUsers = [] }: { typingUsers?: number[] } = {}) => {
   const onComposerChange = vi.fn();
   const onSubmit = vi.fn();
   const onSetReplyTo = vi.fn();
@@ -63,7 +63,7 @@ const renderWorkspace = () => {
         queries={queries}
         mutations={mutations}
         draft={{ composer: "hello", replyTo: null, editing: null, attachments: [] }}
-        typingUsers={[]}
+        typingUsers={typingUsers}
         onComposerChange={onComposerChange}
         onSubmit={onSubmit}
         onSetReplyTo={onSetReplyTo}
@@ -104,5 +104,11 @@ describe("ConversationWorkspace", () => {
 
     fireEvent.click(screen.getByTitle("编辑"));
     expect(onSetEditing).toHaveBeenCalledWith(message);
+  });
+
+  it("announces typing status politely", () => {
+    renderWorkspace({ typingUsers: [2] });
+
+    expect(screen.getByRole("status")).toHaveTextContent("对方正在输入...");
   });
 });

@@ -52,6 +52,11 @@
   padding: .85rem 1rem;
 }
 
+.context-toggle:focus {
+  outline: 2px solid var(--color-moss);
+  outline-offset: 2px;
+}
+
 .workspace-pane-header h1,
 .workspace-pane-header h2 {
   overflow: hidden;

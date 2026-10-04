@@ -32,11 +32,13 @@
   background: linear-gradient(180deg, #12372a 0%, #173f2d 62%, #102b20 100%);
   color: #eaf3ee;
   transform: translateX(-100%);
+  visibility: hidden;
   transition: transform 180ms ease;
 }
 
 .app-rail-open {
   transform: translateX(0);
+  visibility: visible;
   box-shadow: 24px 0 70px rgba(12, 29, 21, 0.32);
 }
 
@@ -287,6 +289,7 @@
 
   .app-rail {
     transform: translateX(0);
+    visibility: visible;
     box-shadow: none;
   }
 

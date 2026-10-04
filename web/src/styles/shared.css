@@ -304,6 +304,7 @@
 .pane-empty strong { color: #46504d; font-size: .9rem; }
 .dialog-overlay { position: fixed; inset: 0; z-index: 60; background: rgb(16 25 22 / .45); }
 .dialog-content { position: fixed; left: 50%; top: 50%; z-index: 70; width: min(calc(100vw - 2rem), 480px); max-height: calc(100vh - 2rem); overflow-y: auto; transform: translate(-50%, -50%); border-radius: 8px; background: white; padding: 1.25rem; box-shadow: 0 20px 60px rgb(0 0 0 / .18); }
+.dialog-content :focus { outline: 2px solid var(--color-moss); outline-offset: 2px; }
 .dialog-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: .4rem; }
 .dialog-header h2 { font-size: 1.1rem; font-weight: 650; }
 .dialog-content > p { margin-bottom: 1rem; color: #65706d; font-size: .78rem; }

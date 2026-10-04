@@ -93,7 +93,7 @@ export function ConversationWorkspace({
             <div className="button-row">
               <button
                 ref={contextButtonRef}
-                className="icon-button"
+                className="icon-button context-toggle"
                 aria-label="业务上下文"
                 aria-expanded={contextOpen}
                 aria-controls="inbox-context-region"
@@ -170,7 +170,11 @@ export function ConversationWorkspace({
                 <span>还没有消息</span>
               </div>
             )}
-            {typingUsers.length ? <div className="typing-line">对方正在输入...</div> : null}
+            {typingUsers.length ? (
+              <div className="typing-line" role="status" aria-live="polite">
+                对方正在输入...
+              </div>
+            ) : null}
           </div>
 
           <FormError error={messageAction.error} />
