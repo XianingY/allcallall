@@ -302,3 +302,6 @@ mobile/ios/.xcode.env
 # under android/app/debug.keystore is public and must not be used for release.
 mobile/android/app/debug.keystore
 mobile/android/app/release.keystore
+
+# Local Git worktrees used for isolated development.
+.worktrees/
