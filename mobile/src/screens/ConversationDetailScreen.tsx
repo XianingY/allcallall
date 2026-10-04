@@ -91,7 +91,6 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const [hasMorePrev, setHasMorePrev] = useState(false);
   const [latestRecording, setLatestRecording] =
     useState<RecordingRecord | null>(null);
-  const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const sendFlight = useRef(createSingleFlight()).current;
   const [noteDraft, setNoteDraft] = useState("");
@@ -467,12 +466,12 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     Alert.alert("已复制", "线程 Web 链接已复制到剪贴板。");
   };
 
-  const handleSend = useCallback(async () => {
-    if (!token || !draft.trim()) return;
+  const handleSend = useCallback(async (draft: string) => {
+    if (!token || !draft.trim()) return false;
     // The busy check is synchronous, so a second tap in the same frame never
     // reaches createMessage; the flag also disables the button for the rest of
     // the in-flight window.
-    if (sendFlight.isBusy()) return;
+    if (sendFlight.isBusy()) return false;
     setSending(true);
     try {
       const attachmentIds = pendingAttachments.map((item) => item.id);
@@ -486,25 +485,25 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
         }),
       );
       if (result.status === "busy") {
-        return;
+        return false;
       }
       if (result.status === "error") {
         throw result.error;
       }
-      setDraft("");
       setPendingAttachments([]);
       // Append rather than full-reload: preserves any "load earlier" history and
       // avoids flicker. The realtime echo of this message is deduped by id.
       appendMessage(result.value);
+      return true;
     } catch (e) {
       console.error("[ConversationDetailScreen] Failed to send message:", e);
       Alert.alert("发送失败", "消息未能发送，请稍后再试。");
+      return false;
     } finally {
       setSending(false);
     }
   }, [
     token,
-    draft,
     conversationId,
     appendMessage,
     pendingAttachments,
@@ -674,13 +673,13 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       preset?: CreateWorkflowRequest["preset"];
       goal?: string;
     }) => {
-      if (!token) return;
+      if (!token) return false;
       if ((input.preset ?? "meeting_brief") === "meeting_brief" && !meetingTranscriptReady) {
         Alert.alert(
           "会议转写尚未就绪",
           "会议复盘必须基于已完成的录音转写。请等待转写完成后重试。",
         );
-        return;
+        return false;
       }
       try {
         setWorkflowLoading(true);
@@ -704,9 +703,11 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
             processed.workflow.error_message || "workflow 执行失败。",
           );
         }
+        return processed.workflow.status !== "failed";
       } catch (e) {
         console.error("Run Meeting Agent failed", e);
         Alert.alert("Agent 调用失败");
+        return false;
       } finally {
         setWorkflowLoading(false);
       }
@@ -714,13 +715,10 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     [conversationId, loadData, meetingTranscriptReady, token],
   );
 
-  const handleAskAgent = useCallback(async () => {
+  const handleAskAgent = useCallback(async (draft: string) => {
     const goal = draft.trim();
-    await runMeetingAgent({ goal: goal || undefined });
-    if (goal) {
-      setDraft("");
-    }
-  }, [draft, runMeetingAgent]);
+    return runMeetingAgent({ goal: goal || undefined });
+  }, [runMeetingAgent]);
 
   const handleApprovalDecision = useCallback(
     async (approval: ToolApprovalRecord, decision: "approve" | "reject") => {
@@ -1044,7 +1042,6 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     loading,
     hasMorePrev,
     loadingMorePrev,
-    draft,
     sending,
     workflowLoading,
     currentUserId: user?.id,
@@ -1052,7 +1049,6 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     uploadingAttachment,
     onRefresh: () => void loadData(),
     onLoadMorePrev: loadMorePrev,
-    onDraftChange: setDraft,
     onSend: handleSend,
     onAskAgent: handleAskAgent,
     onOpenTranscript: handleOpenTranscript,

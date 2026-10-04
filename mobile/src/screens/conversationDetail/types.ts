@@ -83,7 +83,7 @@ export interface WorkspacePaneProps {
   onUnassign: () => Promise<void>;
   onRunMeetingAgent: (
     input: { preset?: CreateWorkflowRequest["preset"]; goal?: string },
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   onOpenWorkflowDebug: () => void;
   onCitationPress: (citation: AgentCitation) => Promise<void>;
   onApprovalDecision: (
@@ -112,7 +112,7 @@ export interface MessagePaneProps {
   loading: boolean;
   hasMorePrev: boolean;
   loadingMorePrev: boolean;
-  draft: string;
+  sending: boolean;
   workflowLoading: boolean;
   currentUserId: number | string | undefined;
   /** 已上传、待随下一条消息发送的附件。 */
@@ -120,9 +120,8 @@ export interface MessagePaneProps {
   uploadingAttachment: boolean;
   onRefresh: () => void;
   onLoadMorePrev: () => Promise<void>;
-  onDraftChange: (text: string) => void;
-  onSend: () => Promise<void>;
-  onAskAgent: () => Promise<void>;
+  onSend: (draft: string) => Promise<boolean>;
+  onAskAgent: (draft: string) => Promise<boolean>;
   onOpenTranscript: (recordingId: number) => void;
   onLongPressMessage: (message: MessageRecord) => void;
   onDownloadAttachment: (attachment: AttachmentRecord) => void;
