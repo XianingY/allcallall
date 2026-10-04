@@ -7,14 +7,21 @@ export default defineConfig({
   resolve: { alias: { "@": path.resolve(__dirname, "src") } },
   build: {
     chunkSizeWarningLimit: 820,
-    rollupOptions: {
+    // Vite 8 unifies dev and production bundling on Rolldown (Rust). The old
+    // `build.rollupOptions.output.manualChunks` is gone: the object form was
+    // removed and the function form is deprecated, so the vendor split now
+    // lives in `rolldownOptions.output.codeSplitting.groups`. Groups are
+    // matched in order, first hit wins, and the catch-all keeps what used to
+    // fall through to `vendor-core`.
+    rolldownOptions: {
       output: {
-        manualChunks(id) {
-          if (!id.includes("node_modules")) return undefined;
-          if (id.includes("@revenuecat") || id.includes("Purchases.")) return "vendor-revenuecat";
-          if (id.includes("firebase")) return "vendor-firebase";
-          if (id.includes("@xyflow")) return "vendor-agent-graph";
-          return "vendor-core";
+        codeSplitting: {
+          groups: [
+            { name: "vendor-revenuecat", test: /node_modules[\\/](@revenuecat[\\/]|[^\\/]*[Pp]urchases)/ },
+            { name: "vendor-firebase", test: /node_modules[\\/]firebase/ },
+            { name: "vendor-agent-graph", test: /node_modules[\\/]@xyflow[\\/]/ },
+            { name: "vendor-core", test: /node_modules/ },
+          ],
         },
       },
     },
