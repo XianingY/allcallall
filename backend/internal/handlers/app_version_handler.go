@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -89,7 +90,10 @@ func (h *AppVersionHandler) handleCheckVersion(c *gin.Context) {
 
 	var policy models.AppVersionPolicy
 	if err := h.db.Where("platform = ?", platform).First(&policy).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		// errors.Is, not ==: gorm wraps this on some drivers, and a missed
+		// ErrRecordNotFound here would turn "no policy" into a 500 that every
+		// client sees on startup.
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			JSONSuccess(c, http.StatusOK, response)
 			return
 		}
