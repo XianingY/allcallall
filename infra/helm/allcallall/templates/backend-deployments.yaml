@@ -72,6 +72,13 @@ spec:
             # pipeline cannot parse.
             - name: GIN_MODE
               value: "release"
+            {{- if $root.Values.fcm.enabled }}
+            {{- if not $root.Values.fcm.existingSecret }}
+            {{- fail "fcm.enabled is true but fcm.existingSecret is empty: the backend refuses to start without FCM_SERVICE_ACCOUNT_PATH, so this deployment would crash-loop. Set existingSecret or disable fcm." }}
+            {{- end }}
+            - name: FCM_SERVICE_ACCOUNT_PATH
+              value: {{ $root.Values.fcm.serviceAccountPath | quote }}
+            {{- end }}
             - name: HTTP_PORT
               value: "8080"
             - name: EMBEDDED_WORKERS
@@ -138,10 +145,23 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if $root.Values.fcm.enabled }}
+            - name: fcm-credentials
+              mountPath: {{ dir $root.Values.fcm.serviceAccountPath }}
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 256Mi
+        {{- if $root.Values.fcm.enabled }}
+        - name: fcm-credentials
+          secret:
+            secretName: {{ $root.Values.fcm.existingSecret }}
+            items:
+              - key: {{ $root.Values.fcm.existingSecretKey }}
+                path: {{ base $root.Values.fcm.serviceAccountPath }}
+        {{- end }}
       terminationGracePeriodSeconds: 30
       {{- with $root.Values.nodeSelector }}
       nodeSelector:

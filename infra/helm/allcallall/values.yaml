@@ -79,6 +79,26 @@ secrets:
   redisPassword: ""
   openbaoToken: ""
 
+# Firebase Cloud Messaging, required for incoming call notifications.
+#
+# The backend now refuses to start when FCM_SERVICE_ACCOUNT_PATH is missing in a
+# real deployment (APP_ENV=production/beta or GIN_MODE=release). It used to start
+# anyway and drop every notification: the send path returns nil without touching
+# the network, so the count of "sent" devices climbed and the log reported
+# success while no phone rang.
+#
+# Create the Secret out of band so the credential never lands in git:
+#   kubectl -n allcallall create secret generic allcallall-fcm \
+#     --from-file=service-account.json=/path/to/firebase-service-account.json
+fcm:
+  # Turn on together with existingSecret. Leave off for environments that do not
+  # receive calls, so they can run without a Firebase project.
+  enabled: false
+  existingSecret: allcallall-fcm
+  existingSecretKey: service-account.json
+  # Mounted read-only; the file name inside the Secret is derived from this path.
+  serviceAccountPath: /etc/fcm/firebase-service-account.json
+
 features:
   mcpPlatformEnabled: true
   sandboxExecutionEnabled: true

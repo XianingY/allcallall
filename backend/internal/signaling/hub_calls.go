@@ -172,6 +172,20 @@ func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmai
 			return
 		}
 
+		// Without this the loop below treats "disabled" as "sent": the manager
+		// returns nil without touching the network, so the count climbs and the
+		// line below reports success. This is the log that made a dead push
+		// pipeline look like a working one.
+		if !h.fcmManager.Enabled() {
+			h.logger.Warn().
+				Str("to", toEmail).
+				Str("from", fromEmail).
+				Str("call_id", callID).
+				Int("devices", len(tokens)).
+				Msg("call notification NOT sent: push delivery is disabled")
+			return
+		}
+
 		var sent int
 		for _, token := range tokens {
 			if err := h.fcmManager.SendCallNotification(notifCtx, token, fromEmail, fromUser.DisplayName, callID); err != nil {

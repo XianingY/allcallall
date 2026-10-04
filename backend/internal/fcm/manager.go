@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/messaging"
@@ -20,6 +21,26 @@ type Manager struct {
 	disabled string
 }
 
+// required reports whether this deployment must have working push.
+//
+// The distinction matters because a missing credential used to be a Debug-level
+// note: the process started, /ready passed, every dashboard stayed green, and
+// the call notification "sent successfully" - while no phone ever rang. In a
+// real deployment that is indistinguishable from a working service until a
+// user reports a missed call.
+//
+// GIN_MODE is included because the chart sets it to release for every Pod, so
+// it is the reliable signal that this is a real deployment even if APP_ENV was
+// forgotten; APP_ENV alone is checked too because that is how the rest of the
+// project decides (see runtime.AutoMigrateEnabledFromEnv).
+func required() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))) {
+	case "production", "prod", "beta":
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("GIN_MODE")), "release")
+}
+
 // NewManager creates a new FCM manager.
 func NewManager(ctx context.Context, logger zerolog.Logger, serviceAccountPath string) (*Manager, error) {
 	manager := &Manager{
@@ -27,8 +48,18 @@ func NewManager(ctx context.Context, logger zerolog.Logger, serviceAccountPath s
 	}
 
 	if serviceAccountPath == "" {
+		if required() {
+			// Refuse to start. Incoming call notifications are the product: a
+			// backend that cannot push is a backend that drops calls.
+			return nil, errors.New(
+				"FCM_SERVICE_ACCOUNT_PATH is required in this environment: without it " +
+					"incoming call notifications are silently discarded while the service " +
+					"reports itself healthy. Mount the service account and set the path, or " +
+					"set APP_ENV/ GIN_MODE to a development value to run without push",
+			)
+		}
 		manager.disabled = "FCM disabled: FCM_SERVICE_ACCOUNT_PATH is not configured"
-		manager.logger.Info().Msg(manager.disabled)
+		manager.logger.Warn().Msg(manager.disabled)
 		return manager, nil
 	}
 
