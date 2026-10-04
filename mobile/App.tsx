@@ -25,6 +25,7 @@ import {
   parseRoomIdFromURL,
 } from "./src/utils/invitations";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
+import { VersionGate } from "./src/components/VersionGate";
 
 const linking: LinkingOptions<RootStackParamList> = {
   prefixes: ["allcallall://"],
@@ -124,8 +125,10 @@ const App = () => {
                   <RoomCallProvider>
                     <SignalingProvider>
                       <NavigationContainer ref={navigationRef} linking={linking}>
-                        <AppNavigator />
-                        <CallOverlay />
+                        <VersionGate>
+                          <AppNavigator />
+                          <CallOverlay />
+                        </VersionGate>
                         <StatusBar style="auto" />
                       </NavigationContainer>
                     </SignalingProvider>
