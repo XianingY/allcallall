@@ -42,7 +42,7 @@ Additional conventions:
 - **Tests** live beside the code as `internal/<pkg>/*_test.go`. Pure-function tests are conventionally split into `*_pure_test.go`.
 - Commit only the files you intend to change; do not commit local session artifacts (`.omo/`, `.workbuddy/`, `output/`, `session.json`).
 
-## Report bugs using Github's [issues](https://github.com/XianingY/AllCallAll/issues)
+## Report bugs using Github's [issues](https://github.com/XianingY/allcallall/issues)
 We use GitHub issues to track public bugs. Report a bug by opening a new issue; it's that easy!
 
 ## Write bug reports with detail, background, and sample code
