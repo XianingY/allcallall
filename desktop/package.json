@@ -6,7 +6,7 @@
   "author": "AllCallAll",
   "main": "main.cjs",
   "scripts": {
-    "check": "node --check main.cjs && node --check preload.cjs && node --check route-utils.cjs && node --check scripts/deep-link-check.cjs && node --check scripts/permission-check.cjs && npm run deep-link:check && npm run permission:check",
+    "check": "node --check main.cjs && node --check preload.cjs && node --check route-utils.cjs && node --check src/main/index.cjs && node --check src/preload/index.cjs && node --check src/shared/route-utils.cjs && node --check scripts/deep-link-check.cjs && node --check scripts/permission-check.cjs && npm run deep-link:check && npm run permission:check",
     "deep-link:check": "node scripts/deep-link-check.cjs",
     "permission:check": "node scripts/permission-check.cjs",
     "dev": "electron .",
@@ -24,6 +24,7 @@
       "main.cjs",
       "preload.cjs",
       "route-utils.cjs",
+      "src/**/*",
       "package.json"
     ],
     "protocols": [
@@ -55,7 +56,7 @@
     }
   },
   "devDependencies": {
-    "electron": "^44.5.1",
+    "electron": "44.5.1",
     "electron-builder": "^26.15.2"
   }
 }

@@ -20,7 +20,7 @@
 const assert = require("assert");
 const Module = require("module");
 
-const handlers = {
+let handlers = {
   request: null,
   check: null,
 };
@@ -82,20 +82,30 @@ Module._load = function patchedLoad(request, parent, isMain) {
   return originalLoad.call(this, request, parent, isMain);
 };
 
-process.env.ALLCALLALL_WEB_URL = "https://desktop.example.com";
-require("../main.cjs");
-Module._load = originalLoad;
+function loadHandlers(entrypoint) {
+  handlers = { request: null, check: null };
+  for (const modulePath of ["../main.cjs", "../src/main/index.cjs"]) {
+    try {
+      delete require.cache[require.resolve(modulePath)];
+    } catch {
+      // The canonical path intentionally does not exist before the extraction.
+    }
+  }
+  require(entrypoint);
+  assert.ok(handlers.request, `setPermissionRequestHandler was never registered by ${entrypoint}`);
+  assert.ok(handlers.check, `setPermissionCheckHandler was never registered by ${entrypoint}`);
+  return { ...handlers };
+}
 
-assert.ok(handlers.request, "setPermissionRequestHandler was never registered");
-assert.ok(handlers.check, "setPermissionCheckHandler was never registered");
+process.env.ALLCALLALL_WEB_URL = "https://desktop.example.com";
 
 const INTERNAL = "https://desktop.example.com/meetings";
 const EXTERNAL = "https://evil.example.com/meetings";
 const fakeWebContents = { getURL: () => INTERNAL };
 
-function request(permission, details, webContents) {
+function request(activeHandlers, permission, details, webContents) {
   let decision;
-  handlers.request(
+  activeHandlers.request(
     webContents === undefined ? fakeWebContents : webContents,
     permission,
     (allowed) => {
@@ -106,44 +116,60 @@ function request(permission, details, webContents) {
   return decision;
 }
 
-function check(permission, requestingOrigin, details, webContents) {
-  return handlers.check(webContents === undefined ? fakeWebContents : webContents, permission, requestingOrigin, details);
+function check(activeHandlers, permission, requestingOrigin, details, webContents) {
+  return activeHandlers.check(
+    webContents === undefined ? fakeWebContents : webContents,
+    permission,
+    requestingOrigin,
+    details
+  );
 }
 
-// Allowed: camera and microphone, from the app's own origin only.
-for (const permission of ["media", "microphone", "camera"]) {
-  assert.strictEqual(request(permission, { requestingUrl: INTERNAL, securityOrigin: INTERNAL }), true, `${permission} from the app origin should be allowed`);
-  assert.strictEqual(check(permission, INTERNAL, { securityOrigin: INTERNAL }), true, `${permission} check from the app origin should pass`);
-  assert.strictEqual(request(permission, { requestingUrl: EXTERNAL }), false, `${permission} from a foreign origin must be denied`);
-  assert.strictEqual(check(permission, EXTERNAL), false, `${permission} check from a foreign origin must fail`);
-}
+function checkPermissionHandlers(entrypoint) {
+  const activeHandlers = loadHandlers(entrypoint);
+
+  // Allowed: camera and microphone, from the app's own origin only.
+  for (const permission of ["media", "microphone", "camera"]) {
+    assert.strictEqual(request(activeHandlers, permission, { requestingUrl: INTERNAL, securityOrigin: INTERNAL }), true, `${permission} from the app origin should be allowed`);
+    assert.strictEqual(check(activeHandlers, permission, INTERNAL, { securityOrigin: INTERNAL }), true, `${permission} check from the app origin should pass`);
+    assert.strictEqual(request(activeHandlers, permission, { requestingUrl: EXTERNAL }), false, `${permission} from a foreign origin must be denied`);
+    assert.strictEqual(check(activeHandlers, permission, EXTERNAL), false, `${permission} check from a foreign origin must fail`);
+  }
 
 // Denied: everything outside the media allowlist, including screen capture,
 // which Electron now reports as its own `display-capture` permission.
-for (const permission of [
-  "display-capture",
-  "geolocation",
-  "geolocation-approximate",
-  "notifications",
-  "clipboard-read",
-  "clipboard-sanitized-write",
-  "pointerLock",
-  "hid",
-  "usb",
-  "serial",
-  "persistent-storage",
-  "local-network-access",
-  "openExternal",
-  "unknown",
-]) {
-  assert.strictEqual(request(permission, { requestingUrl: INTERNAL }), false, `${permission} must be denied`);
-  assert.strictEqual(check(permission, INTERNAL), false, `${permission} check must fail`);
-}
+  for (const permission of [
+    "display-capture",
+    "geolocation",
+    "geolocation-approximate",
+    "notifications",
+    "clipboard-read",
+    "clipboard-sanitized-write",
+    "pointerLock",
+    "hid",
+    "usb",
+    "serial",
+    "persistent-storage",
+    "local-network-access",
+    "openExternal",
+    "unknown",
+  ]) {
+    assert.strictEqual(request(activeHandlers, permission, { requestingUrl: INTERNAL }), false, `${permission} must be denied`);
+    assert.strictEqual(check(activeHandlers, permission, INTERNAL), false, `${permission} check must fail`);
+  }
 
 // No resolvable origin (service worker checks arrive with webContents = null
 // and an empty requestingOrigin): deny, and do not throw on the null.
-assert.strictEqual(check("media", "", undefined, null), false, "a check with no origin must fail closed");
-assert.strictEqual(request("media", undefined, null), false, "a request with no origin must fail closed");
-assert.strictEqual(check("media", undefined, undefined, null), false, "a check with neither origin nor webContents must fail closed");
+  assert.strictEqual(check(activeHandlers, "media", "", undefined, null), false, "a check with no origin must fail closed");
+  assert.strictEqual(request(activeHandlers, "media", undefined, null), false, "a request with no origin must fail closed");
+  assert.strictEqual(check(activeHandlers, "media", undefined, undefined, null), false, "a check with neither origin nor webContents must fail closed");
+}
+
+try {
+  checkPermissionHandlers("../main.cjs");
+  checkPermissionHandlers("../src/main/index.cjs");
+} finally {
+  Module._load = originalLoad;
+}
 
 console.log("[desktop-permission-check] passed");

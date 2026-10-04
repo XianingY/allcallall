@@ -2,14 +2,33 @@
 
 Desktop uses Electron as a thin shell around the Web client.
 
+The process implementation is organized by responsibility under `src/`:
+
+- `src/main/index.cjs` owns the Electron main process, window lifecycle,
+  permissions, downloads, and protocol handling.
+- `src/preload/index.cjs` exposes the minimal isolated renderer bridge.
+- `src/shared/route-utils.cjs` contains pure Web/deep-link normalization.
+
+The root `main.cjs`, `preload.cjs`, and `route-utils.cjs` files are
+compatibility loaders. Existing Electron entrypoints and local scripts can keep
+using those paths while new code targets the responsibility-specific modules.
+
 ## Local development
 
-1. Start the Web client in `web/`:
-   - `cd web && npm install && npm run dev`
-2. Install desktop dependencies:
-   - `cd desktop && npm install`
-3. Launch Electron:
-   - `cd desktop && npm run dev`
+Install dependencies once from the repository root, then start the Web client
+and Electron in separate terminals:
+
+```bash
+cd ..
+npm ci
+cd web
+npm run dev
+```
+
+```bash
+cd desktop
+npm run dev
+```
 
 ## Checks and packaging
 

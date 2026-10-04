@@ -1,7 +1,1 @@
-const { contextBridge } = require("electron");
-
-contextBridge.exposeInMainWorld("allcallallDesktop", {
-  shell: "electron",
-  platform: process.platform,
-  downloadsManaged: true,
-});
+module.exports = require("./src/preload/index.cjs");
