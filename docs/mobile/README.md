@@ -55,9 +55,16 @@ npm run android
 ```bash
 cd mobile
 npm run test:unit
-npx tsc --noEmit
+npm run test:jest
+npm run typecheck
 npm run lint
 ```
+
+Mobile intentionally uses two test runners. Pure TypeScript logic runs through
+the explicit file list in `test:unit`; tests that import React Native run under
+Jest with the `jest-expo` preset. Add every new pure-logic test to the
+`test:unit` command in `mobile/package.json`, because unlisted files are not
+discovered automatically.
 
 This package no longer owns the production Web export. Run browser checks from `web/`:
 
@@ -73,6 +80,7 @@ npx playwright test
 ## Important Source Areas
 
 ```text
+mobile/src/app/          Startup composition, providers, and deep-link handling
 mobile/src/api/          Native API client and backend integration
 mobile/src/config/       EXPO_PUBLIC_* runtime config
 mobile/src/context/      Auth, signaling, rooms, follow-ups, billing
@@ -80,6 +88,12 @@ mobile/src/platform/     Native/cross-platform adapters
 mobile/src/screens/      Meetings, Inbox, contacts, settings
 mobile/src/services/     Push, billing, media, audio/video/vibration
 ```
+
+The application root is deliberately thin: `mobile/App.tsx` mounts navigation
+and top-level UI, `src/app/AppProviders.tsx` owns provider ordering,
+`src/app/linking.ts` owns the navigation map and pure URL-to-intent resolution,
+and `src/app/useDeepLinks.ts` owns the React Native subscription and deferred
+navigation behavior.
 
 ## Supporting Docs
 

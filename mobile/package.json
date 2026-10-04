@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run test:runners && npm run test:unit && npm run test:jest",
     "test:runners": "node scripts/check-test-coverage.mjs",
-    "test:unit": "tsx --test src/utils/linking.test.ts src/services/chatRealtimeCursor.test.ts src/services/conversationRealtimeReducer.test.ts src/services/roomMediaMapping.test.ts src/services/roomRemoteStreamRegistry.test.ts src/services/roomRealtimeReducer.test.ts src/context/signalingRtcUtils.test.ts src/screens/mcpPlatformUtils.test.ts src/store/useSubtitleStore.test.ts src/components/loadViewState.test.ts src/components/submitGuard.test.ts src/hooks/useVersionGate.test.ts test/launchActionGuards.test.ts test/downloadFileName.test.ts ../packages/shared/validation.test.ts ../packages/shared/format.test.ts",
+    "test:unit": "tsx --test src/app/__tests__/linking.test.ts src/utils/linking.test.ts src/services/chatRealtimeCursor.test.ts src/services/conversationRealtimeReducer.test.ts src/services/roomMediaMapping.test.ts src/services/roomRemoteStreamRegistry.test.ts src/services/roomRealtimeReducer.test.ts src/context/signalingRtcUtils.test.ts src/screens/mcpPlatformUtils.test.ts src/store/useSubtitleStore.test.ts src/components/loadViewState.test.ts src/components/submitGuard.test.ts src/hooks/useVersionGate.test.ts test/launchActionGuards.test.ts test/downloadFileName.test.ts ../packages/shared/validation.test.ts ../packages/shared/format.test.ts",
     "test:jest": "jest",
     "lint": "eslint ."
   },
@@ -33,6 +33,7 @@
       "src/components/submitGuard.test.ts",
       "src/context/signalingRtcUtils.test.ts",
       "src/hooks/useVersionGate.test.ts",
+      "src/app/__tests__/linking.test.ts",
       "src/screens/mcpPlatformUtils.test.ts",
       "src/services/chatRealtimeCursor.test.ts",
       "src/services/conversationRealtimeReducer.test.ts",

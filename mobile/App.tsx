@@ -1,113 +1,22 @@
 import "react-native-get-random-values";
 import React from "react";
-import { LinkingOptions, NavigationContainer } from "@react-navigation/native";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { NavigationContainer } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
-import { Linking } from "react-native";
-import './src/i18n';
+import "./src/i18n";
 
-import { AuthProvider } from "./src/context/AuthContext";
-import { setPendingIntent, type PendingIntent } from "./src/services/pendingIntent";
-import { CommercialProvider } from "./src/context/CommercialContext";
-import { FollowUpProvider } from "./src/context/FollowUpContext";
-import { OrganizationProvider } from "./src/context/OrganizationContext";
-import RoomCallProvider from "./src/context/RoomCallContext";
-import { SignalingProvider } from "./src/context/SignalingContext";
-import { SettingsProvider } from "./src/context/SettingsContext";
+import { AppProviders } from "./src/app/AppProviders";
+import { linking } from "./src/app/linking";
+import { useDeepLinks } from "./src/app/useDeepLinks";
+import CallOverlay from "./src/components/CallOverlay";
+import { VersionGate } from "./src/components/VersionGate";
 import AppNavigator from "./src/navigation/AppNavigator";
-import type { RootStackParamList } from "./src/navigation/AppNavigator";
 import { navigationRef } from "./src/navigation/navigationRef";
 import PushNotificationService from "./src/services/PushNotificationService";
-import CallOverlay from "./src/components/CallOverlay";
-import {
-  parseConversationIdFromURL,
-  parseInvitationCodeFromURL,
-  parseRoomIdFromURL,
-} from "./src/utils/invitations";
-import { ErrorBoundary } from "./src/components/ErrorBoundary";
-import { VersionGate } from "./src/components/VersionGate";
-
-const linking: LinkingOptions<RootStackParamList> = {
-  prefixes: ["allcallall://"],
-  config: {
-    screens: {
-      AgentDemo: "agent-demo",
-      Rooms: "meetings",
-      PreJoin: {
-        path: "rooms/:roomId",
-        parse: {
-          roomId: (value: string) => Number(value),
-        },
-      },
-      Conversations: "inbox",
-      ConversationDetail: {
-        path: "conversations/:conversationId",
-        parse: {
-          conversationId: (value: string) => Number(value),
-        },
-      },
-      Contacts: "contacts",
-      FollowUps: "follow-ups",
-      Recordings: "recordings",
-      RecordingTranscript: {
-        path: "recordings/:recordingId/transcript",
-        parse: {
-          recordingId: (value: string) => Number(value),
-          segmentId: (value: string) => Number(value),
-          startMs: (value: string) => Number(value),
-        },
-      },
-      Settings: "settings",
-      Sessions: "sessions",
-      InvitationAccept: "invite/:code",
-    },
-  },
-};
 
 const App = () => {
-  React.useEffect(() => {
-    const handleURL = (url: string | null | undefined) => {
-      const roomId = parseRoomIdFromURL(url);
-      if (roomId) {
-        navigateOrDefer({ kind: "room", roomId }, () => navigationRef.navigate("PreJoin", { roomId }));
-        return;
-      }
-      const conversationId = parseConversationIdFromURL(url);
-      if (conversationId) {
-        navigateOrDefer({ kind: "conversation", conversationId }, () =>
-          navigationRef.navigate("ConversationDetail", { conversationId }),
-        );
-        return;
-      }
-      const code = parseInvitationCodeFromURL(url);
-      if (!code) {
-        return;
-      }
-      navigateOrDefer({ kind: "invitation", code }, () => navigationRef.navigate("InvitationAccept", { code }));
-    };
+  useDeepLinks();
 
-    // Navigating straight away only works if the navigator is attached *and*
-    // the user is signed in - the target routes only exist in the signed-in
-    // stack. Otherwise remember the link and let AppNavigator open it once
-    // both conditions hold, instead of dropping it.
-    const navigateOrDefer = (intent: PendingIntent, navigate: () => void) => {
-      if (navigationRef.isReady() && navigationRef.current?.getCurrentRoute()) {
-        navigate();
-        return;
-      }
-      console.warn("[App] Deep link received before navigation was ready; deferring", intent);
-      setPendingIntent(intent);
-    };
-
-    void Linking.getInitialURL().then(handleURL).catch(() => {});
-    const subscription = Linking.addEventListener("url", ({ url }) => {
-      handleURL(url);
-    });
-    return () => subscription.remove();
-  }, []);
-
-  // 设置推送通知的导航引用
-  // Set navigation ref for push notification handling
+  // Set the navigation ref for push-notification handling after mount.
   React.useEffect(() => {
     if (navigationRef.current) {
       PushNotificationService.setNavigationRef(navigationRef as any);
@@ -115,31 +24,15 @@ const App = () => {
   }, []);
 
   return (
-    <SafeAreaProvider>
-      <ErrorBoundary>
-        <AuthProvider>
-          <OrganizationProvider>
-            <CommercialProvider>
-              <FollowUpProvider>
-                <SettingsProvider>
-                  <RoomCallProvider>
-                    <SignalingProvider>
-                      <NavigationContainer ref={navigationRef} linking={linking}>
-                        <VersionGate>
-                          <AppNavigator />
-                          <CallOverlay />
-                        </VersionGate>
-                        <StatusBar style="auto" />
-                      </NavigationContainer>
-                    </SignalingProvider>
-                  </RoomCallProvider>
-                </SettingsProvider>
-              </FollowUpProvider>
-            </CommercialProvider>
-          </OrganizationProvider>
-        </AuthProvider>
-      </ErrorBoundary>
-    </SafeAreaProvider>
+    <AppProviders>
+      <NavigationContainer ref={navigationRef} linking={linking}>
+        <VersionGate>
+          <AppNavigator />
+          <CallOverlay />
+        </VersionGate>
+        <StatusBar style="auto" />
+      </NavigationContainer>
+    </AppProviders>
   );
 };
 
