@@ -73,16 +73,54 @@ const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 
 // 会议是桌面端的一等公民（默认窗口就加载 /meetings），麦克风/摄像头必须可用。
 // Electron/Chromium 对音视频设备的 permission 值主要是 "media"，个别路径会落到
-// "microphone"/"camera"，一并接受；屏幕捕获（display-capture）暂不放行——它属于
-// 更高风险面，确认产品需要时按同样范式追加到该集合即可。
+// "microphone"/"camera"，一并接受。
 const ALLOWED_MEDIA_PERMISSIONS = new Set(["media", "microphone", "camera"]);
+
+// 屏幕捕获在新版 Electron 里是独立的 "display-capture" 权限（"media" 只代表摄像头和
+// 麦克风），所以"放行 media、拒绝其余"的处理器默认会拦掉屏幕共享。当前 web/mobile 都
+// 没有 getDisplayMedia 调用，屏幕共享尚未落地，因此这里继续拒绝；等共享功能上线时，
+// 按同样的"可信来源 + 权限类型"范式把 "display-capture" 加进白名单即可。
+// 定位、通知、剪贴板读取、指针锁定、hid/usb、持久化存储等一律不放行。
+
+// 权限判定要优先用 Electron 传来的发起方信息，且必须容忍 webContents 为 null：
+// service worker 发起的检查没有 webContents（Electron 文档明确说明），此时若直接
+// 调用 webContents.getURL() 会抛 TypeError，把权限检查变成崩溃点。任何取不到来源
+// 的情况都走空字符串，由 isInternalWebURL 判定失败 → 拒绝（fail closed）。
+function resolveRequestingOrigin(details, webContents, fallback) {
+  if (details && typeof details === "object") {
+    for (const key of ["securityOrigin", "requestingOrigin", "requestingUrl"]) {
+      if (typeof details[key] === "string" && details[key]) {
+        return details[key];
+      }
+    }
+  }
+  if (typeof fallback === "string" && fallback) {
+    return fallback;
+  }
+  return webContents && typeof webContents.getURL === "function" ? webContents.getURL() : "";
+}
 
 // 双重判定：请求来源必须是本应用已信任的 Web 资源，且权限类型在媒体白名单内。
 function isTrustedMediaRequest(requestingURL, permission) {
   if (!ALLOWED_MEDIA_PERMISSIONS.has(permission)) {
     return false;
   }
-  return typeof requestingURL === "string" && isInternalWebURL(requestingURL);
+  return typeof requestingURL === "string" && requestingURL !== "" && isInternalWebURL(requestingURL);
+}
+
+// 权限处理器只注册一次（挂在 defaultSession 上）。放在 createWindow 里注册看似等价，
+// 但每次新建窗口都会覆盖上一个处理器，且多窗口下容易出现"只有一个窗口生效"的误判。
+function installPermissionHandlers() {
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    callback(isTrustedMediaRequest(resolveRequestingOrigin(details, webContents), permission));
+  });
+
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    return isTrustedMediaRequest(
+      resolveRequestingOrigin(details, webContents, requestingOrigin),
+      permission
+    );
+  });
 }
 
 let mainWindow = null;
@@ -174,20 +212,6 @@ function createWindow() {
         app.quit();
       })
       .catch(() => {});
-  });
-
-  // 按"请求来源 + 权限类型"白名单放行：只有来自本应用 Web 资源的音视频请求才通过，
-  // 其余（定位、通知、剪贴板读取、屏幕捕获等）一律拒绝。
-  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback, details) => {
-    const requestingURL =
-      details && typeof details.requestingUrl === "string" && details.requestingUrl
-        ? details.requestingUrl
-        : webContents.getURL();
-    callback(isTrustedMediaRequest(requestingURL, permission));
-  });
-
-  mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission, origin) => {
-    return isTrustedMediaRequest(origin || webContents.getURL(), permission);
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -288,6 +312,7 @@ if (!gotSingleInstanceLock) {
 app.whenReady().then(() => {
   app.setAppUserModelId("com.allcallall.desktop");
   app.setAsDefaultProtocolClient("allcallall");
+  installPermissionHandlers();
   buildMenu();
   createWindow();
   if (pendingRouteTarget) {

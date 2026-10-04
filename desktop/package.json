@@ -6,8 +6,9 @@
   "author": "AllCallAll",
   "main": "main.cjs",
   "scripts": {
-    "check": "node --check main.cjs && node --check preload.cjs && node --check route-utils.cjs && node --check scripts/deep-link-check.cjs && npm run deep-link:check",
+    "check": "node --check main.cjs && node --check preload.cjs && node --check route-utils.cjs && node --check scripts/deep-link-check.cjs && node --check scripts/permission-check.cjs && npm run deep-link:check && npm run permission:check",
     "deep-link:check": "node scripts/deep-link-check.cjs",
+    "permission:check": "node scripts/permission-check.cjs",
     "dev": "electron .",
     "start": "electron .",
     "build": "electron-builder --dir",
@@ -35,7 +36,11 @@
     ],
     "mac": {
       "category": "public.app-category.business",
-      "identity": null
+      "identity": null,
+      "extendInfo": {
+        "NSCameraUsageDescription": "AllCallAll 桌面端在会议中使用摄像头。",
+        "NSMicrophoneUsageDescription": "AllCallAll 桌面端在会议中使用麦克风。"
+      }
     },
     "win": {
       "target": [
@@ -50,7 +55,7 @@
     }
   },
   "devDependencies": {
-    "electron": "31.7.7",
+    "electron": "^44.5.1",
     "electron-builder": "^26.15.2"
   }
 }
