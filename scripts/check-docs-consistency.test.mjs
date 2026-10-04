@@ -63,6 +63,18 @@ test("does not require archived documents in the maintained index", async () => 
   assert.deepEqual(checkDocumentationTree(root), []);
 });
 
+test("ignores local tooling, patch, and generated test-result directories", async () => {
+  const root = await createRepository({
+    "docs/README.md": "# Documentation\n",
+    ".omo/notes.md": "not maintained documentation",
+    ".workbuddy/memory.md": "# Memory\n\n# Duplicate\n",
+    "patches/README.md": "```\nuntyped\n```\n",
+    "web/test-results/run/error-context.md": "# Result\n\n### Skipped heading\n",
+  });
+
+  assert.deepEqual(checkDocumentationTree(root), []);
+});
+
 test("reports an opening code fence without a language tag", async () => {
   const root = await createRepository({});
 

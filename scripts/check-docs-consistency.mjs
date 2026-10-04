@@ -19,13 +19,17 @@ const GOVERNANCE_FILES = [
 ];
 const IGNORED_DIRECTORIES = new Set([
   ".git",
+  ".omo",
   ".venv",
+  ".workbuddy",
   ".worktrees",
   "build",
   "coverage",
   "dist",
   "node_modules",
   "output",
+  "patches",
+  "test-results",
   "vendor",
 ]);
 const COMPATIBILITY_POINTER_MARKERS = [
