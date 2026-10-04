@@ -192,6 +192,14 @@ func TestPublishEventOnChange(t *testing.T) {
 	defer sub.Close()
 	ch := sub.Subscribe(ctx, eventsChannel)
 	defer ch.Close()
+	ack, err := ch.Receive(ctx)
+	if err != nil {
+		t.Fatalf("receive subscription acknowledgement failed: %v", err)
+	}
+	subAck, ok := ack.(*redis.Subscription)
+	if !ok || subAck.Channel != eventsChannel {
+		t.Fatalf("unexpected subscription acknowledgement: %#v", ack)
+	}
 	msgCh := ch.Channel()
 
 	// Trigger a state change; the manager must broadcast it.
