@@ -17,6 +17,7 @@ type ReadinessCheck func(context.Context) error
 // RouteDependencies bundles handlers and middleware.
 type RouteDependencies struct {
 	AuthHandler        *handlers.AuthHandler
+	AppVersion         *handlers.AppVersionHandler
 	EmailHandler       *handlers.EmailHandler
 	UserHandler        *handlers.UserHandler
 	Push               *handlers.PushHandler
@@ -93,6 +94,13 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 
 	authGroup := api.Group("/auth")
 	deps.AuthHandler.RegisterRoutes(authGroup)
+
+	// Version check sits on the unauthenticated group: a build that is too old
+	// to complete a normal request still has to be able to ask whether it must
+	// update, and the answer is two version strings, not user data.
+	if deps.AppVersion != nil {
+		deps.AppVersion.RegisterPublicRoutes(api)
+	}
 
 	if deps.Commercial != nil {
 		deps.Commercial.RegisterPublicRoutes(api)

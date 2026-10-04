@@ -483,6 +483,7 @@ func main() {
 
 	server.RegisterRoutes(engine, server.RouteDependencies{
 		AuthHandler:      authHandler,
+		AppVersion:       handlers.NewAppVersionHandler(db),
 		EmailHandler:     emailHandler,
 		UserHandler:      userHandler,
 		Push:             pushHandler,

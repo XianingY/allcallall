@@ -4,13 +4,15 @@ package models
 func AllModels() []any {
 	return []any{
 		&User{}, &RefreshSession{}, &Contact{}, &EmailVerificationCode{}, &EmailSendLog{},
+		// Lets the service refuse builds older than a supported floor - the only
+		// way to guarantee a client has actually picked up a release.
+		&AppVersionPolicy{},
 		&CallSession{}, &UserBlock{}, &AbuseReport{}, &LegalAcceptance{}, &UserEntitlement{},
 		&UsageLedger{}, &TranslationUsageSlice{}, &BillingWebhookEvent{}, &DeletionAudit{},
 		&Invitation{}, &ContactProfile{}, &CallTranscriptSegment{}, &CallFollowup{}, &FollowUpTask{},
 		&Organization{}, &OrganizationMember{}, &Team{}, &TeamMember{}, &OrganizationInvite{},
 		&OrganizationPolicy{}, &Conversation{}, &ConversationNote{}, &ConversationMember{}, &Message{},
-		&MessageRead{}, &ChatEvent{}, &Attachment{}, &MessageReaction{}, &ConversationPin{},
-		&OrganizationAuditEvent{}, &PushDevice{}, &CallRoom{}, &CallRoomMember{}, &CallRoomEvent{},
+		&MessageRead{}, &ChatEvent{}, &Attachment{}, &MessageReaction{}, &ConversationPin{},		&OrganizationAuditEvent{}, &PushDevice{}, &CallRoom{}, &CallRoomMember{}, &CallRoomEvent{},
 		&RecordingSession{}, &RecordingFile{}, &RecordingTranscription{}, &MeetingTranscriptSegment{},
 		&RecordingConsent{}, &RecordingExport{}, &RoomSettlement{}, &Pipeline{}, &PipelineStage{},
 		&Deal{}, &DealContact{}, &DealActivity{}, &AgentRun{}, &AgentStep{}, &AgentToolCall{},
