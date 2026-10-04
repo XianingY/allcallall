@@ -297,3 +297,8 @@ mobile/ios/.xcode.env
 /backend/server
 /backend/translation-smoke
 /backend/user-service
+
+# Debug keystore: per-developer, never committed. The one that was committed
+# under android/app/debug.keystore is public and must not be used for release.
+mobile/android/app/debug.keystore
+mobile/android/app/release.keystore

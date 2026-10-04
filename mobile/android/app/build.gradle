@@ -128,6 +128,17 @@ android {
             keyPassword 'android'
         }
         release {
+            // Populated only when the keystore properties are present. When they
+            // are not, this config stays empty and gradle's own validation fails
+            // the release packaging with "missing required property storeFile".
+            //
+            // Relying on that instead of a custom check is deliberate: the
+            // fallback this replaces signed release builds with the debug key.
+            // Play Store rejects such a package, and because the debug key was
+            // committed to git it is public - anyone could sign a colliding
+            // update. A build that cannot be published should not be produced,
+            // and gradle already refuses to package an incompletely configured
+            // signing config.
             if (project.hasProperty('MYAPP_RELEASE_STORE_FILE')) {
                 storeFile file(MYAPP_RELEASE_STORE_FILE)
                 storePassword MYAPP_RELEASE_STORE_PASSWORD
@@ -145,19 +156,26 @@ android {
             }
         }
         release {
-            // Prefer release keystore when configured, otherwise fall back to debug signing.
-            signingConfig project.hasProperty('MYAPP_RELEASE_STORE_FILE') ? signingConfigs.release : signingConfigs.debug
+            // A release package signed with the debug key cannot be published:
+            // Play Store rejects it, and the debug key is public, so anyone
+            // could sign a colliding update. Fail loudly instead of producing
+            // an artifact that looks fine and is unusable.
+            //
+            // Checked in the task graph rather than at configuration time: this
+            // block is evaluated for every build, and throwing here would also
+            // break local debug builds.
+            signingConfig signingConfigs.release
             shrinkResources (findProperty('android.enableShrinkResourcesInReleaseBuilds')?.toBoolean() ?: false)
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
             crunchPngs (findProperty('android.enablePngCrunchInReleaseBuilds')?.toBoolean() ?: true)
         }
     }
-    packagingOptions {
-        jniLibs {
-            useLegacyPackaging (findProperty('expo.useLegacyPackaging')?.toBoolean() ?: false)
+        packagingOptions {
+            jniLibs {
+                useLegacyPackaging (findProperty('expo.useLegacyPackaging')?.toBoolean() ?: false)
+            }
         }
-    }
 }
 
 // Apply static values from `gradle.properties` to the `android.packagingOptions`
