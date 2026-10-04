@@ -999,6 +999,10 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     [navigation],
   );
 
+  const handleMessageRefresh = useCallback(() => {
+    void loadData();
+  }, [loadData]);
+
   const workspacePaneProps = {
     conversation,
     workspace: detail?.workspace,
@@ -1045,7 +1049,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     currentUserId: user?.id,
     pendingAttachments,
     uploadingAttachment,
-    onRefresh: () => void loadData(),
+    onRefresh: handleMessageRefresh,
     onLoadMorePrev: loadMorePrev,
     onSend: handleSend,
     onAskAgent: handleAskAgent,

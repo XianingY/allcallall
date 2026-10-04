@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { memo, useCallback, useState } from "react";
 import { FlatList, Text, TouchableOpacity, View } from "react-native";
 import PrimaryButton from "../../components/PrimaryButton";
 import TextField from "../../components/TextField";
@@ -6,6 +6,8 @@ import MessageRow from "./MessageRow";
 import { styles } from "./styles";
 import type { MessagePaneProps } from "./types";
 import type { MessageRecord } from "../../api/collaboration";
+
+const messageKeyExtractor = (item: MessageRecord) => String(item.id);
 
 const MessagePane = ({
   messages,
@@ -44,14 +46,22 @@ const MessagePane = ({
     }
   }, [draft, onAskAgent, workflowLoading]);
 
-  const renderMessage = ({ item }: { item: MessageRecord }) => (
-    <MessageRow
-      item={item}
-      currentUserId={currentUserId}
-      onOpenTranscript={onOpenTranscript}
-      onLongPress={onLongPressMessage}
-      onDownloadAttachment={onDownloadAttachment}
-    />
+  const renderMessage = useCallback(
+    ({ item }: { item: MessageRecord }) => (
+      <MessageRow
+        item={item}
+        currentUserId={currentUserId}
+        onOpenTranscript={onOpenTranscript}
+        onLongPress={onLongPressMessage}
+        onDownloadAttachment={onDownloadAttachment}
+      />
+    ),
+    [
+      currentUserId,
+      onOpenTranscript,
+      onLongPressMessage,
+      onDownloadAttachment,
+    ],
   );
 
   return (
@@ -63,7 +73,7 @@ const MessagePane = ({
       initialNumToRender={12}
       maxToRenderPerBatch={12}
       data={messages}
-      keyExtractor={(item) => String(item.id)}
+      keyExtractor={messageKeyExtractor}
       refreshing={loading}
       onRefresh={onRefresh}
       contentContainerStyle={styles.listContent}
@@ -132,4 +142,4 @@ const MessagePane = ({
   );
 };
 
-export default MessagePane;
+export default memo(MessagePane);
