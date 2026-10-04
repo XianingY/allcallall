@@ -22,6 +22,7 @@ const {
   conversation,
   detail,
   message,
+  note,
 } = vi.hoisted(() => {
   const conversation = {
     id: 5,
@@ -58,6 +59,12 @@ const {
     pinned: false,
     created_at: "2026-09-27T08:00:00Z",
   };
+  const note = {
+    id: 31,
+    body: "客户要求升级处理",
+    author_display_name: "Ada",
+    created_at: "2099-01-01T00:00:00Z",
+  };
   const noop = vi.fn<(...args: unknown[]) => Promise<unknown>>(() => Promise.resolve(undefined));
   return {
     sendMessageMock: noop,
@@ -70,6 +77,7 @@ const {
     conversation,
     detail,
     message,
+    note,
   };
 });
 
@@ -83,7 +91,7 @@ vi.mock("@/api/collaboration", async (importOriginal) => ({
   getConversation: () => Promise.resolve(detail),
   listMessages: () => Promise.resolve({ messages: [message], has_more_prev: false }),
   listPinnedMessages: () => Promise.resolve([]),
-  listNotes: () => Promise.resolve([]),
+  listNotes: () => Promise.resolve([note]),
   markConversationRead: () => Promise.resolve(),
   sendTyping: (...args: unknown[]) => sendTypingMock(...args),
   sendMessage: (...args: unknown[]) => sendMessageMock(...args),
@@ -120,7 +128,12 @@ vi.mock("@/organizations/OrganizationContext", () => ({
   }),
 }));
 
+vi.mock("@/pages/collaboration/InboxFormat", () => ({
+  formatTime: vi.fn(() => "formatted"),
+}));
+
 import { InboxPage } from "@/pages/collaboration/InboxPage";
+import { formatTime } from "@/pages/collaboration/InboxFormat";
 
 const renderPage = () =>
   render(
@@ -236,5 +249,27 @@ describe("InboxPage typing lifecycle", () => {
     expect(sendTypingMock).toHaveBeenCalledTimes(3);
     expect(sendTypingMock).toHaveBeenLastCalledWith(5, false);
     expect(field).toHaveValue("");
+  });
+});
+
+describe("InboxPage context panel performance", () => {
+  afterEach(cleanup);
+  beforeEach(() => vi.clearAllMocks());
+
+  it("keeps the context panel from re-rendering while the user types", async () => {
+    renderPage();
+    await screen.findByText("客户要求升级处理");
+
+    const contextPanelRenders = () =>
+      vi.mocked(formatTime).mock.calls.filter(([value]) => value === note.created_at).length;
+    const initialRenders = contextPanelRenders();
+
+    const field = await screen.findByLabelText("输入消息");
+    fireEvent.change(field, { target: { value: "h" } });
+    fireEvent.change(field, { target: { value: "he" } });
+    fireEvent.change(field, { target: { value: "hel" } });
+    expect(field).toHaveValue("hel");
+
+    expect(contextPanelRenders()).toBe(initialRenders);
   });
 });

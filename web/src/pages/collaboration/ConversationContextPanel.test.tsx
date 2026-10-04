@@ -2,7 +2,12 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { formatTime } from "@/pages/collaboration/InboxFormat";
 import { ConversationContextPanel } from "@/pages/collaboration/ConversationContextPanel";
+
+vi.mock("@/pages/collaboration/InboxFormat", () => ({
+  formatTime: vi.fn(() => "09-27 16:00"),
+}));
 
 const detail = {
   conversation: {
@@ -86,5 +91,64 @@ describe("ConversationContextPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /从当前会话开会/ }));
     expect(onStartMeeting).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips re-rendering when parent updates with the same data slices", () => {
+    const note = {
+      id: 11,
+      body: "客户要求升级处理",
+      author_display_name: "Ada",
+      created_at: "2026-09-27T08:00:00Z",
+    };
+    const onNoteChange = vi.fn();
+    const onUpdateConversation = vi.fn();
+    const onAddNote = vi.fn();
+    const onStartMeeting = vi.fn();
+    const notesData = [note];
+
+    const makePanel = () => (
+      <MemoryRouter>
+        <ConversationContextPanel
+          selectedId={5}
+          detail={{ data: detail, isLoading: false, isError: false } as never}
+          notes={{ data: notesData } as never}
+          note=""
+          onNoteChange={onNoteChange}
+          onUpdateConversation={onUpdateConversation}
+          onAddNote={onAddNote}
+          onStartMeeting={onStartMeeting}
+        />
+      </MemoryRouter>
+    );
+
+    const { rerender } = render(makePanel());
+    expect(screen.getByText("会议转写")).toBeInTheDocument();
+    expect(vi.mocked(formatTime)).toHaveBeenCalledTimes(1);
+
+    rerender(makePanel());
+    expect(vi.mocked(formatTime)).toHaveBeenCalledTimes(1);
+
+    const updatedNote = {
+      ...note,
+      id: 12,
+      body: "升级到二线处理",
+    };
+    rerender(
+      <MemoryRouter>
+        <ConversationContextPanel
+          selectedId={5}
+          detail={{ data: detail, isLoading: false, isError: false } as never}
+          notes={{ data: [updatedNote] } as never}
+          note=""
+          onNoteChange={onNoteChange}
+          onUpdateConversation={onUpdateConversation}
+          onAddNote={onAddNote}
+          onStartMeeting={onStartMeeting}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("升级到二线处理")).toBeInTheDocument();
+    expect(vi.mocked(formatTime)).toHaveBeenCalledTimes(2);
   });
 });

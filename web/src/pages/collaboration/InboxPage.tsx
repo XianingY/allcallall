@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import {
@@ -161,11 +161,11 @@ export function InboxPage() {
         ? "conversation"
         : "list";
 
-  const closeContext = () => {
+  const closeContext = useCallback(() => {
     setContextOpen(false);
     setMobileContextConversationId(null);
     window.requestAnimationFrame(() => contextButtonRef.current?.focus());
-  };
+  }, []);
 
   const toggleContext = () => {
     if (isNarrow) {
@@ -241,9 +241,9 @@ export function InboxPage() {
           notes={queries.notes}
           note={note}
           onNoteChange={setNote}
-          onUpdateConversation={(input) => mutations.update.mutate(input)}
-          onAddNote={() => mutations.addNote.mutate()}
-          onStartMeeting={() => mutations.startMeeting.mutate()}
+          onUpdateConversation={mutations.update.mutate}
+          onAddNote={mutations.addNote.mutate}
+          onStartMeeting={mutations.startMeeting.mutate}
           onClose={isNarrow ? closeContext : undefined}
           errors={{
             update: mutations.update.error,

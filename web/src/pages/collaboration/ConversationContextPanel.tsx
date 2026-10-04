@@ -1,4 +1,5 @@
 import { Bot, Check, FileAudio, StickyNote, Video, X } from "lucide-react";
+import { memo } from "react";
 import { Link } from "react-router-dom";
 
 import { FormError } from "@/components/AuthLayout";
@@ -25,7 +26,31 @@ interface ConversationContextPanelProps {
   meetingPending?: boolean;
 }
 
-export function ConversationContextPanel({
+function areContextPanelPropsEqual(
+  previous: ConversationContextPanelProps,
+  next: ConversationContextPanelProps,
+) {
+  // TanStack Query returns a fresh result wrapper on every render even when
+  // its cached `data` is unchanged. This panel renders only the fields below,
+  // so compare those fields instead of the unstable query-result objects.
+  return (
+    previous.selectedId === next.selectedId &&
+    previous.detail.data === next.detail.data &&
+    previous.notes.data === next.notes.data &&
+    previous.note === next.note &&
+    previous.onNoteChange === next.onNoteChange &&
+    previous.onUpdateConversation === next.onUpdateConversation &&
+    previous.onAddNote === next.onAddNote &&
+    previous.onStartMeeting === next.onStartMeeting &&
+    previous.onClose === next.onClose &&
+    previous.errors?.update === next.errors?.update &&
+    previous.errors?.addNote === next.errors?.addNote &&
+    previous.errors?.startMeeting === next.errors?.startMeeting &&
+    previous.meetingPending === next.meetingPending
+  );
+}
+
+export const ConversationContextPanel = memo(function ConversationContextPanel({
   selectedId,
   detail,
   notes,
@@ -198,4 +223,4 @@ export function ConversationContextPanel({
       )}
     </aside>
   );
-}
+}, areContextPanelPropsEqual);
