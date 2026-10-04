@@ -4,23 +4,47 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
-  resolve: { alias: { "@": path.resolve(__dirname, "src") } },
+  // mobile pins React 19.2.3 (Expo 57 / RN 0.86), so npm hoists react and
+  // react-dom to the workspace root while web/ stays on 18.3.1. react-i18next
+  // satisfies both workspaces and gets deduped to the root copy, which means it
+  // binds to React 19 while web's components render with React 18: the hook
+  // then calls useContext on a React whose dispatcher is null and the app dies
+  // on "Cannot read properties of null (reading 'useContext')". Deduping both
+  // names to this project's copy keeps a single React in the graph. src/
+  // components/PageState.tsx documents the same hazard from the other side by
+  // avoiding the hook entirely.
+  resolve: {
+    alias: { "@": path.resolve(__dirname, "src") },
+    dedupe: ["react", "react-dom"],
+  },
   build: {
     chunkSizeWarningLimit: 820,
     // Vite 8 unifies dev and production bundling on Rolldown (Rust). The old
     // `build.rollupOptions.output.manualChunks` is gone: the object form was
     // removed and the function form is deprecated, so the vendor split now
-    // lives in `rolldownOptions.output.codeSplitting.groups`. Groups are
-    // matched in order, first hit wins, and the catch-all keeps what used to
-    // fall through to `vendor-core`.
+    // lives in `rolldownOptions.output.codeSplitting.groups`.
     rolldownOptions: {
       output: {
         codeSplitting: {
           groups: [
-            { name: "vendor-revenuecat", test: /node_modules[\\/](@revenuecat[\\/]|[^\\/]*[Pp]urchases)/ },
-            { name: "vendor-firebase", test: /node_modules[\\/]firebase/ },
-            { name: "vendor-agent-graph", test: /node_modules[\\/]@xyflow[\\/]/ },
-            { name: "vendor-core", test: /node_modules/ },
+            // React has to be claimed by exactly one group. Rolldown pulls a
+            // matched group's dependencies in recursively, so without this
+            // group @xyflow and firebase both dragged react in, the catch-all
+            // matched it as well, and React shipped in two chunks: every hook
+            // call then failed with "Cannot read properties of null (reading
+            // 'useContext')". A group with a higher priority removes its
+            // modules from the other groups, so this one wins everywhere.
+            {
+              name: "vendor-react",
+              test: /node_modules[\\/](react|react-dom|scheduler|react-router|react-router-dom)[\\/]/,
+              priority: 30,
+            },
+            { name: "vendor-revenuecat", test: /node_modules[\\/](@revenuecat[\\/]|[^\\/]*[Pp]urchases)/, priority: 20 },
+            { name: "vendor-firebase", test: /node_modules[\\/]firebase/, priority: 20 },
+            { name: "vendor-agent-graph", test: /node_modules[\\/]@xyflow[\\/]/, priority: 20 },
+            // Catch-all last, and lowest priority so it only takes what no
+            // other group claimed.
+            { name: "vendor-core", test: /node_modules/, priority: 0 },
           ],
         },
       },
