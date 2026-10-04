@@ -85,9 +85,9 @@ func TestCriticalPackagesAreWired(t *testing.T) {
 	}
 }
 
-// TestMainWiresCriticalServices 断言 main.go 里的关键装配点仍然存在。
-func TestMainWiresCriticalServices(t *testing.T) {
-	src, err := os.ReadFile("main.go")
+// TestBootstrapWiresCriticalServices 断言 bootstrap 装配入口里的关键装配点仍然存在。
+func TestBootstrapWiresCriticalServices(t *testing.T) {
+	src, err := os.ReadFile("../../internal/bootstrap/server.go")
 	if err != nil {
 		t.Fatalf("read main.go: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestMainWiresCriticalServices(t *testing.T) {
 
 	for needle, desc := range wants {
 		if !strings.Contains(body, needle) {
-			t.Errorf("main.go 缺少装配点 %q（%s）——这是导致能力不生效的装配断点", needle, desc)
+			t.Errorf("internal/bootstrap/server.go 缺少装配点 %q（%s）——这是导致能力不生效的装配断点", needle, desc)
 		}
 	}
 }
