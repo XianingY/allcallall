@@ -102,9 +102,7 @@ export interface WorkspacePaneProps {
     fileId: number,
     fileName: string,
   ) => Promise<void>;
-  noteDraft: string;
-  onNoteDraftChange: (text: string) => void;
-  onAddNote: () => Promise<void>;
+  onAddNote: (draft: string) => Promise<boolean>;
 }
 
 export interface MessagePaneProps {

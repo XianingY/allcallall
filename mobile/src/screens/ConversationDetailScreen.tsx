@@ -93,7 +93,6 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     useState<RecordingRecord | null>(null);
   const [sending, setSending] = useState(false);
   const sendFlight = useRef(createSingleFlight()).current;
-  const [noteDraft, setNoteDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [activeWorkflow, setActiveWorkflow] = useState<WorkflowResult | null>(
     null,
@@ -821,19 +820,20 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     }
   }, [activeWorkflow, loadData, token]);
 
-  const handleAddNote = async () => {
-    if (!token || !noteDraft.trim()) {
-      return;
+  const handleAddNote = useCallback(async (draft: string) => {
+    if (!token || !draft.trim()) {
+      return false;
     }
     try {
-      await createConversationNote(token, conversationId, noteDraft.trim());
-      setNoteDraft("");
+      await createConversationNote(token, conversationId, draft.trim());
       await loadData();
+      return true;
     } catch (error) {
       console.error("[ConversationDetailScreen] Failed to create note:", error);
       Alert.alert("备注失败", "无法添加内部备注。");
+      return false;
     }
-  };
+  }, [conversationId, loadData, token]);
 
   const handleAssignSelf = async () => {
     if (!token || !user) {
@@ -1032,8 +1032,6 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     onUpdatePriority: handleUpdatePriority,
     onBindContact: handleBindContact,
     onDownloadRecording: handleDownloadRecording,
-    noteDraft,
-    onNoteDraftChange: setNoteDraft,
     onAddNote: handleAddNote,
   };
 
