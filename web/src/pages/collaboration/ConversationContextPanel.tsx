@@ -1,4 +1,4 @@
-import { Bot, Check, FileAudio, StickyNote, Video } from "lucide-react";
+import { Bot, Check, FileAudio, StickyNote, Video, X } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { FormError } from "@/components/AuthLayout";
@@ -15,6 +15,7 @@ interface ConversationContextPanelProps {
   onUpdateConversation: (input: { status?: string; priority?: string }) => void;
   onAddNote: () => void;
   onStartMeeting: () => void;
+  onClose?: () => void;
   errors?: {
     update?: unknown;
     addNote?: unknown;
@@ -32,6 +33,7 @@ export function ConversationContextPanel({
   onUpdateConversation,
   onAddNote,
   onStartMeeting,
+  onClose,
   errors,
   meetingPending,
 }: ConversationContextPanelProps) {
@@ -44,6 +46,14 @@ export function ConversationContextPanel({
         </div>
       ) : (
         <div className="context-scroll">
+          <header className="context-header">
+            <h2>业务上下文</h2>
+            {onClose ? (
+              <button className="icon-button" aria-label="关闭上下文" onClick={onClose}>
+                <X size={18} />
+              </button>
+            ) : null}
+          </header>
           <section className="context-section">
             <h3>会话状态</h3>
             <label>

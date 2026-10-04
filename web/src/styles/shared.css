@@ -303,50 +303,12 @@
   .transcript-timeline article { grid-template-columns: 3rem minmax(0, 1fr); padding-left: .65rem; }
 }
 
-.inbox-layout { height: 100vh; display: grid; grid-template-columns: minmax(250px, 320px) minmax(380px, 1fr) minmax(260px, 330px); background: white; overflow: hidden; }
-.conversation-list, .message-pane, .context-pane { min-width: 0; height: 100vh; border-right: 1px solid #dfe4e2; background: #fff; }
-.conversation-list, .message-pane { display: flex; flex-direction: column; }
-.context-pane { border-right: 0; background: #f7f8fa; }
-.workspace-pane-header { min-height: 68px; display: flex; align-items: center; gap: .6rem; justify-content: space-between; border-bottom: 1px solid #dfe4e2; padding: .85rem 1rem; }
-.workspace-pane-header h1, .workspace-pane-header h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1.05rem; font-weight: 650; }
-.workspace-pane-header p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #65706d; font-size: .72rem; }
 .search-field { height: 38px; display: flex; align-items: center; gap: .5rem; margin: .75rem; border: 1px solid #dfe4e2; border-radius: 6px; padding: 0 .65rem; color: #65706d; }
 .search-field input { width: 100%; border: 0; outline: 0; background: transparent; font-size: .8rem; }
 .filter-tabs { display: flex; gap: .2rem; padding: 0 .75rem .6rem; }
 .filter-tabs button { border-radius: 4px; padding: .3rem .55rem; color: #65706d; font-size: .72rem; }
 .filter-tabs button.active { background: #dff2ed; color: #146c5a; font-weight: 650; }
-.conversation-items { overflow-y: auto; padding: 0 .5rem .75rem; }
-.conversation-item { position: relative; display: grid; grid-template-columns: 2.25rem minmax(0, 1fr); gap: .65rem; border-radius: 6px; padding: .7rem; }
-.conversation-item:hover, .conversation-item-active { background: #f0f7f5; }
-.conversation-avatar, .contact-avatar { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: 6px; background: #dfe9e6; color: #31584e; font-size: .8rem; font-weight: 700; }
-.conversation-copy { min-width: 0; }
-.conversation-copy > div { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
-.conversation-copy strong, .conversation-copy p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conversation-copy strong { font-size: .8rem; }
-.conversation-copy time, .conversation-copy > span { color: #7d8784; font-size: .62rem; }
-.conversation-copy p { margin: .2rem 0; color: #65706d; font-size: .72rem; }
-.unread-count { position: absolute; right: .65rem; bottom: .65rem; min-width: 1rem; border-radius: 8px; background: #146c5a; padding: .05rem .25rem; color: #fff; text-align: center; font-size: .6rem; }
-.message-stream { flex: 1; overflow-y: auto; padding: 1rem clamp(1rem, 4vw, 3rem); background: #fbfcfc; }
-.message-bubble { max-width: 44rem; margin-bottom: .9rem; border: 1px solid #e4e8e6; border-radius: 6px; background: white; padding: .75rem .85rem; }
-.message-bubble header { display: flex; justify-content: space-between; gap: 1rem; font-size: .72rem; }
-.message-bubble header > div:first-child { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
-.message-bubble header time { color: #7d8784; }
-.message-bubble p { margin-top: .35rem; color: #29332f; font-size: .86rem; line-height: 1.55; white-space: pre-wrap; }
-.message-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .15rem; }
-.message-actions .icon-button { width: 1.75rem; height: 1.75rem; }
-.message-deleted { background: #f6f7f7; color: #7d8784; }
-.reply-preview { display: flex; align-items: center; gap: .35rem; margin-top: .45rem; border-left: 2px solid #8bb8aa; background: #f0f7f5; padding: .35rem .45rem; color: #65706d; font-size: .68rem; }
-.reply-preview span, .composer-context span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attachment-list { display: flex; flex-direction: column; gap: .35rem; margin-top: .5rem; }
-/* Attachments are buttons now, not links: a plain <a> cannot carry the
-   Authorization header the download endpoint needs. */
-.attachment-list a,
-.attachment-list .attachment-link { display: flex; width: fit-content; max-width: 100%; align-items: center; gap: .35rem; border: 1px solid #dfe4e2; border-radius: 5px; background: #f7faf9; padding: .32rem .45rem; color: #31584e; font-size: .7rem; cursor: pointer; }
-.attachment-list .attachment-link:disabled { opacity: .6; cursor: progress; }
-.attachment-list a span,
-.attachment-list .attachment-link span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attachment-list small { color: #7d8784; }
-.attachment-error { color: #b91c1c; margin-left: .35rem; }
+.contact-avatar { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: 6px; background: #dfe9e6; color: #31584e; font-size: .8rem; font-weight: 700; }
 /* Post-call summary, expanded from a call history row. */
 .call-summary { display: flex; flex-direction: column; gap: .6rem; padding: .75rem .25rem; text-align: left; }
 .call-summary > p { margin: 0; line-height: 1.6; }
@@ -354,36 +316,8 @@
 .call-summary ul { margin: 0; padding-left: 1.1rem; }
 .call-summary li { margin-bottom: .2rem; }
 .call-summary-empty { display: flex; flex-direction: column; align-items: flex-start; gap: .6rem; padding: .75rem .25rem; text-align: left; }
-/* Banner shown while the Inbox list is replaced by message-content results. */
-.search-scope { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin: 0 .75rem .5rem; padding: .4rem .6rem; border-radius: 6px; background: #eef4f2; color: #31584e; font-size: .72rem; }
-.search-scope button { padding: .15rem .4rem; font-size: .68rem; }
-.reaction-row { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem; }
-.reaction-row button { border-radius: 10px; background: #e7efec; padding: .12rem .45rem; color: #31584e; font-size: .68rem; }
-.pinned-strip { display: flex; gap: .4rem; overflow-x: auto; border-bottom: 1px solid #dfe4e2; background: #fbf7e8; padding: .45rem .75rem; }
-.pinned-strip button { display: flex; max-width: 16rem; align-items: center; gap: .3rem; border-radius: 4px; background: #fffaf0; padding: .32rem .45rem; color: #6b4e16; font-size: .68rem; }
-.pinned-strip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.load-older { display: flex; margin: 0 auto .9rem; }
-.typing-line { color: #65706d; font-size: .7rem; }
-.message-composer { display: grid; grid-template-columns: minmax(0, 1fr) 2.25rem; align-items: end; gap: .5rem; border-top: 1px solid #dfe4e2; padding: .75rem 1rem; }
-.message-composer.beta-composer { grid-template-columns: minmax(0, 1fr) 2.25rem 2.25rem; }
-.composer-context { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; color: #65706d; font-size: .68rem; }
-.composer-context span { display: inline-flex; max-width: 100%; align-items: center; gap: .25rem; border-radius: 4px; background: #eef5f2; padding: .25rem .4rem; }
-.message-composer textarea { resize: none; border: 0; outline: 0; font-size: .85rem; }
-.composer-send { background: #146c5a; color: white; }
 .pane-empty { flex: 1; min-height: 10rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .4rem; color: #7d8784; font-size: .78rem; }
 .pane-empty strong { color: #46504d; font-size: .9rem; }
-.context-scroll { height: 100%; overflow-y: auto; }
-.context-section { border-bottom: 1px solid #dfe4e2; padding: 1rem; }
-.context-section h3 { display: flex; align-items: center; gap: .4rem; margin-bottom: .75rem; font-size: .8rem; font-weight: 700; }
-.context-section label { display: block; margin-bottom: .6rem; color: #65706d; font-size: .7rem; }
-.context-section label .field { margin-top: .3rem; }
-.context-metric { display: flex; justify-content: space-between; border-bottom: 1px solid #e8ebe9; padding: .45rem 0; font-size: .72rem; }
-.context-metric span { color: #65706d; }
-.context-status { display: block; margin: .65rem 0; border-radius: 4px; background: #e9f2ef; padding: .4rem; color: #31584e; font-size: .7rem; }
-.windowed-message-note { align-self: center; border: 1px dashed #d0d7d4; border-radius: 999px; background: #fbfcfc; padding: .35rem .75rem; color: #65706d; font-size: .72rem; }
-.notes-list article { margin-bottom: .5rem; border-left: 2px solid #82ae9f; padding-left: .55rem; }
-.notes-list p { font-size: .75rem; }
-.notes-list small { color: #7d8784; font-size: .62rem; }
 .dialog-overlay { position: fixed; inset: 0; z-index: 60; background: rgb(16 25 22 / .45); }
 .dialog-content { position: fixed; left: 50%; top: 50%; z-index: 70; width: min(calc(100vw - 2rem), 480px); max-height: calc(100vh - 2rem); overflow-y: auto; transform: translate(-50%, -50%); border-radius: 8px; background: white; padding: 1.25rem; box-shadow: 0 20px 60px rgb(0 0 0 / .18); }
 .dialog-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: .4rem; }
@@ -488,15 +422,7 @@
 .web-push-toast p { margin-top: .25rem; color: #65706d; font-size: .76rem; }
 .web-push-toast a { display: inline-flex; margin-top: .5rem; color: #146c5a; font-size: .78rem; font-weight: 650; }
 
-@media (max-width: 1180px) {
-  .inbox-layout { grid-template-columns: minmax(240px, 300px) minmax(360px, 1fr); }
-  .context-pane { display: none; }
-}
 @media (max-width: 720px) {
-  .inbox-layout { height: calc(100vh - 3.5rem); grid-template-columns: 1fr; }
-  .conversation-list, .message-pane { height: calc(100vh - 3.5rem); }
-  .inbox-layout:not(.inbox-selected) .message-pane { display: none; }
-  .inbox-layout.inbox-selected .conversation-list { display: none; }
   .mobile-only { display: grid; }
   .toolbar-panel { flex-direction: column; }
   .search-inline { width: 100%; }

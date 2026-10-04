@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import {
@@ -44,6 +44,12 @@ export function InboxPage() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [typingUsers, setTypingUsers] = useState<Record<number, number>>({});
   const [typingClock, setTypingClock] = useState(0);
+  const [isNarrow, setIsNarrow] = useState(false);
+  const [contextOpen, setContextOpen] = useState(true);
+  const [mobileContextConversationId, setMobileContextConversationId] = useState<number | null>(
+    null,
+  );
+  const contextButtonRef = useRef<HTMLButtonElement>(null);
 
   const { signalTyping, stopTyping } = useTypingSignal({
     conversationId: selectedId,
@@ -80,6 +86,14 @@ export function InboxPage() {
         .map(([id]) => Number(id)),
     [typingClock, typingUsers, user?.id],
   );
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 900px)");
+    const updateNarrow = () => setIsNarrow(query.matches);
+    updateNarrow();
+    query.addEventListener("change", updateNarrow);
+    return () => query.removeEventListener("change", updateNarrow);
+  }, []);
 
   useEffect(() => {
     if (!Object.values(typingUsers).some((until) => until > 0)) return;
@@ -140,52 +154,105 @@ export function InboxPage() {
     setComposer("");
   };
 
+  const mobileRegion =
+    mobileContextConversationId !== null && mobileContextConversationId === selectedId
+      ? "context"
+      : selectedId
+        ? "conversation"
+        : "list";
+
+  const closeContext = () => {
+    setContextOpen(false);
+    setMobileContextConversationId(null);
+    window.requestAnimationFrame(() => contextButtonRef.current?.focus());
+  };
+
+  const toggleContext = () => {
+    if (isNarrow) {
+      setContextOpen(true);
+      setMobileContextConversationId((current) => (current === selectedId ? null : selectedId));
+      return;
+    }
+    setContextOpen((open) => !open);
+  };
+
+  const regionProps = (region: "list" | "conversation" | "context") => ({
+    className: `inbox-region inbox-region-${region}`,
+    hidden:
+      (isNarrow && mobileRegion !== region) ||
+      (!isNarrow && region === "context" && !contextOpen),
+    inert:
+      (isNarrow && mobileRegion !== region) ||
+      (!isNarrow && region === "context" && !contextOpen)
+        ? ""
+        : undefined,
+  });
+
   return (
-    <div className={`inbox-layout ${selectedId ? "inbox-selected" : ""}`}>
-      <ConversationSidebar
-        filter={filter}
-        onFilterChange={onFilterChange}
-        queries={queries}
-        selectedId={selectedId}
-        organizationId={orgId}
-        onCreateConversation={() => undefined}
-        onOpenConversation={(id) => navigate(`/conversations/${id}`)}
-      />
+    <div
+      className={`inbox-layout ${selectedId ? "inbox-selected" : ""}`}
+      data-mobile-region={mobileRegion}
+    >
+      <div {...regionProps("list")}>
+        <ConversationSidebar
+          filter={filter}
+          onFilterChange={onFilterChange}
+          queries={queries}
+          selectedId={selectedId}
+          organizationId={orgId}
+          onCreateConversation={() => undefined}
+          onOpenConversation={(id) => {
+            setMobileContextConversationId(null);
+            navigate(`/conversations/${id}`);
+          }}
+        />
+      </div>
 
-      <ConversationWorkspace
-        selectedId={selectedId}
-        currentUserId={user?.id}
-        queries={queries}
-        mutations={mutations}
-        draft={{ composer, replyTo, editing, attachments }}
-        typingUsers={activeTypingUsers}
-        onComposerChange={onComposerChange}
-        onSubmit={onSubmit}
-        onSetReplyTo={setReplyTo}
-        onSetEditing={(message) => {
-          setEditing(message);
-          setComposer(message.body);
-        }}
-        onClearComposerContext={clearComposerContext}
-        onBackToList={() => navigate("/inbox")}
-      />
+      <div {...regionProps("conversation")}>
+        <ConversationWorkspace
+          selectedId={selectedId}
+          currentUserId={user?.id}
+          queries={queries}
+          mutations={mutations}
+          draft={{ composer, replyTo, editing, attachments }}
+          typingUsers={activeTypingUsers}
+          onComposerChange={onComposerChange}
+          onSubmit={onSubmit}
+          onSetReplyTo={setReplyTo}
+          onSetEditing={(message) => {
+            setEditing(message);
+            setComposer(message.body);
+          }}
+          onClearComposerContext={clearComposerContext}
+          onBackToList={() => {
+            setMobileContextConversationId(null);
+            navigate("/inbox");
+          }}
+          contextOpen={contextOpen}
+          onToggleContext={toggleContext}
+          contextButtonRef={contextButtonRef}
+        />
+      </div>
 
-      <ConversationContextPanel
-        selectedId={selectedId}
-        detail={queries.detail}
-        notes={queries.notes}
-        note={note}
-        onNoteChange={setNote}
-        onUpdateConversation={(input) => mutations.update.mutate(input)}
-        onAddNote={() => mutations.addNote.mutate()}
-        onStartMeeting={() => mutations.startMeeting.mutate()}
-        errors={{
-          update: mutations.update.error,
-          addNote: mutations.addNote.error,
-          startMeeting: mutations.startMeeting.error,
-        }}
-        meetingPending={mutations.startMeeting.isPending}
-      />
+      <div id="inbox-context-region" {...regionProps("context")}>
+        <ConversationContextPanel
+          selectedId={selectedId}
+          detail={queries.detail}
+          notes={queries.notes}
+          note={note}
+          onNoteChange={setNote}
+          onUpdateConversation={(input) => mutations.update.mutate(input)}
+          onAddNote={() => mutations.addNote.mutate()}
+          onStartMeeting={() => mutations.startMeeting.mutate()}
+          onClose={isNarrow ? closeContext : undefined}
+          errors={{
+            update: mutations.update.error,
+            addNote: mutations.addNote.error,
+            startMeeting: mutations.startMeeting.error,
+          }}
+          meetingPending={mutations.startMeeting.isPending}
+        />
+      </div>
     </div>
   );
 }

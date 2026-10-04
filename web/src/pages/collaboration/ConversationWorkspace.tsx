@@ -1,4 +1,5 @@
 import {
+  Bot,
   ChevronLeft,
   Edit3,
   MessageSquarePlus,
@@ -10,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { useRef } from "react";
+import type { RefObject } from "react";
 
 import type { Attachment, Message } from "@/api/collaboration";
 import { FormError } from "@/components/AuthLayout";
@@ -36,6 +38,9 @@ interface ConversationWorkspaceProps {
   onSetEditing: (message: Message) => void;
   onClearComposerContext: () => void;
   onBackToList: () => void;
+  contextOpen: boolean;
+  onToggleContext: () => void;
+  contextButtonRef?: RefObject<HTMLButtonElement>;
 }
 
 export function ConversationWorkspace({
@@ -51,6 +56,9 @@ export function ConversationWorkspace({
   onSetEditing,
   onClearComposerContext,
   onBackToList,
+  contextOpen,
+  onToggleContext,
+  contextButtonRef,
 }: ConversationWorkspaceProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const { detail, messages, pins, messageItems, messageWindow } = queries;
@@ -83,6 +91,16 @@ export function ConversationWorkspace({
               <p>{detail.data?.conversation.topic || "无主题"}</p>
             </div>
             <div className="button-row">
+              <button
+                ref={contextButtonRef}
+                className="icon-button"
+                aria-label="业务上下文"
+                aria-expanded={contextOpen}
+                aria-controls="inbox-context-region"
+                onClick={onToggleContext}
+              >
+                <Bot size={18} />
+              </button>
               <button
                 className="button-secondary"
                 disabled={startMeeting.isPending}

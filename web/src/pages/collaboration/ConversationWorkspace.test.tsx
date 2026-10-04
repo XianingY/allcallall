@@ -32,8 +32,9 @@ const renderWorkspace = () => {
   const onSubmit = vi.fn();
   const onSetReplyTo = vi.fn();
   const onSetEditing = vi.fn();
-  const onClearComposerContext = vi.fn();
-  const onBackToList = vi.fn();
+    const onClearComposerContext = vi.fn();
+    const onBackToList = vi.fn();
+    const onToggleContext = vi.fn();
   const queries = {
     detail: { data: detail, isLoading: false, isError: false },
     messages: {
@@ -69,6 +70,8 @@ const renderWorkspace = () => {
         onSetEditing={onSetEditing}
         onClearComposerContext={onClearComposerContext}
         onBackToList={onBackToList}
+        contextOpen
+        onToggleContext={onToggleContext}
       />
     </MemoryRouter>,
   );

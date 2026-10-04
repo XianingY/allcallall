@@ -20,6 +20,13 @@ interface ConversationSidebarProps {
   onOpenConversation: (conversationId: number) => void;
 }
 
+const PRIORITY_LABELS: Record<string, string> = {
+  low: "低",
+  normal: "普通",
+  high: "高",
+  urgent: "紧急",
+};
+
 export function ConversationSidebar({
   filter,
   onFilterChange,
@@ -35,6 +42,7 @@ export function ConversationSidebar({
     onCreateConversation();
     setCreating(true);
   };
+  const priorityLabel = (priority: string) => PRIORITY_LABELS[priority] ?? priority;
 
   return (
     <aside className="conversation-list">
@@ -188,26 +196,31 @@ export function ConversationSidebar({
           }
         />
       ) : (
-        <div className="conversation-items">
-          {visibleConversations.map((item) => (
-            <Link
-              key={item.id}
-              to={`/conversations/${item.id}`}
-              className={`conversation-item ${selectedId === item.id ? "conversation-item-active" : ""}`}
-            >
-              <div className="conversation-avatar">{item.title.slice(0, 1).toUpperCase()}</div>
-              <div className="conversation-copy">
-                <div>
-                  <strong>{item.title}</strong>
-                  <time>{formatTime(item.last_message_at)}</time>
+          <div className="conversation-items">
+            {visibleConversations.map((item) => (
+              <Link
+                key={item.id}
+                to={`/conversations/${item.id}`}
+                className={`conversation-item ${selectedId === item.id ? "conversation-item-active" : ""}`}
+                aria-label={`${item.title}，${item.unread_count > 0 ? `${item.unread_count} 条未读` : "无未读"}，优先级${priorityLabel(item.priority)}`}
+              >
+                <div className="conversation-avatar">{item.title.slice(0, 1).toUpperCase()}</div>
+                <div className="conversation-copy">
+                  <div>
+                    <strong title={item.title}>{item.title}</strong>
+                    <time>{formatTime(item.last_message_at)}</time>
+                  </div>
+                  <p>{item.last_message_preview || item.topic || "暂无消息"}</p>
+                  <span className="conversation-priority">{priorityLabel(item.priority)}</span>
                 </div>
-                <p>{item.last_message_preview || item.topic || "暂无消息"}</p>
-                <span>{item.priority}</span>
-              </div>
-              {item.unread_count > 0 && <b className="unread-count">{item.unread_count}</b>}
-            </Link>
-          ))}
-        </div>
+                {item.unread_count > 0 && (
+                  <b className="unread-count" title={`${item.unread_count} 条未读`}>
+                    {item.unread_count}
+                  </b>
+                )}
+              </Link>
+            ))}
+          </div>
       )}
 
       {conversations.data?.pages?.length ? (
