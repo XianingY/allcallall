@@ -1,7 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Edit3, MoreHorizontal, Paperclip, Pin, Plus, Reply, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { memo, useState } from "react";
 
 import { createConversation, type Attachment, type Message } from "@/api/collaboration";
 import { apiDownload } from "@/api/http";
@@ -50,7 +50,7 @@ function AttachmentLink({ attachment }: { attachment: Attachment }) {
   );
 }
 
-export function MessageBubble({ message, currentUserId, onReply, onEdit, onAction }: { message: Message; currentUserId?: number; onReply(message: Message): void; onEdit(message: Message): void; onAction(action: "delete" | "pin" | "unpin" | "react", message: Message, emoji?: string): void }) {
+export const MessageBubble = memo(function MessageBubble({ message, currentUserId, onReply, onEdit, onAction }: { message: Message; currentUserId?: number; onReply(message: Message): void; onEdit(message: Message): void; onAction(action: "delete" | "pin" | "unpin" | "react", message: Message, emoji?: string): void }) {
   const mine = message.sender_id === currentUserId;
   return <article id={`message-${message.id}`} className={`message-bubble ${message.deleted_at ? "message-deleted" : ""}`}>
     <header><div><strong>{message.sender_display_name || message.sender_email}</strong>{message.edited_at && <span>已编辑</span>}</div><div className="message-actions"><time>{formatTime(message.created_at)}</time><button className="icon-button" title="回复" onClick={() => onReply(message)}><Reply size={14} /></button>{mine && !message.deleted_at && <button className="icon-button" title="编辑" onClick={() => onEdit(message)}><Edit3 size={14} /></button>}<button className="icon-button" title={message.pinned ? "取消置顶" : "置顶"} onClick={() => onAction(message.pinned ? "unpin" : "pin", message)}><Pin size={14} /></button><button className="icon-button" title="赞同" onClick={() => onAction("react", message, "+1")}><MoreHorizontal size={14} /></button>{!message.deleted_at && <button className="icon-button text-danger" title="撤回" onClick={() => onAction("delete", message)}><Trash2 size={14} /></button>}</div></header>
@@ -59,7 +59,7 @@ export function MessageBubble({ message, currentUserId, onReply, onEdit, onActio
     {message.attachments?.length ? <div className="attachment-list">{message.attachments.map((item) => <AttachmentLink key={item.id} attachment={item} />)}</div> : null}
     {message.reactions?.length ? <div className="reaction-row">{message.reactions.map((item) => <button key={item.emoji}>{item.emoji} {item.count}</button>)}</div> : null}
   </article>;
-}
+});
 
 export function Metric({ label, value }: { label: string; value: string }) {
   return <div className="context-metric"><span>{label}</span><strong>{value}</strong></div>;

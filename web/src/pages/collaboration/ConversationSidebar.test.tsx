@@ -3,8 +3,13 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Conversation } from "@/api/collaboration";
+import type { Conversation, MessageSearchHit } from "@/api/collaboration";
 import { ConversationSidebar } from "@/pages/collaboration/ConversationSidebar";
+import { formatTime } from "@/pages/collaboration/InboxFormat";
+
+vi.mock("@/pages/collaboration/InboxFormat", () => ({
+  formatTime: vi.fn(() => "formatted"),
+}));
 
 const conversation: Conversation = {
   id: 5,
@@ -18,6 +23,24 @@ const conversation: Conversation = {
   last_message_preview: "需要帮助",
   last_message_at: "2026-09-27T08:00:00Z",
 };
+
+const conversationPages = {
+  pages: [{ conversations: [conversation], pagination: { total: 1 } }],
+};
+const visibleConversations = [conversation];
+const emptyMessageHits: MessageSearchHit[] = [];
+const searchFilter = { status: "", keyword: "退款", unreadOnly: false, messageQuery: "退款" };
+const listFilter = { status: "", keyword: "", unreadOnly: false, messageQuery: "" };
+
+const makeQueries = () => ({
+  messageHits: { data: emptyMessageHits, isLoading: false, isError: false },
+  conversations: {
+    data: conversationPages,
+    isLoading: false,
+    isError: false,
+  },
+  visibleConversations,
+});
 
 const renderSidebar = () => {
   const onFilterChange = vi.fn();
@@ -142,5 +165,176 @@ describe("ConversationSidebar", () => {
       </QueryClientProvider>,
     );
     expect(screen.getByRole("button", { name: "我的" })).toHaveClass("active");
+  });
+
+  it("skips re-rendering when the parent updates with the same data", () => {
+    const onFilterChange = vi.fn();
+    const onCreateConversation = vi.fn();
+    const onOpenConversation = vi.fn();
+    const filter = { status: "", keyword: "", unreadOnly: false, messageQuery: "" };
+    const makeSidebar = () => (
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <ConversationSidebar
+            filter={filter}
+            onFilterChange={onFilterChange}
+            queries={makeQueries() as never}
+            selectedId={5}
+            onCreateConversation={onCreateConversation}
+            onOpenConversation={onOpenConversation}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    const { rerender } = render(makeSidebar());
+    expect(screen.getByRole("link", { name: /退款处理/ })).toBeInTheDocument();
+    expect(vi.mocked(formatTime)).toHaveBeenCalledTimes(1);
+
+    rerender(makeSidebar());
+    expect(vi.mocked(formatTime)).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-renders when message search results change", () => {
+    const onFilterChange = vi.fn();
+    const onCreateConversation = vi.fn();
+    const onOpenConversation = vi.fn();
+    const hit: MessageSearchHit = {
+      id: "message-101",
+      conversation_id: 5,
+      message_id: 101,
+      sender_display_name: "Bob",
+      sender_email: "bob@example.com",
+      body: "找到退款记录",
+      created_at: "2026-09-27T08:00:00Z",
+    };
+    const renderSearchSidebar = (data: MessageSearchHit[]) => {
+      const queries = makeQueries();
+      queries.messageHits = { ...queries.messageHits, data };
+      return (
+        <QueryClientProvider client={new QueryClient()}>
+          <MemoryRouter>
+            <ConversationSidebar
+              filter={searchFilter}
+              onFilterChange={onFilterChange}
+              queries={queries as never}
+              selectedId={5}
+              onCreateConversation={onCreateConversation}
+              onOpenConversation={onOpenConversation}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+    };
+
+    const { rerender } = render(renderSearchSidebar([]));
+    expect(screen.getByText("没有匹配的消息")).toBeInTheDocument();
+
+    rerender(renderSearchSidebar([hit]));
+    expect(screen.getByText("找到退款记录")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Bob/ })).toHaveAttribute(
+      "href",
+      "/conversations/5",
+    );
+  });
+
+  it("re-renders when message search enters loading or error state", () => {
+    const onFilterChange = vi.fn();
+    const onCreateConversation = vi.fn();
+    const onOpenConversation = vi.fn();
+    const renderSearchSidebar = (
+      state: Partial<{ isLoading: boolean; isError: boolean; error: Error }>,
+    ) => {
+      const queries = makeQueries();
+      queries.messageHits = { ...queries.messageHits, ...state };
+      return (
+        <QueryClientProvider client={new QueryClient()}>
+          <MemoryRouter>
+            <ConversationSidebar
+              filter={searchFilter}
+              onFilterChange={onFilterChange}
+              queries={queries as never}
+              selectedId={5}
+              onCreateConversation={onCreateConversation}
+              onOpenConversation={onOpenConversation}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+    };
+
+    const { rerender } = render(renderSearchSidebar({}));
+    rerender(renderSearchSidebar({ isLoading: true }));
+    expect(screen.getByText("正在搜索消息")).toBeInTheDocument();
+
+    rerender(renderSearchSidebar({ isLoading: false, isError: true, error: new Error("搜索失败") }));
+    expect(screen.getByText("搜索失败")).toBeInTheDocument();
+  });
+
+  it("re-renders when the conversation list enters loading or error state", () => {
+    const onFilterChange = vi.fn();
+    const onCreateConversation = vi.fn();
+    const onOpenConversation = vi.fn();
+    const renderListSidebar = (
+      state: Partial<{ isLoading: boolean; isError: boolean; error: Error }>,
+    ) => {
+      const queries = makeQueries();
+      queries.conversations = { ...queries.conversations, ...state };
+      return (
+        <QueryClientProvider client={new QueryClient()}>
+          <MemoryRouter>
+            <ConversationSidebar
+              filter={listFilter}
+              onFilterChange={onFilterChange}
+              queries={queries as never}
+              selectedId={5}
+              onCreateConversation={onCreateConversation}
+              onOpenConversation={onOpenConversation}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+    };
+
+    const { rerender } = render(renderListSidebar({}));
+    expect(screen.getByRole("link", { name: /退款处理/ })).toBeInTheDocument();
+
+    rerender(renderListSidebar({ isLoading: true }));
+    expect(screen.queryByRole("link", { name: /退款处理/ })).not.toBeInTheDocument();
+
+    rerender(renderListSidebar({ isLoading: false, isError: true, error: new Error("会话加载失败") }));
+    expect(screen.getByText("会话加载失败")).toBeInTheDocument();
+  });
+
+  it("re-renders when the visible conversations change", () => {
+    const updatedConversation = { ...conversation, title: "升级处理", unread_count: 3 };
+    const { rerender } = renderSidebar();
+    expect(vi.mocked(formatTime)).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <ConversationSidebar
+            filter={{ status: "", keyword: "", unreadOnly: false, messageQuery: "" }}
+            onFilterChange={vi.fn()}
+            queries={{
+              messageHits: { data: [], isLoading: false, isError: false },
+              conversations: {
+                data: { pages: [{ conversations: [updatedConversation], pagination: { total: 1 } }] },
+                isLoading: false,
+                isError: false,
+              },
+              visibleConversations: [updatedConversation],
+            } as never}
+            selectedId={5}
+            onCreateConversation={vi.fn()}
+            onOpenConversation={vi.fn()}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole("link", { name: /升级处理/ })).toBeInTheDocument();
+    expect(vi.mocked(formatTime)).toHaveBeenCalledTimes(2);
   });
 });

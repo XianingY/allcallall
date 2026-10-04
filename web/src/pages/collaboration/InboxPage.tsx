@@ -132,9 +132,24 @@ export function InboxPage() {
     return () => window.removeEventListener("allcallall:chat-event", listener);
   }, [selectedId]);
 
-  const onFilterChange = (next: Partial<ConversationFilterState>) => {
+  const onFilterChange = useCallback((next: Partial<ConversationFilterState>) => {
     setFilter((current) => ({ ...current, ...next }));
-  };
+  }, []);
+
+  const onOpenConversation = useCallback((conversationId: number) => {
+    setMobileContextConversationId(null);
+    navigate(`/conversations/${conversationId}`);
+  }, [navigate]);
+
+  const onSetEditing = useCallback((message: Message) => {
+    setEditing(message);
+    setComposer(message.body);
+  }, []);
+
+  const onBackToList = useCallback(() => {
+    setMobileContextConversationId(null);
+    navigate("/inbox");
+  }, [navigate]);
 
   const onComposerChange = (value: string) => {
     setComposer(value);
@@ -200,11 +215,8 @@ export function InboxPage() {
           queries={queries}
           selectedId={selectedId}
           organizationId={orgId}
-          onCreateConversation={() => undefined}
-          onOpenConversation={(id) => {
-            setMobileContextConversationId(null);
-            navigate(`/conversations/${id}`);
-          }}
+          onCreateConversation={noop}
+          onOpenConversation={onOpenConversation}
         />
       </div>
 
@@ -219,15 +231,9 @@ export function InboxPage() {
           onComposerChange={onComposerChange}
           onSubmit={onSubmit}
           onSetReplyTo={setReplyTo}
-          onSetEditing={(message) => {
-            setEditing(message);
-            setComposer(message.body);
-          }}
+          onSetEditing={onSetEditing}
           onClearComposerContext={clearComposerContext}
-          onBackToList={() => {
-            setMobileContextConversationId(null);
-            navigate("/inbox");
-          }}
+          onBackToList={onBackToList}
           contextOpen={contextOpen}
           onToggleContext={toggleContext}
           contextButtonRef={contextButtonRef}
@@ -256,3 +262,5 @@ export function InboxPage() {
     </div>
   );
 }
+
+const noop = () => undefined;

@@ -10,7 +10,7 @@ import {
   Video,
   X,
 } from "lucide-react";
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import type { RefObject } from "react";
 
 import type { Attachment, Message } from "@/api/collaboration";
@@ -63,6 +63,17 @@ export function ConversationWorkspace({
   const fileInput = useRef<HTMLInputElement>(null);
   const { detail, messages, pins, messageItems, messageWindow } = queries;
   const { send, upload, messageAction, startMeeting } = mutations;
+  const mutateMessageAction = messageAction.mutate;
+  const onMessageAction = useCallback(
+    (
+      action: "delete" | "pin" | "unpin" | "react",
+      message: Message,
+      emoji?: string,
+    ) => {
+      mutateMessageAction({ action, message, emoji });
+    },
+    [mutateMessageAction],
+  );
 
   return (
     <main className="message-pane">
@@ -160,9 +171,7 @@ export function ConversationWorkspace({
                   currentUserId={currentUserId}
                   onReply={onSetReplyTo}
                   onEdit={onSetEditing}
-                  onAction={(action, item, emoji) =>
-                    messageAction.mutate({ action, message: item, emoji })
-                  }
+                  onAction={onMessageAction}
                 />
               ))
             ) : (

@@ -57,7 +57,7 @@ const {
     type: "text",
     body: "你好，需要帮助",
     pinned: false,
-    created_at: "2026-09-27T08:00:00Z",
+    created_at: "2026-09-27T08:01:00Z",
   };
   const note = {
     id: 31,
@@ -271,5 +271,29 @@ describe("InboxPage context panel performance", () => {
     expect(field).toHaveValue("hel");
 
     expect(contextPanelRenders()).toBe(initialRenders);
+  });
+});
+
+describe("InboxPage render partition performance", () => {
+  afterEach(cleanup);
+  beforeEach(() => vi.clearAllMocks());
+
+  it("keeps the sidebar and message bubbles from re-rendering while the user types", async () => {
+    renderPage();
+    await screen.findByText("你好，需要帮助");
+
+    const renderCount = (timestamp: string) =>
+      vi.mocked(formatTime).mock.calls.filter(([value]) => value === timestamp).length;
+    const initialSidebarRenders = renderCount(conversation.last_message_at);
+    const initialMessageRenders = renderCount(message.created_at);
+
+    const field = screen.getByLabelText("输入消息");
+    fireEvent.change(field, { target: { value: "h" } });
+    fireEvent.change(field, { target: { value: "he" } });
+    fireEvent.change(field, { target: { value: "hel" } });
+    expect(field).toHaveValue("hel");
+
+    expect(renderCount(conversation.last_message_at)).toBe(initialSidebarRenders);
+    expect(renderCount(message.created_at)).toBe(initialMessageRenders);
   });
 });
