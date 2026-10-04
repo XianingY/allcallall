@@ -1,5 +1,5 @@
 import { Search } from "lucide-react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { PageEmpty, PageError, PageLoading } from "@/components/PageState";
@@ -20,6 +20,32 @@ interface ConversationSidebarProps {
   onOpenConversation: (conversationId: number) => void;
 }
 
+function areSidebarPropsEqual(previous: ConversationSidebarProps, next: ConversationSidebarProps) {
+  // TanStack Query returns a fresh result wrapper on every render even when
+  // its cached data is unchanged. The sidebar renders only the fields below,
+  // so compare those instead of the unstable query-result objects.
+  return (
+    previous.filter === next.filter &&
+    previous.selectedId === next.selectedId &&
+    previous.organizationId === next.organizationId &&
+    previous.onFilterChange === next.onFilterChange &&
+    previous.onCreateConversation === next.onCreateConversation &&
+    previous.onOpenConversation === next.onOpenConversation &&
+    previous.queries.visibleConversations === next.queries.visibleConversations &&
+    previous.queries.messageHits.data === next.queries.messageHits.data &&
+    previous.queries.messageHits.isLoading === next.queries.messageHits.isLoading &&
+    previous.queries.messageHits.isError === next.queries.messageHits.isError &&
+    previous.queries.messageHits.error === next.queries.messageHits.error &&
+    previous.queries.conversations.data === next.queries.conversations.data &&
+    previous.queries.conversations.isLoading === next.queries.conversations.isLoading &&
+    previous.queries.conversations.isError === next.queries.conversations.isError &&
+    previous.queries.conversations.error === next.queries.conversations.error &&
+    previous.queries.conversations.hasNextPage === next.queries.conversations.hasNextPage &&
+    previous.queries.conversations.isFetchingNextPage ===
+      next.queries.conversations.isFetchingNextPage
+  );
+}
+
 const PRIORITY_LABELS: Record<string, string> = {
   low: "低",
   normal: "普通",
@@ -27,7 +53,7 @@ const PRIORITY_LABELS: Record<string, string> = {
   urgent: "紧急",
 };
 
-export function ConversationSidebar({
+export const ConversationSidebar = memo(function ConversationSidebar({
   filter,
   onFilterChange,
   queries,
@@ -243,4 +269,4 @@ export function ConversationSidebar({
       ) : null}
     </aside>
   );
-}
+}, areSidebarPropsEqual);
