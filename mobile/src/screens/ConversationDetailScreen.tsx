@@ -120,16 +120,25 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const conversationId =
     route.params.conversationId ?? route.params.conversation?.id ?? 0;
 
-  const conversation = detail?.conversation ??
-    route.params.conversation ?? {
-      id: conversationId,
-      organization_id: currentOrganization?.id ?? 0,
-      type: "direct",
-      title: "协作线程",
-      status: "open",
-      priority: "normal",
-      unread_count: 0,
-    };
+  const conversation = useMemo(
+    () =>
+      detail?.conversation ??
+      route.params.conversation ?? {
+        id: conversationId,
+        organization_id: currentOrganization?.id ?? 0,
+        type: "direct",
+        title: "协作线程",
+        status: "open",
+        priority: "normal",
+        unread_count: 0,
+      },
+    [
+      conversationId,
+      currentOrganization?.id,
+      detail?.conversation,
+      route.params.conversation,
+    ],
+  );
   const isWideScreen = width >= 1180;
 
   const loadData = useCallback(async () => {
@@ -433,9 +442,12 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   );
   const meetingTranscriptReady =
     meetingTranscriptionStatus === "ready" && meetingTranscriptCount > 0;
-  const pendingApprovals =
-    activeWorkflow?.approvals?.filter((item) => item.status === "pending") ??
-    [];
+  const pendingApprovals = useMemo(
+    () =>
+      activeWorkflow?.approvals?.filter((item) => item.status === "pending") ??
+      [],
+    [activeWorkflow],
+  );
   const agentStatusLabel = workflowStatusLabel(
     activeWorkflow,
     agentContext?.pending_approval_count ?? pendingApprovals.length,
@@ -459,11 +471,11 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     [activeWorkflow?.tasks],
   );
 
-  const handleCopyConversationLink = async () => {
+  const handleCopyConversationLink = useCallback(async () => {
     const links = buildConversationShareLinks(conversationId);
     await Clipboard.setStringAsync(links.webURL);
     Alert.alert("已复制", "线程 Web 链接已复制到剪贴板。");
-  };
+  }, [conversationId]);
 
   const handleSend = useCallback(async (draft: string) => {
     if (!token || !draft.trim()) return false;
@@ -835,13 +847,14 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     }
   }, [conversationId, loadData, token]);
 
-  const handleAssignSelf = async () => {
-    if (!token || !user) {
+  const currentUserId = user?.id;
+  const handleAssignSelf = useCallback(async () => {
+    if (!token || currentUserId === undefined) {
       return;
     }
     try {
       const updated = await updateConversation(token, conversationId, {
-        assignee_user_id: user.id,
+        assignee_user_id: currentUserId,
       });
       setDetail((previous) =>
         previous ? { ...previous, conversation: updated } : previous,
@@ -850,9 +863,9 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       console.error("[ConversationDetailScreen] Failed to assign self:", error);
       Alert.alert("更新失败", "无法更新负责人。");
     }
-  };
+  }, [conversationId, currentUserId, token]);
 
-  const handleUnassign = async () => {
+  const handleUnassign = useCallback(async () => {
     if (!token) {
       return;
     }
@@ -870,9 +883,9 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       );
       Alert.alert("更新失败", "无法清空负责人。");
     }
-  };
+  }, [conversationId, token]);
 
-  const handleUpdateStatus = async (
+  const handleUpdateStatus = useCallback(async (
     status: (typeof STATUS_OPTIONS)[number],
   ) => {
     if (!token) {
@@ -892,9 +905,9 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       );
       Alert.alert("更新失败", "无法更新会话状态。");
     }
-  };
+  }, [conversationId, token]);
 
-  const handleUpdatePriority = async (
+  const handleUpdatePriority = useCallback(async (
     priority: (typeof PRIORITY_OPTIONS)[number],
   ) => {
     if (!token) {
@@ -914,9 +927,9 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       );
       Alert.alert("更新失败", "无法更新优先级。");
     }
-  };
+  }, [conversationId, token]);
 
-  const handleCreateMeeting = async () => {
+  const handleCreateMeeting = useCallback(async () => {
     if (!token) {
       return;
     }
@@ -942,9 +955,9 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       console.error("[ConversationDetailScreen] Failed to create room:", error);
       Alert.alert("创建失败", "无法从当前线程创建会议。");
     }
-  };
+  }, [conversation.title, conversationId, loadData, navigation, token]);
 
-  const handleBindContact = async (contactId: number | null) => {
+  const handleBindContact = useCallback(async (contactId: number | null) => {
     if (!token) {
       return;
     }
@@ -962,9 +975,9 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       );
       Alert.alert("更新失败", "无法绑定联系人。");
     }
-  };
+  }, [conversationId, token]);
 
-  const handleDownloadRecording = async (
+  const handleDownloadRecording = useCallback(async (
     recordingId: number,
     fileId: number,
     fileName: string,
@@ -990,7 +1003,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
       );
       Alert.alert("下载失败", "无法下载最近录音资产。");
     }
-  };
+  }, [token]);
 
   const handleOpenTranscript = useCallback(
     (recordingId: number) => {
@@ -1002,6 +1015,10 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const handleMessageRefresh = useCallback(() => {
     void loadData();
   }, [loadData]);
+
+  const handleOpenWorkflowDebug = useCallback(() => {
+    setWorkflowDebugVisible(true);
+  }, []);
 
   const workspacePaneProps = {
     conversation,
@@ -1029,7 +1046,7 @@ const ConversationDetailScreen: React.FC<Props> = ({ route, navigation }) => {
     onAssignSelf: handleAssignSelf,
     onUnassign: handleUnassign,
     onRunMeetingAgent: runMeetingAgent,
-    onOpenWorkflowDebug: () => setWorkflowDebugVisible(true),
+    onOpenWorkflowDebug: handleOpenWorkflowDebug,
     onCitationPress: handleCitationPress,
     onApprovalDecision: handleApprovalDecision,
     onUpdateStatus: handleUpdateStatus,

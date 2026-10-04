@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { memo, useCallback, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { formatShortDateTime } from "@allcallall/shared";
 import PrimaryButton from "../../components/PrimaryButton";
@@ -539,4 +539,4 @@ const WorkspacePane = ({
   );
 };
 
-export default WorkspacePane;
+export default memo(WorkspacePane);

@@ -1,8 +1,21 @@
-import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 
+import PrimaryButton from "../../components/PrimaryButton";
 import WorkspacePane from "./WorkspacePane";
 import type { WorkspacePaneProps } from "./types";
+
+const MockPrimaryButton = PrimaryButton as unknown as jest.Mock;
+
+jest.mock("../../components/PrimaryButton", () => {
+  const React = require("react");
+  const { Text } = require("react-native");
+  return {
+    __esModule: true,
+    default: jest.fn(({ title }: { title: string }) => (
+      <Text>{title}</Text>
+    )),
+  };
+});
 
 const renderWorkspacePane = (overrides: Partial<WorkspacePaneProps> = {}) => {
   const onAddNote = overrides.onAddNote ?? jest.fn().mockResolvedValue(true);
@@ -86,5 +99,72 @@ describe("WorkspacePane", () => {
       expect(onAddNote).toHaveBeenCalledWith("retry this note"),
     );
     expect(input.props.value).toBe("retry this note");
+  });
+
+  it("skips rendering when a parent re-renders with unchanged props", () => {
+    MockPrimaryButton.mockClear();
+
+    const props = {
+      conversation: {
+        id: 1,
+        organization_id: 1,
+        type: "thread",
+        title: "Quarterly review",
+        status: "active",
+        priority: "normal",
+        unread_count: 0,
+      },
+      workspace: undefined,
+      latestRoom: null,
+      latestFollowup: null,
+      assigneeLabel: "Unassigned",
+      boundContact: undefined,
+      agentContext: undefined,
+      contacts: [],
+      notes: [],
+      latestRecording: null,
+      activeWorkflow: null,
+      pendingApprovals: [],
+      completedTaskCount: 0,
+      executedApprovalCount: 0,
+      rejectedApprovalCount: 0,
+      transcriptStatusText: "No transcript",
+      agentStatusLabel: "idle",
+      meetingTranscriptReady: false,
+      workflowLoading: false,
+      navigation: { navigate: jest.fn() },
+      onCopyLink: jest.fn(),
+      onCreateMeeting: jest.fn(),
+      onAssignSelf: jest.fn(),
+      onUnassign: jest.fn(),
+      onRunMeetingAgent: jest.fn(),
+      onOpenWorkflowDebug: jest.fn(),
+      onCitationPress: jest.fn(),
+      onApprovalDecision: jest.fn(),
+      onUpdateStatus: jest.fn(),
+      onUpdatePriority: jest.fn(),
+      onBindContact: jest.fn(),
+      onDownloadRecording: jest.fn(),
+      onAddNote: jest.fn().mockResolvedValue(true),
+    } as unknown as WorkspacePaneProps;
+
+    const renderPane = () => <WorkspacePane {...props} />;
+
+    const { rerender } = render(renderPane());
+    const initialRenderCount = MockPrimaryButton.mock.calls.length;
+    expect(initialRenderCount).toBeGreaterThan(0);
+
+    rerender(renderPane());
+    expect(MockPrimaryButton.mock.calls.length).toBe(initialRenderCount);
+
+    rerender(
+      <WorkspacePane
+        {...props}
+        transcriptStatusText="Transcript ready"
+      />,
+    );
+    expect(MockPrimaryButton.mock.calls.length).toBeGreaterThan(
+      initialRenderCount,
+    );
   });
 });
