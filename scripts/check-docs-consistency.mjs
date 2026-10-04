@@ -10,6 +10,13 @@ import { fileURLToPath } from "node:url";
 
 const DEFAULT_ROOT = resolve(import.meta.dirname, "..");
 const DOCUMENTATION_INDEX = "docs/README.md";
+const GOVERNANCE_FILES = [
+  "LICENSE",
+  "CONTRIBUTING.md",
+  "SECURITY.md",
+  "CODE_OF_CONDUCT.md",
+  "SUPPORT.md",
+];
 const IGNORED_DIRECTORIES = new Set([
   ".git",
   ".venv",
@@ -280,6 +287,40 @@ export function checkDocumentationIndex(root, maintainedFiles, indexSource) {
   return failures;
 }
 
+export function checkGovernanceFiles(root, readmeSource) {
+  const failures = [];
+  const linkedFiles = new Set();
+  const linkPattern = /!?\[[^\]]*\]\(([^)]+)\)/g;
+  let match;
+
+  while ((match = linkPattern.exec(sourceOutsideFences(readmeSource))) !== null) {
+    const rawTarget = match[1].trim().split(/\s+["']/u, 1)[0];
+    if (rawTarget.startsWith("#") || isExternalLink(rawTarget)) {
+      continue;
+    }
+    try {
+      const target = stripLinkDestination(rawTarget);
+      if (target !== "") {
+        linkedFiles.add(toPosix(relative(root, resolve(root, target))));
+      }
+    } catch {
+      // Invalid destinations are reported by checkMarkdownFile.
+    }
+  }
+
+  for (const governanceFile of GOVERNANCE_FILES) {
+    if (!existsSync(join(root, governanceFile))) {
+      failures.push(`${governanceFile}: required governance file is missing`);
+      continue;
+    }
+    if (!linkedFiles.has(governanceFile)) {
+      failures.push(`${governanceFile}: governance file is not linked from README.md`);
+    }
+  }
+
+  return failures;
+}
+
 export function checkDocumentationTree(root) {
   const failures = [];
   const markdownFiles = collectMarkdownFiles(root);
@@ -304,6 +345,10 @@ export function checkDocumentationTree(root) {
   failures.push(
     ...checkDocumentationIndex(root, maintainedFiles, readFileSync(indexPath, "utf8")),
   );
+  const readmePath = join(root, "README.md");
+  if (existsSync(readmePath)) {
+    failures.push(...checkGovernanceFiles(root, readFileSync(readmePath, "utf8")));
+  }
   return failures;
 }
 

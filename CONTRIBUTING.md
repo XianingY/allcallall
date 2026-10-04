@@ -1,54 +1,86 @@
 # Contributing to AllCallAll
 
-We love your input! We want to make contributing to this project as easy and transparent as possible, whether it's:
+Thank you for helping improve AllCallAll. Contributions may include bug fixes,
+documentation, tests, design discussion, and focused feature work.
 
-- Reporting a bug
-- Discussing the current state of the code
-- Submitting a fix
-- Proposing new features
-- Becoming a maintainer
+## Before You Start
 
-## We Develop with Github
-We use github to host code, to track issues and feature requests, as well as accept pull requests.
+- Search existing issues and pull requests before opening a new one.
+- Use the repository issue templates for public bugs, features, and
+  documentation problems.
+- Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
+- Keep changes scoped. Discuss broad behavior or contract changes before
+  investing in a large implementation.
 
-## We Use [Github Flow](https://guides.github.com/introduction/flow/index.html)
-All code changes happen through pull requests. Pull requests are the best way to propose changes to the codebase.
+## Development Setup
 
-## Any contributions you make will be under the MIT Software License
-In short, when you submit code changes, your submissions are understood to be under the same MIT License that covers the project. Feel free to contact the maintainers if that's a concern.
-
-## Code Style & Quality
-
-Every change must be clean under the language-native gates before it is merged. Run the narrowest relevant check for a small change, then broaden when shared behavior or generated surfaces are touched.
-
-| Area | Format | Static check | Tests |
-| --- | --- | --- | --- |
-| `backend/` (Go) | `gofmt -w .` | `go vet ./...` | `go test ./...` |
-| `web/` | ESLint autofix via `npm run lint -- --fix` | `npm run lint`, `npm run typecheck` | `npm test` |
-| `mobile/` | — | `npx tsc --noEmit`, `npm run lint` | `npm test` |
-| `desktop/` | — | `npm run check` | `npm run build` |
-
-Repo-root convenience wrappers:
+Clone over SSH and install JavaScript dependencies from the repository root:
 
 ```bash
-make fmt    # gofmt -w on backend/
-make lint   # go vet (backend) + npm run lint (web)
+git clone git@github.com:XianingY/allcallall.git
+cd allcallall
+npm ci
+cd backend && go mod download
 ```
 
-Additional conventions:
+The Python Agent/RAG runtime is a separate repository. Clone it as the sibling
+directory `../allcallall-agent-runtime` when working on cross-repository flows.
 
-- **Database migrations** are dual-tracked. Add the SQL pair under `backend/migrations/` *and* register the model in `models.AllModels()`. Then bump `currentSchemaVersion` in `backend/internal/runtime/migrations.go` and the matching assertion in `migrations_test.go`.
-- **Event handlers**: each outbox event has exactly one handler, registered centrally in `internal/runtime`.
-- **Tests** live beside the code as `internal/<pkg>/*_test.go`. Pure-function tests are conventionally split into `*_pure_test.go`.
-- Commit only the files you intend to change; do not commit local session artifacts (`.omo/`, `.workbuddy/`, `output/`, `session.json`).
+Do not add lockfiles under `web/` or `mobile/`; the root `package-lock.json` is
+the only npm lockfile.
 
-## Report bugs using Github's [issues](https://github.com/XianingY/allcallall/issues)
-We use GitHub issues to track public bugs. Report a bug by opening a new issue; it's that easy!
+## Making Changes
 
-## Write bug reports with detail, background, and sample code
-**Great Bug Reports** tend to have:
-- A quick summary and/or background
-- Steps to reproduce
-- What you expected would happen
-- What actually happens
-- Notes (possibly including why you think this might be happening, or stuff you tried that didn't work)
+1. Create a focused branch from the current default branch.
+2. Add or update tests before changing behavior.
+3. Preserve public HTTP routes, JSON/OpenAPI contracts, environment variables,
+   commands, deep links, migrations, and published Python imports unless an
+   approved change explicitly includes a migration path.
+4. Update the canonical documentation whenever behavior or configuration
+   changes.
+5. Use clear, descriptive commit messages and push branches over SSH.
+
+Never commit `.env`, `.omo`, `.workbuddy`, `output/`, credentials, tokens, or
+private customer data.
+
+## Verification
+
+Run the narrowest relevant checks while developing.
+
+```bash
+make fmt
+make lint
+make test
+make verify
+```
+
+Before requesting merge, run the complete gate:
+
+```bash
+make verify-full
+```
+
+Important component commands:
+
+| Area | Commands |
+| --- | --- |
+| Backend | `cd backend && go build ./... && go test ./... && go vet ./...` |
+| Web | `cd web && npm run typecheck && npm run lint && npx vitest run` |
+| Mobile | `cd mobile && npm run typecheck && npm test && npm run lint` |
+| Desktop | `cd desktop && npm run check && npm run build` |
+| Documentation | `npm run test:docs && npm run docs:check` |
+
+The Web project uses a solution `tsconfig`; use `npm run typecheck`, not a bare
+`tsc --noEmit`. Mobile has separate Node and Jest runners; add each new test to
+the appropriate configured scope so it is not silently skipped.
+
+## Pull Requests
+
+- Explain the user-visible outcome and the reason for the change.
+- Identify tests run and any checks intentionally not run.
+- Describe API, schema, environment, migration, security, and privacy impact.
+- Include screenshots or recordings for visible UI changes.
+- Keep generated files and their source changes in the same pull request.
+
+All contributions are licensed under the repository's [MIT License](LICENSE).
+Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).

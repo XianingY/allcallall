@@ -97,3 +97,26 @@ test("reports a compatibility pointer whose target is missing", async () => {
 
   assert.ok(failures.some((failure) => failure.includes("docs/README.md")));
 });
+
+test("reports missing or unlinked governance files", async () => {
+  const root = await createRepository({
+    "README.md": "# Project\n\n[Contributing](CONTRIBUTING.md)\n",
+    "docs/README.md": "# Documentation\n",
+    "CONTRIBUTING.md": "# Contributing\n",
+    "SECURITY.md": "# Security\n",
+  });
+
+  const failures = checkDocumentationTree(root);
+
+  for (const governanceFile of [
+    "LICENSE",
+    "SECURITY.md",
+    "CODE_OF_CONDUCT.md",
+    "SUPPORT.md",
+  ]) {
+    assert.ok(
+      failures.some((failure) => failure.includes(governanceFile)),
+      `expected a governance failure for ${governanceFile}`,
+    );
+  }
+});
