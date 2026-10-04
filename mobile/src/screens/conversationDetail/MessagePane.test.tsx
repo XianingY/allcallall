@@ -1,8 +1,25 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 
 import PrimaryButton from "../../components/PrimaryButton";
+import type { MessageRecord } from "../../api/collaboration";
 import MessagePane from "./MessagePane";
+import MessageRow from "./MessageRow";
 import type { MessagePaneProps } from "./types";
+
+const MockMessageRow = MessageRow as unknown as jest.Mock;
+
+const message: MessageRecord = {
+  id: 1,
+  organization_id: 1,
+  conversation_id: 1,
+  sender_id: 2,
+  sender_email: "sender@example.com",
+  sender_display_name: "Sender",
+  type: "user",
+  body: "Existing message",
+  pinned: false,
+  created_at: "2026-01-01T00:00:00Z",
+};
 
 jest.mock("../../components/PrimaryButton", () => {
   const React = require("react");
@@ -14,6 +31,13 @@ jest.mock("../../components/PrimaryButton", () => {
     )),
   };
 });
+
+jest.mock("./MessageRow", () => ({
+  // Deliberately unmemoized: this amplifies any FlatList re-render so the
+  // composer test can catch keystrokes leaking back into message rows.
+  __esModule: true,
+  default: jest.fn(() => null),
+}));
 
 const renderMessagePane = (overrides: Partial<MessagePaneProps> = {}) => {
   const onSend = jest.fn().mockResolvedValue(true);
@@ -110,6 +134,24 @@ describe("MessagePane", () => {
     rerender(<MessagePane {...props} sending />);
     expect((PrimaryButton as jest.Mock).mock.calls.length).toBeGreaterThan(
       initialRenderCount,
+    );
+  });
+
+  it("keeps the message list stable while the composer draft changes", () => {
+    const { getByPlaceholderText } = renderMessagePane({
+      messages: [message],
+    });
+    const initialRowRenderCount = MockMessageRow.mock.calls.length;
+    expect(initialRowRenderCount).toBeGreaterThan(0);
+
+    const input = getByPlaceholderText(
+      "输入线程消息，或输入自定义 Agent goal",
+    );
+    fireEvent.changeText(input, "typing performance");
+
+    expect(input.props.value).toBe("typing performance");
+    expect(MockMessageRow.mock.calls.length).toBe(
+      initialRowRenderCount,
     );
   });
 });

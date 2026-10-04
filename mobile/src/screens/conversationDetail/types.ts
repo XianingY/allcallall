@@ -127,6 +127,18 @@ export interface MessagePaneProps {
   onRemovePendingAttachment: (attachmentId: number) => void;
 }
 
+export interface MessageComposerProps {
+  sending: boolean;
+  workflowLoading: boolean;
+  /** 已上传、待随下一条消息发送的附件。 */
+  pendingAttachments: AttachmentRecord[];
+  uploadingAttachment: boolean;
+  onSend: (draft: string) => Promise<boolean>;
+  onAskAgent: (draft: string) => Promise<boolean>;
+  onPickAttachment: () => void;
+  onRemovePendingAttachment: (attachmentId: number) => void;
+}
+
 export interface MessageActionMenuModalProps {
   visible: boolean;
   message: MessageRecord | null;
