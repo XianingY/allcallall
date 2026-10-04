@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import { FlatList, Text, TouchableOpacity, View } from "react-native";
 import PrimaryButton from "../../components/PrimaryButton";
 import TextField from "../../components/TextField";
@@ -6,16 +7,11 @@ import { styles } from "./styles";
 import type { MessagePaneProps } from "./types";
 import type { MessageRecord } from "../../api/collaboration";
 
-type Props = MessagePaneProps & {
-  sending: boolean;
-};
-
 const MessagePane = ({
   messages,
   loading,
   hasMorePrev,
   loadingMorePrev,
-  draft,
   sending,
   workflowLoading,
   currentUserId,
@@ -23,7 +19,6 @@ const MessagePane = ({
   uploadingAttachment,
   onRefresh,
   onLoadMorePrev,
-  onDraftChange,
   onSend,
   onAskAgent,
   onOpenTranscript,
@@ -31,7 +26,24 @@ const MessagePane = ({
   onDownloadAttachment,
   onPickAttachment,
   onRemovePendingAttachment,
-}: Props) => {
+}: MessagePaneProps) => {
+  const [draft, setDraft] = useState("");
+  const send = useCallback(async () => {
+    if (!draft.trim() || sending) return;
+    const sent = await onSend(draft);
+    if (sent) {
+      setDraft("");
+    }
+  }, [draft, onSend, sending]);
+
+  const askAgent = useCallback(async () => {
+    if (workflowLoading) return;
+    const sent = await onAskAgent(draft);
+    if (sent) {
+      setDraft("");
+    }
+  }, [draft, onAskAgent, workflowLoading]);
+
   const renderMessage = ({ item }: { item: MessageRecord }) => (
     <MessageRow
       item={item}
@@ -74,7 +86,7 @@ const MessagePane = ({
           <View style={styles.composer}>
             <TextField
               value={draft}
-              onChangeText={onDraftChange}
+              onChangeText={setDraft}
               placeholder="输入线程消息，或输入自定义 Agent goal"
             />
             {pendingAttachments.length ? (
@@ -102,13 +114,13 @@ const MessagePane = ({
               />
               <PrimaryButton
                 title={sending ? "发送中…" : "发送消息"}
-                onPress={onSend}
+                onPress={() => void send()}
                 disabled={!draft.trim() || sending}
                 style={styles.button}
               />
               <PrimaryButton
                 title="Run Agent"
-                onPress={onAskAgent}
+                onPress={() => void askAgent()}
                 disabled={workflowLoading}
                 style={styles.buttonSecondary}
               />
