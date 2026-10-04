@@ -158,4 +158,23 @@ describe("Inbox responsive regions", () => {
     fireEvent.click(screen.getByRole("button", { name: "业务上下文" }));
     expect(context).not.toHaveAttribute("hidden");
   });
+
+  it("signals Agent processing through the realtime status region", async () => {
+    window.matchMedia = vi.fn().mockReturnValue({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    detail.workspace.agent_context = { meeting_transcription_status: "processing" };
+    try {
+      renderInbox();
+      fireEvent.click(await screen.findByRole("link", { name: /客户支持/ }));
+
+      const label = await screen.findByText("Agent 正在整理资料");
+      expect(label.parentElement).toHaveClass("signal-track");
+      expect(label.parentElement).toHaveAttribute("role", "status");
+    } finally {
+      detail.workspace.agent_context = {};
+    }
+  });
 });

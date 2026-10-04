@@ -2,6 +2,7 @@ import { Bot, Check, FileAudio, StickyNote, Video, X } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { FormError } from "@/components/AuthLayout";
+import { SignalTrack } from "@/components/SignalTrack";
 import { Metric } from "@/pages/collaboration/InboxParts";
 import { formatTime } from "@/pages/collaboration/InboxFormat";
 import type { ConversationQueries } from "@/pages/collaboration/useConversationQueries";
@@ -89,6 +90,14 @@ export function ConversationContextPanel({
               <Bot size={16} />
               Agent 上下文
             </h3>
+            {detail.data.workspace.agent_context.meeting_transcription_status ===
+            "processing" ? (
+              <SignalTrack
+                state="connected"
+                activity="agent"
+                label="Agent 正在整理资料"
+              />
+            ) : null}
             <Metric
               label="会议转写"
               value={String(
