@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { formatShortDateTime } from "@allcallall/shared";
 import PrimaryButton from "../../components/PrimaryButton";
@@ -45,11 +46,20 @@ const WorkspacePane = ({
   onUpdatePriority,
   onBindContact,
   onDownloadRecording,
-  noteDraft,
-  onNoteDraftChange,
   onAddNote,
-}: WorkspacePaneProps) => (
-  <>
+}: WorkspacePaneProps) => {
+  const [noteDraft, setNoteDraft] = useState("");
+
+  const addNote = useCallback(async () => {
+    if (!noteDraft.trim()) return;
+    const added = await onAddNote(noteDraft);
+    if (added) {
+      setNoteDraft("");
+    }
+  }, [noteDraft, onAddNote]);
+
+  return (
+    <>
     <Text style={styles.heading}>{conversation.title || "协作线程"}</Text>
 
     <View style={styles.summaryCard}>
@@ -516,16 +526,17 @@ const WorkspacePane = ({
     <TextField
       label="内部备注"
       value={noteDraft}
-      onChangeText={onNoteDraftChange}
+      onChangeText={setNoteDraft}
       placeholder="记录交接说明、风险点或下一步动作"
     />
     <PrimaryButton
       title="添加内部备注"
-      onPress={onAddNote}
+      onPress={addNote}
       disabled={!noteDraft.trim()}
       style={styles.createNoteButton}
     />
-  </>
-);
+    </>
+  );
+};
 
 export default WorkspacePane;
