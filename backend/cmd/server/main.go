@@ -577,7 +577,30 @@ func main() {
 	<-rootCtx.Done()
 	appLogger.Info().Msg("shutdown signal received")
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Order matters here, and getting it wrong is why deploys used to drop
+	// calls. Failing readiness first is what makes Kubernetes stop routing to
+	// this Pod; only after that does it make sense to stop serving. Shutdown on
+	// its own closes listeners immediately, so requests arriving during the
+	// endpoint propagation window are accepted and then cut.
+	server.BeginDrain()
+
+	// Endpoint propagation is not instant - kube-proxy and the ingress controller
+	// need a moment to stop sending new connections here. Sleeping before
+	// closing anything is the difference between a clean handover and a burst of
+	// connection resets on every deploy.
+	if delay := shutdownDrainDelay(); delay > 0 {
+		appLogger.Info().Dur("delay", delay).Msg("draining: waiting for traffic to move to another replica")
+		time.Sleep(delay)
+	}
+
+	// WebSocket connections are hijacked, so http.Server.Shutdown neither waits
+	// for them nor closes them. Close them deliberately so clients reconnect to
+	// the replica taking over instead of discovering a dead socket mid-call.
+	if n := signalingHub.Drain("server shutting down"); n > 0 {
+		appLogger.Info().Int("connections", n).Msg("realtime connections drained")
+	}
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownGrace())
 	defer shutdownCancel()
 
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
@@ -587,4 +610,34 @@ func main() {
 	}
 
 	metrics.Shutdown(shutdownCtx, metricsServer, appLogger)
+}
+
+// shutdownDrainDelay is how long to wait after failing readiness before closing
+// connections, giving load balancers time to stop sending work here. Override
+// with SHUTDOWN_DRAIN_DELAY (e.g. "0" to disable the wait).
+func shutdownDrainDelay() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("SHUTDOWN_DRAIN_DELAY"))
+	if raw == "" {
+		return 5 * time.Second
+	}
+	parsed, err := time.ParseDuration(raw)
+	if err != nil || parsed < 0 {
+		return 5 * time.Second
+	}
+	return parsed
+}
+
+// shutdownGrace is the HTTP shutdown budget. The chart's terminationGracePeriodSeconds
+// is 30s, so anything much below that spends the rest of the grace period with
+// HTTP already closed. Keep the two in step when changing either.
+func shutdownGrace() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("SHUTDOWN_GRACE_PERIOD"))
+	if raw == "" {
+		return 20 * time.Second
+	}
+	parsed, err := time.ParseDuration(raw)
+	if err != nil || parsed <= 0 {
+		return 20 * time.Second
+	}
+	return parsed
 }

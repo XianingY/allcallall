@@ -72,6 +72,13 @@ spec:
             # pipeline cannot parse.
             - name: GIN_MODE
               value: "release"
+            # Waiting here, before SIGTERM, lets the endpoint slice update
+            # without the process having closed anything yet. Without it the
+            # process starts refusing connections while kube-proxy is still
+            # routing to it, and the result is a burst of connection resets on
+            # every rolling update.
+            - name: SHUTDOWN_DRAIN_DELAY
+              value: {{ $root.Values.backend.shutdown.drainDelay | quote }}
             {{- if $root.Values.fcm.enabled }}
             {{- if not $root.Values.fcm.existingSecret }}
             {{- fail "fcm.enabled is true but fcm.existingSecret is empty: the backend refuses to start without FCM_SERVICE_ACCOUNT_PATH, so this deployment would crash-loop. Set existingSecret or disable fcm." }}
@@ -142,6 +149,14 @@ spec:
           {{- end }}
           resources:
             {{- toYaml $workload.values.resources | nindent 12 }}
+          lifecycle:
+            preStop:
+              exec:
+                # Seconds to pause between the Pod being marked for deletion and
+                # SIGTERM arriving. Endpoint removal is asynchronous, so closing
+                # sockets immediately means refusing traffic that is still being
+                # routed here.
+                command: ["/bin/sh", "-c", "sleep {{ $root.Values.backend.shutdown.preStopSeconds }}"]
           volumeMounts:
             - name: tmp
               mountPath: /tmp
@@ -162,7 +177,12 @@ spec:
               - key: {{ $root.Values.fcm.existingSecretKey }}
                 path: {{ base $root.Values.fcm.serviceAccountPath }}
         {{- end }}
-      terminationGracePeriodSeconds: 30
+      # Budget, in order: preStop 5s, then the process fails readiness and waits
+      # SHUTDOWN_DRAIN_DELAY (5s default), then drains sockets and gives HTTP
+      # SHUTDOWN_GRACE_PERIOD (20s default). 35s of the 45s below, leaving room
+      # before SIGKILL - a Pod killed mid-drain cuts the connections it was
+      # trying to hand over, which is the thing this is meant to prevent.
+      terminationGracePeriodSeconds: 45
       {{- with $root.Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

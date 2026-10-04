@@ -101,6 +101,54 @@ func (h *Hub) connectionCountLocked() int {
 	return total
 }
 
+// Drain closes every live realtime connection with a normal close frame.
+//
+// http.Server.Shutdown does not touch hijacked connections, so without this a
+// rolling update leaves every client's socket hanging until its own reconnect
+// logic notices - mid-call, that is a dropped call the user sees without any
+// error in this process's logs. Closing deliberately lets the client observe
+// it and reconnect to the replica taking over, and it makes the disconnect
+// count honest instead of silent.
+//
+// Safe to call once, at shutdown. Returns how many connections were closed.
+func (h *Hub) Drain(reason string) int {
+	h.mu.Lock()
+	clients := make([]*client, 0, h.connectionCountLocked())
+	for _, conns := range h.clients {
+		for cl := range conns {
+			clients = append(clients, cl)
+		}
+	}
+	h.mu.Unlock()
+
+	// Best-effort notification before the close so a client with a UI can show
+	// "reconnecting" rather than a generic network error. The send channel is
+	// buffered; the select keeps this from blocking on a full buffer.
+	for _, cl := range clients {
+		payload, err := json.Marshal(map[string]any{
+			"type":     "server.draining",
+			"reason":   reason,
+			"retry_ms": 2000,
+		})
+		if err == nil {
+			select {
+			case cl.send <- payload:
+			default:
+			}
+		}
+		metrics.SignalingDisconnectsTotal.WithLabelValues("draining").Inc()
+	}
+
+	// removeClient closes the socket and maintains the gauge and counters.
+	for _, cl := range clients {
+		h.removeClient(cl)
+	}
+	if len(clients) > 0 {
+		h.logger.Info().Int("connections", len(clients)).Msg("drained realtime connections for shutdown")
+	}
+	return len(clients)
+}
+
 func (h *Hub) removeClient(cl *client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

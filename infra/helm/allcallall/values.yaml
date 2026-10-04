@@ -133,6 +133,18 @@ serviceAccount:
   name: ""
   annotations: {}
 
+backend:
+  shutdown:
+    # Paused between the Pod being marked for deletion and SIGTERM, so endpoint
+    # removal can propagate before anything closes. Rolling updates used to cut
+    # every realtime connection because sockets were closed the instant SIGTERM
+    # arrived.
+    preStopSeconds: 5
+    # How long the process waits after failing readiness before draining. Shutdown
+    # fails /ready so the endpoint slice drops this Pod, then waits this long for
+    # that to happen before closing sockets.
+    drainDelay: 5s
+
 components:
   api:
     replicas: 2

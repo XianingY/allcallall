@@ -176,6 +176,14 @@ func registerHealthRoutes(api *gin.RouterGroup, deps RouteDependencies) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	api.GET("/ready", func(c *gin.Context) {
+		// Failing readiness during shutdown is what actually removes this Pod
+		// from the endpoint slice. Without it, traffic keeps being routed here
+		// for the whole propagation delay and every request in that window is
+		// accepted and then cut - the connection reset users see during a deploy.
+		if IsDraining() {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "draining"})
+			return
+		}
 		failures := make(map[string]string)
 		for name, check := range deps.ReadinessChecks {
 			if check == nil {
