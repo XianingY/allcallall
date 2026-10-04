@@ -3,9 +3,12 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"time"
+
 	"github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
-	"time"
+
+	"github.com/allcallall/backend/internal/metrics"
 )
 
 // HandleConnection 处理单个连接
@@ -81,7 +84,21 @@ func (h *Hub) addClient(cl *client) {
 		h.clients[cl.email] = make(map[*client]struct{})
 	}
 	h.clients[cl.email][cl] = struct{}{}
+	// Gauge rather than a log line: "can anyone connect at all" is the question
+	// an on-call engineer asks first, and it has to be answerable without
+	// tailing logs.
+	metrics.SignalingConnections.Set(float64(h.connectionCountLocked()))
+	metrics.SignalingConnectionsTotal.WithLabelValues("accepted").Inc()
 	h.logger.Info().Str("email", cl.email).Msg("client connected")
+}
+
+// connectionCountLocked counts live connections. Caller must hold h.mu.
+func (h *Hub) connectionCountLocked() int {
+	total := 0
+	for _, conns := range h.clients {
+		total += len(conns)
+	}
+	return total
 }
 
 func (h *Hub) removeClient(cl *client) {
@@ -103,6 +120,8 @@ func (h *Hub) removeClient(cl *client) {
 	if cl.conn != nil {
 		_ = cl.conn.Close()
 	}
+	metrics.SignalingConnections.Set(float64(h.connectionCountLocked()))
+	metrics.SignalingDisconnectsTotal.WithLabelValues("closed").Inc()
 	h.logger.Info().Str("email", cl.email).Msg("client disconnected")
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/allcallall/backend/internal/fcm"
+	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/presence"
 	"github.com/allcallall/backend/internal/user"
@@ -48,10 +49,12 @@ func (h *Hub) recordCallLifecycle(ctx context.Context, msg SignalMessage) {
 		if h.metrics != nil {
 			h.metrics.Inc("call_answer_total")
 		}
+		metrics.CallSetupTotal.WithLabelValues("completed").Inc()
 	case TypeCallReject:
 		if err := h.commercial.UpdateCallStatus(ctx, msg.CallID, models.CallStatusRejected, "rejected"); err != nil {
 			h.logger.Warn().Err(err).Str("call_id", msg.CallID).Msg("failed to update call status on reject")
 		}
+		metrics.CallSetupTotal.WithLabelValues("rejected").Inc()
 		h.clearBusy(ctx, msg.From, msg.To)
 		if h.collab != nil {
 			if err := h.collab.AppendDirectCallEventByEmail(ctx, msg.From, msg.To, msg.CallID, "call.rejected", map[string]any{
@@ -168,6 +171,7 @@ func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmai
 			}
 		}
 		if len(tokens) == 0 {
+			metrics.PushNotificationsTotal.WithLabelValues("no_token").Inc()
 			h.logger.Debug().Str("email", toEmail).Msg("recipient has no fcm token")
 			return
 		}
@@ -177,6 +181,7 @@ func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmai
 		// line below reports success. This is the log that made a dead push
 		// pipeline look like a working one.
 		if !h.fcmManager.Enabled() {
+			metrics.PushNotificationsTotal.WithLabelValues("skipped").Inc()
 			h.logger.Warn().
 				Str("to", toEmail).
 				Str("from", fromEmail).
@@ -187,6 +192,10 @@ func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmai
 		}
 
 		var sent int
+		fanoutStart := time.Now()
+		defer func() {
+			metrics.PushNotificationDuration.Observe(time.Since(fanoutStart).Seconds())
+		}()
 		for _, token := range tokens {
 			if err := h.fcmManager.SendCallNotification(notifCtx, token, fromEmail, fromUser.DisplayName, callID); err != nil {
 				if fcm.IsInvalidTokenError(err) {
@@ -199,9 +208,17 @@ func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmai
 					Str("from", fromEmail).
 					Str("call_id", callID).
 					Msg("failed to send call notification")
+				metrics.PushNotificationsTotal.WithLabelValues("failed").Inc()
 				continue
 			}
 			sent++
+			metrics.PushNotificationsTotal.WithLabelValues("sent").Inc()
+		}
+
+		if sent < len(tokens) {
+			// Partial delivery is the case worth paging on: one device worked
+			// and another did not, which averages away in a success ratio.
+			metrics.PushNotificationsTotal.WithLabelValues("partial").Inc()
 		}
 
 		h.logger.Info().
@@ -209,6 +226,7 @@ func (h *Hub) sendCallNotification(ctx context.Context, toEmail string, fromEmai
 			Str("from", fromEmail).
 			Str("call_id", callID).
 			Int("devices", sent).
-			Msg("call notification sent successfully")
+			Int("devices_total", len(tokens)).
+			Msg("call notification fan-out finished")
 	}()
 }

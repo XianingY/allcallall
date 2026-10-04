@@ -6,6 +6,8 @@
 #   - outbox_* come from internal/events/processor.go.
 #   - chat_realtime_delivery_fail_total comes from internal/chat.
 #   - refresh_session_invalid_use_total comes from internal/auth.
+#   - signaling_*, push_*, call_setup_* come from internal/metrics/mobile.go,
+#     with the call and push counters incremented in internal/signaling.
 #
 # Do not add rules for metrics that are not in that list: a rule that can
 # never fire is worse than no rule, because the dashboard looks guarded while
@@ -112,3 +114,107 @@ groups:
             client stuck on a rotated token or someone replaying a stolen one.
             Investigate before dismissing it as a client bug.
           runbook: "docs/observability.md#refresh-token-reuse"
+
+  # The four alerts below cover the mobile product loop: connect, receive a
+  # call, ring on the phone, complete the call. Until these existed, none of
+  # those failures produced an alert - a deployment where every push was
+  # discarded and nobody could connect stayed green.
+  - name: allcallall-mobile
+    rules:
+      # The one that matters most. A realtime product with zero connections
+      # during working hours is not degraded, it is unusable, and it used to be
+      # invisible. Expressed against accepted connections over a window rather
+      # than the gauge so an idle overnight does not page anyone.
+      - alert: NoRealtimeConnections
+        expr: sum(increase(signaling_connections_total{outcome="accepted"}[30m])) == 0
+        for: 10m
+        labels:
+          severity: critical
+          component: signaling
+        annotations:
+          summary: "No realtime client has connected in 30 minutes"
+          description: >-
+            No signaling connection has been accepted for 30 minutes. Either no
+            user is online, or every connection attempt is failing at the edge,
+            the ingress, or during the websocket upgrade. Check the ingress
+            timeout config and the rejected-connection rate before assuming the
+            product is simply idle.
+
+      # Push being unavailable is silent by construction: the phone just does
+      # not ring, and nothing in the request path fails. Now that FCM refuses to
+      # start without credentials, this is the second line of defence for a
+      # credential that was mounted but rejected.
+      - alert: PushDeliverySkipped
+        expr: increase(push_notifications_total{outcome="skipped"}[15m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+          component: push
+        annotations:
+          summary: "Call notifications are being skipped: push is disabled"
+          description: >-
+            A call notification was not attempted because FCM delivery is
+            disabled. Incoming calls are not reaching phones. Check
+            FCM_SERVICE_ACCOUNT_PATH and the fcm.enabled chart value. A
+            non-zero value here means users are missing calls right now.
+
+      - alert: PushDeliveryFailing
+        expr: |
+          sum(increase(push_notifications_total{outcome="failed"}[15m]))
+            / clamp_min(sum(increase(push_notifications_total{outcome=~"sent|failed"}[15m])), 1) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+          component: push
+        annotations:
+          summary: "Over 20% of call notifications are failing"
+          description: >-
+            Sustained push delivery failures. FCM quota, a malformed credential,
+            or a provider outage are the usual causes. Users are missing calls.
+
+      # Partial delivery is the case a success ratio hides: one device rang and
+      # another did not.
+      - alert: PushDeliveryPartial
+        expr: increase(push_notifications_total{outcome="partial"}[30m]) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: push
+        annotations:
+          summary: "Call notifications are only partially delivered"
+          description: >-
+            More than 5 fan-outs in 30 minutes reached some devices but not
+            others. Stale FCM tokens are usually cleaned up on failure, so this
+            suggests tokens that are accepted but never delivered - worth
+            checking device-side rather than provider-side.
+
+      - alert: CallSetupFailing
+        expr: |
+          sum(increase(call_setup_total{outcome="failed"}[30m]))
+            / clamp_min(sum(increase(call_setup_total[30m])), 1) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+          component: calls
+        annotations:
+          summary: "Over 10% of call setup attempts are failing"
+          description: >-
+            Users are starting calls that never connect. TURN reachability and
+            media-node capacity are the usual suspects; the media node is a
+            single point of failure at current scale.
+
+      - alert: RateLimitRejectingTraffic
+        expr: |
+          sum(rate(rate_limit_rejected_total[10m]))
+            / clamp_min(sum(rate(http_requests_total[10m])), 0.001) > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Rate limiting is rejecting a notable share of requests"
+          description: >-
+            More than 5% of requests are being refused by the global limiter.
+            Either genuine abuse, or GLOBAL_RATE_LIMIT is too low for the
+            traffic shape. The key is the hashed bearer token, so a carrier NAT
+            should not be collapsing many users into one bucket.

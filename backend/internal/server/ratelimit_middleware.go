@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/allcallall/backend/internal/metrics"
 	"github.com/allcallall/backend/internal/ratelimit"
 )
 
@@ -56,6 +57,10 @@ func GlobalRateLimit(svc *ratelimit.Service) gin.HandlerFunc {
 			if retryAfter > 0 {
 				c.Header("Retry-After", strconv.FormatInt(retryAfter, 10))
 			}
+			// Counted because "the app randomly rejects requests" is the symptom
+			// of a limit tuned wrong for mobile NAT, and it is invisible without
+			// a number to compare against traffic.
+			metrics.RateLimitRejectedTotal.Inc()
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error":               "rate_limit_exceeded",
 				"retry_after_seconds": retryAfter,
