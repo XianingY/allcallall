@@ -16,9 +16,10 @@ import (
 func TestReadinessFailsWhileDrainingButHealthStaysUp(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	// Reset the package-level flag for other tests in this package.
-	t.Cleanup(BeginDrain)
+	// The flag is package-level, so restore it to "not draining" afterwards.
+	// Leaving it true would fail every later readiness assertion in this package.
 	draining.Store(false)
+	t.Cleanup(func() { draining.Store(false) })
 
 	router := gin.New()
 	api := router.Group("/api/v1")
