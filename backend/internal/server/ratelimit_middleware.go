@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"os"
 	"strconv"
@@ -36,7 +38,7 @@ func GlobalRateLimit(svc *ratelimit.Service) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		key := "global:ip:" + c.ClientIP()
+		key := rateLimitKey(c)
 		var allowed bool
 		var retryAfter int64
 		var err error
@@ -62,6 +64,27 @@ func GlobalRateLimit(svc *ratelimit.Service) gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// rateLimitKey identifies the caller for rate limiting.
+//
+// Keying on IP alone is wrong for this product: mobile carriers put thousands
+// of subscribers behind one NAT address, so a per-IP limit punishes innocent
+// users for someone else's traffic - the failure looks like "the app randomly
+// rejects me", which is worse than having no limit at all.
+//
+// So the identity token wins when present, and only unauthenticated traffic
+// falls back to IP. The token is hashed rather than used verbatim: it is
+// bearer material, and this string ends up in Redis and in error responses.
+// Hashing also means a caller cannot widen their own bucket by inventing
+// headers, and the same user across devices shares one bucket, which is what
+// the limit is meant to bound.
+func rateLimitKey(c *gin.Context) string {
+	if header := strings.TrimSpace(c.GetHeader("Authorization")); header != "" {
+		sum := sha256.Sum256([]byte(header))
+		return "global:token:" + hex.EncodeToString(sum[:8])
+	}
+	return "global:ip:" + c.ClientIP()
 }
 
 // isHealthOrMetricsPath reports whether a path is a health/metrics endpoint

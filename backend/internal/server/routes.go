@@ -8,6 +8,7 @@ import (
 
 	"github.com/allcallall/backend/internal/handlers"
 	"github.com/allcallall/backend/internal/metrics"
+	"github.com/allcallall/backend/internal/ratelimit"
 )
 
 type ReadinessCheck func(context.Context) error
@@ -39,6 +40,9 @@ type RouteDependencies struct {
 	Metrics            *metrics.CounterStore
 	ReadinessChecks    map[string]ReadinessCheck
 	RequireTLS         bool
+	// RateLimit enables the coarse global limit on the /api/v1 group. Nil
+	// disables it, which is how tests and the migration job run.
+	RateLimit *ratelimit.Service
 }
 
 // protectedMiddlewares 组装受保护路由组的中间件链。
@@ -60,6 +64,14 @@ func RegisterRoutes(router *gin.Engine, deps RouteDependencies) {
 	}
 	api := router.Group("/api/v1")
 	api.Use(RequireTLS(deps.RequireTLS))
+	// Coarse limit across the whole authenticated surface, including
+	// /signaling/poll - the mobile fallback when the socket is unavailable -
+	// which previously had no limit at all and could be polled hard enough to
+	// saturate the signaling tier. Deliberately not on probeAPI below: kubelet
+	// probes must never be rate limited.
+	if deps.RateLimit != nil {
+		api.Use(GlobalRateLimit(deps.RateLimit))
+	}
 	// 探针组：前缀与 api 相同，但不套 RequireTLS。
 	// kubelet 的 liveness/readiness 直连 PodIP 发起探测，不经过 Ingress/TLS 终结，
 	// 请求里不会带 X-Forwarded-Proto；若把探针留在 api 组内，一旦开启
