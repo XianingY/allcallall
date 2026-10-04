@@ -295,9 +295,38 @@ networkPolicy:
   # port to the whole cluster. Fill in the namespace, and podLabels if you
   # want to narrow it further, then turn it on. See docs/observability.md.
   prometheus:
+    # 9090 is scraped through this path; see networkpolicies.yaml. Note the
+    # inconsistency worth fixing separately: observability.prometheus.scrape
+    # annotates only the 8080 text endpoint, so with this false Prometheus does
+    # not see the Go runtime metrics on 9090 either.
     enabled: false
     namespace: monitoring
     podLabels: {}
+
+# Node-level log forwarding to Loki.
+#
+# Until now the only promtail config in the repository used docker_sd_configs,
+# which discovers nothing in a Kubernetes cluster - so a cluster deployment
+# shipped with a Loki datasource wired up and no data behind it. An incident
+# would have had dashboards but no evidence.
+#
+# Loki itself is not part of this chart; point lokiUrl at wherever you run it.
+logging:
+  enabled: true
+  lokiUrl: http://loki:3100/loki/api/v1/push
+  image:
+    repository: grafana/promtail
+    tag: 3.5.5
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  # Escape hatch for node-level files outside /var/log/containers, e.g. kernel
+  # messages or a kubelet log. Structured as additional promtail scrape_configs.
+  extraScrapeConfigs: []
 
 ingress:
   enabled: false

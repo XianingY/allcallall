@@ -1,0 +1,201 @@
+{{- $root := . }}
+{{- if $root.Values.logging.enabled }}
+{{- /*
+  Node-level log collection for Kubernetes.
+
+  The existing infra/observability/promtail.yml only has docker_sd_configs, so
+  it collects nothing here: in a cluster the log files live on the node under
+  /var/log/pods, and a Docker-oriented service discovery has nothing to
+  discover. Loki was configured as a Grafana datasource, so the dashboard
+  pointed at an empty datasource - an incident would have had no evidence to
+  work from.
+
+  This adds the Kubernetes equivalent. Logs stay on the node and are forwarded;
+  nothing is stored in etcd, so it needs no per-app change.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "allcallall.fullname" $root }}-promtail
+  labels:
+    app.kubernetes.io/name: promtail
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: observability
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "allcallall.fullname" $root }}-promtail
+  labels:
+    app.kubernetes.io/name: promtail
+    app.kubernetes.io/instance: {{ .Release.Name }}
+rules:
+  # Reading pod metadata is what turns a log line into a queryable stream:
+  # which pod, which namespace, which container.
+  - apiGroups: [""]
+    resources: ["pods", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "allcallall.fullname" $root }}-promtail
+  labels:
+    app.kubernetes.io/name: promtail
+    app.kubernetes.io/instance: {{ .Release.Name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "allcallall.fullname" $root }}-promtail
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "allcallall.fullname" $root }}-promtail
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "allcallall.fullname" $root }}-promtail
+  labels:
+    app.kubernetes.io/name: promtail
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  promtail.yaml: |
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+
+    positions:
+      filename: /run/promtail/positions.yaml
+
+    clients:
+      - url: {{ $root.Values.logging.lokiUrl | quote }}
+
+    scrape_configs:
+      # Application logs from every pod in the cluster. Pods are removed when
+      # they finish, so tailing the files would lose the tail of a crashed
+      # container - exactly the log you want.
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            target_label: container
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+          # Drop the noisier system namespaces; the platform's own logs are not
+          # what an incident is usually about.
+          - source_labels: [__meta_kubernetes_namespace]
+            regex: (kube-system|monitoring)
+            action: drop
+        pipeline_stages:
+          # The backend emits zerolog JSON in release mode, so the log line is
+          # JSON. Parsing it into fields is what makes level, request_id,
+          # user_id and duration queryable in Grafana instead of buried in text.
+          - cri: {}
+          - json:
+              expressions:
+                level: level
+                msg: msg
+                time: time
+                logger: logger
+                request_id: request_id
+                path: path
+                status: status
+                duration: duration
+                user_id: user_id
+                call_id: call_id
+          - labels:
+              level:
+              logger:
+          # The backend masks client IPs (see internal/server/middleware.go), so
+          # nothing here needs to; the stage is here so that if a line arrives
+          # with no parseable level it still lands in a queryable stream.
+          - output:
+              source: output
+{{- if $root.Values.logging.extraScrapeConfigs }}
+{{ toYaml $root.Values.logging.extraScrapeConfigs | indent 4 }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "allcallall.fullname" $root }}-promtail
+  labels:
+    app.kubernetes.io/name: promtail
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: observability
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: promtail
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: promtail
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: {{ include "allcallall.fullname" $root }}-promtail
+      # Positions must survive a restart, or every pod's logs are re-sent from
+      # the beginning after a node reboot.
+      volumes:
+        - name: positions
+          hostPath:
+            path: /var/lib/promtail
+            type: DirectoryOrCreate
+        - name: varlog
+          hostPath:
+            path: /var/log
+            type: Directory
+        - name: containerlogs
+          hostPath:
+            path: /var/lib/containers
+            type: Directory
+        - name: config
+          configMap:
+            name: {{ include "allcallall.fullname" $root }}-promtail
+      containers:
+        - name: promtail
+          image: "{{ $root.Values.logging.image.repository }}:{{ $root.Values.logging.image.tag }}"
+          imagePullPolicy: {{ $root.Values.logging.image.pullPolicy }}
+          args:
+            - -config.file=/etc/promtail/promtail.yaml
+          env:
+            # A node-level agent can hold much more than a sidecar, and it is
+            # always restarting containers it did not start.
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            {{- toYaml $root.Values.logging.resources | nindent 12 }}
+          securityContext:
+            {{- include "allcallall.containerSecurityContext" $root | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/promtail
+            - name: positions
+              mountPath: /run/promtail
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            # Read-only would be nice; some node runtimes keep the CRI socket
+            # and the container log symlinks on the same path.
+            - name: containerlogs
+              mountPath: /var/lib/containers
+              readOnly: true
+      tolerations:
+        # A log collector has to run on control-plane and infra nodes too, or the
+        # components people forget about are the ones with no logs.
+        - operator: Exists
+{{- end }}
