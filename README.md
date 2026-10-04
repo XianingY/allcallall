@@ -110,10 +110,10 @@ and Agent runtime setup, follow the maintained [Quick Start](docs/getting-starte
 - [Documentation index](docs/README.md)
 - [Quick start](docs/getting-started/quick-start.md)
 - [Backend guide](backend/README.md)
-- [API reference](docs/api/api-documentation.md)
-- [Configuration reference](docs/configuration/configuration.md)
-- [Deployment guide](docs/deployment/deployment-guide.md)
-- [Message privacy and compliance](docs/configuration/message-privacy-compliance.md)
+- [API reference](docs/reference/api/http-api.md)
+- [Configuration reference](docs/reference/configuration/runtime.md)
+- [Deployment guide](docs/guides/deployment/deployment-guide.md)
+- [Message privacy and compliance](docs/reference/security/privacy-and-compliance.md)
 - [Python runtime repository](https://github.com/XianingY/allcallall-agent-runtime)
 
 `INDEX.md` remains as a compatibility pointer for older links.

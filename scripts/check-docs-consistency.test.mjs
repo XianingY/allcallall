@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { afterEach, test } from "node:test";
 
 import {
+  DOCUMENT_MOVES,
   checkDocumentationTree,
   checkMarkdownFile,
 } from "./check-docs-consistency.mjs";
@@ -118,5 +120,13 @@ test("reports missing or unlinked governance files", async () => {
       failures.some((failure) => failure.includes(governanceFile)),
       `expected a governance failure for ${governanceFile}`,
     );
+  }
+});
+
+test("keeps every documented move available at both old and canonical paths", () => {
+  const root = resolve(import.meta.dirname, "..");
+  for (const [source, target] of Object.entries(DOCUMENT_MOVES)) {
+    assert.ok(existsSync(join(root, source)), `missing compatibility source ${source}`);
+    assert.ok(existsSync(join(root, target)), `missing canonical target ${target}`);
   }
 });

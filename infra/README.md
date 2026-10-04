@@ -4,9 +4,9 @@ Infrastructure assets for local development and interview/demo runtime profiles.
 
 ## Docs
 
-- [Deployment Guide](../docs/deployment/deployment-guide.md)
-- [Recording Storage And Transcription](../docs/deployment/recording-storage-deployment.md)
-- [Restricted Network Setup](../docs/deployment/restricted-network-setup.md)
+- [Deployment Guide](../docs/guides/deployment/deployment-guide.md)
+- [Recording Storage And Transcription](../docs/guides/deployment/recording-storage.md)
+- [Restricted Network Setup](../docs/guides/deployment/restricted-networks.md)
 
 ## Files
 
@@ -101,4 +101,4 @@ helm upgrade --install allcallall infra/helm/allcallall \
 `cloudflared-config.yml` and `deploy-cloudflare-tunnel.sh` are **host-specific
 reference material** kept for deployments that must avoid exposing the origin IP.
 Treat them as a starting point, not as the maintained source of truth — the
-[deployment guide](../docs/deployment/deployment-guide.md) wins on conflicts.
+[deployment guide](../docs/guides/deployment/deployment-guide.md) wins on conflicts.

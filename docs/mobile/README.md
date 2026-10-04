@@ -12,7 +12,7 @@ The current mobile focus is keeping native Android/iOS workflows buildable while
 - Realtime translation UI entry points are hidden; backend compatibility endpoints remain.
 - Meeting recording cards can show transcription status when backend data is available.
 
-For browser workflows, use [Web/Desktop workflow](../development/web-desktop-workflow.md).
+For browser workflows, use [Web/Desktop workflow](../guides/development/web-desktop-workflow.md).
 
 ## Runtime Configuration
 
@@ -30,16 +30,16 @@ EXPO_PUBLIC_SIGNALING_TRANSPORT=auto
 Detailed references:
 
 - [Mobile runtime config](setup/app-env-usage.md)
-- [Configuration](../configuration/configuration.md)
+- [Configuration](../reference/configuration/runtime.md)
 
 ## Run Android Development Client
 
 ```bash
+cd ../.. # repository root when starting from docs/mobile
+npm ci
 adb reverse tcp:8080 tcp:8080
 adb reverse tcp:8081 tcp:8081
-
 cd mobile
-npm install
 npm run start:dev-client
 ```
 
@@ -83,8 +83,8 @@ mobile/src/services/     Push, billing, media, audio/video/vibration
 
 ## Supporting Docs
 
-- [Web/Desktop workflow](../development/web-desktop-workflow.md)
-- [Web smoke tests](../testing/web-smoke.md)
-- [Restricted network setup](../deployment/restricted-network-setup.md)
+- [Web/Desktop workflow](../guides/development/web-desktop-workflow.md)
+- [Web smoke tests](../guides/development/web-smoke.md)
+- [Restricted network setup](../guides/deployment/restricted-networks.md)
 - [Audio files setup](setup/audio-files-setup.md)
 - [Mobile scripts](../../mobile/scripts/README.md)

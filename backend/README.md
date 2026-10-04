@@ -189,7 +189,7 @@ Beta provider rule: use `AGENT_RUNTIME=python_langgraph`, `PY_AGENT_PROVIDER=ope
 - Knowledge base: `/api/v1/knowledge/sources`, `/source-groups`, `/duplicate-candidates`, `/dead-letters`.
 - Support/commercial modules: legal, safety, follow-ups, entitlements, RevenueCat webhook, support diagnostics.
 
-See [API Documentation](../docs/api/api-documentation.md) and [Interview API Surface](../docs/interview/api-surface.md).
+See [HTTP API](../docs/reference/api/http-api.md) and the [API Route Map](../docs/reference/api/route-map.md).
 
 ## Verification
 
@@ -206,9 +206,9 @@ cd backend && go test ./internal/collaboration ./internal/agent ./internal/runti
 
 ## Related Docs
 
-- [System Design](../docs/interview/system-design.md)
-- [Backend Deep Dive](../docs/interview/backend-deep-dive.md)
-- [AI Agent Design](../docs/interview/ai-agent-design.md)
-- [Worker Runtime](../docs/interview/worker-runtime.md)
-- [Configuration](../docs/configuration/configuration.md)
-- [Recording Storage Deployment](../docs/deployment/recording-storage-deployment.md)
+- [System Overview](../docs/architecture/system-overview.md)
+- [Backend Architecture](../docs/architecture/backend.md)
+- [Agent Platform Architecture](../docs/architecture/agent-platform.md)
+- [Workers and Processes](../docs/architecture/workers.md)
+- [Configuration](../docs/reference/configuration/runtime.md)
+- [Recording Storage Deployment](../docs/guides/deployment/recording-storage.md)

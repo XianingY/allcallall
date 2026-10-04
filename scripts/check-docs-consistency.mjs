@@ -37,6 +37,13 @@ const COMPATIBILITY_POINTER_MARKERS = [
 const ARCHIVE_STATUS_MARKER =
   "archive status:** historical material; not part of the maintained product documentation";
 
+export const DOCUMENT_MOVES = {
+  "docs/interview/system-design.md": "docs/architecture/system-overview.md",
+  "docs/interview/backend-deep-dive.md": "docs/architecture/backend.md",
+  "docs/interview/ai-agent-design.md": "docs/architecture/agent-platform.md",
+  "docs/interview/worker-runtime.md": "docs/architecture/workers.md",
+};
+
 const REFERENCE_PATTERNS = [
   {
     label: "GitHub workflow",
@@ -348,6 +355,17 @@ export function checkDocumentationTree(root) {
   const readmePath = join(root, "README.md");
   if (existsSync(readmePath)) {
     failures.push(...checkGovernanceFiles(root, readFileSync(readmePath, "utf8")));
+  }
+  const documentMoves = Object.entries(DOCUMENT_MOVES);
+  if (documentMoves.some(([source, target]) => existsSync(join(root, source)) || existsSync(join(root, target)))) {
+    for (const [source, target] of documentMoves) {
+      if (!existsSync(join(root, source))) {
+        failures.push(`${source}: compatibility source is missing`);
+      }
+      if (!existsSync(join(root, target))) {
+        failures.push(`${target}: canonical migration target is missing`);
+      }
+    }
   }
   return failures;
 }

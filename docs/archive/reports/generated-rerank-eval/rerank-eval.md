@@ -39,4 +39,3 @@ This report compares the deterministic baseline retrieval order with the rules r
 | ---: | --- | --- | ---: | --- |
 | 1 | Customer Follow Up Owner Deadline | sql_fallback | 94.526 | rules keyword_overlap=5 title_overlap=5 source=knowledge retrieval=sql_fallback |
 | 2 | Customer Chatter | sql_fallback | 43.030 | rules keyword_overlap=3 title_overlap=1 source=knowledge retrieval=sql_fallback |
-

@@ -145,7 +145,7 @@ Do not claim retry/failure results unless you forced the handler to fail in a co
 
 Use `api-qps-bench.mjs` for live MySQL/Redis + Gin API measurements. It reports request count, QPS, p50/p95/p99 latency, error rate, and status counts as JSON.
 
-The latest recorded local snapshot is documented in `docs/interview/load-test-results.md` under "Core API QPS Benchmark"; do not copy JWT-bearing `login.json` artifacts into the repo.
+The latest recorded local snapshot is documented in `docs/archive/reports/load-test-results.md` under "Core API QPS Benchmark"; do not copy JWT-bearing `login.json` artifacts into the repo.
 
 ```bash
 BASE_URL=http://localhost:8080 \

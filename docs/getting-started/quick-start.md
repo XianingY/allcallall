@@ -155,7 +155,7 @@ Use narrower checks while developing, then broaden before committing shared beha
 
 ## More Docs
 
-- [Configuration](../configuration/configuration.md)
-- [Deployment Guide](../deployment/deployment-guide.md)
-- [AI Agent Design](../interview/ai-agent-design.md)
-- [Worker Runtime](../interview/worker-runtime.md)
+- [Configuration](../reference/configuration/runtime.md)
+- [Deployment Guide](../guides/deployment/deployment-guide.md)
+- [Agent Platform Architecture](../architecture/agent-platform.md)
+- [Workers and Processes](../architecture/workers.md)
