@@ -357,20 +357,12 @@ func TestProcessorBoundedConcurrency(t *testing.T) {
 		Lease:       time.Minute,
 	})
 
+	tracker := setConcurrencyTrackerForTest(t)
+
 	// Register a handler that tracks concurrency and blocks until released.
 	block := make(chan struct{})
-	var currentConc int64
-	var maxConc int64
 	processor.Register("test.event", func(ctx context.Context, row models.EventOutbox) error {
-		cur := atomic.AddInt64(&currentConc, 1)
-		for {
-			old := atomic.LoadInt64(&maxConc)
-			if cur <= old || atomic.CompareAndSwapInt64(&maxConc, old, cur) {
-				break
-			}
-		}
 		<-block // block until test releases
-		atomic.AddInt64(&currentConc, -1)
 		return nil
 	})
 
@@ -400,25 +392,23 @@ func TestProcessorBoundedConcurrency(t *testing.T) {
 		done <- result
 	}()
 
-	// Wait for max concurrency to reach 3. With 3 shards, at most 3 handlers
-	// can run concurrently. The first 3 events (one per shard) will start
-	// immediately; the rest queue behind them.
+	// Wait for max concurrency to reach 3.
 	deadline := time.After(5 * time.Second)
 	for {
-		max := atomic.LoadInt64(&maxConc)
+		max := tracker.maxObserved.Load()
 		if max >= 3 {
 			break
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("timed out waiting for max concurrency to reach 3; got %d", atomic.LoadInt64(&maxConc))
+			t.Fatalf("timed out waiting for max concurrency to reach 3; got %d", tracker.maxObserved.Load())
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
 
 	// Verify max concurrency never exceeded 3.
-	max := atomic.LoadInt64(&maxConc)
+	max := tracker.maxObserved.Load()
 	if max != 3 {
 		t.Fatalf("max observed concurrency = %d, want 3", max)
 	}

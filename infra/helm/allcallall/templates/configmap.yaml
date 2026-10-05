@@ -24,8 +24,14 @@ data:
   TOOL_PAYLOAD_RETENTION_DAYS: {{ .Values.platform.retention.toolPayloadDays | quote }}
   ORGANIZATION_AUDIT_RETENTION_DAYS: {{ .Values.platform.retention.organizationAuditDays | quote }}
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.observability.otlpEndpoint | quote }}
-  OUTBOX_WORKER_CONCURRENCY: {{ .Values.workers.outbox.concurrency | quote }}
-  OUTBOX_WORKER_QUEUE_DEPTH: {{ .Values.workers.outbox.queueDepth | quote }}
   OUTBOX_WORKER_IDLE_MS: {{ .Values.workers.outbox.idleMs | quote }}
   OUTBOX_WORKER_ERROR_BACKOFF_MS: {{ .Values.workers.outbox.errorBackoffMs | quote }}
   OUTBOX_WORKER_LEASE_REFRESH_SEC: {{ .Values.workers.outbox.leaseRefreshSec | quote }}
+  AGENT_WORKER_CONCURRENCY: {{ .Values.workers.agent.concurrency | quote }}
+  AGENT_WORKER_QUEUE_DEPTH: {{ .Values.workers.agent.queueDepth | quote }}
+  COLLABORATION_WORKER_CONCURRENCY: {{ .Values.workers.collaboration.concurrency | quote }}
+  COLLABORATION_WORKER_QUEUE_DEPTH: {{ .Values.workers.collaboration.queueDepth | quote }}
+  SEARCH_WORKER_CONCURRENCY: {{ .Values.workers.search.concurrency | quote }}
+  SEARCH_WORKER_QUEUE_DEPTH: {{ .Values.workers.search.queueDepth | quote }}
+  SETTLEMENT_WORKER_CONCURRENCY: {{ .Values.workers.settlement.concurrency | quote }}
+  SETTLEMENT_WORKER_QUEUE_DEPTH: {{ .Values.workers.settlement.queueDepth | quote }}

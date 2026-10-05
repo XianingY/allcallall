@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	"github.com/google/uuid"
@@ -78,6 +79,46 @@ func OrderingKey(row models.EventOutbox) string {
 	return fmt.Sprintf("%s:%d", row.AggregateType, row.AggregateID)
 }
 
+// concurrencyTracker is a test-scoped concurrency observer. It is set only
+// in tests via setConcurrencyTrackerForTest and is safe for parallel test
+// execution because each test sets its own tracker before running.
+type concurrencyTracker struct {
+	current     atomic.Int64
+	maxObserved atomic.Int64
+}
+
+var globalTracker atomic.Pointer[concurrencyTracker]
+
+func setConcurrencyTrackerForTest(t *testing.T) *concurrencyTracker {
+	t.Helper()
+	tr := &concurrencyTracker{}
+	globalTracker.Store(tr)
+	t.Cleanup(func() { globalTracker.Store(nil) })
+	return tr
+}
+
+func incConcurrency() int64 {
+	tr := globalTracker.Load()
+	if tr != nil {
+		cur := tr.current.Add(1)
+		for {
+			old := tr.maxObserved.Load()
+			if cur <= old || tr.maxObserved.CompareAndSwap(old, cur) {
+				break
+			}
+		}
+		return cur
+	}
+	return 0
+}
+
+func decConcurrency() {
+	tr := globalTracker.Load()
+	if tr != nil {
+		tr.current.Add(-1)
+	}
+}
+
 type Processor struct {
 	store                  *Store
 	handlers               map[string]Handler
@@ -92,6 +133,7 @@ type Processor struct {
 	workerID               string
 	lease                  time.Duration
 	leaseRefresh           time.Duration
+	idleInterval           time.Duration
 	errorBackoff           time.Duration
 	backlogSampleInterval  time.Duration
 	concurrency            int
@@ -114,6 +156,7 @@ func NewProcessor(store *Store, recorders ...metrics.Recorder) *Processor {
 		retryDelay:            time.Minute,
 		workerID:              "outbox-" + uuid.NewString(),
 		lease:                 2 * time.Minute,
+		idleInterval:          30 * time.Second,
 		errorBackoff:          5 * time.Second,
 		backlogSampleInterval: 10 * time.Second,
 		concurrency:           1,
@@ -121,14 +164,12 @@ func NewProcessor(store *Store, recorders ...metrics.Recorder) *Processor {
 	}
 }
 
-// WithLogger 注入日志器。生产环境务必注入——否则 outbox 批量失败只会体现在指标上。
 // WithLogger injects a logger so batch-level failures are visible in logs.
 func (p *Processor) WithLogger(logger zerolog.Logger) *Processor {
 	p.logger = logger
 	return p
 }
 
-// WithAlerter 注入告警服务。批次级失败会按 P2 上报，避免积压静默无人知晓。
 // WithAlerter routes batch-level failures to the on-call alerting pipeline.
 func (p *Processor) WithAlerter(svc *alerting.Service) *Processor {
 	p.alerter = svc
@@ -212,7 +253,7 @@ func (p *Processor) WithConfig(config ProcessorConfig) *Processor {
 		p.queueDepth = 1024
 	}
 	if config.IdleInterval > 0 {
-		p.errorBackoff = config.IdleInterval
+		p.idleInterval = config.IdleInterval
 	}
 	if config.ErrorBackoff > 0 {
 		p.errorBackoff = config.ErrorBackoff
@@ -392,9 +433,6 @@ func shardIndex(key string, shardCount int) int {
 // processEventOutcome dispatches a single event to its handler and returns
 // the outcome without persisting the state transition. The caller is
 // responsible for persisting the outcome (either individually or in a batch).
-// processEventOutcome dispatches a single event to its handler and returns
-// the outcome without persisting the state transition. The caller is
-// responsible for persisting the outcome (either individually or in a batch).
 // When leaseRefresh > 0, a background goroutine extends the lease while the
 // handler runs; if ownership is lost, the handler context is cancelled.
 func (p *Processor) processEventOutcome(ctx context.Context, row models.EventOutbox) eventResult {
@@ -409,11 +447,7 @@ func (p *Processor) processEventOutcome(ctx context.Context, row models.EventOut
 			"outbox_id":      strconv.FormatUint(row.ID, 10),
 		})
 
-		// Track concurrency for test observability.
-		cur := atomic.AddInt64(&currentConcurrency, 1)
-		if cur > atomic.LoadInt64(&observeMaxConcurrency) {
-			atomic.StoreInt64(&observeMaxConcurrency, cur)
-		}
+		incConcurrency()
 
 		if p.leaseRefresh > 0 {
 			// Wrap with lease refresh.
@@ -454,7 +488,7 @@ func (p *Processor) processEventOutcome(ctx context.Context, row models.EventOut
 			handlerErr = handler(handlerCtx, row)
 		}
 
-		atomic.AddInt64(&currentConcurrency, -1)
+		decConcurrency()
 		span.End(handlerErr)
 	}
 
@@ -556,9 +590,7 @@ func (p *Processor) persistPublished(ctx context.Context, results []eventResult,
 	// Fall back to per-row for mismatched IDs.
 	for _, id := range mismatched {
 		if perErr := p.store.MarkPublished(ctx, id); perErr != nil {
-			if p.metrics != nil {
-				p.metrics.Inc("outbox_final_state_update_error_total")
-			}
+			p.incFinalStateError("published")
 			batchResult.Errors = append(batchResult.Errors, perErr)
 		} else {
 			batchResult.Succeeded++
@@ -615,9 +647,7 @@ func (p *Processor) persistRetried(ctx context.Context, results []eventResult, b
 		batchResult.Retried += len(g.ids) - len(mismatched)
 		for _, id := range mismatched {
 			if perErr := p.store.MarkRetry(ctx, id, errors.New(g.errMsg), g.availableAt); perErr != nil {
-				if p.metrics != nil {
-					p.metrics.Inc("outbox_final_state_update_error_total")
-				}
+				p.incFinalStateError("retry")
 				batchResult.Errors = append(batchResult.Errors, perErr)
 			} else {
 				batchResult.Retried++
@@ -672,9 +702,7 @@ func (p *Processor) persistDead(ctx context.Context, results []eventResult, batc
 		batchResult.Dead += len(g.ids) - len(mismatched)
 		for _, id := range mismatched {
 			if perErr := p.store.MarkDead(ctx, id, errors.New(g.errMsg)); perErr != nil {
-				if p.metrics != nil {
-					p.metrics.Inc("outbox_final_state_update_error_total")
-				}
+				p.incFinalStateError("dead")
 				batchResult.Errors = append(batchResult.Errors, perErr)
 			} else {
 				batchResult.Dead++
@@ -683,10 +711,25 @@ func (p *Processor) persistDead(ctx context.Context, results []eventResult, batc
 	}
 }
 
-// processEventWithLease processes a single event with lease refresh. If
-// leaseRefresh > 0, a background goroutine periodically extends the lease
-// while the handler runs. If the lease cannot be extended (ownership lost),
-// the handler context is cancelled with ErrLeaseConflict as the cause.
+// incFinalStateError increments the outbox final-state update error metric
+// with a bounded state label restricted to "published", "retry", or "dead".
+func (p *Processor) incFinalStateError(state string) {
+	if p.metrics == nil {
+		return
+	}
+	switch state {
+	case "published":
+		p.metrics.Inc("outbox_final_state_update_error_published_total")
+	case "retry":
+		p.metrics.Inc("outbox_final_state_update_error_retry_total")
+	case "dead":
+		p.metrics.Inc("outbox_final_state_update_error_dead_total")
+	}
+}
+
+// processEventWithLease processes a single event with lease refresh when
+// leaseRefresh > 0, falling back to processEvent otherwise. This is the
+// single entry point for the sequential (concurrency=1) path.
 func (p *Processor) processEventWithLease(ctx context.Context, row models.EventOutbox) (processOutcome, error) {
 	if p.leaseRefresh <= 0 {
 		return p.processEvent(ctx, row)
@@ -742,6 +785,10 @@ func (p *Processor) processEventWithLease(ctx context.Context, row models.EventO
 func (p *Processor) Run(ctx context.Context, idleInterval time.Duration) {
 	if idleInterval <= 0 {
 		idleInterval = time.Minute
+	}
+	// Override with the configured idle interval if set via WithConfig.
+	if p.idleInterval > 0 {
+		idleInterval = p.idleInterval
 	}
 
 	// Sample backlog on a separate ticker so the hot processing loop
@@ -928,10 +975,3 @@ func normalizedEvents(events []string) []string {
 	}
 	return out
 }
-
-// observeMaxConcurrency tracks the maximum observed concurrency across
-// handler invocations for testing purposes.
-var observeMaxConcurrency int64
-
-// currentConcurrency tracks the number of in-flight handler invocations.
-var currentConcurrency int64

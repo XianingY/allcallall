@@ -129,13 +129,25 @@ observability:
 
 # Outbox worker parallelism and timing. Concurrency is clamped to [1, 64];
 # queue depth to [concurrency, 1024]. Lease refresh defaults to lease/3.
+# Per-worker concurrency/queueDepth override the code defaults; idle/error/lease
+# timing is shared across all workers.
 workers:
   outbox:
-    concurrency: 8
-    queueDepth: 16
     idleMs: 500
     errorBackoffMs: 1000
     leaseRefreshSec: 40
+  agent:
+    concurrency: 2
+    queueDepth: 4
+  collaboration:
+    concurrency: 8
+    queueDepth: 16
+  search:
+    concurrency: 4
+    queueDepth: 8
+  settlement:
+    concurrency: 2
+    queueDepth: 4
 
 serviceAccount:
   create: true
