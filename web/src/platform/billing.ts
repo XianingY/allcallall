@@ -1,13 +1,25 @@
 import { runtimeConfig } from "@/lib/runtime-config";
 
 let configuredForUser: string | null = null;
-let purchasesClass: (typeof import("@revenuecat/purchases-js"))["Purchases"] | null = null;
+let purchasesClassPromise: Promise<(typeof import("@revenuecat/purchases-js"))["Purchases"]> | null = null;
 
 export const isBillingConfigured = () => Boolean(runtimeConfig.revenueCatPublicApiKey);
 
-async function loadPurchases() {
-  if (!purchasesClass) purchasesClass = (await import("@revenuecat/purchases-js")).Purchases;
-  return purchasesClass;
+function loadPurchases() {
+  if (!purchasesClassPromise) {
+    purchasesClassPromise = import("@revenuecat/purchases-js")
+      .then((module) => module.Purchases)
+      .catch((error: unknown) => {
+        purchasesClassPromise = null;
+        throw error;
+      });
+  }
+  return purchasesClassPromise;
+}
+
+export async function preloadRevenueCat() {
+  if (!isBillingConfigured()) return;
+  await loadPurchases();
 }
 
 export async function getPurchasesForUser(userId: number) {

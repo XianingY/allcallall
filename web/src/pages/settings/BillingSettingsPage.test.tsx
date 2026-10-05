@@ -9,6 +9,7 @@ const { mocks } = vi.hoisted(() => ({
     isBillingConfigured: vi.fn(),
     openRevenueCatCheckout: vi.fn(),
     openRevenueCatPortal: vi.fn(),
+    preloadRevenueCat: vi.fn(),
   },
 }));
 
@@ -21,6 +22,7 @@ vi.mock("@/platform/billing", () => ({
   isBillingConfigured: mocks.isBillingConfigured,
   openRevenueCatCheckout: mocks.openRevenueCatCheckout,
   openRevenueCatPortal: mocks.openRevenueCatPortal,
+  preloadRevenueCat: mocks.preloadRevenueCat,
 }));
 
 vi.mock("@/auth/AuthContext", () => ({
@@ -53,6 +55,7 @@ describe("BillingSettingsPage", () => {
     vi.clearAllMocks();
     mocks.getUsage.mockResolvedValue([]);
     mocks.isBillingConfigured.mockReturnValue(true);
+    mocks.preloadRevenueCat.mockResolvedValue(undefined);
   });
   afterEach(cleanup);
 
@@ -93,5 +96,45 @@ describe("BillingSettingsPage", () => {
     // Entitlements come from an async webhook; until it syncs, the page keeps
     // showing the syncing state instead of presenting the stale free tier as final.
     expect(await screen.findByRole("status")).toHaveTextContent("购买已提交，正在等待服务端同步权益");
+  });
+
+  it("preloads RevenueCat when either billing action receives pointer or keyboard intent", async () => {
+    mocks.getEntitlements.mockResolvedValue(entitlements("free"));
+    renderPage();
+
+    await screen.findByText("Free");
+    const upgrade = screen.getByRole("button", { name: /升级/ });
+    const manage = screen.getByRole("button", { name: /管理订阅/ });
+
+    act(() => {
+      fireEvent.pointerEnter(upgrade);
+      fireEvent.focus(upgrade);
+      fireEvent.pointerEnter(manage);
+      fireEvent.focus(manage);
+    });
+
+    expect(mocks.preloadRevenueCat).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps speculative preload failures silent", async () => {
+    mocks.getEntitlements.mockResolvedValue(entitlements("free"));
+    let rejectPreload: (reason?: unknown) => void = () => undefined;
+    const rejection = new Promise<void>((_, reject) => {
+      rejectPreload = reject;
+    });
+    const rejectionCatch = vi.spyOn(rejection, "catch");
+    mocks.preloadRevenueCat.mockReturnValue(rejection);
+    renderPage();
+
+    await screen.findByText("Free");
+
+    await act(async () => {
+      fireEvent.pointerEnter(screen.getByRole("button", { name: /升级/ }));
+    });
+
+    expect(mocks.preloadRevenueCat).toHaveBeenCalledTimes(1);
+    expect(rejectionCatch).toHaveBeenCalledTimes(1);
+    rejectPreload(new Error("offline"));
+    await rejection.catch(() => undefined);
   });
 });
