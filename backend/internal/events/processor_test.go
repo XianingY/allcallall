@@ -357,7 +357,18 @@ func TestProcessorBoundedConcurrency(t *testing.T) {
 		Lease:       time.Minute,
 	})
 
-	tracker := setConcurrencyTrackerForTest(t)
+	var maxConc atomic.Int64
+	cleanup := SetConcurrencyObserver(func(delta, current int64) {
+		if delta > 0 {
+			for {
+				old := maxConc.Load()
+				if current <= old || maxConc.CompareAndSwap(old, current) {
+					break
+				}
+			}
+		}
+	})
+	defer cleanup()
 
 	// Register a handler that tracks concurrency and blocks until released.
 	block := make(chan struct{})
@@ -395,20 +406,20 @@ func TestProcessorBoundedConcurrency(t *testing.T) {
 	// Wait for max concurrency to reach 3.
 	deadline := time.After(5 * time.Second)
 	for {
-		max := tracker.maxObserved.Load()
+		max := maxConc.Load()
 		if max >= 3 {
 			break
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("timed out waiting for max concurrency to reach 3; got %d", tracker.maxObserved.Load())
+			t.Fatalf("timed out waiting for max concurrency to reach 3; got %d", maxConc.Load())
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
 
 	// Verify max concurrency never exceeded 3.
-	max := tracker.maxObserved.Load()
+	max := maxConc.Load()
 	if max != 3 {
 		t.Fatalf("max observed concurrency = %d, want 3", max)
 	}

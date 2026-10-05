@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
-	"testing"
 	"time"
 
 	"github.com/google/uuid"
@@ -79,43 +78,25 @@ func OrderingKey(row models.EventOutbox) string {
 	return fmt.Sprintf("%s:%d", row.AggregateType, row.AggregateID)
 }
 
-// concurrencyTracker is a test-scoped concurrency observer. It is set only
-// in tests via setConcurrencyTrackerForTest and is safe for parallel test
-// execution because each test sets its own tracker before running.
-type concurrencyTracker struct {
-	current     atomic.Int64
-	maxObserved atomic.Int64
+// concurrencyObserverFunc is a test-seam function called when handler
+// concurrency changes. Production code never sets it. Tests call
+// SetConcurrencyObserver to install one and receive a cleanup function.
+type concurrencyObserverFunc func(delta int64, current int64)
+
+var globalConcurrencyObserver atomic.Pointer[concurrencyObserverFunc]
+
+// SetConcurrencyObserver installs a test observer for handler concurrency
+// and returns a cleanup function that restores the previous (nil) state.
+// This is the production-safe replacement for package-level test variables;
+// it does not import "testing" and is safe for parallel test execution.
+func SetConcurrencyObserver(fn concurrencyObserverFunc) func() {
+	globalConcurrencyObserver.Store(&fn)
+	return func() { globalConcurrencyObserver.Store(nil) }
 }
 
-var globalTracker atomic.Pointer[concurrencyTracker]
-
-func setConcurrencyTrackerForTest(t *testing.T) *concurrencyTracker {
-	t.Helper()
-	tr := &concurrencyTracker{}
-	globalTracker.Store(tr)
-	t.Cleanup(func() { globalTracker.Store(nil) })
-	return tr
-}
-
-func incConcurrency() int64 {
-	tr := globalTracker.Load()
-	if tr != nil {
-		cur := tr.current.Add(1)
-		for {
-			old := tr.maxObserved.Load()
-			if cur <= old || tr.maxObserved.CompareAndSwap(old, cur) {
-				break
-			}
-		}
-		return cur
-	}
-	return 0
-}
-
-func decConcurrency() {
-	tr := globalTracker.Load()
-	if tr != nil {
-		tr.current.Add(-1)
+func observeConcurrency(delta int64, current int64) {
+	if fn := globalConcurrencyObserver.Load(); fn != nil {
+		(*fn)(delta, current)
 	}
 }
 
@@ -277,8 +258,6 @@ func (p *Processor) ProcessOnce(ctx context.Context) (int, error) {
 	if p == nil || p.store == nil {
 		return 0, errors.New("outbox processor store is nil")
 	}
-	// Sample backlog before processing for backward compatibility when called
-	// standalone (outside Run). The Run loop uses a separate ticker instead.
 	if p.metrics != nil {
 		if backlog, countErr := p.store.CountPendingForEvents(ctx, p.eventFilter()); countErr == nil {
 			p.metrics.Set("outbox_backlog", backlog)
@@ -301,11 +280,6 @@ func (p *Processor) ProcessOnce(ctx context.Context) (int, error) {
 // sequentially while different aggregates run concurrently. When concurrency
 // is 1 (the default), processing is sequential and identical to the
 // pre-parallel behavior.
-//
-// Handler failures that are successfully persisted as retry or dead outcomes
-// are counted in the result and do not cause the batch to abort; only claim
-// failures (returned as the error) and state-transition database failures
-// (collected in result.Errors) are considered processor errors.
 func (p *Processor) ProcessBatch(ctx context.Context) (ProcessBatchResult, error) {
 	if p == nil || p.store == nil {
 		return ProcessBatchResult{}, errors.New("outbox processor store is nil")
@@ -356,11 +330,7 @@ func (p *Processor) ProcessBatch(ctx context.Context) (ProcessBatchResult, error
 	// same aggregate are processed sequentially on the same shard while
 	// different aggregates run concurrently.
 	results := p.dispatchParallel(ctx, rows)
-
-	// Batch-persist outcomes: group by outcome type and use batch methods
-	// for groups larger than one, falling back to single-row for mismatches.
 	p.persistResults(ctx, results, &result)
-
 	return result, nil
 }
 
@@ -374,17 +344,14 @@ func (p *Processor) dispatchParallel(ctx context.Context, rows []models.EventOut
 		shardCap = 1
 	}
 
-	// Create sharded channels.
 	shards := make([]chan models.EventOutbox, shardCount)
 	for i := range shards {
 		shards[i] = make(chan models.EventOutbox, shardCap)
 	}
 
-	// Collect results from all shards.
 	resultCh := make(chan eventResult, len(rows))
 	var wg sync.WaitGroup
 
-	// Start one goroutine per shard.
 	for i := 0; i < shardCount; i++ {
 		wg.Add(1)
 		go func(shard chan models.EventOutbox) {
@@ -396,21 +363,18 @@ func (p *Processor) dispatchParallel(ctx context.Context, rows []models.EventOut
 		}(shards[i])
 	}
 
-	// Dispatch events to shards by OrderingKey hash.
 	for _, row := range rows {
 		key := OrderingKey(row)
 		shardIdx := shardIndex(key, shardCount)
 		shards[shardIdx] <- row
 	}
 
-	// Close all shards and wait for workers to finish.
 	go func() {
 		for _, shard := range shards {
 			close(shard)
 		}
 	}()
 
-	// Collect results in a goroutine so we can also handle context cancellation.
 	go func() {
 		wg.Wait()
 		close(resultCh)
@@ -433,8 +397,6 @@ func shardIndex(key string, shardCount int) int {
 // processEventOutcome dispatches a single event to its handler and returns
 // the outcome without persisting the state transition. The caller is
 // responsible for persisting the outcome (either individually or in a batch).
-// When leaseRefresh > 0, a background goroutine extends the lease while the
-// handler runs; if ownership is lost, the handler context is cancelled.
 func (p *Processor) processEventOutcome(ctx context.Context, row models.EventOutbox) eventResult {
 	handler := p.lookup(row.Event)
 	handlerErr := ErrOutboxHandlerNotFound
@@ -447,48 +409,15 @@ func (p *Processor) processEventOutcome(ctx context.Context, row models.EventOut
 			"outbox_id":      strconv.FormatUint(row.ID, 10),
 		})
 
-		incConcurrency()
+		handlerErr = p.runWithLeaseRefresh(handlerCtx, row, func(runCtx context.Context) error {
+			cur := atomic.AddInt64(&currentConcurrency, 1)
+			observeConcurrency(1, cur)
+			err := handler(runCtx, row)
+			cur = atomic.AddInt64(&currentConcurrency, -1)
+			observeConcurrency(-1, cur)
+			return err
+		})
 
-		if p.leaseRefresh > 0 {
-			// Wrap with lease refresh.
-			refreshCtx, cancel := context.WithCancelCause(handlerCtx)
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				ticker := time.NewTicker(p.leaseRefresh)
-				defer ticker.Stop()
-				for {
-					select {
-					case <-refreshCtx.Done():
-						return
-					case <-ticker.C:
-						until := time.Now().UTC().Add(p.lease)
-						ok, refreshErr := p.store.ExtendLease(refreshCtx, row.ID, p.workerID, until)
-						if refreshErr != nil {
-							p.logger.Warn().Err(refreshErr).Uint64("outbox_id", row.ID).
-								Msg("lease refresh failed")
-							continue
-						}
-						if !ok {
-							if p.metrics != nil {
-								p.metrics.Inc("outbox_lease_conflict_total")
-							}
-							p.logger.Warn().Uint64("outbox_id", row.ID).
-								Msg("lease conflict: ownership lost during processing, cancelling handler")
-							cancel(ErrLeaseConflict)
-							return
-						}
-					}
-				}
-			}()
-			handlerErr = handler(refreshCtx, row)
-			cancel(nil)
-			<-done
-		} else {
-			handlerErr = handler(handlerCtx, row)
-		}
-
-		decConcurrency()
 		span.End(handlerErr)
 	}
 
@@ -530,11 +459,80 @@ func (p *Processor) processEventOutcome(ctx context.Context, row models.EventOut
 	return eventResult{row: row, outcome: outcomeRetried, handlerErr: handlerErr}
 }
 
+// currentConcurrency tracks the number of in-flight handler invocations
+// for the parallel path. The sequential path does not use this counter.
+var currentConcurrency int64
+
+// runWithLeaseRefresh executes fn with optional lease-refresh protection.
+// When leaseRefresh > 0, a background goroutine periodically extends the
+// lease while fn runs. If ownership is lost (ExtendLease returns false),
+// the context passed to fn is cancelled with ErrLeaseConflict as the cause.
+// When leaseRefresh <= 0, fn is called with the original context unchanged.
+func (p *Processor) runWithLeaseRefresh(ctx context.Context, row models.EventOutbox, fn func(context.Context) error) error {
+	if p.leaseRefresh <= 0 {
+		return fn(ctx)
+	}
+
+	refreshCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(p.leaseRefresh)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-refreshCtx.Done():
+				return
+			case <-ticker.C:
+				until := time.Now().UTC().Add(p.lease)
+				ok, refreshErr := p.store.ExtendLease(refreshCtx, row.ID, p.workerID, until)
+				if refreshErr != nil {
+					p.logger.Warn().Err(refreshErr).Uint64("outbox_id", row.ID).
+						Msg("lease refresh failed")
+					continue
+				}
+				if !ok {
+					if p.metrics != nil {
+						p.metrics.Inc("outbox_lease_conflict_total")
+					}
+					p.logger.Warn().Uint64("outbox_id", row.ID).
+						Msg("lease conflict: ownership lost during processing, cancelling handler")
+					cancel(ErrLeaseConflict)
+					return
+				}
+			}
+		}
+	}()
+
+	handlerErr := fn(refreshCtx)
+
+	cancel(nil)
+	<-done
+
+	return handlerErr
+}
+
+// processEventWithLease processes a single event with lease refresh for the
+// sequential (concurrency=1) path. It delegates to runWithLeaseRefresh for
+// the lease-refresh lifecycle and processEvent for handler invocation and
+// state persistence.
+func (p *Processor) processEventWithLease(ctx context.Context, row models.EventOutbox) (processOutcome, error) {
+	var outcome processOutcome
+	var eventErr error
+	handlerErr := p.runWithLeaseRefresh(ctx, row, func(runCtx context.Context) error {
+		outcome, eventErr = p.processEvent(runCtx, row)
+		return eventErr
+	})
+	_ = handlerErr // eventErr is already captured; handlerErr is the same or a lease-cancel error
+	return outcome, eventErr
+}
+
 // persistResults batch-persists event outcomes. It groups results by outcome
 // type and uses batch methods for groups larger than one, falling back to
 // single-row methods for mismatches or groups of one.
 func (p *Processor) persistResults(ctx context.Context, results []eventResult, batchResult *ProcessBatchResult) {
-	// Group by outcome.
 	var published, retried, dead []eventResult
 	for _, r := range results {
 		switch r.outcome {
@@ -546,14 +544,8 @@ func (p *Processor) persistResults(ctx context.Context, results []eventResult, b
 			dead = append(dead, r)
 		}
 	}
-
-	// Persist published events.
 	p.persistPublished(ctx, published, batchResult)
-
-	// Persist retry events — group by (availableAt, normalized error).
 	p.persistRetried(ctx, retried, batchResult)
-
-	// Persist dead events — group by normalized error.
 	p.persistDead(ctx, dead, batchResult)
 }
 
@@ -576,7 +568,6 @@ func (p *Processor) persistPublished(ctx context.Context, results []eventResult,
 	}
 	mismatched, err := p.store.MarkPublishedBatch(ctx, ids, p.workerID)
 	if err != nil {
-		// Batch write failed entirely — fall back to per-row.
 		for _, r := range results {
 			if perErr := p.store.MarkPublished(ctx, r.row.ID); perErr != nil {
 				batchResult.Errors = append(batchResult.Errors, perErr)
@@ -587,7 +578,6 @@ func (p *Processor) persistPublished(ctx context.Context, results []eventResult,
 		return
 	}
 	batchResult.Succeeded += len(ids) - len(mismatched)
-	// Fall back to per-row for mismatched IDs.
 	for _, id := range mismatched {
 		if perErr := p.store.MarkPublished(ctx, id); perErr != nil {
 			p.incFinalStateError("published")
@@ -603,7 +593,6 @@ func (p *Processor) persistRetried(ctx context.Context, results []eventResult, b
 	if len(results) == 0 {
 		return
 	}
-	// Group by (availableAt, normalized error).
 	type retryGroup struct {
 		availableAt time.Time
 		errMsg      string
@@ -661,7 +650,6 @@ func (p *Processor) persistDead(ctx context.Context, results []eventResult, batc
 	if len(results) == 0 {
 		return
 	}
-	// Group by normalized error.
 	type deadGroup struct {
 		errMsg string
 		ids   []uint64
@@ -727,57 +715,6 @@ func (p *Processor) incFinalStateError(state string) {
 	}
 }
 
-// processEventWithLease processes a single event with lease refresh when
-// leaseRefresh > 0, falling back to processEvent otherwise. This is the
-// single entry point for the sequential (concurrency=1) path.
-func (p *Processor) processEventWithLease(ctx context.Context, row models.EventOutbox) (processOutcome, error) {
-	if p.leaseRefresh <= 0 {
-		return p.processEvent(ctx, row)
-	}
-
-	handlerCtx, cancel := context.WithCancelCause(ctx)
-	defer cancel(nil)
-
-	// Start lease refresh goroutine.
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		ticker := time.NewTicker(p.leaseRefresh)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-handlerCtx.Done():
-				return
-			case <-ticker.C:
-				until := time.Now().UTC().Add(p.lease)
-				ok, refreshErr := p.store.ExtendLease(handlerCtx, row.ID, p.workerID, until)
-				if refreshErr != nil {
-					p.logger.Warn().Err(refreshErr).Uint64("outbox_id", row.ID).
-						Msg("lease refresh failed")
-					continue
-				}
-				if !ok {
-					if p.metrics != nil {
-						p.metrics.Inc("outbox_lease_conflict_total")
-					}
-					p.logger.Warn().Uint64("outbox_id", row.ID).
-						Msg("lease conflict: ownership lost during processing, cancelling handler")
-					cancel(ErrLeaseConflict)
-					return
-				}
-			}
-		}
-	}()
-
-	outcome, eventErr := p.processEvent(handlerCtx, row)
-
-	// Signal the refresh goroutine to stop by cancelling the context.
-	cancel(nil)
-	<-done // Wait for refresh goroutine to finish.
-
-	return outcome, eventErr
-}
-
 // Run continuously drains pending outbox events, immediately repeating while
 // work is available and waiting only when a batch claims nothing. Backlog
 // sampling is performed on a separate ticker (default 10 s) to avoid hitting
@@ -786,13 +723,10 @@ func (p *Processor) Run(ctx context.Context, idleInterval time.Duration) {
 	if idleInterval <= 0 {
 		idleInterval = time.Minute
 	}
-	// Override with the configured idle interval if set via WithConfig.
 	if p.idleInterval > 0 {
 		idleInterval = p.idleInterval
 	}
 
-	// Sample backlog on a separate ticker so the hot processing loop
-	// does not call CountPendingForEvents on every iteration.
 	backlogDone := make(chan struct{})
 	go func() {
 		defer close(backlogDone)
