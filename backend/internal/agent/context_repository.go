@@ -264,6 +264,8 @@ type taggedArtifactRow struct {
 // own ORDER BY and LIMIT, and the outer query preserves the tag for decoding.
 func (r contextRepository) loadTaggedArtifactsUnion(ctx context.Context, organizationID, conversationID uint64, callIDs []string, budget ContextBudget) ([]models.ConversationNote, []models.AgentMemory, []models.CallRoom, []models.CallFollowup, error) {
 	// Build the followup subquery conditionally.
+	// call_followups has no conversation_id column; 0 AS conversation_id is a
+	// column-alignment placeholder for the UNION ALL row envelope.
 	followupSubquery := fmt.Sprintf(
 		`SELECT * FROM (SELECT %d AS tag, id, organization_id, 0 AS conversation_id, COALESCE(generated_at, updated_at) AS sort_at, 0 AS author_id, '' AS body, 0 AS user_id, '' AS scope, '' AS key, '' AS memory_type, 0 AS importance, '' AS source_type, 0 AS source_ref_id, '' AS value_json, 0 AS last_run_id, '' AS title, '' AS status, 0 AS created_by, call_id, peer_user_id, summary_en, generated_at FROM call_followups WHERE call_id IN (?) AND (organization_id = ? OR organization_id = 0) ORDER BY generated_at DESC, updated_at DESC LIMIT %d)`,
 		4, budget.Followups,
@@ -283,7 +285,7 @@ func (r contextRepository) loadTaggedArtifactsUnion(ctx context.Context, organiz
 		UNION ALL
 		SELECT * FROM (SELECT %d AS tag, id, organization_id, conversation_id, updated_at AS sort_at, 0 AS author_id, '' AS body, user_id, scope, key, memory_type, importance, source_type, source_ref_id, value_json, last_run_id, '' AS title, '' AS status, 0 AS created_by, '' AS call_id, 0 AS peer_user_id, '' AS summary_en, NULL AS generated_at FROM agent_memories WHERE organization_id = ? AND conversation_id = ? ORDER BY updated_at DESC LIMIT %d)
 		UNION ALL
-		SELECT * FROM (SELECT %d AS tag, id, organization_id, 0 AS conversation_id, created_at AS sort_at, 0 AS author_id, '' AS body, 0 AS user_id, '' AS scope, '' AS key, '' AS memory_type, 0 AS importance, '' AS source_type, 0 AS source_ref_id, '' AS value_json, 0 AS last_run_id, title, status, created_by, '' AS call_id, 0 AS peer_user_id, '' AS summary_en, NULL AS generated_at FROM call_rooms WHERE organization_id = ? AND conversation_id = ? ORDER BY created_at DESC LIMIT %d)
+		SELECT * FROM (SELECT %d AS tag, id, organization_id, conversation_id, created_at AS sort_at, 0 AS author_id, '' AS body, 0 AS user_id, '' AS scope, '' AS key, '' AS memory_type, 0 AS importance, '' AS source_type, 0 AS source_ref_id, '' AS value_json, 0 AS last_run_id, title, status, created_by, '' AS call_id, 0 AS peer_user_id, '' AS summary_en, NULL AS generated_at FROM call_rooms WHERE organization_id = ? AND conversation_id = ? ORDER BY created_at DESC LIMIT %d)
 		UNION ALL
 		%s`,
 		1, budget.Notes,

@@ -160,6 +160,38 @@ func TestContextRepositoryLoadBaseReturnsContext(t *testing.T) {
 	}
 }
 
+
+func TestContextRepositoryLoadBasePreservesRoomConversationID(t *testing.T) {
+	repo, db := newContextRepositoryTestEnv(t)
+	conv, userID := seedContextConversation(t, db)
+
+	// Seed a call room linked to the conversation.
+	if err := db.Create(&models.CallRoom{
+		OrganizationID: conv.OrganizationID,
+		ConversationID: &conv.ID,
+		Title:          "Room with conversation ID",
+		Status:         "ended",
+		CreatedBy:      userID,
+	}).Error; err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+
+	budget := ContextBudgetFromEnv()
+	ctx, _, err := repo.LoadBase(context.Background(), conv.OrganizationID, userID, conv.ID, budget)
+	if err != nil {
+		t.Fatalf("LoadBase: %v", err)
+	}
+	if len(ctx.Rooms) == 0 {
+		t.Fatal("expected at least one room")
+	}
+	if ctx.Rooms[0].ConversationID == nil {
+		t.Fatal("expected non-nil ConversationID")
+	}
+	if *ctx.Rooms[0].ConversationID != conv.ID {
+		t.Fatalf("room ConversationID=%d, want=%d", *ctx.Rooms[0].ConversationID, conv.ID)
+	}
+}
+
 func TestContextRepositoryLoadBaseAppliesMessageLimit(t *testing.T) {
 	repo, db := newContextRepositoryTestEnv(t)
 	conv, userID := seedContextConversation(t, db)
