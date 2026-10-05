@@ -5,10 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"gorm.io/gorm"
-
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/testutil"
+	"gorm.io/gorm"
 )
 
 func newContextRepositoryTestEnv(t *testing.T) (contextRepository, *gorm.DB) {
@@ -113,7 +112,7 @@ func seedAllContextTypes(t *testing.T, db *gorm.DB, conv models.Conversation, us
 	}
 }
 
-func TestContextRepositoryLoadBaseReturnsContext(t *testing.T) {
+func TestContextRepositoryLoadBaseQueryCountAtMostFive(t *testing.T) {
 	repo, db := newContextRepositoryTestEnv(t)
 	conv, userID := seedContextConversation(t, db)
 	seedAllContextTypes(t, db, conv, userID)
@@ -123,11 +122,29 @@ func TestContextRepositoryLoadBaseReturnsContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadBase: %v", err)
 	}
+	if queryCount > 5 {
+		t.Fatalf("LoadBase used %d SQL statements, want <= 5", queryCount)
+	}
 	if ctx == nil {
 		t.Fatal("expected non-nil context")
 	}
-	if queryCount < 3 {
-		t.Fatalf("expected at least 3 queries, got %d", queryCount)
+	if ctx.Manifest.SQLStatements != queryCount {
+		t.Fatalf("manifest SQLStatements=%d, queryCount=%d", ctx.Manifest.SQLStatements, queryCount)
+	}
+}
+
+func TestContextRepositoryLoadBaseReturnsContext(t *testing.T) {
+	repo, db := newContextRepositoryTestEnv(t)
+	conv, userID := seedContextConversation(t, db)
+	seedAllContextTypes(t, db, conv, userID)
+
+	budget := ContextBudgetFromEnv()
+	ctx, _, err := repo.LoadBase(context.Background(), conv.OrganizationID, userID, conv.ID, budget)
+	if err != nil {
+		t.Fatalf("LoadBase: %v", err)
+	}
+	if ctx == nil {
+		t.Fatal("expected non-nil context")
 	}
 	if len(ctx.Messages) == 0 {
 		t.Fatal("expected messages")
@@ -455,5 +472,34 @@ func TestEstimateContextTokens(t *testing.T) {
 	tokens := estimateContextTokens(ctx)
 	if tokens <= 0 {
 		t.Fatalf("expected positive token estimate, got %d", tokens)
+	}
+}
+
+func TestApplyContextBudgetPreservesLastMessage(t *testing.T) {
+	// When trimming messages, the last (most recent) message must be kept.
+	// Messages are loaded newest-first (DESC), so index 0 is the most recent.
+	ctx := &conversationContext{
+		Messages: []models.Message{
+			{Body: "Third message"},
+			{Body: "Second message"},
+			{Body: "First message"},
+		},
+		Manifest: ContextManifest{
+			Selected:        map[string]int{"messages": 3},
+			SerializedBytes: 0,
+			EstimatedTokens: 0,
+		},
+	}
+	budget := ContextBudgetFromEnv()
+	budget.MaxBytes = 1 // Force trimming
+	budget.MaxEstimatedTokens = 1
+
+	applyContextBudget(ctx, budget)
+
+	if len(ctx.Messages) < 1 {
+		t.Fatal("expected at least one message to be preserved")
+	}
+	if ctx.Messages[0].Body != "Third message" {
+		t.Fatalf("expected most recent message to be preserved, got %q", ctx.Messages[0].Body)
 	}
 }

@@ -25,7 +25,9 @@ type ContextBudget struct {
 
 // ContextBudgetFromEnv reads AGENT_CONTEXT_* environment variables and returns
 // a budget with clamped safe defaults. Values above the per-field ceiling are
-// reduced to the ceiling; values at or below zero fall back to the default.
+// reduced to the ceiling. Values at or below zero fall back to the default.
+// Positive values below the default are accepted as-is (operators may reduce
+// limits for testing).
 func ContextBudgetFromEnv() ContextBudget {
 	return ContextBudget{
 		Messages:                  clampEnvInt("AGENT_CONTEXT_MESSAGE_LIMIT", 50, 200),
@@ -41,6 +43,11 @@ func ContextBudgetFromEnv() ContextBudget {
 	}
 }
 
+// clampEnvInt reads an environment variable and returns a clamped integer.
+// If the variable is unset, empty, or not a valid integer, defaultVal is
+// returned. If the parsed value is at or below zero, defaultVal is returned.
+// If the value exceeds maxVal, maxVal is returned. Positive values at or
+// below the default are accepted (operators may reduce limits for testing).
 func clampEnvInt(name string, defaultVal, maxVal int) int {
 	raw := strings.TrimSpace(os.Getenv(name))
 	if raw == "" {
@@ -48,9 +55,6 @@ func clampEnvInt(name string, defaultVal, maxVal int) int {
 	}
 	parsed, err := strconv.Atoi(raw)
 	if err != nil || parsed <= 0 {
-		return defaultVal
-	}
-	if parsed < defaultVal {
 		return defaultVal
 	}
 	if parsed > maxVal {
@@ -62,11 +66,11 @@ func clampEnvInt(name string, defaultVal, maxVal int) int {
 // ContextManifest records which collections were selected, which were
 // truncated, and the serialized size of the final runtime request payload.
 type ContextManifest struct {
-	Selected         map[string]int `json:"selected"`
-	Truncated        []string       `json:"truncated"`
-	SerializedBytes  int            `json:"serialized_bytes"`
-	EstimatedTokens  int            `json:"estimated_tokens"`
-	SQLStatements    int            `json:"sql_statements"`
+	Selected        map[string]int `json:"selected"`
+	Truncated       []string       `json:"truncated"`
+	SerializedBytes int            `json:"serialized_bytes"`
+	EstimatedTokens int            `json:"estimated_tokens"`
+	SQLStatements   int            `json:"sql_statements"`
 }
 
 // MarshalJSON implements custom JSON serialization so that Selected is never

@@ -135,7 +135,6 @@ func TestValidateResumedWorkflowRuntimeResponseRequiresExactDecisions(t *testing
 	}
 }
 
-
 func TestWorkflowRuntimeRequestContextManifestOptional(t *testing.T) {
 	// context_manifest is optional and should not break older Python runtimes.
 	request := WorkflowRuntimeRequest{

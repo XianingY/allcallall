@@ -117,6 +117,12 @@ func conversationContextFromRuntimeRequest(request WorkflowRuntimeRequest) *conv
 		result.ContextChunks = append(result.ContextChunks, chunk)
 	}
 	result.MeetingContext.MeetingTranscriptSegmentCount = len(result.MeetingTranscriptSegments)
+	// Restore context manifest from the frozen request so checkpoint resume
+	// preserves the manifest. When the request was frozen before Task 5, the
+	// manifest field is nil and the zero-value ContextManifest is used.
+	if request.ContextManifest != nil {
+		result.Manifest = *request.ContextManifest
+	}
 	return result
 }
 

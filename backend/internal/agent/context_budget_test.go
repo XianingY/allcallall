@@ -6,14 +6,17 @@ import (
 )
 
 func TestContextBudgetFromEnvClampsValues(t *testing.T) {
+	// Values above the max are clamped down to the max.
 	t.Setenv("AGENT_CONTEXT_MESSAGE_LIMIT", "100000")
-	t.Setenv("AGENT_CONTEXT_MAX_BYTES", "1024")
 	budget := ContextBudgetFromEnv()
 	if budget.Messages != 200 {
-		t.Fatalf("messages=%d want=200", budget.Messages)
+		t.Fatalf("messages=%d want=200 (clamped to max)", budget.Messages)
 	}
-	if budget.MaxBytes != 64*1024 {
-		t.Fatalf("bytes=%d want=%d", budget.MaxBytes, 64*1024)
+	// Small positive values below the default are accepted as-is.
+	t.Setenv("AGENT_CONTEXT_MAX_BYTES", "1024")
+	budget = ContextBudgetFromEnv()
+	if budget.MaxBytes != 1024 {
+		t.Fatalf("bytes=%d want=1024 (small positive accepted)", budget.MaxBytes)
 	}
 }
 
@@ -72,6 +75,16 @@ func TestContextBudgetFromEnvValidOverrides(t *testing.T) {
 	}
 	if budget.Notes != 30 {
 		t.Fatalf("override notes=%d want=30", budget.Notes)
+	}
+}
+
+func TestContextBudgetFromEnvSmallPositiveAccepted(t *testing.T) {
+	// Small positive values below the default are accepted (operators may
+	// reduce limits for testing), not silently raised to the default.
+	t.Setenv("AGENT_CONTEXT_MESSAGE_LIMIT", "1")
+	budget := ContextBudgetFromEnv()
+	if budget.Messages != 1 {
+		t.Fatalf("small positive messages=%d want=1 (accepted as-is)", budget.Messages)
 	}
 }
 
