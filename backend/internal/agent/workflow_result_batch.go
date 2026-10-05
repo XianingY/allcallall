@@ -11,8 +11,8 @@ import (
 )
 
 // workflowResultCollections holds batch-loaded child collections keyed by run ID.
-// Each slice is ordered id ASC (matching the single-run loadWorkflowCollection
-// contract) and already truncated to workflowResultMaxRows per run.
+// Each slice is ordered id ASC (matching the single-run contract) and already
+// truncated to workflowResultMaxRows per run.
 type workflowResultCollections struct {
 	Tasks     map[uint64][]models.WorkflowTask
 	Messages  map[uint64][]models.AgentMessage
@@ -25,8 +25,9 @@ type workflowResultCollections struct {
 
 // loadWorkflowResultCollections loads all six child tables for the given run IDs
 // in a fixed number of SQL queries (one per table). For each table the rows are
-// ordered by workflow_run_id ASC, id DESC, then grouped by run, truncated to
-// workflowResultMaxRows per run, and finally reversed to id ASC order.
+// ordered by workflow_run_id ASC, id DESC, limited to len(runIDs)*workflowResultMaxRows
+// total rows at the database level, then grouped by run, truncated to
+// workflowResultMaxRows per run in Go, and finally reversed to id ASC order.
 func (s *Service) loadWorkflowResultCollections(ctx context.Context, runIDs []uint64) (workflowResultCollections, error) {
 	collections := workflowResultCollections{
 		Tasks:     make(map[uint64][]models.WorkflowTask, len(runIDs)),
@@ -62,11 +63,17 @@ func (s *Service) loadWorkflowResultCollections(ctx context.Context, runIDs []ui
 
 // loadBatchedCollection loads one child table for all runIDs in a single query,
 // groups by run, truncates per run, and reverses to id ASC order.
+// The database-side limit of len(runIDs)*workflowResultMaxRows bounds total
+// memory regardless of how many rows exist; per-run truncation is then
+// applied in Go to preserve the same workflowResultMaxRows cap as the old
+// single-run path.
 func loadBatchedCollection[T any](ctx context.Context, db *gorm.DB, runIDs []uint64, dst *map[uint64][]T, truncated map[uint64]bool) error {
+	totalLimit := len(runIDs) * workflowResultMaxRows
 	var rows []T
 	if err := db.WithContext(ctx).
 		Where("workflow_run_id IN ?", runIDs).
 		Order("workflow_run_id ASC, id DESC").
+		Limit(totalLimit).
 		Find(&rows).Error; err != nil {
 		return err
 	}
@@ -77,8 +84,6 @@ func loadBatchedCollection[T any](ctx context.Context, db *gorm.DB, runIDs []uin
 	}
 	buckets := make(map[uint64]*runBucket, len(runIDs))
 	for i := range rows {
-		// Extract WorkflowRunID from the generic row. Since T always has a
-		// WorkflowRunID uint64 field, we use a small interface-based accessor.
 		runID := extractWorkflowRunID(&rows[i])
 		b, ok := buckets[runID]
 		if !ok {
@@ -107,7 +112,7 @@ func loadBatchedCollection[T any](ctx context.Context, db *gorm.DB, runIDs []uin
 	// Ensure every runID has an entry (even if empty slice) so projectWorkflowResult
 	// never has to check for map absence.
 	for _, id := range runIDs {
-	 if _, ok := (*dst)[id]; !ok {
+		if _, ok := (*dst)[id]; !ok {
 			(*dst)[id] = []T{}
 		}
 	}
@@ -115,17 +120,9 @@ func loadBatchedCollection[T any](ctx context.Context, db *gorm.DB, runIDs []uin
 	return nil
 }
 
-// workflowRunIDHolder is used to extract WorkflowRunID from any model struct
-// that contains a WorkflowRunID uint64 field.
-type workflowRunIDHolder interface {
-	GetWorkflowRunID() uint64
-}
-
-// extractWorkflowRunID uses GORM's reflection to pull the WorkflowRunID field
-// from any model struct that has it.
+// extractWorkflowRunID returns the WorkflowRunID field from any of the six
+// child model types using a type switch (no reflection).
 func extractWorkflowRunID(row any) uint64 {
-	// All six child models have a WorkflowRunID field. We use a small
-	// type-switch to avoid reflection overhead in hot paths.
 	switch v := row.(type) {
 	case *models.WorkflowTask:
 		return v.WorkflowRunID

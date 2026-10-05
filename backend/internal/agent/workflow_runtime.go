@@ -199,35 +199,12 @@ func (s *Service) failWorkflowRun(ctx context.Context, run models.WorkflowRun, c
 	s.syncBackingAgentRun(ctx, run, models.AgentRunStatusFailed, message)
 }
 
-// workflowResultMaxRows 限定单次构建工作流结果时每个子集合载入的最大行数。
-// 长跑 Agent 工作流可能产生上千条消息/历史，若全量载入内存会随运行时长
-// 线性恶化；超过此上限仅保留最近 N 条，并在结果上标记 Truncated 供客户端
-// 按需二次拉取。
+// workflowResultMaxRows limits the maximum rows loaded per child collection
+// per run when building workflow results. Long-running agent workflows may
+// produce thousands of messages/history entries; loading them all would
+// degrade memory linearly. Beyond this cap only the most recent N rows are
+// retained and Truncated is set so clients can paginate on demand.
 const workflowResultMaxRows = 1000
-
-// loadWorkflowCollection 载入指定 run 下某子表的"最近 N 条"，按 id ASC 返回。
-// 当集合实际规模达到上限时置 *truncated=true（提示仍有更早记录被省略）。
-// 采用先 DESC 取最近 N 条再内存反转的方式，避免 OFFSET 深翻页的性能悬崖。
-func loadWorkflowCollection[T any](ctx context.Context, db *gorm.DB, dst *[]T, runID uint64, truncated *bool) error {
-	var recent []T
-	if err := db.WithContext(ctx).
-		Where("workflow_run_id = ?", runID).
-		Order("id DESC").
-		Limit(workflowResultMaxRows).
-		Find(&recent).Error; err != nil {
-		return err
-	}
-	if len(recent) >= workflowResultMaxRows {
-		*truncated = true
-	}
-	// 反转回 id ASC，保持与历史排序一致。
-	n := len(recent)
-	for i := 0; i < n/2; i++ {
-		recent[i], recent[n-1-i] = recent[n-1-i], recent[i]
-	}
-	*dst = recent
-	return nil
-}
 
 func (s *Service) buildWorkflowResult(ctx context.Context, run models.WorkflowRun) (*WorkflowResult, error) {
 	collections, err := s.loadWorkflowResultCollections(ctx, []uint64{run.ID})

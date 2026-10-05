@@ -996,14 +996,16 @@ func seedWorkflowRunsWithChildren(t *testing.T, db *gorm.DB, n int) []models.Wor
 		if err := db.Create(&run).Error; err != nil {
 			t.Fatalf("create workflow run %d: %v", i, err)
 		}
-		db.Create(&models.WorkflowTask{
+		if err := db.Create(&models.WorkflowTask{
 			WorkflowRunID:  run.ID,
 			OrganizationID: orgID,
 			Name:           "searcher",
 			Role:           "searcher",
 			Status:         "completed",
-		})
-		db.Create(&models.AgentMessage{
+		}).Error; err != nil {
+			t.Fatalf("create task for run %d: %v", run.ID, err)
+		}
+		if err := db.Create(&models.AgentMessage{
 			WorkflowRunID:  run.ID,
 			OrganizationID: orgID,
 			FromRole:       "searcher",
@@ -1011,8 +1013,10 @@ func seedWorkflowRunsWithChildren(t *testing.T, db *gorm.DB, n int) []models.Wor
 			MessageType:    "observation",
 			ContentJSON:    "{}",
 			CorrelationID:  fmt.Sprintf("corr-%d", run.ID),
-		})
-		db.Create(&models.ToolApproval{
+		}).Error; err != nil {
+			t.Fatalf("create message for run %d: %v", run.ID, err)
+		}
+		if err := db.Create(&models.ToolApproval{
 			WorkflowRunID:  run.ID,
 			TaskID:         1,
 			OrganizationID: orgID,
@@ -1021,27 +1025,35 @@ func seedWorkflowRunsWithChildren(t *testing.T, db *gorm.DB, n int) []models.Wor
 			Status:         "pending",
 			RequestedBy:    userID,
 			RequestedAt:    time.Now().UTC(),
-		})
-		db.Create(&models.WorkflowHistoryEvent{
+		}).Error; err != nil {
+			t.Fatalf("create approval for run %d: %v", run.ID, err)
+		}
+		if err := db.Create(&models.WorkflowHistoryEvent{
 			WorkflowRunID:  run.ID,
 			OrganizationID: orgID,
 			EventType:      "task_completed",
 			RefType:        "task",
-		})
-		db.Create(&models.WorkflowSignal{
+		}).Error; err != nil {
+			t.Fatalf("create history for run %d: %v", run.ID, err)
+		}
+		if err := db.Create(&models.WorkflowSignal{
 			WorkflowRunID:  run.ID,
 			OrganizationID: orgID,
 			SignalName:     "approval",
 			PayloadJSON:    "{}",
 			Status:         "received",
-		})
-		db.Create(&models.WorkflowTimer{
+		}).Error; err != nil {
+			t.Fatalf("create signal for run %d: %v", run.ID, err)
+		}
+		if err := db.Create(&models.WorkflowTimer{
 			WorkflowRunID:  run.ID,
 			OrganizationID: orgID,
 			TimerName:      "approval_timeout",
 			FireAt:         time.Now().UTC().Add(time.Hour),
 			Status:         models.WorkflowTimerStatusPending,
-		})
+		}).Error; err != nil {
+			t.Fatalf("create timer for run %d: %v", run.ID, err)
+		}
 		runs = append(runs, run)
 	}
 	return runs
@@ -1130,5 +1142,93 @@ func TestBuildWorkflowResultsMatchesSingle(t *testing.T) {
 				t.Errorf("run %d: Tasks[%d].ID mismatch batch=%d single=%d", run.ID, j, batch.Tasks[j].ID, single.Tasks[j].ID)
 			}
 		}
+	}
+}
+
+// TestBuildWorkflowResultsTruncation verifies that when a child collection
+// exceeds workflowResultMaxRows, the batch loader sets Truncated=true,
+// retains only the most recent rows, and returns them in id ASC order.
+// It also confirms the query count stays within the ≤8 budget.
+func TestBuildWorkflowResultsTruncation(t *testing.T) {
+	svc, db := newWorkflowTestService(t)
+	conversation := seedWorkflowConversation(t, db)
+	orgID := conversation.OrganizationID
+	userID := uint64(7)
+
+	// Create one run with workflowResultMaxRows+1 history events.
+	run := models.WorkflowRun{
+		OrganizationID:  orgID,
+		UserID:          userID,
+		ConversationID:  conversation.ID,
+		Status:          models.WorkflowRunStatusReady,
+		WorkflowType:    "agent_lab",
+		WorkflowVersion: "agent_lab_v1",
+		RuntimeOwner:    "legacy_go",
+		Goal:            "truncation-test",
+	}
+	if err := db.Create(&run).Error; err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	totalRows := workflowResultMaxRows + 1
+	for i := 0; i < totalRows; i++ {
+		if err := db.Create(&models.WorkflowHistoryEvent{
+			WorkflowRunID:  run.ID,
+			OrganizationID: orgID,
+			EventType:      "test_event",
+			RefType:        "test",
+		}).Error; err != nil {
+			t.Fatalf("create history event %d: %v", i, err)
+		}
+	}
+
+	// Verify via the single-run path.
+	single, err := svc.buildWorkflowResult(context.Background(), run)
+	if err != nil {
+		t.Fatalf("buildWorkflowResult: %v", err)
+	}
+	if !single.Truncated {
+		t.Fatal("expected Truncated=true for single-run path")
+	}
+	if len(single.History) != workflowResultMaxRows {
+		t.Fatalf("single-run history len=%d want=%d", len(single.History), workflowResultMaxRows)
+	}
+
+	// Verify via the batch path.
+	counter := installQueryCounter(db)
+	batchResults, err := svc.buildWorkflowResults(context.Background(), []models.WorkflowRun{run})
+	if err != nil {
+		t.Fatalf("buildWorkflowResults: %v", err)
+	}
+	if len(batchResults) != 1 {
+		t.Fatalf("expected 1 batch result, got %d", len(batchResults))
+	}
+	batch := batchResults[0]
+	if !batch.Truncated {
+		t.Fatal("expected Truncated=true for batch path")
+	}
+	if len(batch.History) != workflowResultMaxRows {
+		t.Fatalf("batch history len=%d want=%d", len(batch.History), workflowResultMaxRows)
+	}
+
+	// Verify retained rows are the most recent (highest IDs).
+	// Both single and batch should have the same last event ID.
+	if single.History[len(single.History)-1].ID != batch.History[len(batch.History)-1].ID {
+		t.Fatalf("last history ID mismatch single=%d batch=%d",
+			single.History[len(single.History)-1].ID,
+			batch.History[len(batch.History)-1].ID)
+	}
+
+	// Verify id ASC ordering in batch result.
+	for i := 1; i < len(batch.History); i++ {
+		if batch.History[i].ID <= batch.History[i-1].ID {
+			t.Fatalf("batch history not id ASC: History[%d].ID=%d <= History[%d].ID=%d",
+				i, batch.History[i].ID, i-1, batch.History[i-1].ID)
+		}
+	}
+
+	// Verify query count stays ≤8 even with truncation.
+	if got := counter.Count(); got > 8 {
+		t.Fatalf("queries=%d want<=8", got)
 	}
 }
