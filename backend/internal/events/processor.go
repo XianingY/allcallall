@@ -5,8 +5,11 @@ import (
 
 	"context"
 	"errors"
+	"fmt"
+	"hash/fnv"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,7 +22,24 @@ import (
 
 var ErrOutboxHandlerNotFound = errors.New("outbox handler not found")
 
+// ErrLeaseConflict is used as a context cancellation cause when a handler's
+// lease is lost to another worker mid-execution.
+var ErrLeaseConflict = errors.New("outbox lease conflict: ownership lost during processing")
+
 type Handler func(ctx context.Context, event models.EventOutbox) error
+
+// ProcessorConfig configures bounded parallel processing for the outbox
+// processor. When Concurrency is 0 or 1, the processor falls back to
+// sequential processing identical to the pre-parallel behavior.
+type ProcessorConfig struct {
+	BatchSize    int
+	Concurrency  int
+	QueueDepth   int
+	IdleInterval time.Duration
+	ErrorBackoff time.Duration
+	Lease        time.Duration
+	LeaseRefresh time.Duration
+}
 
 // ProcessBatchResult holds the outcome of a single ProcessBatch call.
 // Handler failures successfully persisted as retry or dead outcomes are
@@ -42,21 +62,41 @@ const (
 	outcomeDead
 )
 
+// eventResult captures the outcome of processing a single event.
+type eventResult struct {
+	row         models.EventOutbox
+	outcome     processOutcome
+	handlerErr  error // the handler error (nil for success)
+	persistErr  error // non-nil only for state-transition database failures
+}
+
+// OrderingKey returns the aggregate ordering key for an outbox row:
+// "aggregate_type:aggregate_id". Events sharing the same ordering key
+// are dispatched to the same shard and processed sequentially, preserving
+// per-aggregate FIFO order across replicas.
+func OrderingKey(row models.EventOutbox) string {
+	return fmt.Sprintf("%s:%d", row.AggregateType, row.AggregateID)
+}
+
 type Processor struct {
-	store                *Store
-	handlers             map[string]Handler
-	events               []string
-	metrics              metrics.Recorder
-	logger               zerolog.Logger
-	alerter              *alerting.Service
-	batchSize            int
-	maxAttempts          int
-	retryDelay           time.Duration
-	workerID             string
-	lease                time.Duration
-	errorBackoff         time.Duration
-	backlogSampleInterval time.Duration
-	mu                   sync.RWMutex
+	store                  *Store
+	handlers               map[string]Handler
+	events                 []string
+	orderedEvents          []string
+	metrics                metrics.Recorder
+	logger                 zerolog.Logger
+	alerter                *alerting.Service
+	batchSize              int
+	maxAttempts            int
+	retryDelay             time.Duration
+	workerID               string
+	lease                  time.Duration
+	leaseRefresh           time.Duration
+	errorBackoff           time.Duration
+	backlogSampleInterval  time.Duration
+	concurrency            int
+	queueDepth             int
+	mu                     sync.RWMutex
 }
 
 func NewProcessor(store *Store, recorders ...metrics.Recorder) *Processor {
@@ -76,6 +116,8 @@ func NewProcessor(store *Store, recorders ...metrics.Recorder) *Processor {
 		lease:                 2 * time.Minute,
 		errorBackoff:          5 * time.Second,
 		backlogSampleInterval: 10 * time.Second,
+		concurrency:           1,
+		queueDepth:            2,
 	}
 }
 
@@ -132,6 +174,60 @@ func (p *Processor) WithEventFilter(events ...string) {
 	p.events = normalizedEvents(events)
 }
 
+// WithOrderedEvents sets the event types that require aggregate-order
+// processing. Events in this list will only be claimed when no earlier
+// pending row exists for the same aggregate, preventing cross-replica
+// reordering. Events not in this list (e.g. idempotent indexing events)
+// bypass the ordering check for higher concurrency.
+func (p *Processor) WithOrderedEvents(events ...string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.orderedEvents = normalizedEvents(events)
+}
+
+// WithConfig applies all ProcessorConfig fields to the processor. Zero or
+// negative values are ignored so the caller can set only the fields it cares
+// about. Concurrency is clamped to [1, 64]; QueueDepth is clamped to
+// [concurrency, 1024]. LeaseRefresh defaults to lease/3 when zero.
+func (p *Processor) WithConfig(config ProcessorConfig) *Processor {
+	if config.BatchSize > 0 {
+		p.batchSize = config.BatchSize
+	}
+	if config.Concurrency > 0 {
+		p.concurrency = config.Concurrency
+	}
+	if p.concurrency < 1 {
+		p.concurrency = 1
+	}
+	if p.concurrency > 64 {
+		p.concurrency = 64
+	}
+	if config.QueueDepth > 0 {
+		p.queueDepth = config.QueueDepth
+	}
+	if p.queueDepth < p.concurrency {
+		p.queueDepth = p.concurrency
+	}
+	if p.queueDepth > 1024 {
+		p.queueDepth = 1024
+	}
+	if config.IdleInterval > 0 {
+		p.errorBackoff = config.IdleInterval
+	}
+	if config.ErrorBackoff > 0 {
+		p.errorBackoff = config.ErrorBackoff
+	}
+	if config.Lease > 0 {
+		p.lease = config.Lease
+	}
+	if config.LeaseRefresh > 0 {
+		p.leaseRefresh = config.LeaseRefresh
+	} else if p.lease > 0 && p.leaseRefresh <= 0 {
+		p.leaseRefresh = p.lease / 3
+	}
+	return p
+}
+
 // ProcessOnce processes one batch of pending outbox events and returns the
 // number of events whose state transition succeeded (published, retried, or
 // dead-lettered). It is a compatibility wrapper around ProcessBatch for
@@ -159,6 +255,12 @@ func (p *Processor) ProcessOnce(ctx context.Context) (int, error) {
 }
 
 // ProcessBatch claims and processes a batch of pending outbox events.
+// When concurrency > 1, events are dispatched to sharded worker queues
+// keyed by OrderingKey so that events for the same aggregate are processed
+// sequentially while different aggregates run concurrently. When concurrency
+// is 1 (the default), processing is sequential and identical to the
+// pre-parallel behavior.
+//
 // Handler failures that are successfully persisted as retry or dead outcomes
 // are counted in the result and do not cause the batch to abort; only claim
 // failures (returned as the error) and state-transition database failures
@@ -168,28 +270,469 @@ func (p *Processor) ProcessBatch(ctx context.Context) (ProcessBatchResult, error
 		return ProcessBatchResult{}, errors.New("outbox processor store is nil")
 	}
 	events := p.eventFilter()
-	rows, err := p.store.ClaimPendingForEvents(ctx, p.batchSize, p.workerID, p.lease, events)
+	orderedEvents := p.orderedEventFilter()
+
+	var rows []models.EventOutbox
+	var err error
+	if len(orderedEvents) > 0 {
+		rows, err = p.store.ClaimPendingForEventsOrdered(ctx, p.batchSize, p.workerID, p.lease, events, orderedEvents)
+	} else {
+		rows, err = p.store.ClaimPendingForEvents(ctx, p.batchSize, p.workerID, p.lease, events)
+	}
 	if err != nil {
 		return ProcessBatchResult{}, err
 	}
+
 	var result ProcessBatchResult
 	result.Claimed = len(rows)
-	for _, row := range rows {
-		outcome, eventErr := p.processEvent(ctx, row)
-		if eventErr != nil {
-			result.Errors = append(result.Errors, eventErr)
-			continue
+
+	if len(rows) == 0 {
+		return result, nil
+	}
+
+	// When concurrency is 1, process sequentially (preserves exact legacy
+	// behavior including per-row state transitions).
+	if p.concurrency <= 1 {
+		for _, row := range rows {
+			outcome, eventErr := p.processEventWithLease(ctx, row)
+			if eventErr != nil {
+				result.Errors = append(result.Errors, eventErr)
+				continue
+			}
+			switch outcome {
+			case outcomePublished:
+				result.Succeeded++
+			case outcomeRetried:
+				result.Retried++
+			case outcomeDead:
+				result.Dead++
+			}
 		}
-		switch outcome {
+		return result, nil
+	}
+
+	// Parallel dispatch: shard events by OrderingKey so that events for the
+	// same aggregate are processed sequentially on the same shard while
+	// different aggregates run concurrently.
+	results := p.dispatchParallel(ctx, rows)
+
+	// Batch-persist outcomes: group by outcome type and use batch methods
+	// for groups larger than one, falling back to single-row for mismatches.
+	p.persistResults(ctx, results, &result)
+
+	return result, nil
+}
+
+// dispatchParallel shards events by OrderingKey and processes them
+// concurrently across Concurrency shards. Each shard processes its events
+// sequentially, preserving per-aggregate FIFO order.
+func (p *Processor) dispatchParallel(ctx context.Context, rows []models.EventOutbox) []eventResult {
+	shardCount := p.concurrency
+	shardCap := p.queueDepth / shardCount
+	if shardCap < 1 {
+		shardCap = 1
+	}
+
+	// Create sharded channels.
+	shards := make([]chan models.EventOutbox, shardCount)
+	for i := range shards {
+		shards[i] = make(chan models.EventOutbox, shardCap)
+	}
+
+	// Collect results from all shards.
+	resultCh := make(chan eventResult, len(rows))
+	var wg sync.WaitGroup
+
+	// Start one goroutine per shard.
+	for i := 0; i < shardCount; i++ {
+		wg.Add(1)
+		go func(shard chan models.EventOutbox) {
+			defer wg.Done()
+			for row := range shard {
+				res := p.processEventOutcome(ctx, row)
+				resultCh <- res
+			}
+		}(shards[i])
+	}
+
+	// Dispatch events to shards by OrderingKey hash.
+	for _, row := range rows {
+		key := OrderingKey(row)
+		shardIdx := shardIndex(key, shardCount)
+		shards[shardIdx] <- row
+	}
+
+	// Close all shards and wait for workers to finish.
+	go func() {
+		for _, shard := range shards {
+			close(shard)
+		}
+	}()
+
+	// Collect results in a goroutine so we can also handle context cancellation.
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	var results []eventResult
+	for r := range resultCh {
+		results = append(results, r)
+	}
+	return results
+}
+
+// shardIndex maps an ordering key to a shard index using FNV-1a hash.
+func shardIndex(key string, shardCount int) int {
+	h := fnv.New32a()
+	h.Write([]byte(key))
+	return int(h.Sum32() % uint32(shardCount))
+}
+
+// processEventOutcome dispatches a single event to its handler and returns
+// the outcome without persisting the state transition. The caller is
+// responsible for persisting the outcome (either individually or in a batch).
+// processEventOutcome dispatches a single event to its handler and returns
+// the outcome without persisting the state transition. The caller is
+// responsible for persisting the outcome (either individually or in a batch).
+// When leaseRefresh > 0, a background goroutine extends the lease while the
+// handler runs; if ownership is lost, the handler context is cancelled.
+func (p *Processor) processEventOutcome(ctx context.Context, row models.EventOutbox) eventResult {
+	handler := p.lookup(row.Event)
+	handlerErr := ErrOutboxHandlerNotFound
+	if handler != nil {
+		handlerCtx := trace.WithOutboxID(trace.WithRequestID(ctx, row.RequestID), row.ID)
+		handlerCtx, span := trace.StartSpan(handlerCtx, "outbox.process_event", map[string]string{
+			"event":          row.Event,
+			"aggregate_type": row.AggregateType,
+			"aggregate_id":   strconv.FormatUint(row.AggregateID, 10),
+			"outbox_id":      strconv.FormatUint(row.ID, 10),
+		})
+
+		// Track concurrency for test observability.
+		cur := atomic.AddInt64(&currentConcurrency, 1)
+		if cur > atomic.LoadInt64(&observeMaxConcurrency) {
+			atomic.StoreInt64(&observeMaxConcurrency, cur)
+		}
+
+		if p.leaseRefresh > 0 {
+			// Wrap with lease refresh.
+			refreshCtx, cancel := context.WithCancelCause(handlerCtx)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				ticker := time.NewTicker(p.leaseRefresh)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-refreshCtx.Done():
+						return
+					case <-ticker.C:
+						until := time.Now().UTC().Add(p.lease)
+						ok, refreshErr := p.store.ExtendLease(refreshCtx, row.ID, p.workerID, until)
+						if refreshErr != nil {
+							p.logger.Warn().Err(refreshErr).Uint64("outbox_id", row.ID).
+								Msg("lease refresh failed")
+							continue
+						}
+						if !ok {
+							if p.metrics != nil {
+								p.metrics.Inc("outbox_lease_conflict_total")
+							}
+							p.logger.Warn().Uint64("outbox_id", row.ID).
+								Msg("lease conflict: ownership lost during processing, cancelling handler")
+							cancel(ErrLeaseConflict)
+							return
+						}
+					}
+				}
+			}()
+			handlerErr = handler(refreshCtx, row)
+			cancel(nil)
+			<-done
+		} else {
+			handlerErr = handler(handlerCtx, row)
+		}
+
+		atomic.AddInt64(&currentConcurrency, -1)
+		span.End(handlerErr)
+	}
+
+	if handlerErr == nil {
+		if p.metrics != nil {
+			p.metrics.Inc("outbox_publish_total")
+		}
+		return eventResult{row: row, outcome: outcomePublished, handlerErr: nil}
+	}
+
+	if row.Attempts+1 >= p.maxAttempts {
+		if p.metrics != nil {
+			p.metrics.Inc("outbox_dead_letter_total")
+		}
+		if p.alerter != nil {
+			if alertErr := p.alerter.Emit(context.Background(), alerting.Alert{
+				Severity: alerting.SeverityP1,
+				Title:    "outbox event moved to dead-letter",
+				Detail:   handlerErr.Error(),
+				Labels: map[string]string{
+					"worker":         p.workerID,
+					"component":      "outbox",
+					"event":          row.Event,
+					"outbox_id":      strconv.FormatUint(row.ID, 10),
+					"aggregate_type": row.AggregateType,
+					"aggregate_id":   strconv.FormatUint(row.AggregateID, 10),
+				},
+			}); alertErr != nil {
+				p.logger.Warn().Err(alertErr).Uint64("outbox_id", row.ID).
+					Msg("failed to emit outbox dead-letter alert")
+			}
+		}
+		return eventResult{row: row, outcome: outcomeDead, handlerErr: handlerErr}
+	}
+
+	if p.metrics != nil {
+		p.metrics.Inc("outbox_publish_retry_total")
+	}
+	return eventResult{row: row, outcome: outcomeRetried, handlerErr: handlerErr}
+}
+
+// persistResults batch-persists event outcomes. It groups results by outcome
+// type and uses batch methods for groups larger than one, falling back to
+// single-row methods for mismatches or groups of one.
+func (p *Processor) persistResults(ctx context.Context, results []eventResult, batchResult *ProcessBatchResult) {
+	// Group by outcome.
+	var published, retried, dead []eventResult
+	for _, r := range results {
+		switch r.outcome {
 		case outcomePublished:
-			result.Succeeded++
+			published = append(published, r)
 		case outcomeRetried:
-			result.Retried++
+			retried = append(retried, r)
 		case outcomeDead:
-			result.Dead++
+			dead = append(dead, r)
 		}
 	}
-	return result, nil
+
+	// Persist published events.
+	p.persistPublished(ctx, published, batchResult)
+
+	// Persist retry events — group by (availableAt, normalized error).
+	p.persistRetried(ctx, retried, batchResult)
+
+	// Persist dead events — group by normalized error.
+	p.persistDead(ctx, dead, batchResult)
+}
+
+// persistPublished batch-persishes published events.
+func (p *Processor) persistPublished(ctx context.Context, results []eventResult, batchResult *ProcessBatchResult) {
+	if len(results) == 0 {
+		return
+	}
+	if len(results) == 1 {
+		if err := p.store.MarkPublished(ctx, results[0].row.ID); err != nil {
+			batchResult.Errors = append(batchResult.Errors, err)
+		} else {
+			batchResult.Succeeded++
+		}
+		return
+	}
+	ids := make([]uint64, len(results))
+	for i, r := range results {
+		ids[i] = r.row.ID
+	}
+	mismatched, err := p.store.MarkPublishedBatch(ctx, ids, p.workerID)
+	if err != nil {
+		// Batch write failed entirely — fall back to per-row.
+		for _, r := range results {
+			if perErr := p.store.MarkPublished(ctx, r.row.ID); perErr != nil {
+				batchResult.Errors = append(batchResult.Errors, perErr)
+			} else {
+				batchResult.Succeeded++
+			}
+		}
+		return
+	}
+	batchResult.Succeeded += len(ids) - len(mismatched)
+	// Fall back to per-row for mismatched IDs.
+	for _, id := range mismatched {
+		if perErr := p.store.MarkPublished(ctx, id); perErr != nil {
+			if p.metrics != nil {
+				p.metrics.Inc("outbox_final_state_update_error_total")
+			}
+			batchResult.Errors = append(batchResult.Errors, perErr)
+		} else {
+			batchResult.Succeeded++
+		}
+	}
+}
+
+// persistRetried batch-persishes retry events, grouping by (availableAt, error).
+func (p *Processor) persistRetried(ctx context.Context, results []eventResult, batchResult *ProcessBatchResult) {
+	if len(results) == 0 {
+		return
+	}
+	// Group by (availableAt, normalized error).
+	type retryGroup struct {
+		availableAt time.Time
+		errMsg      string
+		ids        []uint64
+	}
+	groups := make(map[string]*retryGroup)
+	for _, r := range results {
+		availableAt := time.Now().UTC().Add(p.retryDelay)
+		errMsg := ""
+		if r.handlerErr != nil {
+			errMsg = r.handlerErr.Error()
+		}
+		key := fmt.Sprintf("%v:%s", availableAt.Round(time.Millisecond), errMsg)
+		g, ok := groups[key]
+		if !ok {
+			g = &retryGroup{availableAt: availableAt, errMsg: errMsg}
+			groups[key] = g
+		}
+		g.ids = append(g.ids, r.row.ID)
+	}
+	for _, g := range groups {
+		if len(g.ids) == 1 {
+			if err := p.store.MarkRetry(ctx, g.ids[0], errors.New(g.errMsg), g.availableAt); err != nil {
+				batchResult.Errors = append(batchResult.Errors, err)
+			} else {
+				batchResult.Retried++
+			}
+			continue
+		}
+		mismatched, err := p.store.MarkRetryBatch(ctx, g.ids, p.workerID, errors.New(g.errMsg), g.availableAt)
+		if err != nil {
+			for _, id := range g.ids {
+				if perErr := p.store.MarkRetry(ctx, id, errors.New(g.errMsg), g.availableAt); perErr != nil {
+					batchResult.Errors = append(batchResult.Errors, perErr)
+				} else {
+					batchResult.Retried++
+				}
+			}
+			continue
+		}
+		batchResult.Retried += len(g.ids) - len(mismatched)
+		for _, id := range mismatched {
+			if perErr := p.store.MarkRetry(ctx, id, errors.New(g.errMsg), g.availableAt); perErr != nil {
+				if p.metrics != nil {
+					p.metrics.Inc("outbox_final_state_update_error_total")
+				}
+				batchResult.Errors = append(batchResult.Errors, perErr)
+			} else {
+				batchResult.Retried++
+			}
+		}
+	}
+}
+
+// persistDead batch-persishes dead-letter events, grouping by normalized error.
+func (p *Processor) persistDead(ctx context.Context, results []eventResult, batchResult *ProcessBatchResult) {
+	if len(results) == 0 {
+		return
+	}
+	// Group by normalized error.
+	type deadGroup struct {
+		errMsg string
+		ids   []uint64
+	}
+	groups := make(map[string]*deadGroup)
+	for _, r := range results {
+		errMsg := ""
+		if r.handlerErr != nil {
+			errMsg = r.handlerErr.Error()
+		}
+		g, ok := groups[errMsg]
+		if !ok {
+			g = &deadGroup{errMsg: errMsg}
+			groups[errMsg] = g
+		}
+		g.ids = append(g.ids, r.row.ID)
+	}
+	for _, g := range groups {
+		if len(g.ids) == 1 {
+			if err := p.store.MarkDead(ctx, g.ids[0], errors.New(g.errMsg)); err != nil {
+				batchResult.Errors = append(batchResult.Errors, err)
+			} else {
+				batchResult.Dead++
+			}
+			continue
+		}
+		mismatched, err := p.store.MarkDeadBatch(ctx, g.ids, p.workerID, errors.New(g.errMsg))
+		if err != nil {
+			for _, id := range g.ids {
+				if perErr := p.store.MarkDead(ctx, id, errors.New(g.errMsg)); perErr != nil {
+					batchResult.Errors = append(batchResult.Errors, perErr)
+				} else {
+					batchResult.Dead++
+				}
+			}
+			continue
+		}
+		batchResult.Dead += len(g.ids) - len(mismatched)
+		for _, id := range mismatched {
+			if perErr := p.store.MarkDead(ctx, id, errors.New(g.errMsg)); perErr != nil {
+				if p.metrics != nil {
+					p.metrics.Inc("outbox_final_state_update_error_total")
+				}
+				batchResult.Errors = append(batchResult.Errors, perErr)
+			} else {
+				batchResult.Dead++
+			}
+		}
+	}
+}
+
+// processEventWithLease processes a single event with lease refresh. If
+// leaseRefresh > 0, a background goroutine periodically extends the lease
+// while the handler runs. If the lease cannot be extended (ownership lost),
+// the handler context is cancelled with ErrLeaseConflict as the cause.
+func (p *Processor) processEventWithLease(ctx context.Context, row models.EventOutbox) (processOutcome, error) {
+	if p.leaseRefresh <= 0 {
+		return p.processEvent(ctx, row)
+	}
+
+	handlerCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+
+	// Start lease refresh goroutine.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(p.leaseRefresh)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-handlerCtx.Done():
+				return
+			case <-ticker.C:
+				until := time.Now().UTC().Add(p.lease)
+				ok, refreshErr := p.store.ExtendLease(handlerCtx, row.ID, p.workerID, until)
+				if refreshErr != nil {
+					p.logger.Warn().Err(refreshErr).Uint64("outbox_id", row.ID).
+						Msg("lease refresh failed")
+					continue
+				}
+				if !ok {
+					if p.metrics != nil {
+						p.metrics.Inc("outbox_lease_conflict_total")
+					}
+					p.logger.Warn().Uint64("outbox_id", row.ID).
+						Msg("lease conflict: ownership lost during processing, cancelling handler")
+					cancel(ErrLeaseConflict)
+					return
+				}
+			}
+		}
+	}()
+
+	outcome, eventErr := p.processEvent(handlerCtx, row)
+
+	// Signal the refresh goroutine to stop by cancelling the context.
+	cancel(nil)
+	<-done // Wait for refresh goroutine to finish.
+
+	return outcome, eventErr
 }
 
 // Run continuously drains pending outbox events, immediately repeating while
@@ -239,8 +782,6 @@ func (p *Processor) Run(ctx context.Context, idleInterval time.Duration) {
 	}
 }
 
-// recordRunFailure 让批次级失败可见并上报。此前错误被整体丢弃，outbox 会静默
-// 停滞而循环继续空转，故障完全不可观测。
 // recordRunFailure surfaces batch-level failures instead of dropping them.
 func (p *Processor) recordRunFailure(err error) {
 	if p.metrics != nil {
@@ -251,7 +792,6 @@ func (p *Processor) recordRunFailure(err error) {
 	if p.alerter == nil {
 		return
 	}
-	// 事件积压会直接表现为业务链路静默中断，按 P2 上报（去重窗口内只报一次）。
 	alertErr := p.alerter.Emit(context.Background(), alerting.Alert{
 		Severity: alerting.SeverityP2,
 		Title:    "outbox processing cycle failed",
@@ -296,9 +836,6 @@ func (p *Processor) processEvent(ctx context.Context, row models.EventOutbox) (p
 		if p.metrics != nil {
 			p.metrics.Inc("outbox_dead_letter_total")
 		}
-		// 达到最大重试次数：转入死信终态并告警，避免毒事件继续占用处理批次。
-		// 此处 Emit 与 recordRunFailure 一致使用 background ctx，因为事件已离开
-		// 请求生命周期；死信属数据投递失败，按 P1 上报（可能丢失业务事件）。
 		if p.alerter != nil {
 			if alertErr := p.alerter.Emit(context.Background(), alerting.Alert{
 				Severity: alerting.SeverityP1,
@@ -371,6 +908,14 @@ func (p *Processor) eventFilter() []string {
 	return out
 }
 
+func (p *Processor) orderedEventFilter() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	out := make([]string, len(p.orderedEvents))
+	copy(out, p.orderedEvents)
+	return out
+}
+
 func normalizedEvents(events []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(events))
@@ -383,3 +928,10 @@ func normalizedEvents(events []string) []string {
 	}
 	return out
 }
+
+// observeMaxConcurrency tracks the maximum observed concurrency across
+// handler invocations for testing purposes.
+var observeMaxConcurrency int64
+
+// currentConcurrency tracks the number of in-flight handler invocations.
+var currentConcurrency int64

@@ -24,3 +24,8 @@ data:
   TOOL_PAYLOAD_RETENTION_DAYS: {{ .Values.platform.retention.toolPayloadDays | quote }}
   ORGANIZATION_AUDIT_RETENTION_DAYS: {{ .Values.platform.retention.organizationAuditDays | quote }}
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.observability.otlpEndpoint | quote }}
+  OUTBOX_WORKER_CONCURRENCY: {{ .Values.workers.outbox.concurrency | quote }}
+  OUTBOX_WORKER_QUEUE_DEPTH: {{ .Values.workers.outbox.queueDepth | quote }}
+  OUTBOX_WORKER_IDLE_MS: {{ .Values.workers.outbox.idleMs | quote }}
+  OUTBOX_WORKER_ERROR_BACKOFF_MS: {{ .Values.workers.outbox.errorBackoffMs | quote }}
+  OUTBOX_WORKER_LEASE_REFRESH_SEC: {{ .Values.workers.outbox.leaseRefreshSec | quote }}

@@ -348,3 +348,31 @@ func ConfigureOutboxProcessorFromEnv(processor *events.Processor, workerID strin
 		durationFromEnv("OUTBOX_WORKER_RETRY_DELAY_SEC", 60)*time.Second,
 	)
 }
+
+// ConfigureOutboxProcessorFromEnvWithConcurrency configures an outbox processor
+// with bounded parallelism, ordering, lease refresh, and batch state writes.
+// orderedEvents specifies event types that require per-aggregate FIFO ordering;
+// events not in this list (e.g. idempotent indexing events) bypass the ordering
+// check for higher concurrency.
+func ConfigureOutboxProcessorFromEnvWithConcurrency(processor *events.Processor, workerID string, concurrency, queueDepth int, idleInterval, errorBackoff, lease time.Duration, orderedEvents []string, eventFilter ...string) {
+	if processor == nil {
+		return
+	}
+	processor.WithEventFilter(eventFilter...)
+	processor.WithOrderedEvents(orderedEvents...)
+	processor.WithWorker(workerID, lease)
+	processor.WithBatchSize(intFromEnv("OUTBOX_WORKER_BATCH_SIZE", 100))
+	processor.WithRetry(
+		intFromEnv("OUTBOX_WORKER_MAX_ATTEMPTS", 3),
+		durationFromEnv("OUTBOX_WORKER_RETRY_DELAY_SEC", 60)*time.Second,
+	)
+	processor.WithConfig(events.ProcessorConfig{
+		BatchSize:    intFromEnv("OUTBOX_WORKER_BATCH_SIZE", 100),
+		Concurrency:  intFromEnv("OUTBOX_WORKER_CONCURRENCY", concurrency),
+		QueueDepth:   intFromEnv("OUTBOX_WORKER_QUEUE_DEPTH", queueDepth),
+		IdleInterval: idleInterval,
+		ErrorBackoff: errorBackoff,
+		Lease:        lease,
+		LeaseRefresh: durationFromEnv("OUTBOX_WORKER_LEASE_REFRESH_SEC", int(lease/time.Second/3)) * time.Second,
+	})
+}

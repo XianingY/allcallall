@@ -14,19 +14,19 @@ const (
 
 // EventOutbox stores durable domain events that can be published asynchronously.
 type EventOutbox struct {
-	ID             uint64     `gorm:"primaryKey;autoIncrement"`
-	AggregateType  string     `gorm:"size:96;not null;index"`
-	AggregateID    uint64     `gorm:"not null;index"`
-	Event          string     `gorm:"size:120;not null;index"`
+	ID             uint64     `gorm:"primaryKey;autoIncrement;index:idx_event_outbox_claim,priority:5;index:idx_event_outbox_aggregate_order,priority:4"`
+	AggregateType  string     `gorm:"size:96;not null;index;index:idx_event_outbox_aggregate_order,priority:1"`
+	AggregateID    uint64     `gorm:"not null;index;index:idx_event_outbox_aggregate_order,priority:2"`
+	Event          string     `gorm:"size:120;not null;index;index:idx_event_outbox_claim,priority:2"`
 	PayloadJSON    string     `gorm:"type:longtext;not null"`
 	IdempotencyKey string     `gorm:"size:160;not null;uniqueIndex"`
 	RequestID      string     `gorm:"size:96;index"`
-	Status         string     `gorm:"size:32;not null;default:'pending';index"`
+	Status         string     `gorm:"size:32;not null;default:'pending';index;index:idx_event_outbox_claim,priority:1;index:idx_event_outbox_aggregate_order,priority:3"`
 	Attempts       int        `gorm:"not null;default:0"`
 	LockedBy       string     `gorm:"size:120;index"`
-	LockedUntil    *time.Time `gorm:"index"`
+	LockedUntil    *time.Time `gorm:"index;index:idx_event_outbox_claim,priority:4"`
 	LastError      string     `gorm:"type:text"`
-	AvailableAt    *time.Time `gorm:"index"`
+	AvailableAt    *time.Time `gorm:"index;index:idx_event_outbox_claim,priority:3"`
 	PublishedAt    *time.Time `gorm:"index"`
 	CreatedAt      time.Time  `gorm:"autoCreateTime;index"`
 	UpdatedAt      time.Time  `gorm:"autoUpdateTime"`

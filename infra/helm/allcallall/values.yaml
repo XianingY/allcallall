@@ -127,6 +127,16 @@ observability:
     scrape: true
     namespace: monitoring
 
+# Outbox worker parallelism and timing. Concurrency is clamped to [1, 64];
+# queue depth to [concurrency, 1024]. Lease refresh defaults to lease/3.
+workers:
+  outbox:
+    concurrency: 8
+    queueDepth: 16
+    idleMs: 500
+    errorBackoffMs: 1000
+    leaseRefreshSec: 40
+
 serviceAccount:
   create: true
   # Shared pre-created account used when create=false. Empty selects "default".

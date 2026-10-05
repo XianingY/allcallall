@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -344,3 +345,389 @@ func TestProcessOnceNilSafety(t *testing.T) {
 		t.Fatalf("expected (0, error) from nil processor, got (%d, %v)", n, err)
 	}
 }
+
+func TestProcessorBoundedConcurrency(t *testing.T) {
+	store, _ := newProcessorTestStore(t)
+	processor := NewProcessor(store)
+	processor.WithWorker("concurrency-test", time.Minute)
+	processor.WithConfig(ProcessorConfig{
+		BatchSize:   20,
+		Concurrency: 3,
+		QueueDepth:  18,
+		Lease:       time.Minute,
+	})
+
+	// Register a handler that tracks concurrency and blocks until released.
+	block := make(chan struct{})
+	var currentConc int64
+	var maxConc int64
+	processor.Register("test.event", func(ctx context.Context, row models.EventOutbox) error {
+		cur := atomic.AddInt64(&currentConc, 1)
+		for {
+			old := atomic.LoadInt64(&maxConc)
+			if cur <= old || atomic.CompareAndSwapInt64(&maxConc, old, cur) {
+				break
+			}
+		}
+		<-block // block until test releases
+		atomic.AddInt64(&currentConc, -1)
+		return nil
+	})
+
+	// Seed 9 events across different aggregates so they distribute across shards.
+	for i := 0; i < 9; i++ {
+		_, err := store.Enqueue(context.Background(), EnqueueInput{
+			AggregateType:  "test",
+			AggregateID:    uint64(i + 1),
+			Event:          "test.event",
+			IdempotencyKey: fmt.Sprintf("concurrency-%d", i),
+			Payload:        map[string]any{"i": i},
+		})
+		if err != nil {
+			t.Fatalf("enqueue %d: %v", i, err)
+		}
+	}
+
+	// ProcessBatch in a goroutine.
+	done := make(chan ProcessBatchResult, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		result, processErr := processor.ProcessBatch(context.Background())
+		if processErr != nil {
+			errCh <- processErr
+			return
+		}
+		done <- result
+	}()
+
+	// Wait for max concurrency to reach 3. With 3 shards, at most 3 handlers
+	// can run concurrently. The first 3 events (one per shard) will start
+	// immediately; the rest queue behind them.
+	deadline := time.After(5 * time.Second)
+	for {
+		max := atomic.LoadInt64(&maxConc)
+		if max >= 3 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for max concurrency to reach 3; got %d", atomic.LoadInt64(&maxConc))
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	// Verify max concurrency never exceeded 3.
+	max := atomic.LoadInt64(&maxConc)
+	if max != 3 {
+		t.Fatalf("max observed concurrency = %d, want 3", max)
+	}
+
+	// Release all handlers.
+	close(block)
+
+	// Wait for ProcessBatch to complete.
+	select {
+	case err := <-errCh:
+		t.Fatalf("ProcessBatch error: %v", err)
+	case result := <-done:
+		if result.Claimed != 9 || result.Succeeded != 9 {
+			t.Fatalf("unexpected result: claimed=%d succeeded=%d", result.Claimed, result.Succeeded)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ProcessBatch timed out")
+	}
+}
+
+
+
+func TestProcessorAggregateOrder(t *testing.T) {
+	store, _ := newProcessorTestStore(t)
+	processor := NewProcessor(store)
+	processor.WithWorker("order-test", time.Minute)
+	processor.WithConfig(ProcessorConfig{
+		BatchSize:   20,
+		Concurrency: 4,
+		QueueDepth:  8,
+		Lease:       time.Minute,
+	})
+	processor.WithOrderedEvents("test.event")
+
+	// Track the order in which events for each aggregate are processed.
+	var mu sync.Mutex
+	processedOrder := make(map[string][]uint64) // aggregateKey -> []outboxID
+
+	processor.Register("test.event", func(ctx context.Context, row models.EventOutbox) error {
+		key := OrderingKey(row)
+		mu.Lock()
+		processedOrder[key] = append(processedOrder[key], row.ID)
+		mu.Unlock()
+		return nil
+	})
+
+	// Seed interleaved events for two aggregates.
+	// Aggregate A: events 1, 3, 5 (IDs assigned sequentially)
+	// Aggregate B: events 2, 4, 6
+	var ids []uint64
+	for i := 0; i < 6; i++ {
+		aggID := uint64(1) // aggregate A
+		if i%2 == 1 {
+			aggID = uint64(2) // aggregate B
+		}
+		ev, err := store.Enqueue(context.Background(), EnqueueInput{
+			AggregateType:  "test",
+			AggregateID:    aggID,
+			Event:          "test.event",
+			IdempotencyKey: fmt.Sprintf("order-%d", i),
+			Payload:        map[string]any{"i": i},
+		})
+		if err != nil {
+			t.Fatalf("enqueue %d: %v", i, err)
+		}
+		ids = append(ids, ev.ID)
+	}
+
+	// Loop ProcessBatch until all events are processed (ordered claiming
+	// only claims the first pending event per aggregate per batch).
+	var totalSucceeded int
+	for i := 0; i < 10; i++ {
+		result, err := processor.ProcessBatch(context.Background())
+		if err != nil {
+			t.Fatalf("ProcessBatch error (iteration %d): %v", i, err)
+		}
+		totalSucceeded += result.Succeeded
+		if result.Claimed == 0 {
+			break
+		}
+	}
+	if totalSucceeded != 6 {
+		t.Fatalf("expected 6 succeeded, got %d", totalSucceeded)
+	}
+
+	// Verify each aggregate's events were processed in ascending ID order.
+	mu.Lock()
+	defer mu.Unlock()
+	for key, order := range processedOrder {
+		for i := 1; i < len(order); i++ {
+			if order[i] <= order[i-1] {
+				t.Fatalf("aggregate %s: events not in ascending ID order: %v", key, order)
+			}
+		}
+	}
+}
+
+func TestProcessorLeaseRefresh(t *testing.T) {
+	store, db := newProcessorTestStore(t)
+	processor := NewProcessor(store)
+	processor.WithWorker("lease-test", 200*time.Millisecond) // short lease
+	processor.WithConfig(ProcessorConfig{
+		BatchSize:    10,
+		Concurrency:  1,
+		QueueDepth:   2,
+		Lease:        200 * time.Millisecond,
+		LeaseRefresh: 50 * time.Millisecond,
+	})
+
+	handlerDone := make(chan struct{})
+	processor.Register("test.event", func(ctx context.Context, row models.EventOutbox) error {
+		// Simulate a handler that takes longer than the initial lease.
+		time.Sleep(300 * time.Millisecond)
+		close(handlerDone)
+		return nil
+	})
+
+	_, err := store.Enqueue(context.Background(), EnqueueInput{
+		AggregateType:  "test",
+		AggregateID:    1,
+		Event:          "test.event",
+		IdempotencyKey: "lease-1",
+		Payload:        map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	// Process in a goroutine.
+	done := make(chan error, 1)
+	go func() {
+		_, processErr := processor.ProcessBatch(context.Background())
+		done <- processErr
+	}()
+
+	// Wait for the handler to complete.
+	select {
+	case <-handlerDone:
+		// Handler completed successfully despite lease being short.
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not complete within timeout")
+	}
+
+	// Verify the event was published.
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ProcessBatch error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ProcessBatch did not complete")
+	}
+
+	var row models.EventOutbox
+	if err := db.Take(&row, 1).Error; err != nil {
+		t.Fatalf("load row: %v", err)
+	}
+	if row.Status != models.EventOutboxStatusPublished {
+		t.Fatalf("expected published status, got %s", row.Status)
+	}
+
+	// Now verify that a competing worker cannot reclaim while lease is being refreshed.
+	// Reset the event to pending for a second test.
+	processor2 := NewProcessor(store)
+	processor2.WithWorker("competing-worker", time.Minute)
+	processor2.WithConfig(ProcessorConfig{
+		BatchSize:    10,
+		Concurrency:  1,
+		QueueDepth:   2,
+		Lease:        time.Minute,
+		LeaseRefresh: 50 * time.Millisecond,
+	})
+
+	// Seed a new event.
+	ev2, err := store.Enqueue(context.Background(), EnqueueInput{
+		AggregateType:  "test",
+		AggregateID:    2,
+		Event:          "test.event",
+		IdempotencyKey: "lease-2",
+		Payload:        map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("enqueue 2: %v", err)
+	}
+
+	// Claim the event with the first worker.
+	claimed, err := store.ClaimPendingForEvents(context.Background(), 10, "lease-test", 200*time.Millisecond, nil)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != ev2.ID {
+		t.Fatalf("expected to claim event %d, got %v", ev2.ID, claimed)
+	}
+
+	// Extend the lease.
+	ok, err := store.ExtendLease(context.Background(), ev2.ID, "lease-test", time.Now().UTC().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("extend lease: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected lease extension to succeed")
+	}
+
+	// The competing worker should not be able to claim the event.
+	competing, err := store.ClaimPendingForEvents(context.Background(), 10, "competing-worker", time.Minute, nil)
+	if err != nil {
+		t.Fatalf("competing claim: %v", err)
+	}
+	for _, c := range competing {
+		if c.ID == ev2.ID {
+			t.Fatal("competing worker should not have claimed the event whose lease was extended")
+		}
+	}
+}
+
+func TestProcessorLeaseConflictCancelsHandler(t *testing.T) {
+	store, db := newProcessorTestStore(t)
+	counters := metrics.NewCounterStore()
+	processor := NewProcessor(store, counters)
+	processor.WithWorker("lease-conflict-test", 2*time.Second)
+	processor.WithConfig(ProcessorConfig{
+		BatchSize:    10,
+		Concurrency:  1,
+		QueueDepth:   2,
+		Lease:        2 * time.Second,
+		LeaseRefresh: 50 * time.Millisecond,
+	})
+
+	var handlerCtx context.Context
+	var handlerCancelled atomic.Bool
+	handlerStarted := make(chan struct{})
+	processor.Register("test.event", func(ctx context.Context, row models.EventOutbox) error {
+		handlerCtx = ctx
+		close(handlerStarted)
+		select {
+		case <-ctx.Done():
+			handlerCancelled.Store(true)
+			return ctx.Err()
+		case <-time.After(5 * time.Second):
+			return nil
+		}
+	})
+
+	_, err := store.Enqueue(context.Background(), EnqueueInput{
+		AggregateType:  "test",
+		AggregateID:    1,
+		Event:          "test.event",
+		IdempotencyKey: "lease-conflict-1",
+		Payload:        map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	// Process in a goroutine.
+	done := make(chan error, 1)
+	go func() {
+		_, processErr := processor.ProcessBatch(context.Background())
+		done <- processErr
+	}()
+
+	// Wait for handler to start.
+	select {
+	case <-handlerStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not start within timeout")
+	}
+
+	// Simulate lease conflict: directly change the locked_by in the database
+	// to a different worker, so ExtendLease will return false.
+	if err := db.Model(&models.EventOutbox{}).Where("1 = 1").Update("locked_by", "thief-worker").Error; err != nil {
+		t.Fatalf("update locked_by: %v", err)
+	}
+
+	// Wait for the lease refresh to detect the conflict and cancel the handler.
+	deadline := time.After(500 * time.Millisecond)
+	for {
+		if handlerCancelled.Load() {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("handler was not cancelled within timeout after lease conflict")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	// Verify the lease conflict metric was emitted.
+	snapshot := counters.Snapshot()
+	if snapshot["outbox_lease_conflict_total"] != 1 {
+		t.Fatalf("expected outbox_lease_conflict_total = 1, got %d", snapshot["outbox_lease_conflict_total"])
+	}
+
+	// Verify the cancellation cause is ErrLeaseConflict.
+	if handlerCtx != nil {
+		cause := context.Cause(handlerCtx)
+		if !errors.Is(cause, ErrLeaseConflict) {
+			t.Fatalf("expected cancellation cause to be ErrLeaseConflict, got %v", cause)
+		}
+	}
+
+	// Wait for ProcessBatch to complete.
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ProcessBatch did not complete after handler cancellation")
+	}
+}
+
+
+

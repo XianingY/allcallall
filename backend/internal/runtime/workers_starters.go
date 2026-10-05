@@ -16,17 +16,27 @@ func StartOutboxWorker(ctx context.Context, log zerolog.Logger, processor *event
 	if processor == nil {
 		return
 	}
-	idleSeconds := intFromEnv("OUTBOX_WORKER_INTERVAL_SEC", 30)
-	idleInterval := time.Duration(idleSeconds) * time.Second
+	idleMs := intFromEnv("OUTBOX_WORKER_IDLE_MS", 500)
+	idleInterval := time.Duration(idleMs) * time.Millisecond
 	log.Info().
-		Int("interval_sec", idleSeconds).
-		Int("idle_interval_sec", idleSeconds).
+		Int("idle_ms", idleMs).
 		Msg("outbox worker enabled (continuous drain, idle wait when empty)")
 	go processor.Run(ctx, idleInterval)
 }
 
 func StartAgentWorker(ctx context.Context, log zerolog.Logger, processor *events.Processor, services ...*agent.Service) {
-	ConfigureOutboxProcessorFromEnv(processor, workerIDFromEnv("agent-worker"), EventAgentRunRequested, EventWorkflowRequested, EventMCPExecutionTerminal)
+	agentOrderedEvents := []string{EventAgentRunRequested, EventWorkflowRequested, EventMCPExecutionTerminal}
+	ConfigureOutboxProcessorFromEnvWithConcurrency(
+		processor,
+		workerIDFromEnv("agent-worker"),
+		intFromEnv("OUTBOX_WORKER_CONCURRENCY", 2),
+		intFromEnv("OUTBOX_WORKER_QUEUE_DEPTH", 4),
+		time.Duration(intFromEnv("OUTBOX_WORKER_IDLE_MS", 500))*time.Millisecond,
+		time.Duration(intFromEnv("OUTBOX_WORKER_ERROR_BACKOFF_MS", 1000))*time.Millisecond,
+		durationFromEnv("OUTBOX_WORKER_LEASE_SEC", 120)*time.Second,
+		agentOrderedEvents,
+		EventAgentRunRequested, EventWorkflowRequested, EventMCPExecutionTerminal,
+	)
 	StartOutboxWorker(ctx, log.With().Str("worker", "agent").Logger(), processor)
 	if len(services) > 0 {
 		StartAgentRecoveryWorker(ctx, log, services[0])
@@ -62,17 +72,50 @@ func StartAgentRecoveryWorker(ctx context.Context, log zerolog.Logger, agentSvc 
 }
 
 func StartCollaborationOutboxWorker(ctx context.Context, log zerolog.Logger, processor *events.Processor) {
-	ConfigureOutboxProcessorFromEnv(processor, workerIDFromEnv("outbox-worker"), EventAgentRunCompleted, EventMessageCreated, EventRecordingTranscriptionRequested)
+	collabOrderedEvents := []string{EventAgentRunCompleted, EventMessageCreated, EventRecordingTranscriptionRequested}
+	ConfigureOutboxProcessorFromEnvWithConcurrency(
+		processor,
+		workerIDFromEnv("outbox-worker"),
+		intFromEnv("OUTBOX_WORKER_CONCURRENCY", 8),
+		intFromEnv("OUTBOX_WORKER_QUEUE_DEPTH", 16),
+		time.Duration(intFromEnv("OUTBOX_WORKER_IDLE_MS", 500))*time.Millisecond,
+		time.Duration(intFromEnv("OUTBOX_WORKER_ERROR_BACKOFF_MS", 1000))*time.Millisecond,
+		durationFromEnv("OUTBOX_WORKER_LEASE_SEC", 120)*time.Second,
+		collabOrderedEvents,
+		EventAgentRunCompleted, EventMessageCreated, EventRecordingTranscriptionRequested,
+	)
 	StartOutboxWorker(ctx, log.With().Str("worker", "outbox").Logger(), processor)
 }
 
 func StartSearchOutboxWorker(ctx context.Context, log zerolog.Logger, processor *events.Processor) {
-	ConfigureOutboxProcessorFromEnv(processor, workerIDFromEnv("search-worker"), EventSearchMessageIndex)
+	// Search indexing events are idempotent and don't require aggregate ordering.
+	ConfigureOutboxProcessorFromEnvWithConcurrency(
+		processor,
+		workerIDFromEnv("search-worker"),
+		intFromEnv("OUTBOX_WORKER_CONCURRENCY", 4),
+		intFromEnv("OUTBOX_WORKER_QUEUE_DEPTH", 8),
+		time.Duration(intFromEnv("OUTBOX_WORKER_IDLE_MS", 500))*time.Millisecond,
+		time.Duration(intFromEnv("OUTBOX_WORKER_ERROR_BACKOFF_MS", 1000))*time.Millisecond,
+		durationFromEnv("OUTBOX_WORKER_LEASE_SEC", 120)*time.Second,
+		nil, // no ordered events — search indexing is idempotent
+		EventSearchMessageIndex,
+	)
 	StartOutboxWorker(ctx, log.With().Str("worker", "search").Logger(), processor)
 }
 
 func StartSettlementBridgeWorker(ctx context.Context, log zerolog.Logger, processor *events.Processor) {
-	ConfigureOutboxProcessorFromEnv(processor, workerIDFromEnv("settlement-bridge"), EventSettlementRoomEnd)
+	settlementOrderedEvents := []string{EventSettlementRoomEnd}
+	ConfigureOutboxProcessorFromEnvWithConcurrency(
+		processor,
+		workerIDFromEnv("settlement-bridge"),
+		intFromEnv("OUTBOX_WORKER_CONCURRENCY", 2),
+		intFromEnv("OUTBOX_WORKER_QUEUE_DEPTH", 4),
+		time.Duration(intFromEnv("OUTBOX_WORKER_IDLE_MS", 500))*time.Millisecond,
+		time.Duration(intFromEnv("OUTBOX_WORKER_ERROR_BACKOFF_MS", 1000))*time.Millisecond,
+		durationFromEnv("OUTBOX_WORKER_LEASE_SEC", 120)*time.Second,
+		settlementOrderedEvents,
+		EventSettlementRoomEnd,
+	)
 	StartOutboxWorker(ctx, log.With().Str("worker", "settlement-bridge").Logger(), processor)
 }
 

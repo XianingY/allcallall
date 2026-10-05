@@ -21,7 +21,7 @@ import (
 // stamped with. Bump it, and the assertion in migrations_test.go, when adding
 // a migration - see migrations/README.md for why this is a single stamp rather
 // than one per applied file.
-const currentSchemaVersion = 20
+const currentSchemaVersion = 21
 
 // RunMigrations applies the ordered schema migrations using golang-migrate.
 //
