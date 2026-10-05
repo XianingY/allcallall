@@ -133,6 +133,10 @@
   display: grid;
   grid-template-columns: 2.25rem minmax(0, 1fr);
   gap: .65rem;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 6.125rem;
+  height: 6.125rem;
+  overflow: hidden;
   border-radius: .45rem;
   padding: .68rem .7rem;
   transition: background 120ms ease, box-shadow 120ms ease;
@@ -167,6 +171,8 @@
   align-items: baseline;
   justify-content: space-between;
   gap: .5rem;
+  line-height: 1.6rem;
+  white-space: nowrap;
 }
 
 .conversation-copy strong,
@@ -191,13 +197,18 @@
   margin: .2rem 0;
   color: #65706d;
   font-size: .72rem;
+  line-height: 1.2rem;
 }
 
 .conversation-priority {
   display: inline-flex;
+  height: 1.1rem;
   border: 1px solid rgba(18, 55, 42, .12);
   border-radius: 999px;
-  padding: .04rem .35rem;
+  align-items: center;
+  line-height: 1.1rem;
+  padding: 0 .35rem;
+  white-space: nowrap;
 }
 
 .unread-count {
