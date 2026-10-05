@@ -38,3 +38,12 @@ func ping(ctx context.Context, client *redis.Client, log zerolog.Logger) error {
 	log.Info().Str("component", "redis").Msg("connected to redis successfully")
 	return nil
 }
+
+// SnapshotRedisPoolStats returns the current connection pool statistics for the
+// given Redis client.  It delegates to client.PoolStats() and is provided as a
+// named function so the metrics pipeline can call it without depending on the
+// redis.Client method set directly.  The caller is responsible for periodic
+// sampling; this function does not start any goroutine.
+func SnapshotRedisPoolStats(client *redis.Client) *redis.PoolStats {
+	return client.PoolStats()
+}

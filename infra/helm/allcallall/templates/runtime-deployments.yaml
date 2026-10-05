@@ -22,9 +22,9 @@ spec:
     metadata:
       annotations:
         checksum/config: {{ include (print $root.Template.BasePath "/configmap.yaml") $root | sha256sum }}
-        {{- if and (eq $runtime.name "rag-runtime") $root.Values.observability.prometheus.scrape }}
+        {{- if $root.Values.observability.prometheus.scrape }}
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8091"
+        prometheus.io/port: {{ $runtime.port | quote }}
         prometheus.io/path: /metrics
         {{- end }}
       labels:
