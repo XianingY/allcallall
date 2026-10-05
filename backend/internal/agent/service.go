@@ -25,12 +25,21 @@ var (
 )
 
 func isDeferredRunExecution(err error) bool {
-	return errors.Is(err, ErrCheckpointExecutionBusy) || errors.Is(err, mcpplatform.ErrExecutionInProgress)
+	if errors.Is(err, ErrCheckpointExecutionBusy) || errors.Is(err, mcpplatform.ErrExecutionInProgress) {
+		return true
+	}
+	var overloaded *RuntimeOverloadedError
+	return errors.As(err, &overloaded)
 }
 
 const (
-	agentRunMaxAttempts   = 3
-	agentRunLeaseDuration = 5 * time.Minute
+	agentRunMaxAttempts = 3
+)
+
+var (
+	// agentRunLeaseDuration is the execution lease for agent runs.
+	// Configurable via AGENT_RUN_LEASE_DURATION_SEC (default 300).
+	agentRunLeaseDuration = time.Duration(intFromEnv("AGENT_RUN_LEASE_DURATION_SEC", 300)) * time.Second
 )
 
 type ChunkIndexer interface {

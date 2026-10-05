@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/allcallall/backend/internal/models"
 )
@@ -189,5 +190,45 @@ func TestWorkflowRuntimeRequestContextManifestOptional(t *testing.T) {
 	}
 	if len(decoded.ContextManifest.Truncated) != 1 || decoded.ContextManifest.Truncated[0] != "meeting_transcript_segments" {
 		t.Fatalf("expected truncated=[meeting_transcript_segments], got %v", decoded.ContextManifest.Truncated)
+	}
+}
+
+
+func TestWorkflowRuntimeRequestAttemptOmittedFromJSON(t *testing.T) {
+	request := WorkflowRuntimeRequest{
+		OrganizationID: 1,
+		UserID:         2,
+		ConversationID: 3,
+		WorkflowRunID:  4,
+		Preset:         "meeting_brief",
+		Goal:           "test",
+		Attempt:        3,
+	}
+	data, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), "attempt") {
+		t.Fatalf("Attempt field must be omitted from JSON, got: %s", string(data))
+	}
+	// Decoding should work without the attempt field.
+	var decoded WorkflowRuntimeRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.Attempt != 0 {
+		t.Fatalf("expected Attempt=0 after unmarshal, got %d", decoded.Attempt)
+	}
+}
+
+func TestRuntimeOverloadedErrorIsDeferredExecution(t *testing.T) {
+	err := &RuntimeOverloadedError{RetryAfter: 2 * time.Second, Body: "overloaded"}
+	if !isDeferredRunExecution(err) {
+		t.Fatal("RuntimeOverloadedError should be classified as deferred execution")
+	}
+	// Wrapped RuntimeOverloadedError should also be deferred.
+	wrapped := fmt.Errorf("wrapped: %w", err)
+	if !isDeferredRunExecution(wrapped) {
+		t.Fatal("wrapped RuntimeOverloadedError should be classified as deferred execution")
 	}
 }

@@ -26,6 +26,7 @@ data:
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.observability.otlpEndpoint | quote }}
   OUTBOX_WORKER_IDLE_MS: {{ .Values.workers.outbox.idleMs | quote }}
   OUTBOX_WORKER_ERROR_BACKOFF_MS: {{ .Values.workers.outbox.errorBackoffMs | quote }}
+  OUTBOX_WORKER_LEASE_SEC: {{ .Values.workers.outbox.leaseSec | quote }}
   OUTBOX_WORKER_LEASE_REFRESH_SEC: {{ .Values.workers.outbox.leaseRefreshSec | quote }}
   AGENT_WORKER_CONCURRENCY: {{ .Values.workers.agent.concurrency | quote }}
   AGENT_WORKER_QUEUE_DEPTH: {{ .Values.workers.agent.queueDepth | quote }}
@@ -35,3 +36,14 @@ data:
   SEARCH_WORKER_QUEUE_DEPTH: {{ .Values.workers.search.queueDepth | quote }}
   SETTLEMENT_WORKER_CONCURRENCY: {{ .Values.workers.settlement.concurrency | quote }}
   SETTLEMENT_WORKER_QUEUE_DEPTH: {{ .Values.workers.settlement.queueDepth | quote }}
+  PY_AGENT_RUNTIME_CONNECT_TIMEOUT_SEC: {{ .Values.runtime.connectTimeoutSec | quote }}
+  PY_AGENT_RUNTIME_RESPONSE_HEADER_TIMEOUT_SEC: {{ .Values.runtime.responseHeaderTimeoutSec | quote }}
+  PY_AGENT_RUNTIME_IDLE_CONN_TIMEOUT_SEC: {{ .Values.runtime.idleConnTimeoutSec | quote }}
+  PY_AGENT_RUNTIME_TIMEOUT_SEC: {{ .Values.runtime.timeoutSec | quote }}
+  PY_AGENT_RUNTIME_MAX_IDLE_CONNS: {{ .Values.runtime.maxIdleConns | quote }}
+  PY_AGENT_RUNTIME_MAX_IDLE_CONNS_PER_HOST: {{ .Values.runtime.maxIdleConnsPerHost | quote }}
+  PY_AGENT_RUNTIME_MAX_CONNS_PER_HOST: {{ .Values.runtime.maxConnsPerHost | quote }}
+  PY_AGENT_RUNTIME_CANCELLATION_GRACE_SEC: {{ .Values.runtime.cancellationGraceSec | quote }}
+  AGENT_RUN_LEASE_DURATION_SEC: {{ .Values.leases.agentRunLeaseSec | quote }}
+  WORKFLOW_RUN_LEASE_DURATION_SEC: {{ .Values.leases.workflowRunLeaseSec | quote }}
+  OUTBOX_PERSISTENCE_GRACE_SEC: {{ .Values.leases.outboxPersistenceGraceSec | quote }}

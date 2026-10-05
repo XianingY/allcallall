@@ -135,6 +135,7 @@ workers:
   outbox:
     idleMs: 500
     errorBackoffMs: 1000
+    leaseSec: 360
     leaseRefreshSec: 40
   agent:
     concurrency: 2
@@ -148,6 +149,28 @@ workers:
   settlement:
     concurrency: 2
     queueDepth: 4
+
+# Python LangGraph runtime HTTP transport timeouts and connection limits.
+# The duration hierarchy is validated at startup:
+#   connect < response-header < total (Python request deadline)
+#   total + cancellation grace < agent/workflow execution lease
+#   outbox lease > execution lease + persistence grace
+runtime:
+  connectTimeoutSec: 10
+  responseHeaderTimeoutSec: 30
+  idleConnTimeoutSec: 90
+  timeoutSec: 60
+  maxIdleConns: 100
+  maxIdleConnsPerHost: 10
+  maxConnsPerHost: 20
+  cancellationGraceSec: 30
+
+# Execution lease durations and persistence grace. These must satisfy the
+# hierarchy validated at startup (see runtime config above).
+leases:
+  agentRunLeaseSec: 300
+  workflowRunLeaseSec: 300
+  outboxPersistenceGraceSec: 30
 
 serviceAccount:
   create: true

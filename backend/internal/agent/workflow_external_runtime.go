@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,8 +21,17 @@ const (
 	WorkflowRuntimeGo              = "go"
 	WorkflowRuntimeLegacyGo        = "legacy_go"
 	WorkflowRuntimePythonLangGraph = "python_langgraph"
-	defaultPythonRuntimeBaseURL    = "http://127.0.0.1:8090"
-	defaultPythonRuntimeTimeoutSec = 60
+	defaultPythonRuntimeBaseURL           = "http://127.0.0.1:8090"
+
+	defaultRuntimeConnectTimeoutSec        = 10
+	defaultRuntimeResponseHeaderTimeoutSec  = 30
+	defaultRuntimeIdleConnTimeoutSec        = 90
+	defaultRuntimeTotalTimeoutSec           = 60
+	defaultRuntimeMaxIdleConns              = 100
+	defaultRuntimeMaxIdleConnsPerHost        = 10
+	defaultRuntimeMaxConnsPerHost            = 20
+
+	defaultRuntimeCancellationGraceSec = 30
 )
 
 // WorkflowRuntime executes a workflow outside the Go in-process engine.
@@ -65,6 +75,7 @@ type WorkflowRuntimeRequest struct {
 	MaxIterations      map[string]int                `json:"max_iterations"`
 	AgenticRAG         WorkflowRuntimeAgenticRAG     `json:"agentic_rag,omitempty"`
 	ContextManifest    *ContextManifest              `json:"context_manifest,omitempty"`
+	Attempt            int                           `json:"-"`
 }
 
 type WorkflowRuntimeMessage struct {
@@ -228,6 +239,7 @@ type WorkflowRuntimeResumeRequest struct {
 	AgentRunID                *uint64               `json:"agent_run_id,omitempty"`
 	WorkflowRunID             uint64                `json:"workflow_run_id,omitempty"`
 	Resume                    WorkflowRuntimeResume `json:"resume"`
+	Attempt                   int                   `json:"-"`
 }
 
 type CheckpointVersionConflictError struct {
@@ -278,6 +290,38 @@ type PythonLangGraphRuntime struct {
 	client  *http.Client
 }
 
+// RuntimeTransportConfig configures the HTTP transport used to communicate
+// with the Python LangGraph runtime. Timeouts are layered so that the
+// connect timeout is shorter than the response-header timeout, which in turn
+// is shorter than the total (request-level) timeout.
+type RuntimeTransportConfig struct {
+	ConnectTimeout        time.Duration
+	ResponseHeaderTimeout time.Duration
+	IdleConnTimeout       time.Duration
+	TotalTimeout          time.Duration
+	MaxIdleConns          int
+	MaxIdleConnsPerHost   int
+	MaxConnsPerHost       int
+}
+
+// RuntimeOverloadedError indicates the Python runtime returned 429 Too Many
+// Requests or a capacity-related 503 Service Unavailable. It wraps
+// ErrWorkflowRuntimeUnavailable so that the execution layer treats the run
+// as deferred (re-queueable) rather than permanently failed.
+type RuntimeOverloadedError struct {
+	RetryAfter time.Duration
+	Body       string
+}
+
+func (e *RuntimeOverloadedError) Error() string {
+	if e.RetryAfter > 0 {
+		return fmt.Sprintf("python langgraph runtime overloaded (retry_after=%s): %s", e.RetryAfter, CompactSnippet(e.Body, 500))
+	}
+	return fmt.Sprintf("python langgraph runtime overloaded: %s", CompactSnippet(e.Body, 500))
+}
+
+func (e *RuntimeOverloadedError) Unwrap() error { return ErrWorkflowRuntimeUnavailable }
+
 func NewWorkflowRuntimeFromEnv() WorkflowRuntime {
 	switch NormalizeWorkflowRuntime(os.Getenv("AGENT_RUNTIME")) {
 	case WorkflowRuntimePythonLangGraph:
@@ -287,21 +331,124 @@ func NewWorkflowRuntimeFromEnv() WorkflowRuntime {
 	}
 }
 
+// NewPythonLangGraphRuntime creates a PythonLangGraphRuntime that communicates
+// with the external runtime at baseURL using the provided HTTP client. The
+// caller is responsible for configuring transport timeouts on the client.
+func NewPythonLangGraphRuntime(baseURL string, client *http.Client) *PythonLangGraphRuntime {
+	return &PythonLangGraphRuntime{
+		baseURL: strings.TrimRight(baseURL, "/"),
+		client:  client,
+	}
+}
+
+// NewPythonLangGraphRuntimeFromEnv creates a PythonLangGraphRuntime using
+// environment variables for the base URL and transport timeouts. It panics
+// when the duration hierarchy is invalid because misaligned timeouts cause
+// subtle production failures that are safer to catch at startup.
 func NewPythonLangGraphRuntimeFromEnv() *PythonLangGraphRuntime {
 	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("PY_AGENT_RUNTIME_BASE_URL")), "/")
 	if baseURL == "" {
 		baseURL = defaultPythonRuntimeBaseURL
 	}
-	timeoutSec := defaultPythonRuntimeTimeoutSec
-	if raw := strings.TrimSpace(os.Getenv("PY_AGENT_RUNTIME_TIMEOUT_SEC")); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
-			timeoutSec = parsed
-		}
+	cfg := runtimeTransportConfigFromEnv()
+	validateRuntimeDurationHierarchy(cfg)
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   cfg.ConnectTimeout,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ResponseHeaderTimeout: cfg.ResponseHeaderTimeout,
+		IdleConnTimeout:       cfg.IdleConnTimeout,
+		MaxIdleConns:          cfg.MaxIdleConns,
+		MaxIdleConnsPerHost:   cfg.MaxIdleConnsPerHost,
+		MaxConnsPerHost:       cfg.MaxConnsPerHost,
 	}
 	return &PythonLangGraphRuntime{
 		baseURL: baseURL,
-		client:  &http.Client{Timeout: time.Duration(timeoutSec) * time.Second},
+		client:  &http.Client{Timeout: cfg.TotalTimeout, Transport: transport},
 	}
+}
+
+func runtimeTransportConfigFromEnv() RuntimeTransportConfig {
+	connectSec := intFromEnv("PY_AGENT_RUNTIME_CONNECT_TIMEOUT_SEC", defaultRuntimeConnectTimeoutSec)
+	headerSec := intFromEnv("PY_AGENT_RUNTIME_RESPONSE_HEADER_TIMEOUT_SEC", defaultRuntimeResponseHeaderTimeoutSec)
+	idleSec := intFromEnv("PY_AGENT_RUNTIME_IDLE_CONN_TIMEOUT_SEC", defaultRuntimeIdleConnTimeoutSec)
+	totalSec := intFromEnv("PY_AGENT_RUNTIME_TIMEOUT_SEC", defaultRuntimeTotalTimeoutSec)
+	maxIdle := intFromEnv("PY_AGENT_RUNTIME_MAX_IDLE_CONNS", defaultRuntimeMaxIdleConns)
+	maxIdlePerHost := intFromEnv("PY_AGENT_RUNTIME_MAX_IDLE_CONNS_PER_HOST", defaultRuntimeMaxIdleConnsPerHost)
+	maxPerHost := intFromEnv("PY_AGENT_RUNTIME_MAX_CONNS_PER_HOST", defaultRuntimeMaxConnsPerHost)
+	return RuntimeTransportConfig{
+		ConnectTimeout:        time.Duration(connectSec) * time.Second,
+		ResponseHeaderTimeout: time.Duration(headerSec) * time.Second,
+		IdleConnTimeout:       time.Duration(idleSec) * time.Second,
+		TotalTimeout:          time.Duration(totalSec) * time.Second,
+		MaxIdleConns:          maxIdle,
+		MaxIdleConnsPerHost:   maxIdlePerHost,
+		MaxConnsPerHost:       maxPerHost,
+	}
+}
+
+// validateRuntimeDurationHierarchy panics when the timeout layers are
+// misaligned, printing the conflicting environment variable names so that
+// operators can fix the configuration before serving traffic.
+//
+// Required invariants:
+//
+//	connect timeout < response-header timeout < Python request deadline
+//	Python request deadline + cancellation grace < Go execution lease
+//	outbox lease > Go execution lease + persistence grace
+func validateRuntimeDurationHierarchy(cfg RuntimeTransportConfig) {
+	var conflicts []string
+	if cfg.ConnectTimeout >= cfg.ResponseHeaderTimeout {
+		conflicts = append(conflicts, "PY_AGENT_RUNTIME_CONNECT_TIMEOUT_SEC >= PY_AGENT_RUNTIME_RESPONSE_HEADER_TIMEOUT_SEC")
+	}
+	if cfg.ResponseHeaderTimeout >= cfg.TotalTimeout {
+		conflicts = append(conflicts, "PY_AGENT_RUNTIME_RESPONSE_HEADER_TIMEOUT_SEC >= PY_AGENT_RUNTIME_TIMEOUT_SEC")
+	}
+	cancellationGrace := runtimeCancellationGraceFromEnv()
+	if cfg.TotalTimeout+cancellationGrace >= agentRunLeaseDuration {
+		conflicts = append(conflicts, "PY_AGENT_RUNTIME_TIMEOUT_SEC + PY_AGENT_RUNTIME_CANCELLATION_GRACE_SEC >= AGENT_RUN_LEASE_DURATION_SEC")
+	}
+	if cfg.TotalTimeout+cancellationGrace >= workflowRunLeaseDuration {
+		conflicts = append(conflicts, "PY_AGENT_RUNTIME_TIMEOUT_SEC + PY_AGENT_RUNTIME_CANCELLATION_GRACE_SEC >= WORKFLOW_RUN_LEASE_DURATION_SEC")
+	}
+	outboxLease := outboxLeaseDurationFromEnv()
+	persistenceGrace := outboxPersistenceGraceFromEnv()
+	if outboxLease <= agentRunLeaseDuration+persistenceGrace {
+		conflicts = append(conflicts, "OUTBOX_WORKER_LEASE_SEC <= AGENT_RUN_LEASE_DURATION_SEC + OUTBOX_PERSISTENCE_GRACE_SEC")
+	}
+	if outboxLease <= workflowRunLeaseDuration+persistenceGrace {
+		conflicts = append(conflicts, "OUTBOX_WORKER_LEASE_SEC <= WORKFLOW_RUN_LEASE_DURATION_SEC + OUTBOX_PERSISTENCE_GRACE_SEC")
+	}
+	if len(conflicts) > 0 {
+		panic(fmt.Sprintf("runtime duration hierarchy violation: %s", strings.Join(conflicts, "; ")))
+	}
+}
+
+func runtimeCancellationGraceFromEnv() time.Duration {
+	return time.Duration(intFromEnv("PY_AGENT_RUNTIME_CANCELLATION_GRACE_SEC", defaultRuntimeCancellationGraceSec)) * time.Second
+}
+
+func outboxLeaseDurationFromEnv() time.Duration {
+	return time.Duration(intFromEnv("OUTBOX_WORKER_LEASE_SEC", 360)) * time.Second
+}
+
+func outboxPersistenceGraceFromEnv() time.Duration {
+	return time.Duration(intFromEnv("OUTBOX_PERSISTENCE_GRACE_SEC", 30)) * time.Second
+}
+
+// intFromEnv parses a positive integer from the environment variable key,
+// returning fallback when the variable is unset or invalid.
+func intFromEnv(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
 
 func NormalizeWorkflowRuntime(raw string) string {
@@ -393,6 +540,20 @@ func (r *PythonLangGraphRuntime) post(ctx context.Context, path string, input an
 		return WorkflowRuntimeResponse{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Propagate the absolute deadline so the Python runtime can schedule
+	// work within the remaining time budget. Only set when the context
+	// carries a deadline; absent deadlines are left unset so the Python
+	// side falls back to its own default.
+	if deadline, ok := ctx.Deadline(); ok {
+		req.Header.Set("X-AllCallAll-Deadline", deadline.UTC().Format(time.RFC3339Nano))
+	}
+	// Propagate the current attempt count so the Python runtime can
+	// adjust backoff or shed load on retries.
+	attempt := runtimeAttemptFromInput(input)
+	if attempt < 1 {
+		attempt = 1
+	}
+	req.Header.Set("X-AllCallAll-Attempt", strconv.Itoa(attempt))
 	resp, err := r.client.Do(req)
 	if err != nil {
 		return WorkflowRuntimeResponse{}, fmt.Errorf("%w: %w", ErrWorkflowRuntimeUnavailable, err)
@@ -419,8 +580,9 @@ func (r *PythonLangGraphRuntime) post(ctx context.Context, path string, input an
 		if resp.StatusCode == http.StatusRequestEntityTooLarge || code == "checkpoint_transaction_too_large" {
 			return WorkflowRuntimeResponse{}, &CheckpointTransactionTooLargeError{Body: string(body)}
 		}
-		if resp.StatusCode == http.StatusServiceUnavailable {
-			return WorkflowRuntimeResponse{}, fmt.Errorf("%w: %s", ErrWorkflowRuntimeUnavailable, CompactSnippet(string(body), 500))
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
+			retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+			return WorkflowRuntimeResponse{}, &RuntimeOverloadedError{RetryAfter: retryAfter, Body: string(body)}
 		}
 		return WorkflowRuntimeResponse{}, fmt.Errorf("python langgraph runtime returned %d: %s", resp.StatusCode, CompactSnippet(string(body), 500))
 	}
@@ -441,6 +603,40 @@ func (r *PythonLangGraphRuntime) post(ctx context.Context, path string, input an
 		return WorkflowRuntimeResponse{}, fmt.Errorf("%s", output.Error)
 	}
 	return output, nil
+}
+
+// runtimeAttemptFromInput extracts the Attempt field from a request struct.
+// It returns 0 when the input does not carry an attempt counter.
+func runtimeAttemptFromInput(input any) int {
+	switch v := input.(type) {
+	case WorkflowRuntimeRequest:
+		return v.Attempt
+	case WorkflowRuntimeResumeRequest:
+		return v.Attempt
+	}
+	return 0
+}
+
+// parseRetryAfter parses the Retry-After header value per RFC 7231 §7.1.3.
+// It accepts both an integer number of seconds and an HTTP-date.
+// Returns 0 when the header is absent or unparseable.
+func parseRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	// Integer seconds.
+	if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	// HTTP-date.
+	if t, err := http.ParseTime(value); err == nil {
+		remaining := time.Until(t)
+		if remaining > 0 {
+			return remaining
+		}
+	}
+	return 0
 }
 
 func runtimeErrorCode(body []byte) string {
