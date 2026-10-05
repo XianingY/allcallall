@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"gorm.io/gorm"
@@ -24,10 +25,9 @@ type workflowResultCollections struct {
 }
 
 // loadWorkflowResultCollections loads all six child tables for the given run IDs
-// in a fixed number of SQL queries (one per table). For each table the rows are
-// ordered by workflow_run_id ASC, id DESC, limited to len(runIDs)*workflowResultMaxRows
-// total rows at the database level, then grouped by run, truncated to
-// workflowResultMaxRows per run in Go, and finally reversed to id ASC order.
+// in a fixed number of SQL queries (one per table). Each query uses UNION ALL
+// with one subquery per run, each independently limited to workflowResultMaxRows,
+// so no single heavy run can starve others of their row budget.
 func (s *Service) loadWorkflowResultCollections(ctx context.Context, runIDs []uint64) (workflowResultCollections, error) {
 	collections := workflowResultCollections{
 		Tasks:     make(map[uint64][]models.WorkflowTask, len(runIDs)),
@@ -61,24 +61,37 @@ func (s *Service) loadWorkflowResultCollections(ctx context.Context, runIDs []ui
 	return collections, nil
 }
 
-// loadBatchedCollection loads one child table for all runIDs in a single query,
-// groups by run, truncates per run, and reverses to id ASC order.
-// The database-side limit of len(runIDs)*workflowResultMaxRows bounds total
-// memory regardless of how many rows exist; per-run truncation is then
-// applied in Go to preserve the same workflowResultMaxRows cap as the old
-// single-run path.
+// loadBatchedCollection loads one child table for all runIDs in a single SQL
+// statement composed of per-run subqueries joined by UNION ALL. Each subquery
+// independently applies LIMIT workflowResultMaxRows, so every run is bounded
+// at the database level regardless of how many rows other runs consume.
+// Rows are then grouped by run in Go, truncated per run if needed, and
+// reversed to id ASC order.
 func loadBatchedCollection[T any](ctx context.Context, db *gorm.DB, runIDs []uint64, dst *map[uint64][]T, truncated map[uint64]bool) error {
-	totalLimit := len(runIDs) * workflowResultMaxRows
+	if len(runIDs) == 0 {
+		return nil
+	}
+
+	tableName := childTableName[T]()
+	var sqlBuilder strings.Builder
+	args := make([]any, 0, len(runIDs)*2)
+
+	for i, runID := range runIDs {
+		if i > 0 {
+			sqlBuilder.WriteString(" UNION ALL ")
+		}
+		fmt.Fprintf(&sqlBuilder,
+			"SELECT * FROM (SELECT * FROM %s WHERE workflow_run_id = ? ORDER BY id DESC LIMIT ?) AS sub_%d",
+			tableName, i)
+		args = append(args, runID, workflowResultMaxRows)
+	}
+
 	var rows []T
-	if err := db.WithContext(ctx).
-		Where("workflow_run_id IN ?", runIDs).
-		Order("workflow_run_id ASC, id DESC").
-		Limit(totalLimit).
-		Find(&rows).Error; err != nil {
+	if err := db.WithContext(ctx).Raw(sqlBuilder.String(), args...).Scan(&rows).Error; err != nil {
 		return err
 	}
 
-	// Group by run ID, counting per-run to detect truncation.
+	// Group by run ID, detecting truncation per run.
 	type runBucket struct {
 		rows []T
 	}
@@ -96,9 +109,6 @@ func loadBatchedCollection[T any](ctx context.Context, db *gorm.DB, runIDs []uin
 	for runID, b := range buckets {
 		if len(b.rows) >= workflowResultMaxRows {
 			truncated[runID] = true
-			// Keep only the most recent workflowResultMaxRows rows.
-			// Since rows are in id DESC order, the first workflowResultMaxRows
-			// entries are the most recent.
 			b.rows = b.rows[:workflowResultMaxRows]
 		}
 		// Reverse to id ASC order to match the single-run contract.
@@ -118,6 +128,18 @@ func loadBatchedCollection[T any](ctx context.Context, db *gorm.DB, runIDs []uin
 	}
 
 	return nil
+}
+
+// childTableName returns the SQL table name for a child collection model type.
+// It calls the model's TableName() method through a type switch, avoiding
+// reflection and keeping the name in sync with the model definition.
+func childTableName[T any]() string {
+	var zero T
+	type tabler interface{ TableName() string }
+	if t, ok := any(zero).(tabler); ok {
+		return t.TableName()
+	}
+	panic(fmt.Sprintf("childTableName: type %T does not implement TableName()", zero))
 }
 
 // extractWorkflowRunID returns the WorkflowRunID field from any of the six

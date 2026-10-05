@@ -1232,3 +1232,119 @@ func TestBuildWorkflowResultsTruncation(t *testing.T) {
 		t.Fatalf("queries=%d want<=8", got)
 	}
 }
+
+// TestBuildWorkflowResultsStarvation verifies that a heavy early run cannot
+// consume the row budget of later runs. With the old global LIMIT approach,
+// an early run with >workflowResultMaxRows rows could starve later runs of
+// their rows entirely, causing Truncated=false on an incomplete result.
+// The UNION ALL per-run subquery approach bounds each run independently.
+func TestBuildWorkflowResultsStarvation(t *testing.T) {
+	svc, db := newWorkflowTestService(t)
+	conversation := seedWorkflowConversation(t, db)
+	orgID := conversation.OrganizationID
+	userID := uint64(7)
+
+	// Create 3 runs. Run 1 gets >workflowResultMaxRows history events;
+	// runs 2 and 3 each get a small number that must be fully retained.
+	var runs []models.WorkflowRun
+	for i := 0; i < 3; i++ {
+		run := models.WorkflowRun{
+			OrganizationID:  orgID,
+			UserID:          userID,
+			ConversationID:  conversation.ID,
+			Status:          models.WorkflowRunStatusReady,
+			WorkflowType:    "agent_lab",
+			WorkflowVersion: "agent_lab_v1",
+			RuntimeOwner:    "legacy_go",
+			Goal:            fmt.Sprintf("starvation-run-%d", i),
+		}
+		if err := db.Create(&run).Error; err != nil {
+			t.Fatalf("create run %d: %v", i, err)
+		}
+		runs = append(runs, run)
+	}
+
+	// Run 1: overflow with workflowResultMaxRows+1 history events.
+	for i := 0; i < workflowResultMaxRows+1; i++ {
+		if err := db.Create(&models.WorkflowHistoryEvent{
+			WorkflowRunID:  runs[0].ID,
+			OrganizationID: orgID,
+			EventType:      "overflow_event",
+			RefType:        "test",
+		}).Error; err != nil {
+			t.Fatalf("create overflow history event %d: %v", i, err)
+		}
+	}
+
+	// Run 2: 5 history events.
+	for i := 0; i < 5; i++ {
+		if err := db.Create(&models.WorkflowHistoryEvent{
+			WorkflowRunID:  runs[1].ID,
+			OrganizationID: orgID,
+			EventType:      "normal_event",
+			RefType:        "test",
+		}).Error; err != nil {
+			t.Fatalf("create run-2 history event %d: %v", i, err)
+		}
+	}
+
+	// Run 3: 3 history events.
+	for i := 0; i < 3; i++ {
+		if err := db.Create(&models.WorkflowHistoryEvent{
+			WorkflowRunID:  runs[2].ID,
+			OrganizationID: orgID,
+			EventType:      "normal_event",
+			RefType:        "test",
+		}).Error; err != nil {
+			t.Fatalf("create run-3 history event %d: %v", i, err)
+		}
+	}
+
+	counter := installQueryCounter(db)
+	results, err := svc.buildWorkflowResults(context.Background(), runs)
+	if err != nil {
+		t.Fatalf("buildWorkflowResults: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+
+	// Run 1: truncated, exactly workflowResultMaxRows retained.
+	if !results[0].Truncated {
+		t.Fatal("run 1: expected Truncated=true")
+	}
+	if len(results[0].History) != workflowResultMaxRows {
+		t.Fatalf("run 1: history len=%d want=%d", len(results[0].History), workflowResultMaxRows)
+	}
+
+	// Run 2: not truncated, all 5 rows retained.
+	if results[1].Truncated {
+		t.Fatal("run 2: expected Truncated=false")
+	}
+	if len(results[1].History) != 5 {
+		t.Fatalf("run 2: history len=%d want=5", len(results[1].History))
+	}
+
+	// Run 3: not truncated, all 3 rows retained.
+	if results[2].Truncated {
+		t.Fatal("run 3: expected Truncated=false")
+	}
+	if len(results[2].History) != 3 {
+		t.Fatalf("run 3: history len=%d want=3", len(results[2].History))
+	}
+
+	// Verify id ASC ordering in all results.
+	for ri, r := range results {
+		for i := 1; i < len(r.History); i++ {
+			if r.History[i].ID <= r.History[i-1].ID {
+				t.Fatalf("run %d: history not id ASC at [%d]: ID=%d <= ID=%d",
+					ri, i, r.History[i].ID, r.History[i-1].ID)
+			}
+		}
+	}
+
+	// Verify query count stays ≤8.
+	if got := counter.Count(); got > 8 {
+		t.Fatalf("queries=%d want<=8", got)
+	}
+}
