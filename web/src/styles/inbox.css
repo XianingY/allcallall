@@ -235,6 +235,8 @@
 }
 
 .message-bubble {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 10.5rem;
   max-width: 44rem;
   margin-bottom: .9rem;
   border: 1px solid rgba(18, 55, 42, .1);
