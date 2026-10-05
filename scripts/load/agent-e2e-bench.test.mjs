@@ -201,6 +201,22 @@ describe("agent-e2e-bench", () => {
     assert.ok(!serialized.includes(secret), "report must not contain the bearer token");
   });
 
+  it("never exposes provider API keys (sk-...) in report output", async () => {
+    const apiKey = ["sk-proj", "abc123XYZ789", "do-not-log"].join("-");
+    const report = await runAgentBenchmark({
+      baseUrl: url,
+      token: apiKey,
+      concurrency: 1,
+      runs: 1,
+      pollIntervalMs: 5,
+      terminalTimeoutMs: 500,
+    });
+
+    const serialized = JSON.stringify(report);
+    assert.ok(!serialized.includes(apiKey), "report must not contain the provider API key");
+    assert.ok(!serialized.includes("sk-proj-abc123"), "report must not contain partial API key");
+  });
+
   it("computes percentiles on latency distributions", async () => {
     const report = await runAgentBenchmark({
       baseUrl: url,
@@ -220,5 +236,32 @@ describe("agent-e2e-bench", () => {
       assert.ok(report[key].p95 <= report[key].p99, `${key}: p95 <= p99`);
       assert.ok(report[key].p99 <= report[key].max, `${key}: p99 <= max`);
     }
+  });
+
+  it("records providerUrl in configuration when provided", async () => {
+    const providerUrl = "http://127.0.0.1:18465";
+    const report = await runAgentBenchmark({
+      baseUrl: url,
+      providerUrl,
+      concurrency: 1,
+      runs: 1,
+      pollIntervalMs: 5,
+      terminalTimeoutMs: 500,
+    });
+
+    assert.equal(report.configuration.providerUrl, providerUrl);
+  });
+
+  it("includes tokenCeiling field (null when no usage data)", async () => {
+    const report = await runAgentBenchmark({
+      baseUrl: url,
+      concurrency: 1,
+      runs: 1,
+      pollIntervalMs: 5,
+      terminalTimeoutMs: 500,
+    });
+
+    // The test server doesn't return usage data, so tokenCeiling should be null
+    assert.ok(report.tokenCeiling === null, "tokenCeiling should be null when no usage data");
   });
 });

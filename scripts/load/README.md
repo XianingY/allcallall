@@ -301,6 +301,7 @@ Outbox publish/retry/failure delta:
 Notes:
 ```
 
+
 ## End-to-End Agent Performance Suite
 
 The agent-e2e-bench module runs reproducible end-to-end benchmarks against the Agent run lifecycle: enqueue → queue → runtime → terminal. It captures per-phase latencies (enqueue, queue, runtime, end-to-end) with p50/p95/p99/max percentiles, Prometheus metric deltas, and repository SHAs for traceability.
@@ -318,11 +319,33 @@ This runs the `baseline` profile by default, which executes the in-process test 
 | Profile | Description | Runs | Concurrency | Requires |
 |---------|-------------|------|-------------|----------|
 | `baseline` | Deterministic in-process orchestration and persistence checks | 4 | 2 | None |
-| `controlled` | Go + Agent Runtime + RAG Runtime with the fake provider | 10 | 2 | `BASE_URL`, `TOKEN` |
-| `networked` | MySQL, Redis, Go, Agent Runtime, RAG Runtime, and fake provider in separate processes | 10 | 2 | `BASE_URL`, `TOKEN` |
-| `real-provider-canary` | Real provider with strict safety limits | ≤10 | 1 | `ALLOW_REAL_PROVIDER_CANARY=1`, `BASE_URL`, `TOKEN` |
+| `controlled` | Go backend + Agent Runtime + RAG Runtime with the fake provider; validates backend, Agent Runtime, and RAG Runtime are reachable before running | 10 | 2 | `BASE_URL`, `TOKEN`, running backend + Agent Runtime + RAG Runtime |
+| `networked` | Full stack: MySQL, Redis, Go, Agent Runtime, RAG Runtime, and fake provider in separate processes; validates MySQL and Redis connectivity in addition to all controlled-profile dependencies, and records the validated topology in the report | 10 | 2 | `BASE_URL`, `TOKEN`, running MySQL + Redis + backend + Agent Runtime + RAG Runtime |
+| `real-provider-canary` | Real provider with strict safety limits; records token ceiling from provider usage data when available | ≤10 | 1 | `ALLOW_REAL_PROVIDER_CANARY=1`, `BASE_URL`, `TOKEN` |
 
 The `real-provider-canary` profile requires `ALLOW_REAL_PROVIDER_CANARY=1` and is capped at 10 runs with concurrency 1. It must never be the sole merge gate.
+
+**What each profile proves:**
+
+- **baseline**: The benchmark module itself works — lifecycle tracking, percentile computation, metric deltas, and token redaction all function correctly against an in-process mock. No external dependencies.
+- **controlled**: The Go backend can accept agent run requests, the Agent Runtime and RAG Runtime are reachable, and the fake provider can serve as a deterministic LLM backend. Proves the Go→Agent→RAG→Provider path works end-to-end.
+- **networked**: Everything in controlled, plus MySQL and Redis are validated as reachable. Proves the full production-like stack (database, cache, API, runtimes, provider) is connected and functional. The validated topology is recorded in the report.
+- **real-provider-canary**: A real LLM provider is used instead of the fake one. Proves the production provider integration works and records token usage for cost monitoring.
+
+### Provider URL Contract
+
+The suite starts `fake-agent-provider.mjs` for the `controlled` and `networked` profiles and sets `AGENT_PROVIDER_URL` to its reachable address (default: `http://127.0.0.1:18465`). The Go backend must be configured to use this provider via its own configuration — the suite does not reconfigure the backend.
+
+To wire the fake provider into the backend, set the backend's provider configuration to match `AGENT_PROVIDER_URL`:
+
+```bash
+# Start the backend with the fake provider
+AGENT_PROVIDER_URL=http://127.0.0.1:18465 \
+CONFIG_PATH=./configs/config.yaml \
+go run ./cmd/api
+```
+
+The benchmark records the provider URL in the report's `configuration.providerUrl` field for traceability. Override with the `AGENT_PROVIDER_URL` environment variable if the backend uses a different URL than the default.
 
 ### Environment Variables
 
@@ -338,10 +361,16 @@ POLL_INTERVAL_MS            — poll interval in ms (default: 100)
 TERMINAL_TIMEOUT_MS         — per-run timeout in ms (default: 60000)
 METRICS_URL                 — Prometheus metrics endpoint
 ALLOW_REAL_PROVIDER_CANARY  — must be "1" for real-provider-canary profile
+FAKE_PROVIDER_PORT          — port for the fake provider (default: 18465)
 FAKE_PROVIDER_LATENCY_MS    — fake provider base delay (default: 50)
 FAKE_PROVIDER_FAILURE_RATE  — fake provider failure probability 0–1 (default: 0)
 FAKE_PROVIDER_TIMEOUT_RATE  — fake provider timeout probability 0–1 (default: 0)
 FAKE_PROVIDER_RESPONSE_BYTES — fake provider response size (default: 256)
+AGENT_PROVIDER_URL          — override the provider URL recorded in the report
+MYSQL_HOST                  — MySQL host for networked profile validation (default: 127.0.0.1)
+MYSQL_PORT                  — MySQL port for networked profile validation (default: 3306)
+REDIS_HOST                  — Redis host for networked profile validation (default: 127.0.0.1)
+REDIS_PORT                  — Redis port for networked profile validation (default: 6379)
 ```
 
 ### CLI Flags
@@ -350,7 +379,7 @@ The benchmark module also supports CLI flags matching the environment variables:
 
 ```text
 --base-url / --runs / --concurrency / --organization-id / --conversation-id
---token / --poll-interval-ms / --terminal-timeout-ms
+--token / --poll-interval-ms / --terminal-timeout-ms / --provider-url
 ```
 
 ### Output
@@ -363,17 +392,19 @@ The benchmark emits one JSON document to stdout containing:
 - `statusCounts` — terminal status distribution
 - `requestIds`, `traceIds` — correlation IDs for API enqueue, outbox, Go context, Python nodes, RAG/provider calls, checkpoint writes, and result persistence
 - `repositoryShas` — AllCallAll and agent-runtime SHAs
+- `tokenCeiling` — aggregate token usage from provider responses (for canary cost monitoring; null when no usage data)
 - `metricDeltas` — Prometheus metric deltas (before vs. after)
+- `configuration.providerUrl` — the provider URL used/recorded for the run
 
 The suite wrapper also writes a Markdown summary and full artifacts to a temporary directory (printed at end of run).
 
 ### Fake Agent Provider
 
-`fake-agent-provider.mjs` exposes an OpenAI-compatible `/v1/chat/completions` endpoint that derives delay, failure, timeout, and response size deterministically from the request sequence number. Use it with the `controlled` and `networked` profiles.
+`fake-agent-provider.mjs` exposes an OpenAI-compatible `/v1/chat/completions` endpoint that derives delay, failure, timeout, and response size deterministically from the request sequence number. It listens on a configurable port (default: 18465) and provides a `/health` endpoint for readiness checks. Use it with the `controlled` and `networked` profiles.
 
 ### Security
 
-- The benchmark never prints bearer tokens or provider credentials.
+- The benchmark never prints bearer tokens or provider API keys (both `Bearer ...` and `sk-...` patterns are redacted).
 - The `real-provider-canary` profile requires explicit opt-in via `ALLOW_REAL_PROVIDER_CANARY=1` and is capped at 10 runs / concurrency 1.
 - Do not commit `.env`, `.omo`, `.workbuddy`, `.playwright-mcp/`, `output/`, credentials, or load-test authentication artifacts.
 

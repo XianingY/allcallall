@@ -32,8 +32,11 @@ function envFloat(name, fallback) {
   return Number.isFinite(n) && n >= 0 && n <= 1 ? n : fallback;
 }
 
+/** Redact bearer tokens and provider API keys from a string. */
 function redact(s) {
-  return s.replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]").replace(/sk-\S+/gi, "sk-[REDACTED]");
+  return s
+    .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
+    .replace(/sk-[A-Za-z0-9_-]+/g, "sk-[REDACTED]");
 }
 
 // Deterministic pseudo-random from sequence number (simple LCG)
@@ -72,11 +75,9 @@ function main() {
       let body = "";
       req.on("data", (chunk) => { body += chunk; });
       req.on("end", () => {
-        // Redact any auth headers from logs
+        // Log request with redacted credentials
         const authHeader = req.headers["authorization"] || "";
-        if (authHeader) {
-          // Never log it
-        }
+        console.log(redact(`[fake-agent-provider] seq=${currentSeq} method=${req.method} path=${url.pathname} auth=${authHeader}`));
 
         // Deterministic timeout simulation
         if (rng() < timeoutRate) {

@@ -32,9 +32,11 @@ function latencyDist(samples) {
   return percentile([...samples].sort((a, b) => a - b));
 }
 
-/** Redact bearer tokens from a string — used before any stdout write. */
+/** Redact bearer tokens and provider API keys from a string. */
 function redact(s) {
-  return s.replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]");
+  return s
+    .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
+    .replace(/sk-[A-Za-z0-9_-]+/g, "sk-[REDACTED]");
 }
 
 /** Read a git SHA safely; returns "unknown" on failure. */
@@ -144,6 +146,7 @@ async function executeRun({ baseUrl, token, organizationId, conversationId, runI
       runId: null,
       requestId: null,
       traceId: null,
+      usage: null,
       error: redact(err.message),
     };
   }
@@ -163,6 +166,7 @@ async function executeRun({ baseUrl, token, organizationId, conversationId, runI
       runId: null,
       requestId: null,
       traceId: null,
+      usage: null,
       error: redact(`create returned ${createRes.status}`),
     };
   }
@@ -189,6 +193,7 @@ async function executeRun({ baseUrl, token, organizationId, conversationId, runI
   let runtimeLatencyMs = 0;
   let terminalStatus = "pending";
   let pollCount = 0;
+  let lastUsage = null;
 
   while (Date.now() < deadline) {
     // Small sleep before first poll to let the server advance state
@@ -220,6 +225,9 @@ async function executeRun({ baseUrl, token, organizationId, conversationId, runI
     }
 
     const status = pollBody?.run?.status ?? pollBody?.status ?? "unknown";
+    // Capture usage/token data if present (for canary token ceiling)
+    if (pollBody?.run?.usage) lastUsage = pollBody.run.usage;
+    if (pollBody?.run?.provider_usage) lastUsage = pollBody.run.provider_usage;
     pollCount++;
 
     if (status === "running" && !firstRunningSeen) {
@@ -236,6 +244,9 @@ async function executeRun({ baseUrl, token, organizationId, conversationId, runI
         queueLatencyMs = now - enqueueEnd;
       }
       terminalStatus = status;
+      // Capture final usage if available
+      if (pollBody?.run?.usage) lastUsage = pollBody.run.usage;
+      if (pollBody?.run?.provider_usage) lastUsage = pollBody.run.provider_usage;
       break;
     }
 
@@ -257,6 +268,7 @@ async function executeRun({ baseUrl, token, organizationId, conversationId, runI
     runId,
     requestId,
     traceId,
+    usage: lastUsage,
     error: timedOut ? `timed out after ${terminalTimeoutMs}ms in status ${terminalStatus}` : "",
   };
 }
@@ -274,6 +286,7 @@ async function executeRun({ baseUrl, token, organizationId, conversationId, runI
  * @param {string}  [options.token]           - Bearer token (redacted from output)
  * @param {string|number} [options.organizationId] - X-Organization-ID header value
  * @param {string|number} [options.conversationId] - conversation_id for run creation
+ * @param {string}  [options.providerUrl]     - Agent provider URL (recorded in report, not called directly)
  * @param {number}  [options.runs=10]         - Total runs to execute
  * @param {number}  [options.concurrency=1]   - Worker pool size
  * @param {number}  [options.pollIntervalMs=100] - Milliseconds between poll attempts
@@ -287,6 +300,7 @@ export async function runAgentBenchmark(options = {}) {
     token,
     organizationId,
     conversationId,
+    providerUrl,
   } = options;
 
   const runs = Number(options.runs) || 10;
@@ -349,6 +363,8 @@ export async function runAgentBenchmark(options = {}) {
   const e2eSamples = [];
   const requestIds = [];
   const traceIds = [];
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
 
   for (const r of results) {
     if (r.accepted) accepted++;
@@ -362,7 +378,17 @@ export async function runAgentBenchmark(options = {}) {
     e2eSamples.push(r.endToEndLatencyMs);
     if (r.requestId) requestIds.push(r.requestId);
     if (r.traceId) traceIds.push(r.traceId);
+    // Accumulate token usage for canary ceiling signal
+    if (r.usage) {
+      totalPromptTokens += r.usage.prompt_tokens || 0;
+      totalCompletionTokens += r.usage.completion_tokens || 0;
+    }
   }
+
+  // Build token ceiling signal for canary profile (only populated when provider returns usage)
+  const tokenCeiling = (totalPromptTokens > 0 || totalCompletionTokens > 0)
+    ? { promptTokens: totalPromptTokens, completionTokens: totalCompletionTokens, totalTokens: totalPromptTokens + totalCompletionTokens }
+    : null;
 
   const report = {
     runId,
@@ -375,6 +401,7 @@ export async function runAgentBenchmark(options = {}) {
       terminalTimeoutMs,
       baseUrl: baseUrl ? baseUrl.replace(/\/+$/, "") : null,
       organizationId: organizationId ? String(organizationId) : null,
+      providerUrl: providerUrl || null,
     },
     repositoryShas: {
       allcallall: allcallallSha,
@@ -391,6 +418,7 @@ export async function runAgentBenchmark(options = {}) {
     statusCounts,
     requestIds,
     traceIds,
+    tokenCeiling,
     metricDeltas,
   };
 
@@ -429,13 +457,14 @@ async function cli() {
   const token = envOrArg(args, "token", "TOKEN");
   const organizationId = envOrArg(args, "organization-id", "ORGANIZATION_ID");
   const conversationId = envOrArg(args, "conversation-id", "CONVERSATION_ID");
+  const providerUrl = envOrArg(args, "provider-url", "AGENT_PROVIDER_URL");
   const runs = Number(envOrArg(args, "runs", "RUNS", "10"));
   const concurrency = Number(envOrArg(args, "concurrency", "CONCURRENCY", "1"));
   const pollIntervalMs = Number(envOrArg(args, "poll-interval-ms", "POLL_INTERVAL_MS", "100"));
   const terminalTimeoutMs = Number(envOrArg(args, "terminal-timeout-ms", "TERMINAL_TIMEOUT_MS", "60000"));
 
   if (!baseUrl) {
-    console.error("[agent-e2e-bench] --base-url / BASE_URL is required");
+    console.error(redact("[agent-e2e-bench] --base-url / BASE_URL is required"));
     process.exit(2);
   }
 
@@ -444,6 +473,7 @@ async function cli() {
     token,
     organizationId,
     conversationId,
+    providerUrl,
     runs,
     concurrency,
     pollIntervalMs,
@@ -455,10 +485,9 @@ async function cli() {
   console.log(redact(json));
 }
 
-// Run CLI when executed directly, not when imported
+// Run CLI when executed directly, not when imported by the test runner
 const __filename = fileURLToPath(import.meta.url);
-const isMain = process.argv[1] && __filename === new URL(`file://${process.argv[1]}`).pathname;
-if (isMain) {
+if (process.argv[1] === __filename) {
   cli().catch((err) => {
     console.error(`[agent-e2e-bench] ${redact(err.message)}`);
     process.exit(2);
