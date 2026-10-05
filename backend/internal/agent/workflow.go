@@ -232,15 +232,7 @@ func (s *Service) ListWorkflowRuns(ctx context.Context, organizationID, userID u
 	if err := query.Order("workflow_runs.id DESC").Limit(filter.Limit).Find(&runs).Error; err != nil {
 		return nil, err
 	}
-	out := make([]WorkflowResult, 0, len(runs))
-	for _, run := range runs {
-		result, err := s.buildWorkflowResult(ctx, run)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *result)
-	}
-	return out, nil
+	return s.buildWorkflowResults(ctx, runs)
 }
 
 func (s *Service) ProcessWorkflowRun(ctx context.Context, workflowRunID uint64) (*WorkflowResult, error) {

@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -232,48 +230,10 @@ func loadWorkflowCollection[T any](ctx context.Context, db *gorm.DB, dst *[]T, r
 }
 
 func (s *Service) buildWorkflowResult(ctx context.Context, run models.WorkflowRun) (*WorkflowResult, error) {
-	var (
-		tasks     []models.WorkflowTask
-		messages  []models.AgentMessage
-		approvals []models.ToolApproval
-		history   []models.WorkflowHistoryEvent
-		signals   []models.WorkflowSignal
-		timers    []models.WorkflowTimer
-	)
-	truncated := false
-	if err := loadWorkflowCollection(ctx, s.db, &tasks, run.ID, &truncated); err != nil {
+	collections, err := s.loadWorkflowResultCollections(ctx, []uint64{run.ID})
+	if err != nil {
 		return nil, err
 	}
-	if err := loadWorkflowCollection(ctx, s.db, &messages, run.ID, &truncated); err != nil {
-		return nil, err
-	}
-	if err := loadWorkflowCollection(ctx, s.db, &approvals, run.ID, &truncated); err != nil {
-		return nil, err
-	}
-	if err := loadWorkflowCollection(ctx, s.db, &history, run.ID, &truncated); err != nil {
-		return nil, err
-	}
-	if err := loadWorkflowCollection(ctx, s.db, &signals, run.ID, &truncated); err != nil {
-		return nil, err
-	}
-	if err := loadWorkflowCollection(ctx, s.db, &timers, run.ID, &truncated); err != nil {
-		return nil, err
-	}
-	var citations []Citation
-	if strings.TrimSpace(run.CitationsJSON) != "" {
-		_ = json.Unmarshal([]byte(run.CitationsJSON), &citations)
-	}
-	return &WorkflowResult{
-		Run:         run,
-		Tasks:       tasks,
-		Messages:    messages,
-		Approvals:   approvals,
-		History:     history,
-		Signals:     signals,
-		Timers:      timers,
-		Citations:   citations,
-		ActionItems: decodeStringSlice(run.ActionItemsJSON),
-		RiskFlags:   decodeStringSlice(run.RiskFlagsJSON),
-		Truncated:   truncated,
-	}, nil
+	result := projectWorkflowResult(run, collections)
+	return &result, nil
 }

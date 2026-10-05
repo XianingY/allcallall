@@ -969,3 +969,166 @@ func workflowTaskByName(tasks []models.WorkflowTask, name string) *models.Workfl
 	}
 	return nil
 }
+
+// --- Task 4: Batch workflow result loading tests ---
+
+// seedWorkflowRunsWithChildren creates n workflow runs in the database, each
+// with one of every child collection type (task, message, approval, history
+// event, signal, timer). It returns the seeded runs.
+func seedWorkflowRunsWithChildren(t *testing.T, db *gorm.DB, n int) []models.WorkflowRun {
+	t.Helper()
+	conversation := seedWorkflowConversation(t, db)
+	orgID := conversation.OrganizationID
+	userID := uint64(7)
+
+	runs := make([]models.WorkflowRun, 0, n)
+	for i := 0; i < n; i++ {
+		run := models.WorkflowRun{
+			OrganizationID: orgID,
+			UserID:         userID,
+			ConversationID: conversation.ID,
+			Status:         models.WorkflowRunStatusReady,
+			WorkflowType:   "agent_lab",
+			WorkflowVersion: "agent_lab_v1",
+			RuntimeOwner:   "legacy_go",
+			Goal:           fmt.Sprintf("batch-test-run-%d", i),
+		}
+		if err := db.Create(&run).Error; err != nil {
+			t.Fatalf("create workflow run %d: %v", i, err)
+		}
+		db.Create(&models.WorkflowTask{
+			WorkflowRunID:  run.ID,
+			OrganizationID: orgID,
+			Name:           "searcher",
+			Role:           "searcher",
+			Status:         "completed",
+		})
+		db.Create(&models.AgentMessage{
+			WorkflowRunID:  run.ID,
+			OrganizationID: orgID,
+			FromRole:       "searcher",
+			ToRole:         "summarizer",
+			MessageType:    "observation",
+			ContentJSON:    "{}",
+			CorrelationID:  fmt.Sprintf("corr-%d", run.ID),
+		})
+		db.Create(&models.ToolApproval{
+			WorkflowRunID:  run.ID,
+			TaskID:         1,
+			OrganizationID: orgID,
+			ToolCallID:     fmt.Sprintf("call-%d", run.ID),
+			ToolName:       "write_conversation_message",
+			Status:         "pending",
+			RequestedBy:    userID,
+			RequestedAt:    time.Now().UTC(),
+		})
+		db.Create(&models.WorkflowHistoryEvent{
+			WorkflowRunID:  run.ID,
+			OrganizationID: orgID,
+			EventType:      "task_completed",
+			RefType:        "task",
+		})
+		db.Create(&models.WorkflowSignal{
+			WorkflowRunID:  run.ID,
+			OrganizationID: orgID,
+			SignalName:     "approval",
+			PayloadJSON:    "{}",
+			Status:         "received",
+		})
+		db.Create(&models.WorkflowTimer{
+			WorkflowRunID:  run.ID,
+			OrganizationID: orgID,
+			TimerName:      "approval_timeout",
+			FireAt:         time.Now().UTC().Add(time.Hour),
+			Status:         models.WorkflowTimerStatusPending,
+		})
+		runs = append(runs, run)
+	}
+	return runs
+}
+
+// queryCounter tracks the number of SQL queries issued through a GORM DB.
+type queryCounter struct {
+	count int
+}
+
+func installQueryCounter(db *gorm.DB) *queryCounter {
+	counter := &queryCounter{}
+	db.Callback().Query().After("gorm:query").Register("test:count_workflow_queries", func(_ *gorm.DB) {
+		counter.count++
+	})
+	return counter
+}
+
+func (qc *queryCounter) Count() int {
+	return qc.count
+}
+
+func TestListWorkflowRunsUsesFixedQueryCount(t *testing.T) {
+	svc, db := newWorkflowTestService(t)
+	seedWorkflowRunsWithChildren(t, db, 50)
+	counter := installQueryCounter(db)
+
+	results, err := svc.ListWorkflowRuns(context.Background(), 42, 7, WorkflowListFilter{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 50 {
+		t.Fatalf("results=%d want=50", len(results))
+	}
+	if got := counter.Count(); got > 8 {
+		t.Fatalf("queries=%d want<=8", got)
+	}
+}
+
+func TestBuildWorkflowResultsMatchesSingle(t *testing.T) {
+	svc, db := newWorkflowTestService(t)
+	runs := seedWorkflowRunsWithChildren(t, db, 3)
+
+	for _, run := range runs {
+		single, err := svc.buildWorkflowResult(context.Background(), run)
+		if err != nil {
+			t.Fatalf("buildWorkflowResult run %d: %v", run.ID, err)
+		}
+		batchResults, err := svc.buildWorkflowResults(context.Background(), []models.WorkflowRun{run})
+		if err != nil {
+			t.Fatalf("buildWorkflowResults run %d: %v", run.ID, err)
+		}
+		if len(batchResults) != 1 {
+			t.Fatalf("expected 1 batch result, got %d", len(batchResults))
+		}
+		batch := batchResults[0]
+
+		// Compare core fields
+		if batch.Run.ID != single.Run.ID {
+			t.Errorf("run %d: Run.ID mismatch batch=%d single=%d", run.ID, batch.Run.ID, single.Run.ID)
+		}
+		if len(batch.Tasks) != len(single.Tasks) {
+			t.Errorf("run %d: Tasks len mismatch batch=%d single=%d", run.ID, len(batch.Tasks), len(single.Tasks))
+		}
+		if len(batch.Messages) != len(single.Messages) {
+			t.Errorf("run %d: Messages len mismatch batch=%d single=%d", run.ID, len(batch.Messages), len(single.Messages))
+		}
+		if len(batch.Approvals) != len(single.Approvals) {
+			t.Errorf("run %d: Approvals len mismatch batch=%d single=%d", run.ID, len(batch.Approvals), len(single.Approvals))
+		}
+		if len(batch.History) != len(single.History) {
+			t.Errorf("run %d: History len mismatch batch=%d single=%d", run.ID, len(batch.History), len(single.History))
+		}
+		if len(batch.Signals) != len(single.Signals) {
+			t.Errorf("run %d: Signals len mismatch batch=%d single=%d", run.ID, len(batch.Signals), len(single.Signals))
+		}
+		if len(batch.Timers) != len(single.Timers) {
+			t.Errorf("run %d: Timers len mismatch batch=%d single=%d", run.ID, len(batch.Timers), len(single.Timers))
+		}
+		if batch.Truncated != single.Truncated {
+			t.Errorf("run %d: Truncated mismatch batch=%v single=%v", run.ID, batch.Truncated, single.Truncated)
+		}
+		// Compare ordering of tasks by ID
+		for j := range batch.Tasks {
+			if batch.Tasks[j].ID != single.Tasks[j].ID {
+				t.Errorf("run %d: Tasks[%d].ID mismatch batch=%d single=%d", run.ID, j, batch.Tasks[j].ID, single.Tasks[j].ID)
+			}
+		}
+	}
+}
