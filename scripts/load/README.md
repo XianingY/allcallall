@@ -300,3 +300,83 @@ Replay count:
 Outbox publish/retry/failure delta:
 Notes:
 ```
+
+## End-to-End Agent Performance Suite
+
+The agent-e2e-bench module runs reproducible end-to-end benchmarks against the Agent run lifecycle: enqueue → queue → runtime → terminal. It captures per-phase latencies (enqueue, queue, runtime, end-to-end) with p50/p95/p99/max percentiles, Prometheus metric deltas, and repository SHAs for traceability.
+
+### Quick Start
+
+```bash
+make agent-performance-suite
+```
+
+This runs the `baseline` profile by default, which executes the in-process test suite with a mock server.
+
+### Profiles
+
+| Profile | Description | Runs | Concurrency | Requires |
+|---------|-------------|------|-------------|----------|
+| `baseline` | Deterministic in-process orchestration and persistence checks | 4 | 2 | None |
+| `controlled` | Go + Agent Runtime + RAG Runtime with the fake provider | 10 | 2 | `BASE_URL`, `TOKEN` |
+| `networked` | MySQL, Redis, Go, Agent Runtime, RAG Runtime, and fake provider in separate processes | 10 | 2 | `BASE_URL`, `TOKEN` |
+| `real-provider-canary` | Real provider with strict safety limits | ≤10 | 1 | `ALLOW_REAL_PROVIDER_CANARY=1`, `BASE_URL`, `TOKEN` |
+
+The `real-provider-canary` profile requires `ALLOW_REAL_PROVIDER_CANARY=1` and is capped at 10 runs with concurrency 1. It must never be the sole merge gate.
+
+### Environment Variables
+
+```text
+PROFILE                     — baseline | controlled | networked | real-provider-canary
+BASE_URL                    — API base URL (e.g. http://localhost:8080)
+TOKEN                       — Bearer token (redacted from output)
+ORGANIZATION_ID             — X-Organization-ID header value
+CONVERSATION_ID             — conversation_id for run creation
+RUNS                        — number of runs (default: profile-dependent)
+CONCURRENCY                 — worker pool size (default: profile-dependent)
+POLL_INTERVAL_MS            — poll interval in ms (default: 100)
+TERMINAL_TIMEOUT_MS         — per-run timeout in ms (default: 60000)
+METRICS_URL                 — Prometheus metrics endpoint
+ALLOW_REAL_PROVIDER_CANARY  — must be "1" for real-provider-canary profile
+FAKE_PROVIDER_LATENCY_MS    — fake provider base delay (default: 50)
+FAKE_PROVIDER_FAILURE_RATE  — fake provider failure probability 0–1 (default: 0)
+FAKE_PROVIDER_TIMEOUT_RATE  — fake provider timeout probability 0–1 (default: 0)
+FAKE_PROVIDER_RESPONSE_BYTES — fake provider response size (default: 256)
+```
+
+### CLI Flags
+
+The benchmark module also supports CLI flags matching the environment variables:
+
+```text
+--base-url / --runs / --concurrency / --organization-id / --conversation-id
+--token / --poll-interval-ms / --terminal-timeout-ms
+```
+
+### Output
+
+The benchmark emits one JSON document to stdout containing:
+
+- `runId` — stable run identifier for correlation
+- `accepted`, `ready`, `failed`, `timedOut` — run counts
+- `enqueueLatency`, `queueLatency`, `runtimeLatency`, `endToEndLatency` — per-phase percentile distributions
+- `statusCounts` — terminal status distribution
+- `requestIds`, `traceIds` — correlation IDs for API enqueue, outbox, Go context, Python nodes, RAG/provider calls, checkpoint writes, and result persistence
+- `repositoryShas` — AllCallAll and agent-runtime SHAs
+- `metricDeltas` — Prometheus metric deltas (before vs. after)
+
+The suite wrapper also writes a Markdown summary and full artifacts to a temporary directory (printed at end of run).
+
+### Fake Agent Provider
+
+`fake-agent-provider.mjs` exposes an OpenAI-compatible `/v1/chat/completions` endpoint that derives delay, failure, timeout, and response size deterministically from the request sequence number. Use it with the `controlled` and `networked` profiles.
+
+### Security
+
+- The benchmark never prints bearer tokens or provider credentials.
+- The `real-provider-canary` profile requires explicit opt-in via `ALLOW_REAL_PROVIDER_CANARY=1` and is capped at 10 runs / concurrency 1.
+- Do not commit `.env`, `.omo`, `.workbuddy`, `.playwright-mcp/`, `output/`, credentials, or load-test authentication artifacts.
+
+### Repository SHAs
+
+The suite records the AllCallAll worktree SHA (`git rev-parse HEAD`) and the sibling agent-runtime repo SHA (`../allcallall-agent-runtime`). If the sibling repo is not checked out, the runtime SHA is recorded as `"unknown"`.
