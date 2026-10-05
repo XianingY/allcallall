@@ -21,19 +21,42 @@ var ErrOutboxHandlerNotFound = errors.New("outbox handler not found")
 
 type Handler func(ctx context.Context, event models.EventOutbox) error
 
+// ProcessBatchResult holds the outcome of a single ProcessBatch call.
+// Handler failures successfully persisted as retry or dead outcomes are
+// counted in Retried/Dead respectively and do not appear in Errors; only
+// claim failures (returned as the batch error) and state-transition database
+// failures (collected in Errors) are considered processor errors.
+type ProcessBatchResult struct {
+	Claimed   int       // events claimed from the store
+	Succeeded int       // events published successfully
+	Retried   int       // events moved to retry (handler failed, under max attempts)
+	Dead      int       // events moved to dead-letter (handler failed, max attempts reached)
+	Errors    []error   // state-transition database failures
+}
+
+type processOutcome int
+
+const (
+	outcomePublished processOutcome = iota
+	outcomeRetried
+	outcomeDead
+)
+
 type Processor struct {
-	store       *Store
-	handlers    map[string]Handler
-	events      []string
-	metrics     metrics.Recorder
-	logger      zerolog.Logger
-	alerter     *alerting.Service
-	batchSize   int
-	maxAttempts int
-	retryDelay  time.Duration
-	workerID    string
-	lease       time.Duration
-	mu          sync.RWMutex
+	store                *Store
+	handlers             map[string]Handler
+	events               []string
+	metrics              metrics.Recorder
+	logger               zerolog.Logger
+	alerter              *alerting.Service
+	batchSize            int
+	maxAttempts          int
+	retryDelay           time.Duration
+	workerID             string
+	lease                time.Duration
+	errorBackoff         time.Duration
+	backlogSampleInterval time.Duration
+	mu                   sync.RWMutex
 }
 
 func NewProcessor(store *Store, recorders ...metrics.Recorder) *Processor {
@@ -42,15 +65,17 @@ func NewProcessor(store *Store, recorders ...metrics.Recorder) *Processor {
 		metrics = recorders[0]
 	}
 	return &Processor{
-		store:       store,
-		handlers:    make(map[string]Handler),
-		metrics:     metrics,
-		logger:      zerolog.Nop(),
-		batchSize:   100,
-		maxAttempts: 3,
-		retryDelay:  time.Minute,
-		workerID:    "outbox-" + uuid.NewString(),
-		lease:       2 * time.Minute,
+		store:                 store,
+		handlers:              make(map[string]Handler),
+		metrics:               metrics,
+		logger:                zerolog.Nop(),
+		batchSize:             100,
+		maxAttempts:           3,
+		retryDelay:            time.Minute,
+		workerID:              "outbox-" + uuid.NewString(),
+		lease:                 2 * time.Minute,
+		errorBackoff:          5 * time.Second,
+		backlogSampleInterval: 10 * time.Second,
 	}
 }
 
@@ -107,48 +132,106 @@ func (p *Processor) WithEventFilter(events ...string) {
 	p.events = normalizedEvents(events)
 }
 
+// ProcessOnce processes one batch of pending outbox events and returns the
+// number of events whose state transition succeeded (published, retried, or
+// dead-lettered). It is a compatibility wrapper around ProcessBatch for
+// callers that have not yet migrated.
 func (p *Processor) ProcessOnce(ctx context.Context) (int, error) {
-	if p == nil || p.store == nil {
-		return 0, errors.New("outbox processor store is nil")
-	}
-	events := p.eventFilter()
+	// Sample backlog before processing for backward compatibility when called
+	// standalone (outside Run). The Run loop uses a separate ticker instead.
 	if p.metrics != nil {
-		if backlog, countErr := p.store.CountPendingForEvents(ctx, events); countErr == nil {
+		if backlog, countErr := p.store.CountPendingForEvents(ctx, p.eventFilter()); countErr == nil {
 			p.metrics.Set("outbox_backlog", backlog)
 		}
 	}
-	rows, err := p.store.ClaimPendingForEvents(ctx, p.batchSize, p.workerID, p.lease, events)
+	result, err := p.ProcessBatch(ctx)
 	if err != nil {
 		return 0, err
 	}
-	processed := 0
-	for _, row := range rows {
-		if err := p.processEvent(ctx, row); err != nil {
-			return processed, err
-		}
-		processed++
+	var firstErr error
+	if len(result.Errors) > 0 {
+		firstErr = result.Errors[0]
 	}
-	return processed, nil
+	return result.Succeeded + result.Retried + result.Dead, firstErr
 }
 
-func (p *Processor) Run(ctx context.Context, interval time.Duration) {
-	if interval <= 0 {
-		interval = time.Minute
+// ProcessBatch claims and processes a batch of pending outbox events.
+// Handler failures that are successfully persisted as retry or dead outcomes
+// are counted in the result and do not cause the batch to abort; only claim
+// failures (returned as the error) and state-transition database failures
+// (collected in result.Errors) are considered processor errors.
+func (p *Processor) ProcessBatch(ctx context.Context) (ProcessBatchResult, error) {
+	if p == nil || p.store == nil {
+		return ProcessBatchResult{}, errors.New("outbox processor store is nil")
 	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	events := p.eventFilter()
+	rows, err := p.store.ClaimPendingForEvents(ctx, p.batchSize, p.workerID, p.lease, events)
+	if err != nil {
+		return ProcessBatchResult{}, err
+	}
+	var result ProcessBatchResult
+	result.Claimed = len(rows)
+	for _, row := range rows {
+		outcome, eventErr := p.processEvent(ctx, row)
+		if eventErr != nil {
+			result.Errors = append(result.Errors, eventErr)
+			continue
+		}
+		switch outcome {
+		case outcomePublished:
+			result.Succeeded++
+		case outcomeRetried:
+			result.Retried++
+		case outcomeDead:
+			result.Dead++
+		}
+	}
+	return result, nil
+}
 
-	if _, err := p.ProcessOnce(ctx); err != nil {
-		p.recordRunFailure(err)
+// Run continuously drains pending outbox events, immediately repeating while
+// work is available and waiting only when a batch claims nothing. Backlog
+// sampling is performed on a separate ticker (default 10 s) to avoid hitting
+// the database on every hot-loop iteration. Cancellation exits cleanly.
+func (p *Processor) Run(ctx context.Context, idleInterval time.Duration) {
+	if idleInterval <= 0 {
+		idleInterval = time.Minute
 	}
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if _, err := p.ProcessOnce(ctx); err != nil {
-				p.recordRunFailure(err)
+
+	// Sample backlog on a separate ticker so the hot processing loop
+	// does not call CountPendingForEvents on every iteration.
+	backlogDone := make(chan struct{})
+	go func() {
+		defer close(backlogDone)
+		p.sampleBacklog(ctx)
+		ticker := time.NewTicker(p.backlogSampleInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				p.sampleBacklog(ctx)
 			}
+		}
+	}()
+
+	for {
+		result, err := p.ProcessBatch(ctx)
+		if err != nil {
+			p.recordRunFailure(err)
+			if !waitForContextOrTimer(ctx, p.errorBackoff) {
+				<-backlogDone
+				return
+			}
+			continue
+		}
+		if result.Claimed > 0 {
+			continue
+		}
+		if !waitForContextOrTimer(ctx, idleInterval) {
+			<-backlogDone
+			return
 		}
 	}
 }
@@ -177,9 +260,14 @@ func (p *Processor) recordRunFailure(err error) {
 	}
 }
 
-func (p *Processor) processEvent(ctx context.Context, row models.EventOutbox) error {
+// processEvent dispatches a single outbox event to its handler and persists the
+// outcome. It returns the outcome (published, retried, or dead) and an error
+// that is non-nil only for state-transition database failures. Handler failures
+// that are successfully persisted as retry or dead outcomes return a nil error
+// so the batch can continue processing remaining events.
+func (p *Processor) processEvent(ctx context.Context, row models.EventOutbox) (processOutcome, error) {
 	handler := p.lookup(row.Event)
-	err := ErrOutboxHandlerNotFound
+	handlerErr := ErrOutboxHandlerNotFound
 	if handler != nil {
 		handlerCtx := trace.WithOutboxID(trace.WithRequestID(ctx, row.RequestID), row.ID)
 		handlerCtx, span := trace.StartSpan(handlerCtx, "outbox.process_event", map[string]string{
@@ -188,14 +276,17 @@ func (p *Processor) processEvent(ctx context.Context, row models.EventOutbox) er
 			"aggregate_id":   strconv.FormatUint(row.AggregateID, 10),
 			"outbox_id":      strconv.FormatUint(row.ID, 10),
 		})
-		err = handler(handlerCtx, row)
-		span.End(err)
+		handlerErr = handler(handlerCtx, row)
+		span.End(handlerErr)
 	}
-	if err == nil {
+	if handlerErr == nil {
 		if p.metrics != nil {
 			p.metrics.Inc("outbox_publish_total")
 		}
-		return p.store.MarkPublished(ctx, row.ID)
+		if err := p.store.MarkPublished(ctx, row.ID); err != nil {
+			return outcomePublished, err
+		}
+		return outcomePublished, nil
 	}
 
 	if row.Attempts+1 >= p.maxAttempts {
@@ -209,7 +300,7 @@ func (p *Processor) processEvent(ctx context.Context, row models.EventOutbox) er
 			if alertErr := p.alerter.Emit(context.Background(), alerting.Alert{
 				Severity: alerting.SeverityP1,
 				Title:    "outbox event moved to dead-letter",
-				Detail:   err.Error(),
+				Detail:   handlerErr.Error(),
 				Labels: map[string]string{
 					"worker":         p.workerID,
 					"component":      "outbox",
@@ -223,12 +314,44 @@ func (p *Processor) processEvent(ctx context.Context, row models.EventOutbox) er
 					Msg("failed to emit outbox dead-letter alert")
 			}
 		}
-		return p.store.MarkDead(ctx, row.ID, err)
+		if err := p.store.MarkDead(ctx, row.ID, handlerErr); err != nil {
+			return outcomeDead, err
+		}
+		return outcomeDead, nil
 	}
 	if p.metrics != nil {
 		p.metrics.Inc("outbox_publish_retry_total")
 	}
-	return p.store.MarkRetry(ctx, row.ID, err, time.Now().UTC().Add(p.retryDelay))
+	if err := p.store.MarkRetry(ctx, row.ID, handlerErr, time.Now().UTC().Add(p.retryDelay)); err != nil {
+		return outcomeRetried, err
+	}
+	return outcomeRetried, nil
+}
+
+// waitForContextOrTimer waits for either context cancellation or the given
+// duration. It returns true if the timer fired (caller should continue) or
+// false if the context was cancelled (caller should return).
+func waitForContextOrTimer(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+// sampleBacklog records the current pending event count as the outbox_backlog
+// gauge metric. Errors are silently ignored — the metric is best-effort.
+func (p *Processor) sampleBacklog(ctx context.Context) {
+	if p.metrics == nil {
+		return
+	}
+	events := p.eventFilter()
+	if backlog, err := p.store.CountPendingForEvents(ctx, events); err == nil {
+		p.metrics.Set("outbox_backlog", backlog)
+	}
 }
 
 func (p *Processor) lookup(event string) Handler {

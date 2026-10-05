@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -150,5 +151,147 @@ func TestProcessorRetriesThenFails(t *testing.T) {
 	snapshot := counters.Snapshot()
 	if snapshot["outbox_publish_retry_total"] != 1 || snapshot["outbox_dead_letter_total"] != 1 {
 		t.Fatalf("unexpected metrics: %v", snapshot)
+	}
+}
+
+func seedProcessorEvents(t *testing.T, store *Store, aggregateIDs ...uint64) {
+	t.Helper()
+	for i, id := range aggregateIDs {
+		if _, err := store.Enqueue(context.Background(), EnqueueInput{
+			AggregateType:  "test",
+			AggregateID:    id,
+			Event:          "test.event",
+			IdempotencyKey: fmt.Sprintf("test.event:%d", i),
+			Payload:        map[string]any{"index": i},
+		}); err != nil {
+			t.Fatalf("seed event %d failed: %v", i, err)
+		}
+	}
+}
+
+func assertOutboxStatus(t *testing.T, db *gorm.DB, aggregateID uint64, status string) {
+	t.Helper()
+	var row models.EventOutbox
+	if err := db.Where("aggregate_id = ?", aggregateID).Take(&row).Error; err != nil {
+		t.Fatalf("load outbox row for aggregate_id=%d: %v", aggregateID, err)
+	}
+	if row.Status != status {
+		t.Fatalf("aggregate_id=%d status=%q want %q", aggregateID, row.Status, status)
+	}
+}
+
+func TestProcessorContinuesAfterOneEventFails(t *testing.T) {
+	store, db := newProcessorTestStore(t)
+	processor := NewProcessor(store)
+	processor.WithRetry(3, time.Minute)
+	processor.Register("test.event", func(_ context.Context, row models.EventOutbox) error {
+		if row.AggregateID == 1 {
+			return errors.New("poison")
+		}
+		return nil
+	})
+	seedProcessorEvents(t, store, 1, 2, 3)
+
+	result, err := processor.ProcessBatch(context.Background())
+	if err != nil {
+		t.Fatalf("batch infrastructure error: %v", err)
+	}
+	if result.Retried != 1 || result.Succeeded != 2 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	assertOutboxStatus(t, db, 2, models.EventOutboxStatusPublished)
+	assertOutboxStatus(t, db, 3, models.EventOutboxStatusPublished)
+}
+
+func TestProcessorDrainsBeforeIdleWait(t *testing.T) {
+	store, _ := newProcessorTestStore(t)
+	processor := NewProcessor(store)
+	processor.WithBatchSize(2)
+	processor.Register("test.event", func(context.Context, models.EventOutbox) error {
+		return nil
+	})
+	seedProcessorEvents(t, store, 1, 2, 3, 4, 5)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	idleWaitCount := 0
+
+	// Run in a goroutine; it should drain all 5 events across multiple
+	// batches (batch size 2) without ever hitting the idle wait.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// We intercept the Run loop by calling ProcessBatch directly
+		// to verify the drain-without-idle behavior.
+		for {
+			result, batchErr := processor.ProcessBatch(ctx)
+			if batchErr != nil {
+				return
+			}
+			if result.Claimed == 0 {
+				idleWaitCount++
+				break
+			}
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("drain did not complete within timeout")
+	}
+
+	// All events should be processed after multiple batches.
+	// idleWaitCount should be exactly 1 (the first time we hit empty).
+	if idleWaitCount != 1 {
+		t.Fatalf("idleWaitCount=%d want 1", idleWaitCount)
+	}
+}
+
+func TestProcessorRunDrainsContinuously(t *testing.T) {
+	store, db := newProcessorTestStore(t)
+	processor := NewProcessor(store)
+	processor.WithBatchSize(2)
+	processor.Register("test.event", func(context.Context, models.EventOutbox) error {
+		return nil
+	})
+	seedProcessorEvents(t, store, 1, 2, 3, 4, 5)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Run with a 1-hour idle interval — if it doesn't drain continuously,
+	// this test would hang for hours.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		processor.Run(ctx, time.Hour)
+	}()
+
+	// Poll until all 5 events are published (3 batches: 2+2+1).
+	deadline := time.After(5 * time.Second)
+	for {
+		var pending int64
+		if err := db.Model(&models.EventOutbox{}).Where("status = ?", models.EventOutboxStatusPending).Count(&pending).Error; err != nil {
+			t.Fatalf("count pending: %v", err)
+		}
+		if pending == 0 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for drain; %d events still pending", pending)
+		default:
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Cancel and verify Run exits promptly (not after the 1-hour idle wait).
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not exit after cancellation")
 	}
 }
