@@ -83,9 +83,6 @@ func (c *DatabaseConfig) ApplyDefaults() {
 	if c.ConnMaxIdleTime == 0 {
 		c.ConnMaxIdleTime = 5 * time.Minute
 	}
-	if c.LogLevel == "" {
-		c.LogLevel = "warn"
-	}
 }
 
 // ParseGORMLogLevel converts a config log-level string to a GORM logger level.

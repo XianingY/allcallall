@@ -50,11 +50,16 @@ func SnapshotRedisPoolStats(client *redis.Client) *redis.PoolStats {
 	return client.PoolStats()
 }
 
+// RedisPoolObserver is called on each sampling tick with the current pool stats.
+// Use it in tests to observe sampling without mutating global metric state.
+type RedisPoolObserver func(stats *redis.PoolStats)
+
 // StartRedisPoolMetrics starts a periodic sampler that pushes Redis pool stats
 // into the process-default Prometheus metrics.  The sampler runs until ctx is
-// cancelled.  Call this from a lifecycle owner (bootstrap.RunServer or the
+// cancelled.  Optional observers are called after the metrics push on each tick.
+// Call this from a lifecycle owner (bootstrap.RunServer or the
 // agent worker), not from NewRedis.
-func StartRedisPoolMetrics(ctx context.Context, client *redis.Client, interval time.Duration) {
+func StartRedisPoolMetrics(ctx context.Context, client *redis.Client, interval time.Duration, observers ...RedisPoolObserver) {
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -63,7 +68,11 @@ func StartRedisPoolMetrics(ctx context.Context, client *redis.Client, interval t
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				appmetrics.UpdateRedisPoolStats("primary", SnapshotRedisPoolStats(client))
+				stats := SnapshotRedisPoolStats(client)
+				appmetrics.UpdateRedisPoolStats("primary", stats)
+				for _, obs := range observers {
+					obs(stats)
+				}
 			}
 		}
 	}()

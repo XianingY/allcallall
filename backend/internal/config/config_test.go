@@ -551,7 +551,6 @@ func TestDatabaseConfigApplyDefaults(t *testing.T) {
 	}
 }
 
-
 func TestDatabaseConfigAcceptsDeprecatedLifetimeMinutes(t *testing.T) {
 	var cfg Config
 	err := yaml.Unmarshal([]byte("database:\n  conn_max_lifetime_minutes: 30\n"), &cfg)
@@ -576,11 +575,15 @@ func TestDatabaseConfigConnMaxLifetimeWinsOverDeprecated(t *testing.T) {
 	}
 }
 
-func TestDatabaseConfigLogLevelDefaultsToWarn(t *testing.T) {
+func TestDatabaseConfigLogLevelNotSetByApplyDefaults(t *testing.T) {
+	// ApplyDefaults must not set LogLevel — the environment-aware default
+	// is resolved by ParseGORMLogLevel at consumption time, not at config
+	// load time.  This allows production (warn) and development (info) to
+	// diverge correctly.
 	cfg := DatabaseConfig{}
 	cfg.ApplyDefaults()
-	if cfg.LogLevel != "warn" {
-		t.Fatalf("LogLevel=%q want=warn", cfg.LogLevel)
+	if cfg.LogLevel != "" {
+		t.Fatalf("ApplyDefaults should not set LogLevel, got %q", cfg.LogLevel)
 	}
 }
 

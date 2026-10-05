@@ -88,7 +88,7 @@ operational queries.
 | `max_idle_conns` | 50 | Maximum idle connections in the pool. |
 | `conn_max_lifetime` | 10m | Maximum time a connection may be reused. |
 | `conn_max_idle_time` | 5m | Maximum time an idle connection remains in the pool. |
-| `log_level` | warn | GORM log level: silent, error, warn, or info. |
+| `log_level` | warn (prod/beta), info (dev) | GORM log level: silent, error, warn, or info. Default depends on `APP_ENV`. |
 
 ### Deprecated keys
 

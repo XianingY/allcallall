@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -53,24 +54,46 @@ func TestSnapshotRedisPoolStatsDoesNotStartGoroutine(t *testing.T) {
 	_ = SnapshotRedisPoolStats(client)
 }
 
-
 func TestStartRedisPoolMetricsCancellation(t *testing.T) {
 	client := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
 	})
 	defer client.Close()
 
+	var observed atomic.Int32
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Start the sampler with a short interval.
-	StartRedisPoolMetrics(ctx, client, 5*time.Millisecond)
+	StartRedisPoolMetrics(ctx, client, 5*time.Millisecond, func(*redis.PoolStats) {
+		observed.Add(1)
+	})
 
-	// Wait for at least one tick to fire.
-	time.Sleep(20 * time.Millisecond)
+	// Wait for at least one observation.
+	deadline := time.After(2 * time.Second)
+	for observed.Load() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("no observation received before deadline")
+		default:
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
 
 	// Cancel the context; the sampler goroutine must exit.
 	cancel()
 
-	// Give the goroutine time to observe cancellation.
-	time.Sleep(20 * time.Millisecond)
+	// Allow time for the goroutine to observe cancellation.
+	time.Sleep(50 * time.Millisecond)
+
+	// Record the count after the cancellation settling period.
+	countAtCancel := observed.Load()
+
+	// Wait another interval and verify no further observations.
+	time.Sleep(30 * time.Millisecond)
+	countAfterWait := observed.Load()
+
+	// Allow at most 1 straggler observation from a race between
+	// the ticker channel and context cancellation.
+	if countAfterWait > countAtCancel+1 {
+		t.Fatalf("sampler continued after cancellation: at_cancel=%d after_wait=%d", countAtCancel, countAfterWait)
+	}
 }

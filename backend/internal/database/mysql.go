@@ -52,11 +52,15 @@ func isProduction() bool {
 	return env == "production" || env == "beta"
 }
 
+// SQLPoolObserver is called on each sampling tick with the current pool stats.
+// Use it in tests to observe sampling without mutating global metric state.
+type SQLPoolObserver func(stats sql.DBStats)
+
 // StartSQLPoolMetrics starts a periodic sampler that pushes sql.DBStats into
 // the process-default Prometheus metrics.  The sampler runs until ctx is
-// cancelled.  Call this from a lifecycle owner (runtime.OpenDB), not from
-// NewMySQL.
-func StartSQLPoolMetrics(ctx context.Context, sqlDB *sql.DB, interval time.Duration) {
+// cancelled.  Optional observers are called after the metrics push on each tick.
+// Call this from a lifecycle owner (runtime.OpenDB), not from NewMySQL.
+func StartSQLPoolMetrics(ctx context.Context, sqlDB *sql.DB, interval time.Duration, observers ...SQLPoolObserver) {
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -65,7 +69,11 @@ func StartSQLPoolMetrics(ctx context.Context, sqlDB *sql.DB, interval time.Durat
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				appmetrics.UpdateSQLDBStats("primary", sqlDB.Stats())
+				stats := sqlDB.Stats()
+				appmetrics.UpdateSQLDBStats("primary", stats)
+				for _, obs := range observers {
+					obs(stats)
+				}
 			}
 		}
 	}()
