@@ -137,6 +137,9 @@ func (p *Processor) WithEventFilter(events ...string) {
 // dead-lettered). It is a compatibility wrapper around ProcessBatch for
 // callers that have not yet migrated.
 func (p *Processor) ProcessOnce(ctx context.Context) (int, error) {
+	if p == nil || p.store == nil {
+		return 0, errors.New("outbox processor store is nil")
+	}
 	// Sample backlog before processing for backward compatibility when called
 	// standalone (outside Run). The Run loop uses a separate ticker instead.
 	if p.metrics != nil {

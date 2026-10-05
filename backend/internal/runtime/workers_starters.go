@@ -19,6 +19,7 @@ func StartOutboxWorker(ctx context.Context, log zerolog.Logger, processor *event
 	idleSeconds := intFromEnv("OUTBOX_WORKER_INTERVAL_SEC", 30)
 	idleInterval := time.Duration(idleSeconds) * time.Second
 	log.Info().
+		Int("interval_sec", idleSeconds).
 		Int("idle_interval_sec", idleSeconds).
 		Msg("outbox worker enabled (continuous drain, idle wait when empty)")
 	go processor.Run(ctx, idleInterval)

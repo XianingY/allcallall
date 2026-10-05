@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -293,5 +294,53 @@ func TestProcessorRunDrainsContinuously(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not exit after cancellation")
+	}
+}
+
+func TestProcessBatchCollectsStateTransitionErrors(t *testing.T) {
+	store, db := newProcessorTestStore(t)
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get underlying sql.DB: %v", err)
+	}
+
+	// Close the database after the first MarkPublished succeeds so that
+	// subsequent state-transition writes fail. The handler counter tracks
+	// how many events have been dispatched; closing after the first ensures
+	// event 1 is published while events 2 and 3 hit DB errors.
+	var handlerCount int32
+	processor := NewProcessor(store)
+	processor.Register("test.event", func(ctx context.Context, row models.EventOutbox) error {
+		if atomic.AddInt32(&handlerCount, 1) > 1 {
+			sqlDB.Close()
+		}
+		return nil
+	})
+	seedProcessorEvents(t, store, 1, 2, 3)
+
+	result, err := processor.ProcessBatch(context.Background())
+	// Batch error must be nil — state-transition failures are collected in
+	// result.Errors, not returned as the batch error.
+	if err != nil {
+		t.Fatalf("unexpected batch error: %v", err)
+	}
+	if result.Succeeded < 1 {
+		t.Fatalf("expected at least 1 succeeded, got result: %+v", result)
+	}
+	if len(result.Errors) == 0 {
+		t.Fatalf("expected state-transition errors in result.Errors, got result: %+v", result)
+	}
+	// Later events in the batch were still attempted (handler was called),
+	// even though their state transitions failed.
+	if handlerCount < 3 {
+		t.Fatalf("handler called %d times, want 3 (batch continues after transition error)", handlerCount)
+	}
+}
+
+func TestProcessOnceNilSafety(t *testing.T) {
+	var p *Processor
+	n, err := p.ProcessOnce(context.Background())
+	if n != 0 || err == nil {
+		t.Fatalf("expected (0, error) from nil processor, got (%d, %v)", n, err)
 	}
 }
