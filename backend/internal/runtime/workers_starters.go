@@ -34,7 +34,7 @@ func StartAgentWorker(ctx context.Context, log zerolog.Logger, processor *events
 		4,
 		time.Duration(intFromEnv("OUTBOX_WORKER_IDLE_MS", 500))*time.Millisecond,
 		time.Duration(intFromEnv("OUTBOX_WORKER_ERROR_BACKOFF_MS", 1000))*time.Millisecond,
-		durationFromEnv("OUTBOX_WORKER_LEASE_SEC", 120)*time.Second,
+		durationFromEnv("OUTBOX_WORKER_LEASE_SEC", agent.DefaultOutboxLeaseSec)*time.Second,
 		agentOrderedEvents,
 		EventAgentRunRequested, EventWorkflowRequested, EventMCPExecutionTerminal,
 	)
@@ -82,7 +82,7 @@ func StartCollaborationOutboxWorker(ctx context.Context, log zerolog.Logger, pro
 		16,
 		time.Duration(intFromEnv("OUTBOX_WORKER_IDLE_MS", 500))*time.Millisecond,
 		time.Duration(intFromEnv("OUTBOX_WORKER_ERROR_BACKOFF_MS", 1000))*time.Millisecond,
-		durationFromEnv("OUTBOX_WORKER_LEASE_SEC", 120)*time.Second,
+		durationFromEnv("OUTBOX_WORKER_LEASE_SEC", agent.DefaultOutboxLeaseSec)*time.Second,
 		collabOrderedEvents,
 		EventAgentRunCompleted, EventMessageCreated, EventRecordingTranscriptionRequested,
 	)
@@ -99,7 +99,7 @@ func StartSearchOutboxWorker(ctx context.Context, log zerolog.Logger, processor 
 		8,
 		time.Duration(intFromEnv("OUTBOX_WORKER_IDLE_MS", 500))*time.Millisecond,
 		time.Duration(intFromEnv("OUTBOX_WORKER_ERROR_BACKOFF_MS", 1000))*time.Millisecond,
-		durationFromEnv("OUTBOX_WORKER_LEASE_SEC", 120)*time.Second,
+		durationFromEnv("OUTBOX_WORKER_LEASE_SEC", agent.DefaultOutboxLeaseSec)*time.Second,
 		nil, // no ordered events — search indexing is idempotent
 		EventSearchMessageIndex,
 	)
@@ -116,7 +116,7 @@ func StartSettlementBridgeWorker(ctx context.Context, log zerolog.Logger, proces
 		4,
 		time.Duration(intFromEnv("OUTBOX_WORKER_IDLE_MS", 500))*time.Millisecond,
 		time.Duration(intFromEnv("OUTBOX_WORKER_ERROR_BACKOFF_MS", 1000))*time.Millisecond,
-		durationFromEnv("OUTBOX_WORKER_LEASE_SEC", 120)*time.Second,
+		durationFromEnv("OUTBOX_WORKER_LEASE_SEC", agent.DefaultOutboxLeaseSec)*time.Second,
 		settlementOrderedEvents,
 		EventSettlementRoomEnd,
 	)

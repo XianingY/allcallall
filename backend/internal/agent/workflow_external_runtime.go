@@ -32,6 +32,11 @@ const (
 	defaultRuntimeMaxConnsPerHost            = 20
 
 	defaultRuntimeCancellationGraceSec = 30
+
+	// DefaultOutboxLeaseSec is the default outbox worker lease in seconds.
+	// Shared with the runtime worker package so the hierarchy validation
+	// and the actual worker lease cannot drift.
+	DefaultOutboxLeaseSec = 360
 )
 
 // WorkflowRuntime executes a workflow outside the Go in-process engine.
@@ -392,6 +397,12 @@ func runtimeTransportConfigFromEnv() RuntimeTransportConfig {
 // misaligned, printing the conflicting environment variable names so that
 // operators can fix the configuration before serving traffic.
 //
+// This validation is deferred until NewPythonLangGraphRuntimeFromEnv is called
+// because the Python runtime timeouts are only relevant when the external
+// runtime is enabled (AGENT_RUNTIME=python_langgraph). When the Python runtime
+// is not enabled, the lease durations are still configurable but the hierarchy
+// is not checked because the runtime transport timeouts do not apply.
+//
 // Required invariants:
 //
 //	connect timeout < response-header timeout < Python request deadline
@@ -430,7 +441,7 @@ func runtimeCancellationGraceFromEnv() time.Duration {
 }
 
 func outboxLeaseDurationFromEnv() time.Duration {
-	return time.Duration(intFromEnv("OUTBOX_WORKER_LEASE_SEC", 360)) * time.Second
+	return time.Duration(intFromEnv("OUTBOX_WORKER_LEASE_SEC", DefaultOutboxLeaseSec)) * time.Second
 }
 
 func outboxPersistenceGraceFromEnv() time.Duration {
@@ -580,6 +591,12 @@ func (r *PythonLangGraphRuntime) post(ctx context.Context, path string, input an
 		if resp.StatusCode == http.StatusRequestEntityTooLarge || code == "checkpoint_transaction_too_large" {
 			return WorkflowRuntimeResponse{}, &CheckpointTransactionTooLargeError{Body: string(body)}
 		}
+		// All 429 and 503 responses from the internal Python runtime are treated
+		// as deferred capacity signals (RuntimeOverloadedError). This is correct
+		// for this internal runtime because 503 here always means the Python
+		// service is at capacity, not a generic gateway error. If a precise
+		// capacity marker is needed in the future, inspect the error code in the
+		// response body before classifying.
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
 			retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
 			return WorkflowRuntimeResponse{}, &RuntimeOverloadedError{RetryAfter: retryAfter, Body: string(body)}

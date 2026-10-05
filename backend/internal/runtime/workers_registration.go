@@ -341,7 +341,7 @@ func ConfigureOutboxProcessorFromEnv(processor *events.Processor, workerID strin
 		return
 	}
 	processor.WithEventFilter(eventFilter...)
-	processor.WithWorker(workerID, durationFromEnv("OUTBOX_WORKER_LEASE_SEC", 120)*time.Second)
+	processor.WithWorker(workerID, durationFromEnv("OUTBOX_WORKER_LEASE_SEC", agent.DefaultOutboxLeaseSec)*time.Second)
 	processor.WithBatchSize(intFromEnv("OUTBOX_WORKER_BATCH_SIZE", 100))
 	processor.WithRetry(
 		intFromEnv("OUTBOX_WORKER_MAX_ATTEMPTS", 3),

@@ -168,19 +168,33 @@ func TestPythonRuntimePropagatesAbsoluteDeadline(t *testing.T) {
 }
 
 func TestPythonRuntimePropagatesAttemptHeader(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		attempt := r.Header.Get("X-AllCallAll-Attempt")
-		if attempt == "" {
-			t.Fatal("X-AllCallAll-Attempt header must be set")
-		}
-		writeReadyRuntimeResponse(t, w)
-	}))
-	defer server.Close()
+	for _, tc := range []struct {
+		name    string
+		attempt int
+		want    string
+	}{
+		{name: "zero defaults to 1", attempt: 0, want: "1"},
+		{name: "explicit attempt 3", attempt: 3, want: "3"},
+		{name: "explicit attempt 1", attempt: 1, want: "1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got := r.Header.Get("X-AllCallAll-Attempt")
+				if got != tc.want {
+					t.Fatalf("X-AllCallAll-Attempt = %q, want %q", got, tc.want)
+				}
+				writeReadyRuntimeResponse(t, w)
+			}))
+			defer server.Close()
 
-	runtime := NewPythonLangGraphRuntime(server.URL, server.Client())
-	_, err := runtime.RunAgent(context.Background(), minimalRuntimeRequest())
-	if err != nil {
-		t.Fatal(err)
+			runtime := NewPythonLangGraphRuntime(server.URL, server.Client())
+			req := minimalRuntimeRequest()
+			req.Attempt = tc.attempt
+			_, err := runtime.RunAgent(context.Background(), req)
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
