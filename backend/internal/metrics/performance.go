@@ -56,6 +56,34 @@ func BoundedLabel(raw string, allowed map[string]struct{}, fallback string) stri
 	return fallback
 }
 
+// delta computes the non-negative increment for an external cumulative counter.
+// prev is a map from label key to the previous observed value; current is the
+// new snapshot value.
+//
+// First-snapshot behavior: if prev[key] does not exist, delta stores current as
+// the baseline and returns 0.  The Counter therefore starts at zero and only
+// increments on the second and subsequent snapshots, avoiding a false
+// full-history jump on process start.
+//
+// Reset behavior: if current < prev[key], the external accumulator has reset
+// (e.g., Redis server restart).  delta treats the new value as the amount
+// accumulated since the reset and returns current.  prev[key] is updated to
+// current so subsequent deltas are computed against the new baseline.
+func delta(prev map[string]float64, key string, current float64) float64 {
+	p, ok := prev[key]
+	prev[key] = current
+	if !ok {
+		// First observation: record baseline, emit nothing.
+		return 0
+	}
+	if current < p {
+		// External accumulator reset.  Emit the value accumulated since
+		// the reset (treat as if prev was zero).
+		return current
+	}
+	return current - p
+}
+
 // PerformanceCollectors holds all backend-pressure Prometheus metrics.  Use
 // NewPerformanceCollectors to create an instance with constructor injection
 // (for tests), or the package-level functions to record through the
@@ -72,12 +100,22 @@ type PerformanceCollectors struct {
 	agentCtxUsedTok  prometheus.Gauge
 	dependencyDur    *prometheus.HistogramVec
 	sqlDBConns       *prometheus.GaugeVec
-	sqlDBWaitCount   *prometheus.GaugeVec
+	sqlDBWaitCount   *prometheus.CounterVec
 	redisPoolConns   *prometheus.GaugeVec
-	redisPoolWait    *prometheus.GaugeVec
-	redisPoolHits    *prometheus.GaugeVec
-	redisPoolTimeout *prometheus.GaugeVec
-	redisPoolStale   *prometheus.GaugeVec
+	redisPoolWait    *prometheus.CounterVec
+	redisPoolHits    *prometheus.CounterVec
+	redisPoolTimeout *prometheus.CounterVec
+	redisPoolStale   *prometheus.CounterVec
+
+	// prevMu protects the previous-value maps used for delta tracking on
+	// cumulative external counters (the CounterVec fields above).  Each map
+	// stores the last observed absolute value keyed by the bounded pool name.
+	prevMu              sync.Mutex
+	prevSQLWaitCount    map[string]float64
+	prevRedisMisses     map[string]float64
+	prevRedisHits       map[string]float64
+	prevRedisTimeouts   map[string]float64
+	prevRedisStaleConns map[string]float64
 }
 
 // NewPerformanceCollectors creates and registers all backend-pressure metrics
@@ -136,30 +174,35 @@ func NewPerformanceCollectors(registerer prometheus.Registerer) *PerformanceColl
 			Name: "sql_db_connections",
 			Help: "Current SQL database connection pool statistics.",
 		}, []string{"pool", "state"}),
-		sqlDBWaitCount: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		sqlDBWaitCount: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "sql_db_wait_count_total",
-			Help: "Cumulative count of connection wait events in the SQL database pool.",
+			Help: "Cumulative count of connection wait events in the SQL database pool, exported as delta Counter.",
 		}, []string{"pool"}),
 		redisPoolConns: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "redis_pool_connections",
 			Help: "Current Redis connection pool statistics.",
 		}, []string{"pool", "state"}),
-		redisPoolWait: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		redisPoolWait: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "redis_pool_wait_total",
-			Help: "Cumulative count of connection pool waits (misses) in the Redis pool.",
+			Help: "Cumulative count of connection pool waits (Misses in go-redis PoolStats), exported as delta Counter.",
 		}, []string{"pool"}),
-		redisPoolHits: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		redisPoolHits: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "redis_pool_hits_total",
-			Help: "Cumulative count of connection pool hits in the Redis pool.",
+			Help: "Cumulative count of connection pool hits in the Redis pool, exported as delta Counter.",
 		}, []string{"pool"}),
-		redisPoolTimeout: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		redisPoolTimeout: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "redis_pool_timeouts_total",
-			Help: "Cumulative count of connection pool timeout events in the Redis pool.",
+			Help: "Cumulative count of connection pool timeout events in the Redis pool, exported as delta Counter.",
 		}, []string{"pool"}),
-		redisPoolStale: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		redisPoolStale: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "redis_pool_stale_total",
-			Help: "Cumulative count of stale connections removed from the Redis pool.",
+			Help: "Cumulative count of stale connections removed from the Redis pool, exported as delta Counter.",
 		}, []string{"pool"}),
+		prevSQLWaitCount:    make(map[string]float64),
+		prevRedisMisses:     make(map[string]float64),
+		prevRedisHits:       make(map[string]float64),
+		prevRedisTimeouts:   make(map[string]float64),
+		prevRedisStaleConns: make(map[string]float64),
 	}
 
 	registerer.MustRegister(
@@ -229,17 +272,48 @@ func (pc *PerformanceCollectors) ObserveDependency(service, operation, status st
 }
 
 // UpdateSQLDBStats pushes a snapshot of sql.DBStats into the Prometheus
-// gauges.  pool is bounded to allowedPoolNames.
+// metrics.  pool is bounded to allowedPoolNames.
+//
+// Connection counts (open, in_use, idle) are current-level gauges.
+// WaitCount is a cumulative counter from the driver; this method computes the
+// delta since the last snapshot and adds it to the CounterVec, so the
+// Prometheus counter only increases and rate() works correctly across process
+// restarts.
+//
+// First-snapshot behavior: WaitCount is recorded as the baseline but no
+// counter increment is emitted, so the Counter starts at zero.
+// Reset behavior: if the new WaitCount is lower than the previous value
+// (driver pool was recreated), the new value is emitted as the delta.
 func (pc *PerformanceCollectors) UpdateSQLDBStats(pool string, stats sql.DBStats) {
 	p := BoundedLabel(pool, allowedPoolNames, "other")
 	pc.sqlDBConns.WithLabelValues(p, "open").Set(float64(stats.OpenConnections))
 	pc.sqlDBConns.WithLabelValues(p, "in_use").Set(float64(stats.InUse))
 	pc.sqlDBConns.WithLabelValues(p, "idle").Set(float64(stats.Idle))
-	pc.sqlDBWaitCount.WithLabelValues(p).Set(float64(stats.WaitCount))
+
+	pc.prevMu.Lock()
+	d := delta(pc.prevSQLWaitCount, p, float64(stats.WaitCount))
+	pc.prevMu.Unlock()
+	if d > 0 {
+		pc.sqlDBWaitCount.WithLabelValues(p).Add(d)
+	}
 }
 
 // UpdateRedisPoolStats pushes a snapshot of redis.PoolStats into the Prometheus
-// gauges.  Nil stats is a no-op.  pool is bounded to allowedPoolNames.
+// metrics.  Nil stats is a no-op.  pool is bounded to allowedPoolNames.
+//
+// Connection counts (total, idle, active) are current-level gauges.
+// Misses, Hits, Timeouts, and StaleConns are cumulative counters from the
+// go-redis pool; this method computes deltas since the last snapshot and adds
+// them to CounterVecs, so the Prometheus counters only increase and rate()
+// works correctly across process restarts.
+//
+// redis_pool_wait_total is sourced from PoolStats.Misses (the count of times
+// a free connection was NOT found in the pool, which is when callers wait).
+//
+// First-snapshot behavior: values are recorded as baselines but no counter
+// increments are emitted.
+// Reset behavior: if a new value is lower than the previous value (Redis server
+// restarted and counters reset), the new value is emitted as the delta.
 func (pc *PerformanceCollectors) UpdateRedisPoolStats(pool string, stats *redis.PoolStats) {
 	if stats == nil {
 		return
@@ -248,10 +322,26 @@ func (pc *PerformanceCollectors) UpdateRedisPoolStats(pool string, stats *redis.
 	pc.redisPoolConns.WithLabelValues(p, "total").Set(float64(stats.TotalConns))
 	pc.redisPoolConns.WithLabelValues(p, "idle").Set(float64(stats.IdleConns))
 	pc.redisPoolConns.WithLabelValues(p, "active").Set(float64(stats.TotalConns - stats.IdleConns))
-	pc.redisPoolWait.WithLabelValues(p).Set(float64(stats.Misses))
-	pc.redisPoolHits.WithLabelValues(p).Set(float64(stats.Hits))
-	pc.redisPoolTimeout.WithLabelValues(p).Set(float64(stats.Timeouts))
-	pc.redisPoolStale.WithLabelValues(p).Set(float64(stats.StaleConns))
+
+	pc.prevMu.Lock()
+	dw := delta(pc.prevRedisMisses, p, float64(stats.Misses))
+	dh := delta(pc.prevRedisHits, p, float64(stats.Hits))
+	dt := delta(pc.prevRedisTimeouts, p, float64(stats.Timeouts))
+	ds := delta(pc.prevRedisStaleConns, p, float64(stats.StaleConns))
+	pc.prevMu.Unlock()
+
+	if dw > 0 {
+		pc.redisPoolWait.WithLabelValues(p).Add(dw)
+	}
+	if dh > 0 {
+		pc.redisPoolHits.WithLabelValues(p).Add(dh)
+	}
+	if dt > 0 {
+		pc.redisPoolTimeout.WithLabelValues(p).Add(dt)
+	}
+	if ds > 0 {
+		pc.redisPoolStale.WithLabelValues(p).Add(ds)
+	}
 }
 
 // --- Package-level functions (process-default collector) ---------------------
