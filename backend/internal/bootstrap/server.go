@@ -98,6 +98,9 @@ func RunServer(ctx context.Context, cfg *config.Config, appLogger zerolog.Logger
 		}
 	}()
 
+	// Start Redis pool metrics sampler with the root lifecycle context.
+	cache.StartRedisPoolMetrics(rootCtx, redisClient, 15*time.Second)
+
 	rateLimitSvc := ratelimit.NewService(redisClient)
 	// Coarse global per-client rate limit across all non-health endpoints.
 	engine.Use(server.GlobalRateLimit(rateLimitSvc))

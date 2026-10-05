@@ -60,3 +60,57 @@ offer/answer only covers the tracks that existed at join time.
   a single re-offer and replays any change that arrives while one is in flight,
   so renegotiation never deadlocks under rapid join/leave churn.
 - Capacities are enforced by `ROOM_MAX_PARTICIPANTS` above.
+
+
+## Database
+
+### Pool configuration
+
+All pool values are **per-process**: each API server, agent worker, or embedded
+worker process opens its own connection pool. When running multiple pods, the
+total open connections must not exceed the MySQL server's connection budget
+after reserving connections for operational use (replication, monitoring,
+admin sessions).
+
+```text
+sum(max_open_connections across pods)
+  <= database connection budget after operational reserve
+```
+
+For example, with `max_open_conns: 50` and 4 API pods plus 2 agent-worker
+pods, the cluster opens at most 300 connections. If MySQL's `max_connections`
+is 500, the remaining 200 connections serve replication, monitoring, and
+operational queries.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `max_open_conns` | 200 | Maximum open connections per process. |
+| `max_idle_conns` | 50 | Maximum idle connections in the pool. |
+| `conn_max_lifetime` | 10m | Maximum time a connection may be reused. |
+| `conn_max_idle_time` | 5m | Maximum time an idle connection remains in the pool. |
+| `log_level` | warn | GORM log level: silent, error, warn, or info. |
+
+### Deprecated keys
+
+- `conn_max_lifetime_minutes` is deprecated. Use `conn_max_lifetime` with a
+  duration string (e.g., `30m`). The deprecated key is applied only when
+  `conn_max_lifetime` is absent or zero.
+
+### `DB_LOG_LEVEL`
+
+Environment variable override for `database.log_level`. Production and beta
+environments default to `warn`; development defaults to `info`.
+
+## Redis
+
+### Pool configuration
+
+Redis pool values are also per-process. The same cluster connection-budget
+equation applies: the sum of `pool_size` across all pods must not exceed the
+Redis server's `maxclients` after reserving connections for replication,
+sentinel, and operational use.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `pool_size` | 500 | Maximum connections in the Redis pool per process. |
+| `min_idle_conns` | 50 | Minimum idle connections maintained in the pool. |

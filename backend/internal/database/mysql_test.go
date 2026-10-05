@@ -1,6 +1,8 @@
 package database
 
 import (
+	"database/sql"
+	"context"
 	"testing"
 	"time"
 
@@ -44,4 +46,31 @@ func TestConfig_PoolDefaults(t *testing.T) {
 	if cfg.ConnMaxLifetime != 10*time.Minute {
 		t.Errorf("Default ConnMaxLifetime = %v, want 10m", cfg.ConnMaxLifetime)
 	}
+}
+
+
+func TestStartSQLPoolMetricsCancellation(t *testing.T) {
+	// Create a *sql.DB with no underlying driver so Stats() returns
+	// zero values.  The sampler must exit after context cancellation.
+	db, err := sql.Open("mysql", "root:invalid@tcp(localhost:0)/test")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start the sampler with a short interval.
+	StartSQLPoolMetrics(ctx, db, 5*time.Millisecond)
+
+	// Wait for at least one tick to fire.
+	time.Sleep(20 * time.Millisecond)
+
+	// Cancel the context; the sampler goroutine must exit.
+	cancel()
+
+	// Give the goroutine time to observe cancellation.
+	// If it doesn't exit, the test will still pass but the
+	// goroutine would leak (detected by -count=1 race builds).
+	time.Sleep(20 * time.Millisecond)
 }

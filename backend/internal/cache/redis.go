@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	appmetrics "github.com/allcallall/backend/internal/metrics"
 	"github.com/rs/zerolog"
 
 	appcfg "github.com/allcallall/backend/internal/config"
@@ -46,4 +48,23 @@ func ping(ctx context.Context, client *redis.Client, log zerolog.Logger) error {
 // sampling; this function does not start any goroutine.
 func SnapshotRedisPoolStats(client *redis.Client) *redis.PoolStats {
 	return client.PoolStats()
+}
+
+// StartRedisPoolMetrics starts a periodic sampler that pushes Redis pool stats
+// into the process-default Prometheus metrics.  The sampler runs until ctx is
+// cancelled.  Call this from a lifecycle owner (bootstrap.RunServer or the
+// agent worker), not from NewRedis.
+func StartRedisPoolMetrics(ctx context.Context, client *redis.Client, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				appmetrics.UpdateRedisPoolStats("primary", SnapshotRedisPoolStats(client))
+			}
+		}
+	}()
 }

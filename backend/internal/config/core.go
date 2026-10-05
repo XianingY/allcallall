@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	gormlogger "gorm.io/gorm/logger"
 )
 
 // Config 应用总配置结构
@@ -54,11 +56,13 @@ type ServerConfig struct {
 // DatabaseConfig MySQL 配置
 // DatabaseConfig holds MySQL connection settings.
 type DatabaseConfig struct {
-	DSN             string        `yaml:"dsn" env:"DB_DSN"`
-	MaxOpenConns    int           `yaml:"max_open_conns" env:"DB_MAX_OPEN_CONNS"`
-	MaxIdleConns    int           `yaml:"max_idle_conns" env:"DB_MAX_IDLE_CONNS"`
-	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime" env:"DB_CONN_MAX_LIFETIME"`
-	ConnMaxIdleTime time.Duration `yaml:"conn_max_idle_time" env:"DB_CONN_MAX_IDLE_TIME"`
+	DSN                       string        `yaml:"dsn" env:"DB_DSN"`
+	MaxOpenConns              int           `yaml:"max_open_conns" env:"DB_MAX_OPEN_CONNS"`
+	MaxIdleConns              int           `yaml:"max_idle_conns" env:"DB_MAX_IDLE_CONNS"`
+	ConnMaxLifetime           time.Duration `yaml:"conn_max_lifetime" env:"DB_CONN_MAX_LIFETIME"`
+	DeprecatedLifetimeMinutes int           `yaml:"conn_max_lifetime_minutes"`
+	ConnMaxIdleTime           time.Duration `yaml:"conn_max_idle_time" env:"DB_CONN_MAX_IDLE_TIME"`
+	LogLevel                  string        `yaml:"log_level" env:"DB_LOG_LEVEL"`
 }
 
 func (c *DatabaseConfig) ApplyDefaults() {
@@ -68,11 +72,40 @@ func (c *DatabaseConfig) ApplyDefaults() {
 	if c.MaxIdleConns == 0 {
 		c.MaxIdleConns = 50
 	}
+	// DeprecatedLifetimeMinutes applies only when ConnMaxLifetime is absent/zero.
+	// conn_max_lifetime_minutes is deprecated in favour of conn_max_lifetime.
+	if c.ConnMaxLifetime == 0 && c.DeprecatedLifetimeMinutes > 0 {
+		c.ConnMaxLifetime = time.Duration(c.DeprecatedLifetimeMinutes) * time.Minute
+	}
 	if c.ConnMaxLifetime == 0 {
 		c.ConnMaxLifetime = 10 * time.Minute
 	}
 	if c.ConnMaxIdleTime == 0 {
 		c.ConnMaxIdleTime = 5 * time.Minute
+	}
+	if c.LogLevel == "" {
+		c.LogLevel = "warn"
+	}
+}
+
+// ParseGORMLogLevel converts a config log-level string to a GORM logger level.
+// Production/beta defaults to warn; development defaults to info.
+// Unknown values fall back to warn in production and info otherwise.
+func ParseGORMLogLevel(raw string, production bool) gormlogger.LogLevel {
+	switch raw {
+	case "silent", "none", "off":
+		return gormlogger.Silent
+	case "error", "err":
+		return gormlogger.Error
+	case "warn", "warning":
+		return gormlogger.Warn
+	case "info":
+		return gormlogger.Info
+	default:
+		if production {
+			return gormlogger.Warn
+		}
+		return gormlogger.Info
 	}
 }
 
@@ -147,6 +180,9 @@ func (c *Config) applyInfrastructureDefaults() {
 	// Support environment variables override database config
 	if dbDSN := os.Getenv("DB_DSN"); dbDSN != "" {
 		c.Database.DSN = dbDSN
+	}
+	if dbLogLevel := os.Getenv("DB_LOG_LEVEL"); dbLogLevel != "" {
+		c.Database.LogLevel = dbLogLevel
 	}
 
 	// 支持环境变量覆盖 Redis 配置

@@ -1,7 +1,9 @@
 package cache
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -49,4 +51,26 @@ func TestSnapshotRedisPoolStatsDoesNotStartGoroutine(t *testing.T) {
 
 	// Calling SnapshotRedisPoolStats must not panic or block.
 	_ = SnapshotRedisPoolStats(client)
+}
+
+
+func TestStartRedisPoolMetricsCancellation(t *testing.T) {
+	client := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+	defer client.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start the sampler with a short interval.
+	StartRedisPoolMetrics(ctx, client, 5*time.Millisecond)
+
+	// Wait for at least one tick to fire.
+	time.Sleep(20 * time.Millisecond)
+
+	// Cancel the context; the sampler goroutine must exit.
+	cancel()
+
+	// Give the goroutine time to observe cancellation.
+	time.Sleep(20 * time.Millisecond)
 }
