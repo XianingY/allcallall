@@ -172,11 +172,12 @@ func buildWorkflowRuntimeRequest(run models.WorkflowRun, conversationCtx *conver
 			models.WorkflowTaskSearcher:    3,
 			models.WorkflowTaskRiskAnalyst: 2,
 		},
-		AgenticRAG: workflowRuntimeAgenticRAGFromEnv(),
+		AgenticRAG:      workflowRuntimeAgenticRAGFromEnv(),
 	}
 	if conversationCtx == nil {
 		return request
 	}
+	request.ContextManifest = &conversationCtx.Manifest
 	for _, message := range conversationCtx.Messages {
 		request.Messages = append(request.Messages, WorkflowRuntimeMessage{
 			ID:        message.ID,

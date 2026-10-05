@@ -134,3 +134,61 @@ func TestValidateResumedWorkflowRuntimeResponseRequiresExactDecisions(t *testing
 		t.Fatal("expected modified runtime decision to be rejected")
 	}
 }
+
+
+func TestWorkflowRuntimeRequestContextManifestOptional(t *testing.T) {
+	// context_manifest is optional and should not break older Python runtimes.
+	request := WorkflowRuntimeRequest{
+		OrganizationID: 1,
+		UserID:         2,
+		ConversationID: 3,
+		WorkflowRunID:  4,
+		Preset:         "meeting_brief",
+		Goal:           "test",
+	}
+	data, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), "context_manifest") {
+		t.Fatalf("context_manifest should be omitted when nil, got: %s", string(data))
+	}
+
+	// When set, it should be included.
+	manifest := &ContextManifest{
+		Selected:        map[string]int{"messages": 5, "notes": 2},
+		Truncated:       []string{"meeting_transcript_segments"},
+		SerializedBytes: 1024,
+		EstimatedTokens: 256,
+		SQLStatements:   5,
+	}
+	request.ContextManifest = manifest
+	data, err = json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal with manifest: %v", err)
+	}
+	if !strings.Contains(string(data), "context_manifest") {
+		t.Fatalf("context_manifest should be present when set, got: %s", string(data))
+	}
+
+	// Decoding should work with or without context_manifest.
+	var decoded WorkflowRuntimeRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.ContextManifest == nil {
+		t.Fatal("expected non-nil ContextManifest after unmarshal")
+	}
+	if decoded.ContextManifest.SerializedBytes != 1024 {
+		t.Fatalf("expected serialized_bytes=1024, got %d", decoded.ContextManifest.SerializedBytes)
+	}
+	if decoded.ContextManifest.EstimatedTokens != 256 {
+		t.Fatalf("expected estimated_tokens=256, got %d", decoded.ContextManifest.EstimatedTokens)
+	}
+	if decoded.ContextManifest.SQLStatements != 5 {
+		t.Fatalf("expected sql_statements=5, got %d", decoded.ContextManifest.SQLStatements)
+	}
+	if len(decoded.ContextManifest.Truncated) != 1 || decoded.ContextManifest.Truncated[0] != "meeting_transcript_segments" {
+		t.Fatalf("expected truncated=[meeting_transcript_segments], got %v", decoded.ContextManifest.Truncated)
+	}
+}

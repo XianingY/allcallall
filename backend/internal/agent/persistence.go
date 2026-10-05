@@ -2,129 +2,37 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"time"
-
-	"gorm.io/gorm"
 
 	"github.com/allcallall/backend/internal/models"
 )
 
 func (s *Service) loadConversationContext(ctx context.Context, organizationID, userID, conversationID uint64, goal string) (*conversationContext, error) {
-	var conv models.Conversation
-	if err := s.db.WithContext(ctx).Where("organization_id = ? AND id = ?", organizationID, conversationID).Take(&conv).Error; err != nil {
+	start := time.Now()
+	budget := ContextBudgetFromEnv()
+	repo := contextRepository{db: s.db}
+	conversationCtx, queryCount, err := repo.LoadBase(ctx, organizationID, userID, conversationID, budget)
+	if err != nil {
 		return nil, err
 	}
-	var notes []models.ConversationNote
-	if err := s.db.WithContext(ctx).
-		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
-		Order("created_at DESC").
-		Limit(20).
-		Find(&notes).Error; err != nil {
-		return nil, err
-	}
-	var messages []models.Message
-	if err := s.db.WithContext(ctx).
-		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
-		Order("created_at DESC").
-		Limit(50).
-		Find(&messages).Error; err != nil {
-		return nil, err
-	}
-	// 消息正文在库中是密文，装入 Agent 上下文前必须解密；
-	// 解密失败时置空而不是把密文塞进 LLM prompt（fail-closed）。
-	// Bodies are ciphertext at rest; decrypt before building LLM context, fail closed on error.
-	decryptMessageBodies(messages)
-	var rooms []models.CallRoom
-	if err := s.db.WithContext(ctx).
-		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
-		Order("created_at DESC").
-		Limit(3).
-		Find(&rooms).Error; err != nil {
-		return nil, err
-	}
-	var memories []models.AgentMemory
-	if err := s.db.WithContext(ctx).
-		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
-		Order("updated_at DESC").
-		Limit(10).
-		Find(&memories).Error; err != nil {
-		return nil, err
-	}
-	var members []models.ConversationMember
-	if err := s.db.WithContext(ctx).
-		Where("conversation_id = ?", conversationID).
-		Order("id ASC").
-		Find(&members).Error; err != nil {
-		return nil, err
-	}
-	callIDs := extractCallIDsFromMessages(messages)
-	var followups []models.CallFollowup
-	if len(callIDs) > 0 {
-		if err := s.db.WithContext(ctx).
-			Where("call_id IN ? AND (organization_id = ? OR organization_id = 0)", callIDs, organizationID).
-			Order("generated_at DESC, updated_at DESC").
-			Limit(10).
-			Find(&followups).Error; err != nil {
-			return nil, err
-		}
-	}
-	var transcriptSegments []models.CallTranscriptSegment
-	if len(callIDs) > 0 {
-		if err := s.db.WithContext(ctx).
-			Where("call_id IN ?", callIDs).
-			Order("timestamp_ms DESC, created_at DESC").
-			Limit(40).
-			Find(&transcriptSegments).Error; err != nil {
-			return nil, err
-		}
-	}
-	var meetingTranscriptSegments []models.MeetingTranscriptSegment
-	if err := s.db.WithContext(ctx).
-		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
-		Order("recording_session_id DESC, start_ms ASC, created_at DESC").
-		Limit(80).
-		Find(&meetingTranscriptSegments).Error; err != nil {
-		return nil, err
-	}
-	var latestRecordingTranscription models.RecordingTranscription
-	_ = s.db.WithContext(ctx).
-		Where("organization_id = ? AND conversation_id = ?", organizationID, conversationID).
-		Order("recording_session_id DESC, updated_at DESC").
-		Take(&latestRecordingTranscription).Error
-	var contactProfile *models.ContactProfile
-	if conv.ContactID != nil && *conv.ContactID != 0 {
-		var profile models.ContactProfile
-		if err := s.db.WithContext(ctx).
-			Where("organization_id = ? AND owner_id = ? AND contact_user_id = ?", organizationID, userID, *conv.ContactID).
-			Take(&profile).Error; err == nil {
-			contactProfile = &profile
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, err
-		}
-	}
-	conversationCtx := &conversationContext{
-		Conversation:              conv,
-		Notes:                     notes,
-		Messages:                  messages,
-		Rooms:                     rooms,
-		Members:                   members,
-		Memories:                  memories,
-		Followups:                 followups,
-		TranscriptSegments:        transcriptSegments,
-		MeetingTranscriptSegments: meetingTranscriptSegments,
-		ContactProfile:            contactProfile,
-	}
-	conversationCtx.MeetingContext = buildMeetingContextSummary(conversationCtx.TranscriptSegments, conversationCtx.Followups, conversationCtx.MeetingTranscriptSegments, latestRecordingTranscription)
-	prioritizeMeetingConversationArtifacts(conversationCtx)
+	conversationCtx.Manifest.SQLStatements = queryCount
+
 	if err := s.refreshConversationContextChunks(ctx, conversationCtx); err != nil {
 		return nil, err
 	}
-	contextChunks, err := s.retrieveConversationContextChunks(ctx, conversationCtx, goal, defaultContextChunkLimit)
+	contextChunks, err := s.retrieveConversationContextChunks(ctx, conversationCtx, goal, budget.Chunks)
 	if err != nil {
 		return nil, err
 	}
 	conversationCtx.ContextChunks = contextChunks
+	conversationCtx.Manifest.Selected["chunks"] = len(contextChunks)
+
+	// Apply byte/token budget trimming.
+	applyContextBudget(conversationCtx, budget)
+
+	// Record metrics through Task 1 instrumentation.
+	observeContextAssembly(start, conversationCtx.Manifest, budget)
+
 	return conversationCtx, nil
 }
 
@@ -159,13 +67,12 @@ func (s *Service) recordContextToolCalls(ctx context.Context, run models.AgentRu
 		InputJSON: mustJSONString(map[string]any{"conversation_id": run.ConversationID, "limit": 3}),
 		OutputJSON: mustJSONString(map[string]any{
 			"rooms": rooms,
-			"count": len(rooms),
+			"count": len(conversationCtx.Rooms),
 		}),
 	}); err != nil {
 		return count, err
 	}
 	count++
-
 	peerIDs := make([]uint64, 0, len(conversationCtx.Members))
 	for _, member := range conversationCtx.Members {
 		if member.UserID != run.UserID {
@@ -185,24 +92,23 @@ func (s *Service) recordContextToolCalls(ctx context.Context, run models.AgentRu
 		return count, err
 	}
 	count++
+
+	// Contact profile: use the already-loaded profile from LoadBase instead of
+	// querying the database again. Distinguish skipped/not_found/found via
+	// ContactProfileLookupAttempted and ContactProfile.
 	contactOutput := map[string]any{"status": "skipped", "reason": "conversation has no contact_id"}
-	if conversationCtx.Conversation.ContactID != nil && *conversationCtx.Conversation.ContactID != 0 {
-		var profile models.ContactProfile
-		if err := s.db.WithContext(ctx).
-			Where("organization_id = ? AND owner_id = ? AND contact_user_id = ?", run.OrganizationID, run.UserID, *conversationCtx.Conversation.ContactID).
-			Take(&profile).Error; err == nil {
+	if conversationCtx.ContactProfileLookupAttempted {
+		if conversationCtx.ContactProfile != nil {
 			contactOutput = map[string]any{
 				"status":              "found",
-				"contact_user_id":     profile.ContactUserID,
-				"company":             profile.Company,
-				"role":                profile.Role,
-				"timezone":            profile.Timezone,
-				"relationship_status": profile.RelationshipStatus,
+				"contact_user_id":     conversationCtx.ContactProfile.ContactUserID,
+				"company":             conversationCtx.ContactProfile.Company,
+				"role":                conversationCtx.ContactProfile.Role,
+				"timezone":            conversationCtx.ContactProfile.Timezone,
+				"relationship_status": conversationCtx.ContactProfile.RelationshipStatus,
 			}
-		} else if errors.Is(err, gorm.ErrRecordNotFound) {
+		} else if conversationCtx.Conversation.ContactID != nil {
 			contactOutput = map[string]any{"status": "not_found", "contact_user_id": *conversationCtx.Conversation.ContactID}
-		} else {
-			return count, err
 		}
 	}
 	if err := s.recordToolCall(ctx, models.AgentToolCall{

@@ -64,6 +64,7 @@ type WorkflowRuntimeRequest struct {
 	ToolPolicy         WorkflowRuntimeToolPolicy     `json:"tool_policy"`
 	MaxIterations      map[string]int                `json:"max_iterations"`
 	AgenticRAG         WorkflowRuntimeAgenticRAG     `json:"agentic_rag,omitempty"`
+	ContextManifest    *ContextManifest              `json:"context_manifest,omitempty"`
 }
 
 type WorkflowRuntimeMessage struct {

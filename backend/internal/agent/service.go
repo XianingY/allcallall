@@ -102,9 +102,11 @@ type conversationContext struct {
 	Followups                 []models.CallFollowup
 	TranscriptSegments        []models.CallTranscriptSegment
 	MeetingTranscriptSegments []models.MeetingTranscriptSegment
-	ContactProfile            *models.ContactProfile
-	ContextChunks             []RetrievedContextChunk
-	MeetingContext            meetingContextSummary
+	ContactProfile                 *models.ContactProfile
+	ContactProfileLookupAttempted bool
+	ContextChunks                  []RetrievedContextChunk
+	MeetingContext                 meetingContextSummary
+	Manifest                       ContextManifest
 }
 
 type meetingContextSummary struct {
