@@ -113,7 +113,7 @@ func (r contextRepository) LoadBase(ctx context.Context, organizationID, userID,
 				"memories":                    len(memories),
 				"rooms":                       len(rooms),
 				"followups":                   len(followups),
-				"call_transcript_segments":     len(callTranscriptSegments),
+				"call_transcript_segments":    len(callTranscriptSegments),
 				"meeting_transcript_segments": len(meetingTranscriptSegments),
 				"members":                     len(members),
 			},
@@ -154,6 +154,15 @@ type conversationProfileRow struct {
 	ProfileNote              sql.NullString
 	ProfileCreatedAt         sql.NullTime
 	ProfileUpdatedAt         sql.NullTime
+}
+
+// profileUint64 converts a non-negative contact-profile database ID to the
+// model's unsigned representation. Invalid and negative values become zero.
+func profileUint64(value sql.NullInt64) uint64 {
+	if !value.Valid || value.Int64 < 0 {
+		return 0
+	}
+	return uint64(value.Int64) // #nosec G115 -- guarded non-negative database ID
 }
 
 // loadConversationWithProfile loads the conversation and its optional contact
@@ -200,10 +209,10 @@ func (r contextRepository) loadConversationWithProfile(ctx context.Context, orga
 	var profile *models.ContactProfile
 	if row.ProfileID.Valid && row.ProfileID.Int64 != 0 {
 		profile = &models.ContactProfile{
-			ID:                    uint64(row.ProfileID.Int64),
-			OrganizationID:        uint64(row.ProfileOrganizationID.Int64),
-			OwnerID:               uint64(row.ProfileOwnerID.Int64),
-			ContactUserID:         uint64(row.ProfileContactUserID.Int64),
+			ID:                    profileUint64(row.ProfileID),
+			OrganizationID:        profileUint64(row.ProfileOrganizationID),
+			OwnerID:               profileUint64(row.ProfileOwnerID),
+			ContactUserID:         profileUint64(row.ProfileContactUserID),
 			Company:               row.ProfileCompany.String,
 			Role:                  row.ProfileRole.String,
 			Timezone:              row.ProfileTimezone.String,
@@ -253,9 +262,9 @@ type taggedArtifactRow struct {
 	Status    string
 	CreatedBy uint64
 	// Followup fields
-	CallID     string
-	PeerUserID uint64
-	SummaryEN  string
+	CallID      string
+	PeerUserID  uint64
+	SummaryEN   string
 	GeneratedAt sql.NullTime
 }
 
@@ -295,10 +304,10 @@ func (r contextRepository) loadTaggedArtifactsUnion(ctx context.Context, organiz
 	)
 
 	var args []any
-	args = append(args, organizationID, conversationID)   // notes
-	args = append(args, organizationID, conversationID)   // memories
-	args = append(args, organizationID, conversationID)   // rooms
-	args = append(args, followupArgs...)                   // followups
+	args = append(args, organizationID, conversationID) // notes
+	args = append(args, organizationID, conversationID) // memories
+	args = append(args, organizationID, conversationID) // rooms
+	args = append(args, followupArgs...)                // followups
 
 	var rows []taggedArtifactRow
 	if err := r.db.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
@@ -354,7 +363,13 @@ func (r contextRepository) loadTaggedArtifactsUnion(ctx context.Context, organiz
 				CallID:         row.CallID,
 				PeerUserID:     row.PeerUserID,
 				SummaryEN:      row.SummaryEN,
-				GeneratedAt:    func() *time.Time { if row.GeneratedAt.Valid { t := row.GeneratedAt.Time; return &t }; return nil }(),
+				GeneratedAt: func() *time.Time {
+					if row.GeneratedAt.Valid {
+						t := row.GeneratedAt.Time
+						return &t
+					}
+					return nil
+				}(),
 			})
 		}
 	}
@@ -370,13 +385,13 @@ type transcriptArtifactRow struct {
 	Content string
 	SortKey string
 	// Call transcript fields
-	CallID     string
-	UserID     uint64
-	PeerUserID uint64
-	FromEmail  string
-	ToEmail    string
-	SourceLang string
-	TargetLang string
+	CallID      string
+	UserID      uint64
+	PeerUserID  uint64
+	FromEmail   string
+	ToEmail     string
+	SourceLang  string
+	TargetLang  string
 	TimestampMS int64
 	// Meeting transcript fields
 	OrganizationID     uint64
@@ -421,9 +436,9 @@ func (r contextRepository) loadTranscriptArtifactsUnion(ctx context.Context, org
 	)
 
 	var args []any
-	args = append(args, callArgs...)                     // call transcript segments
-	args = append(args, organizationID, conversationID)  // meeting transcript segments
-	args = append(args, organizationID, conversationID)  // recording transcription
+	args = append(args, callArgs...)                    // call transcript segments
+	args = append(args, organizationID, conversationID) // meeting transcript segments
+	args = append(args, organizationID, conversationID) // recording transcription
 
 	var rows []transcriptArtifactRow
 	if err := r.db.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
@@ -452,7 +467,7 @@ func (r contextRepository) loadTranscriptArtifactsUnion(ctx context.Context, org
 		case 2: // meeting transcript segment
 			speakerUserID := uint64(0)
 			if row.SpeakerUserID.Valid {
-				speakerUserID = uint64(row.SpeakerUserID.Int64)
+				speakerUserID = profileUint64(row.SpeakerUserID)
 			}
 			meetingSegments = append(meetingSegments, models.MeetingTranscriptSegment{
 				ID:                 row.ID,

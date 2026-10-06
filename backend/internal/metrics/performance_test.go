@@ -161,8 +161,8 @@ func TestCumulativeCounterResetHandling(t *testing.T) {
 	assertCounterValue(t, registry, "redis_pool_wait_total", "primary", 20) // 70 - 50
 
 	collectors.UpdateRedisPoolStats("primary", &redis.PoolStats{Misses: 10, Hits: 5, Timeouts: 0, StaleConns: 0}) // reset
-	assertCounterValue(t, registry, "redis_pool_wait_total", "primary", 30) // 20 + 10
-	assertCounterValue(t, registry, "redis_pool_hits_total", "primary", 55) // 50 + 5
+	assertCounterValue(t, registry, "redis_pool_wait_total", "primary", 30)                                       // 20 + 10
+	assertCounterValue(t, registry, "redis_pool_hits_total", "primary", 55)                                       // 50 + 5
 
 	// Timeouts and stale: delta=0 on reset (0 < 8 and 0 < 4, so emit 0; but
 	// we skip Add(0), so counters stay at their previous values).

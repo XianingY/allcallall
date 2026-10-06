@@ -1,11 +1,11 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"fmt"
 	"testing"
 	"time"
 
@@ -599,7 +599,7 @@ func TestParseGORMLogLevel(t *testing.T) {
 	tests := []struct {
 		raw        string
 		production bool
-		want      gormlogger.LogLevel
+		want       gormlogger.LogLevel
 	}{
 		{"silent", false, gormlogger.Silent},
 		{"none", false, gormlogger.Silent},
@@ -609,8 +609,8 @@ func TestParseGORMLogLevel(t *testing.T) {
 		{"warn", false, gormlogger.Warn},
 		{"warning", false, gormlogger.Warn},
 		{"info", false, gormlogger.Info},
-		{"", false, gormlogger.Info},    // unknown defaults to info in dev
-		{"", true, gormlogger.Warn},     // unknown defaults to warn in production
+		{"", false, gormlogger.Info}, // unknown defaults to info in dev
+		{"", true, gormlogger.Warn},  // unknown defaults to warn in production
 		{"unknown", true, gormlogger.Warn},
 		{"unknown", false, gormlogger.Info},
 	}

@@ -200,10 +200,10 @@ func TestPythonRuntimePropagatesAttemptHeader(t *testing.T) {
 
 func TestRuntimeOverloadedError(t *testing.T) {
 	for _, test := range []struct {
-		name        string
-		status      int
-		retryAfter  string
-		wantRetry   time.Duration
+		name       string
+		status     int
+		retryAfter string
+		wantRetry  time.Duration
 	}{
 		{name: "429 with integer retry", status: http.StatusTooManyRequests, retryAfter: "2", wantRetry: 2 * time.Second},
 		{name: "503 with HTTP-date retry", status: http.StatusServiceUnavailable, retryAfter: time.Now().UTC().Add(2 * time.Second).Format(http.TimeFormat), wantRetry: 2 * time.Second},

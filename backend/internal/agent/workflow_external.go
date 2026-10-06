@@ -172,7 +172,7 @@ func buildWorkflowRuntimeRequest(run models.WorkflowRun, conversationCtx *conver
 			models.WorkflowTaskSearcher:    3,
 			models.WorkflowTaskRiskAnalyst: 2,
 		},
-		AgenticRAG:      workflowRuntimeAgenticRAGFromEnv(),
+		AgenticRAG: workflowRuntimeAgenticRAGFromEnv(),
 	}
 	if conversationCtx == nil {
 		return request

@@ -650,13 +650,12 @@ func TestProcessorAggregateOrder(t *testing.T) {
 	// Seed interleaved events for two aggregates.
 	// Aggregate A: events 1, 3, 5 (IDs assigned sequentially)
 	// Aggregate B: events 2, 4, 6
-	var ids []uint64
 	for i := 0; i < 6; i++ {
 		aggID := uint64(1) // aggregate A
 		if i%2 == 1 {
 			aggID = uint64(2) // aggregate B
 		}
-		ev, err := store.Enqueue(context.Background(), EnqueueInput{
+		_, err := store.Enqueue(context.Background(), EnqueueInput{
 			AggregateType:  "test",
 			AggregateID:    aggID,
 			Event:          "test.event",
@@ -666,7 +665,6 @@ func TestProcessorAggregateOrder(t *testing.T) {
 		if err != nil {
 			t.Fatalf("enqueue %d: %v", i, err)
 		}
-		ids = append(ids, ev.ID)
 	}
 
 	// Loop ProcessBatch until all events are processed (ordered claiming
@@ -877,10 +875,7 @@ func TestProcessorLeaseConflictCancelsHandler(t *testing.T) {
 
 	// Wait for the lease refresh to detect the conflict and cancel the handler.
 	deadline := time.After(500 * time.Millisecond)
-	for {
-		if handlerCancelled.Load() {
-			break
-		}
+	for !handlerCancelled.Load() {
 		select {
 		case <-deadline:
 			t.Fatal("handler was not cancelled within timeout after lease conflict")

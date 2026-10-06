@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -73,7 +74,6 @@ type eventResult struct {
 	row        models.EventOutbox
 	outcome    processOutcome
 	handlerErr error // the handler error (nil for success)
-	persistErr error // non-nil only for state-transition database failures
 }
 
 // OrderingKey returns the aggregate ordering key for an outbox row:
@@ -454,9 +454,12 @@ func (p *Processor) dispatchParallel(ctx context.Context, rows []models.EventOut
 
 // shardIndex maps an ordering key to a shard index using FNV-1a hash.
 func shardIndex(key string, shardCount int) int {
+	if shardCount <= 0 || shardCount > math.MaxInt32 {
+		return 0
+	}
 	h := fnv.New32a()
-	h.Write([]byte(key))
-	return int(h.Sum32() % uint32(shardCount))
+	_, _ = h.Write([]byte(key))
+	return int(h.Sum32() % uint32(shardCount)) // #nosec G115 -- shardCount is bounded to int32
 }
 
 // processEventOutcome dispatches a single event to its handler and returns

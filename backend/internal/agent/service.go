@@ -102,20 +102,20 @@ type RunResult struct {
 }
 
 type conversationContext struct {
-	Conversation              models.Conversation
-	Notes                     []models.ConversationNote
-	Messages                  []models.Message
-	Rooms                     []models.CallRoom
-	Members                   []models.ConversationMember
-	Memories                  []models.AgentMemory
-	Followups                 []models.CallFollowup
-	TranscriptSegments        []models.CallTranscriptSegment
-	MeetingTranscriptSegments []models.MeetingTranscriptSegment
-	ContactProfile                 *models.ContactProfile
+	Conversation                  models.Conversation
+	Notes                         []models.ConversationNote
+	Messages                      []models.Message
+	Rooms                         []models.CallRoom
+	Members                       []models.ConversationMember
+	Memories                      []models.AgentMemory
+	Followups                     []models.CallFollowup
+	TranscriptSegments            []models.CallTranscriptSegment
+	MeetingTranscriptSegments     []models.MeetingTranscriptSegment
+	ContactProfile                *models.ContactProfile
 	ContactProfileLookupAttempted bool
-	ContextChunks                  []RetrievedContextChunk
-	MeetingContext                 meetingContextSummary
-	Manifest                       ContextManifest
+	ContextChunks                 []RetrievedContextChunk
+	MeetingContext                meetingContextSummary
+	Manifest                      ContextManifest
 }
 
 type meetingContextSummary struct {

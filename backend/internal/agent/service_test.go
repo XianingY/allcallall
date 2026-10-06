@@ -1094,7 +1094,6 @@ func TestRunConversationAssistantRejectsNonMember(t *testing.T) {
 	}
 }
 
-
 func TestLoadConversationContextPopulatesManifestAndProfileFlag(t *testing.T) {
 	svc, db, _ := newAgentServiceTestEnv(t)
 	conversation := seedAgentConversation(t, db)

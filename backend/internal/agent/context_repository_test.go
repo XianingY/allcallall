@@ -160,7 +160,6 @@ func TestContextRepositoryLoadBaseReturnsContext(t *testing.T) {
 	}
 }
 
-
 func TestContextRepositoryLoadBasePreservesRoomConversationID(t *testing.T) {
 	repo, db := newContextRepositoryTestEnv(t)
 	conv, userID := seedContextConversation(t, db)
@@ -291,11 +290,11 @@ func TestContextRepositoryLoadBaseContactProfileFound(t *testing.T) {
 
 	contactID := uint64(42)
 	if err := db.Create(&models.ContactProfile{
-		OrganizationID:    conv.OrganizationID,
-		OwnerID:           userID,
-		ContactUserID:     contactID,
-		Company:           "Test Corp",
-		Role:              "Engineer",
+		OrganizationID:     conv.OrganizationID,
+		OwnerID:            userID,
+		ContactUserID:      contactID,
+		Company:            "Test Corp",
+		Role:               "Engineer",
 		RelationshipStatus: "active",
 	}).Error; err != nil {
 		t.Fatalf("create contact profile: %v", err)
@@ -390,11 +389,11 @@ func TestContextToolCallsReuseProfileFound(t *testing.T) {
 
 	contactID := uint64(42)
 	profile := models.ContactProfile{
-		OrganizationID:    conv.OrganizationID,
-		OwnerID:           userID,
-		ContactUserID:     contactID,
-		Company:           "Existing Corp",
-		Role:              "CTO",
+		OrganizationID:     conv.OrganizationID,
+		OwnerID:            userID,
+		ContactUserID:      contactID,
+		Company:            "Existing Corp",
+		Role:               "CTO",
 		RelationshipStatus: "active",
 	}
 	if err := db.Create(&profile).Error; err != nil {
@@ -402,8 +401,8 @@ func TestContextToolCallsReuseProfileFound(t *testing.T) {
 	}
 
 	ctx := &conversationContext{
-		Conversation: models.Conversation{ID: conv.ID, OrganizationID: conv.OrganizationID, ContactID: &contactID},
-		Members:      []models.ConversationMember{{ConversationID: conv.ID, UserID: userID}},
+		Conversation:                  models.Conversation{ID: conv.ID, OrganizationID: conv.OrganizationID, ContactID: &contactID},
+		Members:                       []models.ConversationMember{{ConversationID: conv.ID, UserID: userID}},
 		ContactProfileLookupAttempted: true,
 		ContactProfile:                &profile,
 		Manifest:                      ContextManifest{Selected: map[string]int{}},
@@ -445,8 +444,8 @@ func TestContextToolCallsReuseProfileNotFound(t *testing.T) {
 
 	contactID := uint64(99)
 	ctx := &conversationContext{
-		Conversation: models.Conversation{ID: conv.ID, OrganizationID: conv.OrganizationID, ContactID: &contactID},
-		Members:      []models.ConversationMember{{ConversationID: conv.ID, UserID: userID}},
+		Conversation:                  models.Conversation{ID: conv.ID, OrganizationID: conv.OrganizationID, ContactID: &contactID},
+		Members:                       []models.ConversationMember{{ConversationID: conv.ID, UserID: userID}},
 		ContactProfileLookupAttempted: true,
 		ContactProfile:                nil,
 		Manifest:                      ContextManifest{Selected: map[string]int{}},

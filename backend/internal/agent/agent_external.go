@@ -141,7 +141,7 @@ func buildAgentRuntimeRequest(run models.AgentRun, goal string, conversationCtx 
 			WriteTools: []string{ToolWriteConversationMessage, ToolCreateFollowUpTask, ToolUpsertConversationMemory},
 		},
 		MaxIterations: map[string]int{"react": 5, "searcher": 3, "risk_analyst": 2},
-		AgenticRAG:      workflowRuntimeAgenticRAGFromEnv(),
+		AgenticRAG:    workflowRuntimeAgenticRAGFromEnv(),
 	}
 	appendRuntimeConversationContext(&request, conversationCtx)
 	if conversationCtx != nil {

@@ -1,8 +1,8 @@
 package events
 
 import (
-	"errors"
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
