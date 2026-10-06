@@ -68,6 +68,7 @@ test("ignores local tooling, patch, and generated test-result directories", asyn
     "docs/README.md": "# Documentation\n",
     ".omo/notes.md": "not maintained documentation",
     ".workbuddy/memory.md": "# Memory\n\n# Duplicate\n",
+    ".superpowers/sdd/task-brief.md": "no H1 or fence language requirements",
     "patches/README.md": "```\nuntyped\n```\n",
     "web/test-results/run/error-context.md": "# Result\n\n### Skipped heading\n",
   });

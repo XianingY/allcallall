@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,8 +12,125 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/models"
 )
+
+func (s *Service) enqueueAgentApprovalOutboxTx(ctx context.Context, tx *gorm.DB, run models.AgentRun, roundRequestID string, roundVersion uint64, userID uint64) error {
+	if s.outbox == nil {
+		return nil
+	}
+	if roundRequestID == "" || roundVersion == 0 {
+		// Legacy approvals have no checkpoint-owned execution identity. Preserve
+		// the pre-durable-write resume event so the worker still executes them
+		// through the synchronous tool path; never enqueue approved writes.
+		_, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
+			AggregateType:  "agent_run",
+			AggregateID:    run.ID,
+			Event:          "agent.run.requested",
+			IdempotencyKey: fmt.Sprintf("agent.run.requested:%d:resume:legacy:0", run.ID),
+			Payload: map[string]any{
+				"organization_id": run.OrganizationID,
+				"agent_run_id":    run.ID,
+				"resumed_by":      userID,
+			},
+		})
+		if err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
+			return err
+		}
+		return nil
+	}
+	var calls []models.AgentToolCall
+	if err := tx.WithContext(ctx).
+		Where("run_id = ? AND approval_request_id = ? AND approval_checkpoint_version = ? AND decision <> ''", run.ID, roundRequestID, roundVersion).
+		Order("call_id ASC").
+		Find(&calls).Error; err != nil {
+		return err
+	}
+	if len(calls) == 0 {
+		return fmt.Errorf("agent approval set is empty")
+	}
+	decisions := make([]WorkflowRuntimeDecision, 0, len(calls))
+	for _, call := range calls {
+		decision := strings.ToLower(strings.TrimSpace(call.Decision))
+		if decision != "approve" && decision != "reject" {
+			return fmt.Errorf("agent tool call %q has invalid decision %q", call.CallID, call.Decision)
+		}
+		decisions = append(decisions, WorkflowRuntimeDecision{ToolCallID: call.CallID, Decision: decision})
+	}
+	executionID, err := runtimeResumeExecutionID("agent", run.ID, roundVersion, decisions)
+	if err != nil {
+		return err
+	}
+
+	// Resume first. The agent worker treats both event types as ordered for the
+	// same agent_run aggregate, so product writes cannot run before Python has
+	// durably advanced the checkpoint.
+	resumeDigest := sha256.Sum256([]byte(roundRequestID))
+	if _, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
+		AggregateType:  "agent_run",
+		AggregateID:    run.ID,
+		Event:          "agent.run.requested",
+		IdempotencyKey: fmt.Sprintf("agent.run.requested:%d:resume:%x:%d", run.ID, resumeDigest[:8], roundVersion),
+		Payload: map[string]any{
+			"organization_id": run.OrganizationID,
+			"agent_run_id":    run.ID,
+			"resumed_by":      userID,
+		},
+	}); err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
+		return err
+	}
+
+	for _, call := range calls {
+		if strings.ToLower(strings.TrimSpace(call.Decision)) != "approve" {
+			continue
+		}
+		key, err := approvedWriteOutboxIdempotencyKey(EventAgentApprovedWrite, executionID, roundVersion, call.CallID)
+		if err != nil {
+			return err
+		}
+		if _, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
+			AggregateType:  "agent_run",
+			AggregateID:    run.ID,
+			Event:          EventAgentApprovedWrite,
+			IdempotencyKey: key,
+			Payload: ApprovedWriteOutboxPayload{
+				ExecutionID:       executionID,
+				CheckpointVersion: roundVersion,
+				ToolCallID:        call.CallID,
+				AgentRunID:        run.ID,
+				OrganizationID:    run.OrganizationID,
+				UserID:            run.UserID,
+				ConversationID:    run.ConversationID,
+			},
+		}); err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) hasAgentApprovedWriteOutboxEvent(ctx context.Context, runID, checkpointVersion uint64) (bool, error) {
+	if s.outbox == nil {
+		return false, nil
+	}
+	var events []models.EventOutbox
+	if err := s.db.WithContext(ctx).Model(&models.EventOutbox{}).
+		Where("event = ? AND aggregate_id = ?", EventAgentApprovedWrite, runID).
+		Find(&events).Error; err != nil {
+		return false, err
+	}
+	for _, event := range events {
+		payload, err := decodeApprovedWritePayload(event)
+		if err != nil {
+			return false, fmt.Errorf("decode durable agent write event %q: %w", event.IdempotencyKey, err)
+		}
+		if payload.AgentRunID == runID && payload.CheckpointVersion == checkpointVersion {
+			return true, nil
+		}
+	}
+	return false, nil
+}
 
 func (s *Service) resumeExternalAgentIfReady(ctx context.Context, run models.AgentRun) (*RunResult, error) {
 	runtime, ok := s.externalAgentRuntime()
@@ -20,6 +138,7 @@ func (s *Service) resumeExternalAgentIfReady(ctx context.Context, run models.Age
 	if !ok || !resumable {
 		return nil, fmt.Errorf("agent runtime cannot resume a checkpoint-owned approval")
 	}
+	approvalCheckpointVersion := run.CheckpointVersion
 	var calls []models.AgentToolCall
 	if err := s.db.WithContext(ctx).
 		Where("run_id = ? AND approval_request_id = ? AND approval_checkpoint_version = ?", run.ID, run.ApprovalRequestID, run.CheckpointVersion).
@@ -111,6 +230,15 @@ func (s *Service) resumeExternalAgentIfReady(ctx context.Context, run models.Age
 		run.ActionItemsJSON = mustJSONString(response.ActionItems)
 		run.NextStep = response.NextStep
 		run.RiskFlagsJSON = mustJSONString(response.RiskFlags)
+	}
+	hasDurableWrites, err := s.hasAgentApprovedWriteOutboxEvent(ctx, run.ID, approvalCheckpointVersion)
+	if err != nil {
+		return nil, err
+	}
+	if hasDurableWrites {
+		// The approval transaction already enqueued ordered write events. Keep
+		// the run leased until those events execute and finalize it.
+		return s.buildRunResult(ctx, run)
 	}
 	return s.executeDecidedAgentTools(ctx, run)
 }

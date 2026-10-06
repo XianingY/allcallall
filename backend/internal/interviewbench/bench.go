@@ -120,6 +120,8 @@ func migrateTables(db *gorm.DB) error {
 		&models.ConversationNote{},
 		&models.Message{},
 		&models.CallRoom{},
+		&models.CallFollowup{},
+		&models.CallTranscriptSegment{},
 		&models.RecordingTranscription{},
 		&models.MeetingTranscriptSegment{},
 		&models.ContactProfile{},

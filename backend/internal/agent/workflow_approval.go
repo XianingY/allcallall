@@ -162,26 +162,8 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 			}).Error; err != nil {
 				return err
 			}
-			if s.outbox != nil {
-				resumeRound := "legacy:0"
-				if run.ApprovalRequestID != "" {
-					digest := sha256.Sum256([]byte(run.ApprovalRequestID))
-					resumeRound = fmt.Sprintf("%x:%d", digest[:8], run.CheckpointVersion)
-				}
-				_, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
-					AggregateType:  "workflow_run",
-					AggregateID:    run.ID,
-					Event:          EventWorkflowRunRequested,
-					IdempotencyKey: fmt.Sprintf("%s:%d:resume:%s", EventWorkflowRunRequested, run.ID, resumeRound),
-					Payload: map[string]any{
-						"organization_id": run.OrganizationID,
-						"workflow_run_id": run.ID,
-						"resumed_by":      userID,
-					},
-				})
-				if err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
-					return err
-				}
+			if err := s.enqueueWorkflowApprovalOutboxTx(ctx, tx, run, userID); err != nil {
+				return err
 			}
 		}
 		return nil
@@ -192,6 +174,123 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 		return nil, err
 	}
 	return s.buildWorkflowResult(ctx, run)
+}
+
+func (s *Service) enqueueWorkflowApprovalOutboxTx(ctx context.Context, tx *gorm.DB, run models.WorkflowRun, userID uint64) error {
+	if s.outbox == nil {
+		return nil
+	}
+	if run.ApprovalRequestID == "" || run.CheckpointVersion == 0 {
+		// Legacy approvals have no checkpoint-owned execution identity. Preserve
+		// the pre-durable-write resume event so the worker still executes them
+		// through the synchronous tool path; never enqueue approved writes.
+		_, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
+			AggregateType:  "workflow_run",
+			AggregateID:    run.ID,
+			Event:          EventWorkflowRunRequested,
+			IdempotencyKey: fmt.Sprintf("%s:%d:resume:legacy:0", EventWorkflowRunRequested, run.ID),
+			Payload: map[string]any{
+				"organization_id": run.OrganizationID,
+				"workflow_run_id": run.ID,
+				"resumed_by":      userID,
+			},
+		})
+		if err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
+			return err
+		}
+		return nil
+	}
+	var approvals []models.ToolApproval
+	if err := tx.WithContext(ctx).
+		Where("workflow_run_id = ? AND approval_request_id = ? AND approval_checkpoint_version = ?", run.ID, run.ApprovalRequestID, run.CheckpointVersion).
+		Order("tool_call_id ASC").
+		Find(&approvals).Error; err != nil {
+		return err
+	}
+	if len(approvals) == 0 {
+		return fmt.Errorf("workflow approval set is empty")
+	}
+	decisions := make([]WorkflowRuntimeDecision, 0, len(approvals))
+	for _, approval := range approvals {
+		decision := strings.ToLower(strings.TrimSpace(approval.Decision))
+		if decision != models.ToolApprovalStatusApproved && decision != models.ToolApprovalStatusRejected {
+			return fmt.Errorf("workflow approval %d has invalid decision %q", approval.ID, approval.Decision)
+		}
+		if decision == models.ToolApprovalStatusApproved {
+			decision = "approve"
+		} else {
+			decision = "reject"
+		}
+		decisions = append(decisions, WorkflowRuntimeDecision{ToolCallID: approval.ToolCallID, Decision: decision})
+	}
+	executionID, err := runtimeResumeExecutionID("workflow", run.ID, run.CheckpointVersion, decisions)
+	if err != nil {
+		return err
+	}
+
+	resumeDigest := sha256.Sum256([]byte(run.ApprovalRequestID))
+	if _, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
+		AggregateType:  "workflow_run",
+		AggregateID:    run.ID,
+		Event:          EventWorkflowRunRequested,
+		IdempotencyKey: fmt.Sprintf("%s:%d:resume:%x:%d", EventWorkflowRunRequested, run.ID, resumeDigest[:8], run.CheckpointVersion),
+		Payload: map[string]any{
+			"organization_id": run.OrganizationID,
+			"workflow_run_id": run.ID,
+			"resumed_by":      userID,
+		},
+	}); err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
+		return err
+	}
+	for _, approval := range approvals {
+		if strings.ToLower(strings.TrimSpace(approval.Decision)) != models.ToolApprovalStatusApproved {
+			continue
+		}
+		key, err := approvedWriteOutboxIdempotencyKey(EventWorkflowApprovedWrite, executionID, run.CheckpointVersion, approval.ToolCallID)
+		if err != nil {
+			return err
+		}
+		if _, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
+			AggregateType:  "workflow_run",
+			AggregateID:    run.ID,
+			Event:          EventWorkflowApprovedWrite,
+			IdempotencyKey: key,
+			Payload: ApprovedWriteOutboxPayload{
+				ExecutionID:       executionID,
+				CheckpointVersion: run.CheckpointVersion,
+				ToolCallID:        approval.ToolCallID,
+				WorkflowRunID:     run.ID,
+				OrganizationID:    run.OrganizationID,
+				UserID:            run.UserID,
+				ConversationID:    run.ConversationID,
+			},
+		}); err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) hasWorkflowApprovedWriteOutboxEvent(ctx context.Context, runID, checkpointVersion uint64) (bool, error) {
+	if s.outbox == nil {
+		return false, nil
+	}
+	var events []models.EventOutbox
+	if err := s.db.WithContext(ctx).Model(&models.EventOutbox{}).
+		Where("event = ? AND aggregate_id = ?", EventWorkflowApprovedWrite, runID).
+		Find(&events).Error; err != nil {
+		return false, err
+	}
+	for _, event := range events {
+		payload, err := decodeApprovedWritePayload(event)
+		if err != nil {
+			return false, fmt.Errorf("decode durable workflow write event %q: %w", event.IdempotencyKey, err)
+		}
+		if payload.WorkflowRunID == runID && payload.CheckpointVersion == checkpointVersion {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *Service) ListToolApprovals(ctx context.Context, organizationID, userID uint64, filter ToolApprovalListFilter) ([]models.ToolApproval, error) {

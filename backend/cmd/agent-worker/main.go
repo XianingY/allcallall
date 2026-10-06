@@ -72,9 +72,14 @@ func main() {
 		appLogger.Info().Str("driver", driver).Msg("agent context chunk vector index ready")
 	}
 
-	redisClient, err := cache.NewRedis(context.Background(), cfg.Redis, appLogger)
+	// Signal context is created before Redis so the sampler can use it.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	redisClient, err := cache.NewRedis(ctx, cfg.Redis, appLogger)
 	if err == nil && redisClient != nil {
 		agentSvc.WithStreamPublisher(appruntime.NewRedisStreamPublisher(redisClient))
+		cache.StartRedisPoolMetrics(ctx, redisClient, 15*time.Second)
 		defer func() { _ = redisClient.Close() }()
 		appLogger.Info().Msg("initialized redis stream publisher for agent worker")
 	} else {
@@ -83,9 +88,6 @@ func main() {
 
 	processor := events.NewProcessor(outboxStore, counterStore)
 	appruntime.RegisterAgentOutboxHandlers(processor, agentSvc, appLogger)
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	appruntime.StartAgentWorker(ctx, appLogger, processor, agentSvc)
 	if mcpRuntime.Enabled {
 		appruntime.StartMCPReconciliationWorker(ctx, appLogger, mcpRuntime.Service)

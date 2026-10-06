@@ -1093,3 +1093,40 @@ func TestRunConversationAssistantRejectsNonMember(t *testing.T) {
 		t.Fatalf("expected access denied, got %v", err)
 	}
 }
+
+func TestLoadConversationContextPopulatesManifestAndProfileFlag(t *testing.T) {
+	svc, db, _ := newAgentServiceTestEnv(t)
+	conversation := seedAgentConversation(t, db)
+
+	// Add a message so the context is non-trivial.
+	if err := db.Create(&models.Message{
+		OrganizationID: conversation.OrganizationID,
+		ConversationID: conversation.ID,
+		SenderID:       7,
+		Type:           models.MessageTypeText,
+		Body:           "Hello from manifest test",
+	}).Error; err != nil {
+		t.Fatalf("create message: %v", err)
+	}
+
+	ctx, err := svc.loadConversationContext(context.Background(), conversation.OrganizationID, 7, conversation.ID, "test goal")
+	if err != nil {
+		t.Fatalf("loadConversationContext: %v", err)
+	}
+
+	// Manifest must be populated with SQLStatements > 0 and Selected non-empty.
+	if ctx.Manifest.SQLStatements == 0 {
+		t.Fatal("expected Manifest.SQLStatements > 0")
+	}
+	if len(ctx.Manifest.Selected) == 0 {
+		t.Fatal("expected Manifest.Selected to be populated")
+	}
+	if _, ok := ctx.Manifest.Selected["messages"]; !ok {
+		t.Fatal("expected Manifest.Selected to contain 'messages'")
+	}
+
+	// ContactProfileLookupAttempted must be set (false when no contact_id).
+	// The conversation has no contact_id, so the flag should be false but
+	// the field must exist and be readable (verified by compilation).
+	_ = ctx.ContactProfileLookupAttempted
+}

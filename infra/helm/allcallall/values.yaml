@@ -127,6 +127,51 @@ observability:
     scrape: true
     namespace: monitoring
 
+# Outbox worker parallelism and timing. Concurrency is clamped to [1, 64];
+# queue depth to [concurrency, 1024]. Lease refresh defaults to lease/3.
+# Per-worker concurrency/queueDepth override the code defaults; idle/error/lease
+# timing is shared across all workers.
+workers:
+  outbox:
+    idleMs: 500
+    errorBackoffMs: 1000
+    leaseSec: 360
+    leaseRefreshSec: 40
+  agent:
+    concurrency: 2
+    queueDepth: 4
+  collaboration:
+    concurrency: 8
+    queueDepth: 16
+  search:
+    concurrency: 4
+    queueDepth: 8
+  settlement:
+    concurrency: 2
+    queueDepth: 4
+
+# Python LangGraph runtime HTTP transport timeouts and connection limits.
+# The duration hierarchy is validated at startup:
+#   connect < response-header < total (Python request deadline)
+#   total + cancellation grace < agent/workflow execution lease
+#   outbox lease > execution lease + persistence grace
+runtime:
+  connectTimeoutSec: 10
+  responseHeaderTimeoutSec: 30
+  idleConnTimeoutSec: 90
+  timeoutSec: 60
+  maxIdleConns: 100
+  maxIdleConnsPerHost: 10
+  maxConnsPerHost: 20
+  cancellationGraceSec: 30
+
+# Execution lease durations and persistence grace. These must satisfy the
+# hierarchy validated at startup (see runtime config above).
+leases:
+  agentRunLeaseSec: 300
+  workflowRunLeaseSec: 300
+  outboxPersistenceGraceSec: 30
+
 serviceAccount:
   create: true
   # Shared pre-created account used when create=false. Empty selects "default".
@@ -156,6 +201,10 @@ components:
       minReplicas: 2
       maxReplicas: 10
       targetCPUUtilizationPercentage: 70
+      scaleDownStabilizationWindowSeconds: 300
+      # Optional External metrics require a Prometheus custom-metrics adapter.
+      # Keep the CPU metric enabled even when pressure metrics are configured.
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
   agentWorker:
     replicas: 2
@@ -167,6 +216,14 @@ components:
       minReplicas: 2
       maxReplicas: 10
       targetCPUUtilizationPercentage: 70
+      scaleDownStabilizationWindowSeconds: 300
+      # Production pressure-scaling example. The adapter metric must filter
+      # pending rows to the agent worker event classes; a global oldest-age
+      # value can scale the wrong worker.
+      # externalMetrics:
+      #   - name: allcallall_agent_outbox_oldest_pending_seconds
+      #     targetAverageValue: "2"
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
   outboxWorker:
     replicas: 2
@@ -178,6 +235,14 @@ components:
       minReplicas: 2
       maxReplicas: 8
       targetCPUUtilizationPercentage: 70
+      scaleDownStabilizationWindowSeconds: 300
+      # Production pressure-scaling example. The adapter metric must filter
+      # pending rows to this worker's event classes; otherwise leave
+      # externalMetrics empty and use the CPU signal.
+      # externalMetrics:
+      #   - name: allcallall_outbox_oldest_pending_seconds
+      #     targetAverageValue: "2"
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
   agentRuntime:
     replicas: 2
@@ -189,6 +254,13 @@ components:
       minReplicas: 2
       maxReplicas: 12
       targetCPUUtilizationPercentage: 65
+      scaleDownStabilizationWindowSeconds: 300
+      # Production pressure-scaling example. The adapter maps this to the
+      # agent_runtime_admission_queued_runs Prometheus gauge.
+      # externalMetrics:
+      #   - name: allcallall_agent_admission_queue_depth
+      #     targetAverageValue: "4"
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
   ragRuntime:
     replicas: 2
@@ -200,6 +272,8 @@ components:
       minReplicas: 2
       maxReplicas: 12
       targetCPUUtilizationPercentage: 65
+      scaleDownStabilizationWindowSeconds: 300
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
   sandboxControlPlane:
     replicas: 2
@@ -212,6 +286,8 @@ components:
       minReplicas: 2
       maxReplicas: 10
       targetCPUUtilizationPercentage: 60
+      scaleDownStabilizationWindowSeconds: 300
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
   sandboxRunner:
     replicas: 2
@@ -225,6 +301,8 @@ components:
       minReplicas: 2
       maxReplicas: 20
       targetCPUUtilizationPercentage: 60
+      scaleDownStabilizationWindowSeconds: 300
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
   sandboxJobs:
     enabled: true
@@ -245,6 +323,8 @@ components:
       minReplicas: 2
       maxReplicas: 6
       targetCPUUtilizationPercentage: 70
+      scaleDownStabilizationWindowSeconds: 300
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
 
 migration:

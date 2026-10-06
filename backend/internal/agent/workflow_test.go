@@ -120,6 +120,21 @@ func seedReadyMeetingTranscript(t *testing.T, db *gorm.DB, conversation models.C
 	return segment
 }
 
+func processWorkflowApprovedWriteEvents(t *testing.T, svc *Service, db *gorm.DB, runID uint64) []models.EventOutbox {
+	t.Helper()
+	var events []models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_id = ?", EventWorkflowApprovedWrite, runID).
+		Order("id ASC").Find(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if err := svc.ProcessApprovedWriteOutbox(context.Background(), event); err != nil {
+			t.Fatalf("process approved workflow write event %q: %v", event.IdempotencyKey, err)
+		}
+	}
+	return events
+}
+
 type fakeMeetingBriefRuntime struct {
 	calls            int
 	runErr           error
@@ -322,18 +337,23 @@ func TestWorkflowAgentCanUsePythonLangGraphRuntimeForMeetingBrief(t *testing.T) 
 	if strings.Contains(resumeOutbox.IdempotencyKey, "legacy:0") || !strings.Contains(resumeOutbox.IdempotencyKey, ":1") {
 		t.Fatalf("resume outbox key must bind approval request and checkpoint version: %q", resumeOutbox.IdempotencyKey)
 	}
-	ready, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	_, err = svc.ProcessWorkflowRun(ctx, created.Run.ID)
 	if err != nil {
 		t.Fatalf("resume workflow failed: %v", err)
+	}
+	processWorkflowApprovedWriteEvents(t, svc, db, created.Run.ID)
+	var readyRun models.WorkflowRun
+	if err := db.Where("id = ?", created.Run.ID).Take(&readyRun).Error; err != nil {
+		t.Fatal(err)
 	}
 	if runtime.calls != 1 || runtime.resumeCalls != 1 {
 		t.Fatalf("expected one initial and one resume call, got run=%d resume=%d", runtime.calls, runtime.resumeCalls)
 	}
-	if ready.Run.Status != models.WorkflowRunStatusReady {
-		t.Fatalf("expected ready, got %s", ready.Run.Status)
+	if readyRun.Status != models.WorkflowRunStatusReady {
+		t.Fatalf("expected ready, got %s", readyRun.Status)
 	}
-	if ready.Run.ApprovalRequestID != "" || ready.Run.CheckpointVersion != 2 {
-		t.Fatalf("expected cleared approval request and advanced checkpoint, got %+v", ready.Run)
+	if readyRun.ApprovalRequestID != "" || readyRun.CheckpointVersion != 2 {
+		t.Fatalf("expected cleared approval request and advanced checkpoint, got %+v", readyRun)
 	}
 	if !strings.HasPrefix(runtime.lastResume.ExecutionID, fmt.Sprintf("workflow:%d:resume:1:", created.Run.ID)) || len(runtime.lastResume.ExecutionID) > 96 {
 		t.Fatalf("unexpected deterministic resume execution id %q", runtime.lastResume.ExecutionID)
@@ -349,6 +369,99 @@ func TestWorkflowAgentCanUsePythonLangGraphRuntimeForMeetingBrief(t *testing.T) 
 	}
 	if runtime.resumeCalls != 1 {
 		t.Fatalf("completed workflow must not resume twice, got %d calls", runtime.resumeCalls)
+	}
+}
+
+func TestWorkflowLegacyApprovalResumeKeepsLegacyOutboxAndSynchronousExecution(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	runtime := &fakeMeetingBriefRuntime{}
+	svc.WithOutbox(events.NewStore(db))
+	svc.WithWorkflowRuntime(runtime)
+	conversation := seedWorkflowConversation(t, db)
+	seedReadyMeetingTranscript(t, db, conversation, 89)
+
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Preset:         WorkflowPresetMeetingBrief,
+		Goal:           "exercise legacy workflow approval",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paused.Run.Status != models.WorkflowRunStatusRequiresAction || len(paused.Approvals) != 2 {
+		t.Fatalf("unexpected paused legacy workflow: run=%+v approvals=%d", paused.Run, len(paused.Approvals))
+	}
+
+	// Simulate approval rows written before checkpoint metadata was persisted.
+	if err := db.Model(&models.WorkflowRun{}).Where("id = ?", created.Run.ID).Updates(map[string]any{
+		"approval_request_id": "",
+		"checkpoint_id":       "",
+		"checkpoint_version":  0,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.ToolApproval{}).Where("workflow_run_id = ?", created.Run.ID).Updates(map[string]any{
+		"approval_request_id":         "",
+		"approval_checkpoint_version": 0,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, approval := range paused.Approvals {
+		if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "approve"); err != nil {
+			t.Fatalf("approve legacy workflow tool failed: %v", err)
+		}
+	}
+
+	var resumeEvents []models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_id = ?", EventWorkflowRunRequested, created.Run.ID).
+		Order("id ASC").Find(&resumeEvents).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(resumeEvents) != 2 {
+		t.Fatalf("legacy workflow should retain the initial event and enqueue one resume event, got %d", len(resumeEvents))
+	}
+	wantKey := fmt.Sprintf("%s:%d:resume:legacy:0", EventWorkflowRunRequested, created.Run.ID)
+	foundLegacyResume := false
+	for _, event := range resumeEvents {
+		if event.IdempotencyKey == wantKey {
+			foundLegacyResume = true
+			break
+		}
+	}
+	if !foundLegacyResume {
+		t.Fatalf("legacy workflow resume event missing; keys=%v", resumeEvents)
+	}
+	var durableWrites int64
+	if err := db.Model(&models.EventOutbox{}).Where("event = ? AND aggregate_id = ?", EventWorkflowApprovedWrite, created.Run.ID).
+		Count(&durableWrites).Error; err != nil {
+		t.Fatal(err)
+	}
+	if durableWrites != 0 {
+		t.Fatalf("legacy workflow approval must not enqueue approved-write events, got %d", durableWrites)
+	}
+
+	ready, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ready.Run.Status != models.WorkflowRunStatusReady {
+		t.Fatalf("legacy worker execution did not complete synchronously: %s", ready.Run.Status)
+	}
+	if runtime.resumeCalls != 0 {
+		t.Fatalf("legacy worker execution must not call checkpoint resume, got %d", runtime.resumeCalls)
+	}
+	var executed int64
+	if err := db.Model(&models.ToolApproval{}).Where("workflow_run_id = ? AND status = ?", created.Run.ID, models.ToolApprovalStatusExecuted).
+		Count(&executed).Error; err != nil {
+		t.Fatal(err)
+	}
+	if executed != 2 {
+		t.Fatalf("legacy worker executed %d tools, want 2", executed)
 	}
 }
 
@@ -397,6 +510,192 @@ func TestSubmitWorkflowApprovalIsIdempotentButRejectsOppositeDecision(t *testing
 	}
 }
 
+func TestWorkflowApprovedWritesUseDurableOutboxAndRemainIdempotent(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	runtime := &fakeMeetingBriefRuntime{}
+	svc.WithWorkflowRuntime(runtime)
+	conversation := seedWorkflowConversation(t, db)
+	seedReadyMeetingTranscript(t, db, conversation, 89)
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Preset:         WorkflowPresetMeetingBrief,
+		Goal:           "exercise durable approved workflow writes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paused.Approvals) != 2 {
+		t.Fatalf("expected two distinct workflow proposals, got %d", len(paused.Approvals))
+	}
+	for _, approval := range paused.Approvals {
+		if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "approve"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "approve"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var resumeEvents int64
+	if err := db.Model(&models.EventOutbox{}).
+		Where("event = ? AND aggregate_id = ? AND idempotency_key LIKE ?", EventWorkflowRunRequested, created.Run.ID, "%:resume:%").
+		Count(&resumeEvents).Error; err != nil {
+		t.Fatal(err)
+	}
+	if resumeEvents != 1 {
+		t.Fatalf("duplicate approval must retain one durable resume event, got %d", resumeEvents)
+	}
+	var writeEvents []models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_id = ?", EventWorkflowApprovedWrite, created.Run.ID).
+		Order("id ASC").Find(&writeEvents).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(writeEvents) != 2 {
+		t.Fatalf("distinct approved proposals must each retain one write event, got %d", len(writeEvents))
+	}
+	if writeEvents[0].IdempotencyKey == writeEvents[1].IdempotencyKey {
+		t.Fatalf("distinct tool calls must retain distinct write keys: %q", writeEvents[0].IdempotencyKey)
+	}
+
+	resumed, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Run.Status != models.WorkflowRunStatusRunning {
+		t.Fatalf("resume must leave the workflow leased for outbox write execution, got %s", resumed.Run.Status)
+	}
+	var messages, memories int64
+	if err := db.Model(&models.Message{}).
+		Where("conversation_id = ? AND type = ?", conversation.ID, models.MessageTypeSystem).Count(&messages).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.AgentMemory{}).Where("conversation_id = ?", conversation.ID).Count(&memories).Error; err != nil {
+		t.Fatal(err)
+	}
+	if messages != 0 || memories != 0 {
+		t.Fatalf("resume must not directly execute approved writes: messages=%d memories=%d", messages, memories)
+	}
+
+	for _, event := range writeEvents {
+		if err := svc.ProcessApprovedWriteOutbox(ctx, event); err != nil {
+			t.Fatalf("process approved workflow write %q: %v", event.IdempotencyKey, err)
+		}
+		if err := svc.ProcessApprovedWriteOutbox(ctx, event); err != nil {
+			t.Fatalf("duplicate approved workflow write delivery %q: %v", event.IdempotencyKey, err)
+		}
+	}
+	if err := db.Model(&models.Message{}).
+		Where("conversation_id = ? AND type = ?", conversation.ID, models.MessageTypeSystem).Count(&messages).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.AgentMemory{}).Where("conversation_id = ?", conversation.ID).Count(&memories).Error; err != nil {
+		t.Fatal(err)
+	}
+	if messages != 1 || memories != 1 {
+		t.Fatalf("approved workflow writes should execute exactly once: messages=%d memories=%d", messages, memories)
+	}
+	var ready models.WorkflowRun
+	if err := db.Where("id = ?", created.Run.ID).Take(&ready).Error; err != nil {
+		t.Fatal(err)
+	}
+	if ready.Status != models.WorkflowRunStatusReady {
+		t.Fatalf("final approved write should complete the workflow, got %s", ready.Status)
+	}
+}
+
+func TestWorkflowDurableWriteGateBindsApprovalCheckpointVersion(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	runtime := &fakeMeetingBriefRuntime{}
+	svc.WithWorkflowRuntime(runtime)
+	conversation := seedWorkflowConversation(t, db)
+	seedReadyMeetingTranscript(t, db, conversation, 90)
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Preset:         WorkflowPresetMeetingBrief,
+		Goal:           "bind workflow durable writes to the current approval checkpoint",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Put the current approval set one checkpoint beyond the stale durable event.
+	if err := db.Model(&models.WorkflowRun{}).Where("id = ?", created.Run.ID).
+		Update("checkpoint_version", 2).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.ToolApproval{}).Where("workflow_run_id = ?", created.Run.ID).
+		Update("approval_checkpoint_version", 2).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	staleWrite := models.EventOutbox{
+		AggregateType:  "workflow_run",
+		AggregateID:    created.Run.ID,
+		Event:          EventWorkflowApprovedWrite,
+		IdempotencyKey: "stale-workflow-approved-write",
+		PayloadJSON: mustJSONString(ApprovedWriteOutboxPayload{
+			ExecutionID:       "workflow:old:resume",
+			CheckpointVersion: 1,
+			ToolCallID:        "fake:write",
+			WorkflowRunID:     created.Run.ID,
+			OrganizationID:    conversation.OrganizationID,
+			UserID:            7,
+			ConversationID:    conversation.ID,
+		}),
+		Status: models.EventOutboxStatusPublished,
+	}
+	if err := db.Create(&staleWrite).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, approval := range paused.Approvals {
+		if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "approve"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Simulate a current approval round without its write events so only the
+	// stale event remains. The gate must not defer this round.
+	if err := db.Where(
+		"event = ? AND aggregate_id = ? AND idempotency_key <> ?",
+		EventWorkflowApprovedWrite,
+		created.Run.ID,
+		staleWrite.IdempotencyKey,
+	).Delete(&models.EventOutbox{}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	resumed, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Run.Status != models.WorkflowRunStatusReady {
+		t.Fatalf("current approval without a matching durable write must execute inline despite a stale event, got %s", resumed.Run.Status)
+	}
+	if err := svc.ProcessApprovedWriteOutbox(ctx, staleWrite); !errors.Is(err, ErrCheckpointVersionConflict) {
+		t.Fatalf("stale pending write handler must fail closed, got %v", err)
+	}
+	var messages, memories int64
+	if err := db.Model(&models.Message{}).
+		Where("conversation_id = ? AND type = ?", conversation.ID, models.MessageTypeSystem).Count(&messages).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.AgentMemory{}).Where("conversation_id = ?", conversation.ID).Count(&memories).Error; err != nil {
+		t.Fatal(err)
+	}
+	if messages != 1 || memories != 1 {
+		t.Fatalf("current approved workflow tools should execute inline: messages=%d memories=%d", messages, memories)
+	}
+}
+
 func TestExternalWorkflowResumeFailurePreventsToolSideEffects(t *testing.T) {
 	t.Setenv("PY_AGENT_RUNTIME_STRICT", "false")
 	ctx := context.Background()
@@ -441,12 +740,17 @@ func TestExternalWorkflowResumeFailurePreventsToolSideEffects(t *testing.T) {
 		t.Fatalf("resume must happen before tool side effects, got messages=%d memories=%d", messages, memories)
 	}
 	runtime.resumeErr = nil
-	retried, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	_, err = svc.ProcessWorkflowRun(ctx, created.Run.ID)
 	if err != nil {
 		t.Fatalf("retry workflow resume failed: %v", err)
 	}
-	if retried.Run.Status != models.WorkflowRunStatusReady || runtime.resumeCalls != 2 {
-		t.Fatalf("expected retry to resume and complete once, run=%+v resume_calls=%d", retried.Run, runtime.resumeCalls)
+	processWorkflowApprovedWriteEvents(t, svc, db, created.Run.ID)
+	var retried models.WorkflowRun
+	if err := db.Where("id = ?", created.Run.ID).Take(&retried).Error; err != nil {
+		t.Fatal(err)
+	}
+	if retried.Status != models.WorkflowRunStatusReady || runtime.resumeCalls != 2 {
+		t.Fatalf("expected retry to resume and complete once, run=%+v resume_calls=%d", retried, runtime.resumeCalls)
 	}
 	if len(runtime.resumeExecutions) != 2 || runtime.resumeExecutions[0] != runtime.resumeExecutions[1] {
 		t.Fatalf("resume retry must reuse execution_id, got %+v", runtime.resumeExecutions)
@@ -823,7 +1127,18 @@ func TestWorkflowLocalSideEffectRollsBackWithApprovalState(t *testing.T) {
 	if err := db.Exec(`CREATE TRIGGER fail_approval_executed BEFORE UPDATE ON tool_approvals WHEN NEW.status = 'executed' BEGIN SELECT RAISE(ABORT, 'approval completion fault'); END`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ProcessWorkflowRun(ctx, created.Run.ID); err == nil {
+	if _, err := svc.ProcessWorkflowRun(ctx, created.Run.ID); err != nil {
+		t.Fatalf("resume with durable writes failed: %v", err)
+	}
+	var writeEvents []models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_id = ?", EventWorkflowApprovedWrite, created.Run.ID).
+		Order("id ASC").Find(&writeEvents).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(writeEvents) == 0 {
+		t.Fatal("expected durable workflow write events")
+	}
+	if err := svc.ProcessApprovedWriteOutbox(ctx, writeEvents[0]); err == nil {
 		t.Fatal("expected injected approval completion failure")
 	}
 	var systemMessages int64
@@ -847,12 +1162,17 @@ func TestWorkflowLocalSideEffectRollsBackWithApprovalState(t *testing.T) {
 	if err := db.Exec(`DROP TRIGGER fail_approval_executed`).Error; err != nil {
 		t.Fatal(err)
 	}
-	ready, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
-	if err != nil {
-		t.Fatalf("retry after transactional rollback failed: %v", err)
+	for _, event := range writeEvents {
+		if err := svc.ProcessApprovedWriteOutbox(ctx, event); err != nil {
+			t.Fatalf("retry after transactional rollback failed: %v", err)
+		}
 	}
-	if ready.Run.Status != models.WorkflowRunStatusReady {
-		t.Fatalf("workflow did not recover: %+v", ready.Run)
+	var ready models.WorkflowRun
+	if err := db.Where("id = ?", created.Run.ID).Take(&ready).Error; err != nil {
+		t.Fatal(err)
+	}
+	if ready.Status != models.WorkflowRunStatusReady {
+		t.Fatalf("workflow did not recover: %+v", ready)
 	}
 	if err := db.Model(&models.Message{}).Where("conversation_id = ? AND type = ?", conversation.ID, models.MessageTypeSystem).Count(&systemMessages).Error; err != nil {
 		t.Fatal(err)
@@ -968,4 +1288,383 @@ func workflowTaskByName(tasks []models.WorkflowTask, name string) *models.Workfl
 		}
 	}
 	return nil
+}
+
+// --- Task 4: Batch workflow result loading tests ---
+
+// seedWorkflowRunsWithChildren creates n workflow runs in the database, each
+// with one of every child collection type (task, message, approval, history
+// event, signal, timer). It returns the seeded runs.
+func seedWorkflowRunsWithChildren(t *testing.T, db *gorm.DB, n int) []models.WorkflowRun {
+	t.Helper()
+	conversation := seedWorkflowConversation(t, db)
+	orgID := conversation.OrganizationID
+	userID := uint64(7)
+
+	runs := make([]models.WorkflowRun, 0, n)
+	for i := 0; i < n; i++ {
+		run := models.WorkflowRun{
+			OrganizationID:  orgID,
+			UserID:          userID,
+			ConversationID:  conversation.ID,
+			Status:          models.WorkflowRunStatusReady,
+			WorkflowType:    "agent_lab",
+			WorkflowVersion: "agent_lab_v1",
+			RuntimeOwner:    "legacy_go",
+			Goal:            fmt.Sprintf("batch-test-run-%d", i),
+		}
+		if err := db.Create(&run).Error; err != nil {
+			t.Fatalf("create workflow run %d: %v", i, err)
+		}
+		if err := db.Create(&models.WorkflowTask{
+			WorkflowRunID:  run.ID,
+			OrganizationID: orgID,
+			Name:           "searcher",
+			Role:           "searcher",
+			Status:         "completed",
+		}).Error; err != nil {
+			t.Fatalf("create task for run %d: %v", run.ID, err)
+		}
+		if err := db.Create(&models.AgentMessage{
+			WorkflowRunID:  run.ID,
+			OrganizationID: orgID,
+			FromRole:       "searcher",
+			ToRole:         "summarizer",
+			MessageType:    "observation",
+			ContentJSON:    "{}",
+			CorrelationID:  fmt.Sprintf("corr-%d", run.ID),
+		}).Error; err != nil {
+			t.Fatalf("create message for run %d: %v", run.ID, err)
+		}
+		if err := db.Create(&models.ToolApproval{
+			WorkflowRunID:  run.ID,
+			TaskID:         1,
+			OrganizationID: orgID,
+			ToolCallID:     fmt.Sprintf("call-%d", run.ID),
+			ToolName:       "write_conversation_message",
+			Status:         "pending",
+			RequestedBy:    userID,
+			RequestedAt:    time.Now().UTC(),
+		}).Error; err != nil {
+			t.Fatalf("create approval for run %d: %v", run.ID, err)
+		}
+		if err := db.Create(&models.WorkflowHistoryEvent{
+			WorkflowRunID:  run.ID,
+			OrganizationID: orgID,
+			EventType:      "task_completed",
+			RefType:        "task",
+		}).Error; err != nil {
+			t.Fatalf("create history for run %d: %v", run.ID, err)
+		}
+		if err := db.Create(&models.WorkflowSignal{
+			WorkflowRunID:  run.ID,
+			OrganizationID: orgID,
+			SignalName:     "approval",
+			PayloadJSON:    "{}",
+			Status:         "received",
+		}).Error; err != nil {
+			t.Fatalf("create signal for run %d: %v", run.ID, err)
+		}
+		if err := db.Create(&models.WorkflowTimer{
+			WorkflowRunID:  run.ID,
+			OrganizationID: orgID,
+			TimerName:      "approval_timeout",
+			FireAt:         time.Now().UTC().Add(time.Hour),
+			Status:         models.WorkflowTimerStatusPending,
+		}).Error; err != nil {
+			t.Fatalf("create timer for run %d: %v", run.ID, err)
+		}
+		runs = append(runs, run)
+	}
+	return runs
+}
+
+// queryCounter tracks the number of SQL queries issued through a GORM DB.
+type queryCounter struct {
+	count int
+}
+
+func installQueryCounter(db *gorm.DB) *queryCounter {
+	counter := &queryCounter{}
+	db.Callback().Query().After("gorm:query").Register("test:count_workflow_queries", func(_ *gorm.DB) {
+		counter.count++
+	})
+	return counter
+}
+
+func (qc *queryCounter) Count() int {
+	return qc.count
+}
+
+func TestListWorkflowRunsUsesFixedQueryCount(t *testing.T) {
+	svc, db := newWorkflowTestService(t)
+	seedWorkflowRunsWithChildren(t, db, 50)
+	counter := installQueryCounter(db)
+
+	results, err := svc.ListWorkflowRuns(context.Background(), 42, 7, WorkflowListFilter{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 50 {
+		t.Fatalf("results=%d want=50", len(results))
+	}
+	if got := counter.Count(); got > 8 {
+		t.Fatalf("queries=%d want<=8", got)
+	}
+}
+
+func TestBuildWorkflowResultsMatchesSingle(t *testing.T) {
+	svc, db := newWorkflowTestService(t)
+	runs := seedWorkflowRunsWithChildren(t, db, 3)
+
+	for _, run := range runs {
+		single, err := svc.buildWorkflowResult(context.Background(), run)
+		if err != nil {
+			t.Fatalf("buildWorkflowResult run %d: %v", run.ID, err)
+		}
+		batchResults, err := svc.buildWorkflowResults(context.Background(), []models.WorkflowRun{run})
+		if err != nil {
+			t.Fatalf("buildWorkflowResults run %d: %v", run.ID, err)
+		}
+		if len(batchResults) != 1 {
+			t.Fatalf("expected 1 batch result, got %d", len(batchResults))
+		}
+		batch := batchResults[0]
+
+		// Compare core fields
+		if batch.Run.ID != single.Run.ID {
+			t.Errorf("run %d: Run.ID mismatch batch=%d single=%d", run.ID, batch.Run.ID, single.Run.ID)
+		}
+		if len(batch.Tasks) != len(single.Tasks) {
+			t.Errorf("run %d: Tasks len mismatch batch=%d single=%d", run.ID, len(batch.Tasks), len(single.Tasks))
+		}
+		if len(batch.Messages) != len(single.Messages) {
+			t.Errorf("run %d: Messages len mismatch batch=%d single=%d", run.ID, len(batch.Messages), len(single.Messages))
+		}
+		if len(batch.Approvals) != len(single.Approvals) {
+			t.Errorf("run %d: Approvals len mismatch batch=%d single=%d", run.ID, len(batch.Approvals), len(single.Approvals))
+		}
+		if len(batch.History) != len(single.History) {
+			t.Errorf("run %d: History len mismatch batch=%d single=%d", run.ID, len(batch.History), len(single.History))
+		}
+		if len(batch.Signals) != len(single.Signals) {
+			t.Errorf("run %d: Signals len mismatch batch=%d single=%d", run.ID, len(batch.Signals), len(single.Signals))
+		}
+		if len(batch.Timers) != len(single.Timers) {
+			t.Errorf("run %d: Timers len mismatch batch=%d single=%d", run.ID, len(batch.Timers), len(single.Timers))
+		}
+		if batch.Truncated != single.Truncated {
+			t.Errorf("run %d: Truncated mismatch batch=%v single=%v", run.ID, batch.Truncated, single.Truncated)
+		}
+		// Compare ordering of tasks by ID
+		for j := range batch.Tasks {
+			if batch.Tasks[j].ID != single.Tasks[j].ID {
+				t.Errorf("run %d: Tasks[%d].ID mismatch batch=%d single=%d", run.ID, j, batch.Tasks[j].ID, single.Tasks[j].ID)
+			}
+		}
+	}
+}
+
+// TestBuildWorkflowResultsTruncation verifies that when a child collection
+// exceeds workflowResultMaxRows, the batch loader sets Truncated=true,
+// retains only the most recent rows, and returns them in id ASC order.
+// It also confirms the query count stays within the ≤8 budget.
+func TestBuildWorkflowResultsTruncation(t *testing.T) {
+	svc, db := newWorkflowTestService(t)
+	conversation := seedWorkflowConversation(t, db)
+	orgID := conversation.OrganizationID
+	userID := uint64(7)
+
+	// Create one run with workflowResultMaxRows+1 history events.
+	run := models.WorkflowRun{
+		OrganizationID:  orgID,
+		UserID:          userID,
+		ConversationID:  conversation.ID,
+		Status:          models.WorkflowRunStatusReady,
+		WorkflowType:    "agent_lab",
+		WorkflowVersion: "agent_lab_v1",
+		RuntimeOwner:    "legacy_go",
+		Goal:            "truncation-test",
+	}
+	if err := db.Create(&run).Error; err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	totalRows := workflowResultMaxRows + 1
+	for i := 0; i < totalRows; i++ {
+		if err := db.Create(&models.WorkflowHistoryEvent{
+			WorkflowRunID:  run.ID,
+			OrganizationID: orgID,
+			EventType:      "test_event",
+			RefType:        "test",
+		}).Error; err != nil {
+			t.Fatalf("create history event %d: %v", i, err)
+		}
+	}
+
+	// Verify via the single-run path.
+	single, err := svc.buildWorkflowResult(context.Background(), run)
+	if err != nil {
+		t.Fatalf("buildWorkflowResult: %v", err)
+	}
+	if !single.Truncated {
+		t.Fatal("expected Truncated=true for single-run path")
+	}
+	if len(single.History) != workflowResultMaxRows {
+		t.Fatalf("single-run history len=%d want=%d", len(single.History), workflowResultMaxRows)
+	}
+
+	// Verify via the batch path.
+	counter := installQueryCounter(db)
+	batchResults, err := svc.buildWorkflowResults(context.Background(), []models.WorkflowRun{run})
+	if err != nil {
+		t.Fatalf("buildWorkflowResults: %v", err)
+	}
+	if len(batchResults) != 1 {
+		t.Fatalf("expected 1 batch result, got %d", len(batchResults))
+	}
+	batch := batchResults[0]
+	if !batch.Truncated {
+		t.Fatal("expected Truncated=true for batch path")
+	}
+	if len(batch.History) != workflowResultMaxRows {
+		t.Fatalf("batch history len=%d want=%d", len(batch.History), workflowResultMaxRows)
+	}
+
+	// Verify retained rows are the most recent (highest IDs).
+	// Both single and batch should have the same last event ID.
+	if single.History[len(single.History)-1].ID != batch.History[len(batch.History)-1].ID {
+		t.Fatalf("last history ID mismatch single=%d batch=%d",
+			single.History[len(single.History)-1].ID,
+			batch.History[len(batch.History)-1].ID)
+	}
+
+	// Verify id ASC ordering in batch result.
+	for i := 1; i < len(batch.History); i++ {
+		if batch.History[i].ID <= batch.History[i-1].ID {
+			t.Fatalf("batch history not id ASC: History[%d].ID=%d <= History[%d].ID=%d",
+				i, batch.History[i].ID, i-1, batch.History[i-1].ID)
+		}
+	}
+
+	// Verify query count stays ≤8 even with truncation.
+	if got := counter.Count(); got > 8 {
+		t.Fatalf("queries=%d want<=8", got)
+	}
+}
+
+// TestBuildWorkflowResultsStarvation verifies that a heavy early run cannot
+// consume the row budget of later runs. With the old global LIMIT approach,
+// an early run with >workflowResultMaxRows rows could starve later runs of
+// their rows entirely, causing Truncated=false on an incomplete result.
+// The UNION ALL per-run subquery approach bounds each run independently.
+func TestBuildWorkflowResultsStarvation(t *testing.T) {
+	svc, db := newWorkflowTestService(t)
+	conversation := seedWorkflowConversation(t, db)
+	orgID := conversation.OrganizationID
+	userID := uint64(7)
+
+	// Create 3 runs. Run 1 gets >workflowResultMaxRows history events;
+	// runs 2 and 3 each get a small number that must be fully retained.
+	var runs []models.WorkflowRun
+	for i := 0; i < 3; i++ {
+		run := models.WorkflowRun{
+			OrganizationID:  orgID,
+			UserID:          userID,
+			ConversationID:  conversation.ID,
+			Status:          models.WorkflowRunStatusReady,
+			WorkflowType:    "agent_lab",
+			WorkflowVersion: "agent_lab_v1",
+			RuntimeOwner:    "legacy_go",
+			Goal:            fmt.Sprintf("starvation-run-%d", i),
+		}
+		if err := db.Create(&run).Error; err != nil {
+			t.Fatalf("create run %d: %v", i, err)
+		}
+		runs = append(runs, run)
+	}
+
+	// Run 1: overflow with workflowResultMaxRows+1 history events.
+	for i := 0; i < workflowResultMaxRows+1; i++ {
+		if err := db.Create(&models.WorkflowHistoryEvent{
+			WorkflowRunID:  runs[0].ID,
+			OrganizationID: orgID,
+			EventType:      "overflow_event",
+			RefType:        "test",
+		}).Error; err != nil {
+			t.Fatalf("create overflow history event %d: %v", i, err)
+		}
+	}
+
+	// Run 2: 5 history events.
+	for i := 0; i < 5; i++ {
+		if err := db.Create(&models.WorkflowHistoryEvent{
+			WorkflowRunID:  runs[1].ID,
+			OrganizationID: orgID,
+			EventType:      "normal_event",
+			RefType:        "test",
+		}).Error; err != nil {
+			t.Fatalf("create run-2 history event %d: %v", i, err)
+		}
+	}
+
+	// Run 3: 3 history events.
+	for i := 0; i < 3; i++ {
+		if err := db.Create(&models.WorkflowHistoryEvent{
+			WorkflowRunID:  runs[2].ID,
+			OrganizationID: orgID,
+			EventType:      "normal_event",
+			RefType:        "test",
+		}).Error; err != nil {
+			t.Fatalf("create run-3 history event %d: %v", i, err)
+		}
+	}
+
+	counter := installQueryCounter(db)
+	results, err := svc.buildWorkflowResults(context.Background(), runs)
+	if err != nil {
+		t.Fatalf("buildWorkflowResults: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+
+	// Run 1: truncated, exactly workflowResultMaxRows retained.
+	if !results[0].Truncated {
+		t.Fatal("run 1: expected Truncated=true")
+	}
+	if len(results[0].History) != workflowResultMaxRows {
+		t.Fatalf("run 1: history len=%d want=%d", len(results[0].History), workflowResultMaxRows)
+	}
+
+	// Run 2: not truncated, all 5 rows retained.
+	if results[1].Truncated {
+		t.Fatal("run 2: expected Truncated=false")
+	}
+	if len(results[1].History) != 5 {
+		t.Fatalf("run 2: history len=%d want=5", len(results[1].History))
+	}
+
+	// Run 3: not truncated, all 3 rows retained.
+	if results[2].Truncated {
+		t.Fatal("run 3: expected Truncated=false")
+	}
+	if len(results[2].History) != 3 {
+		t.Fatalf("run 3: history len=%d want=3", len(results[2].History))
+	}
+
+	// Verify id ASC ordering in all results.
+	for ri, r := range results {
+		for i := 1; i < len(r.History); i++ {
+			if r.History[i].ID <= r.History[i-1].ID {
+				t.Fatalf("run %d: history not id ASC at [%d]: ID=%d <= ID=%d",
+					ri, i, r.History[i].ID, r.History[i-1].ID)
+			}
+		}
+	}
+
+	// Verify query count stays ≤8.
+	if got := counter.Count(); got > 8 {
+		t.Fatalf("queries=%d want<=8", got)
+	}
 }

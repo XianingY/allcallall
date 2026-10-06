@@ -177,6 +177,7 @@ func buildWorkflowRuntimeRequest(run models.WorkflowRun, conversationCtx *conver
 	if conversationCtx == nil {
 		return request
 	}
+	request.ContextManifest = &conversationCtx.Manifest
 	for _, message := range conversationCtx.Messages {
 		request.Messages = append(request.Messages, WorkflowRuntimeMessage{
 			ID:        message.ID,

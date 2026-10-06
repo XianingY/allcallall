@@ -23,7 +23,7 @@ then needs manual repair.
 
 | Database state | What runs | SQL files used |
 | --- | --- | --- |
-| No `users` table (fresh) | `AutoMigrate(models.AllModels())` + `alignMySQLPlatformSchema()` + `Force(20)` | **none** |
+| No `users` table (fresh) | `AutoMigrate(models.AllModels())` + `alignMySQLPlatformSchema()` + `Force(21)` | **none** |
 | `users` table present | `migration.Up()` | any migration above the recorded version |
 
 So on a fresh install the SQL files are skipped entirely and the version is
@@ -45,7 +45,7 @@ then advances existing, versioned databases through `000015` onward.
 - **`000002`–`000014` describe schema that the structs already contain.** They
 are historical, not pending work. **`000015` onward must stay runnable
 up/down/up on MySQL** because existing deployments use them.
-- The single-version stamp (`currentSchemaVersion = 20`) means a fresh install
+- The single-version stamp (`currentSchemaVersion = 21`) means a fresh install
   claims to be fully migrated. When you add a migration, you must bump both
   that constant and the assertion in `migrations_test.go`.
 

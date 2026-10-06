@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/allcallall/backend/internal/models"
 )
@@ -23,6 +24,67 @@ func TestCanonicalPythonJSONMatchesEnsureASCIIEncoding(t *testing.T) {
 	want := `{"emoji":"\ud83d\ude00","float":1.0,"html":"<>&","message":"\u4f60\u597d"}`
 	if string(got) != want {
 		t.Fatalf("canonical JSON mismatch\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestApprovedWriteOutboxKeyBindsExecutionCheckpointAndToolCall(t *testing.T) {
+	first, err := approvedWriteOutboxIdempotencyKey(
+		EventAgentApprovedWrite,
+		"agent:12:resume:3:abcdef0123456789",
+		3,
+		"agent:write-message",
+	)
+	if err != nil {
+		t.Fatalf("build first key: %v", err)
+	}
+	same, err := approvedWriteOutboxIdempotencyKey(
+		EventAgentApprovedWrite,
+		"agent:12:resume:3:abcdef0123456789",
+		3,
+		"agent:write-message",
+	)
+	if err != nil {
+		t.Fatalf("build duplicate key: %v", err)
+	}
+	changedExecution, err := approvedWriteOutboxIdempotencyKey(
+		EventAgentApprovedWrite,
+		"agent:12:resume:4:abcdef0123456789",
+		3,
+		"agent:write-message",
+	)
+	if err != nil {
+		t.Fatalf("build changed execution key: %v", err)
+	}
+	changedCheckpoint, err := approvedWriteOutboxIdempotencyKey(
+		EventAgentApprovedWrite,
+		"agent:12:resume:3:abcdef0123456789",
+		4,
+		"agent:write-message",
+	)
+	if err != nil {
+		t.Fatalf("build changed checkpoint key: %v", err)
+	}
+	changedToolCall, err := approvedWriteOutboxIdempotencyKey(
+		EventAgentApprovedWrite,
+		"agent:12:resume:3:abcdef0123456789",
+		3,
+		"agent:memory",
+	)
+	if err != nil {
+		t.Fatalf("build changed tool-call key: %v", err)
+	}
+
+	if first != same {
+		t.Fatalf("identical inputs must produce the same key: %q != %q", first, same)
+	}
+	if len(first) > 160 {
+		t.Fatalf("approved-write key exceeds outbox limit: %q", first)
+	}
+	if first == changedExecution || first == changedCheckpoint || first == changedToolCall {
+		t.Fatalf("approved-write key must bind execution, checkpoint, and tool call: %q", first)
+	}
+	if _, err := approvedWriteOutboxIdempotencyKey(EventAgentApprovedWrite, " ", 3, "call"); err == nil {
+		t.Fatal("expected empty execution id to be rejected")
 	}
 }
 
@@ -132,5 +194,101 @@ func TestValidateResumedWorkflowRuntimeResponseRequiresExactDecisions(t *testing
 	response.ApprovalDecisions[0].Decision = "approve"
 	if err := validateResumedWorkflowRuntimeResponse(1, "workflow:1:resume:1:abcd", expected, response); err == nil {
 		t.Fatal("expected modified runtime decision to be rejected")
+	}
+}
+
+func TestWorkflowRuntimeRequestContextManifestOptional(t *testing.T) {
+	// context_manifest is optional and should not break older Python runtimes.
+	request := WorkflowRuntimeRequest{
+		OrganizationID: 1,
+		UserID:         2,
+		ConversationID: 3,
+		WorkflowRunID:  4,
+		Preset:         "meeting_brief",
+		Goal:           "test",
+	}
+	data, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), "context_manifest") {
+		t.Fatalf("context_manifest should be omitted when nil, got: %s", string(data))
+	}
+
+	// When set, it should be included.
+	manifest := &ContextManifest{
+		Selected:        map[string]int{"messages": 5, "notes": 2},
+		Truncated:       []string{"meeting_transcript_segments"},
+		SerializedBytes: 1024,
+		EstimatedTokens: 256,
+		SQLStatements:   5,
+	}
+	request.ContextManifest = manifest
+	data, err = json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal with manifest: %v", err)
+	}
+	if !strings.Contains(string(data), "context_manifest") {
+		t.Fatalf("context_manifest should be present when set, got: %s", string(data))
+	}
+
+	// Decoding should work with or without context_manifest.
+	var decoded WorkflowRuntimeRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.ContextManifest == nil {
+		t.Fatal("expected non-nil ContextManifest after unmarshal")
+	}
+	if decoded.ContextManifest.SerializedBytes != 1024 {
+		t.Fatalf("expected serialized_bytes=1024, got %d", decoded.ContextManifest.SerializedBytes)
+	}
+	if decoded.ContextManifest.EstimatedTokens != 256 {
+		t.Fatalf("expected estimated_tokens=256, got %d", decoded.ContextManifest.EstimatedTokens)
+	}
+	if decoded.ContextManifest.SQLStatements != 5 {
+		t.Fatalf("expected sql_statements=5, got %d", decoded.ContextManifest.SQLStatements)
+	}
+	if len(decoded.ContextManifest.Truncated) != 1 || decoded.ContextManifest.Truncated[0] != "meeting_transcript_segments" {
+		t.Fatalf("expected truncated=[meeting_transcript_segments], got %v", decoded.ContextManifest.Truncated)
+	}
+}
+
+func TestWorkflowRuntimeRequestAttemptOmittedFromJSON(t *testing.T) {
+	request := WorkflowRuntimeRequest{
+		OrganizationID: 1,
+		UserID:         2,
+		ConversationID: 3,
+		WorkflowRunID:  4,
+		Preset:         "meeting_brief",
+		Goal:           "test",
+		Attempt:        3,
+	}
+	data, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), "attempt") {
+		t.Fatalf("Attempt field must be omitted from JSON, got: %s", string(data))
+	}
+	// Decoding should work without the attempt field.
+	var decoded WorkflowRuntimeRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.Attempt != 0 {
+		t.Fatalf("expected Attempt=0 after unmarshal, got %d", decoded.Attempt)
+	}
+}
+
+func TestRuntimeOverloadedErrorIsDeferredExecution(t *testing.T) {
+	err := &RuntimeOverloadedError{RetryAfter: 2 * time.Second, Body: "overloaded"}
+	if !isDeferredRunExecution(err) {
+		t.Fatal("RuntimeOverloadedError should be classified as deferred execution")
+	}
+	// Wrapped RuntimeOverloadedError should also be deferred.
+	wrapped := fmt.Errorf("wrapped: %w", err)
+	if !isDeferredRunExecution(wrapped) {
+		t.Fatal("wrapped RuntimeOverloadedError should be classified as deferred execution")
 	}
 }

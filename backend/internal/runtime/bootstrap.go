@@ -1,9 +1,11 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog"
 	"gorm.io/gorm"
@@ -48,7 +50,15 @@ func OpenDB(cfg *config.Config, log zerolog.Logger) (*gorm.DB, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// Start a cancellation-aware SQL pool metrics sampler.  The sampler
+	// context is cancelled in the cleanup function before the pool is
+	// closed, ensuring no further stats are read after Close.
+	samplerCtx, cancelSampler := context.WithCancel(context.Background())
+	database.StartSQLPoolMetrics(samplerCtx, sqlDB, 15*time.Second)
+
 	cleanup := func() {
+		cancelSampler()
 		if err := sqlDB.Close(); err != nil {
 			log.Warn().Err(err).Msg("mysql connection close with error")
 		}

@@ -192,6 +192,30 @@ func RegisterAgentOutboxHandlers(processor *events.Processor, agentSvc *agent.Se
 			Msg("outbox workflow run executed")
 		return nil
 	})
+	processor.Register(EventAgentApprovedWrite, func(ctx context.Context, event models.EventOutbox) error {
+		if err := agentSvc.ProcessApprovedWriteOutbox(ctx, event); err != nil {
+			return err
+		}
+		log.Info().
+			Str("request_id", trace.RequestID(ctx)).
+			Uint64("outbox_id", event.ID).
+			Str("event", event.Event).
+			Str("idempotency_key", event.IdempotencyKey).
+			Msg("outbox approved agent write executed")
+		return nil
+	})
+	processor.Register(EventWorkflowApprovedWrite, func(ctx context.Context, event models.EventOutbox) error {
+		if err := agentSvc.ProcessApprovedWriteOutbox(ctx, event); err != nil {
+			return err
+		}
+		log.Info().
+			Str("request_id", trace.RequestID(ctx)).
+			Uint64("outbox_id", event.ID).
+			Str("event", event.Event).
+			Str("idempotency_key", event.IdempotencyKey).
+			Msg("outbox approved workflow write executed")
+		return nil
+	})
 	processor.Register(EventMCPExecutionTerminal, func(ctx context.Context, event models.EventOutbox) error {
 		var payload struct {
 			ExecutionID     string  `json:"execution_id"`
@@ -341,10 +365,62 @@ func ConfigureOutboxProcessorFromEnv(processor *events.Processor, workerID strin
 		return
 	}
 	processor.WithEventFilter(eventFilter...)
-	processor.WithWorker(workerID, durationFromEnv("OUTBOX_WORKER_LEASE_SEC", 120)*time.Second)
+	processor.WithWorker(workerID, durationFromEnv("OUTBOX_WORKER_LEASE_SEC", agent.DefaultOutboxLeaseSec)*time.Second)
 	processor.WithBatchSize(intFromEnv("OUTBOX_WORKER_BATCH_SIZE", 100))
 	processor.WithRetry(
 		intFromEnv("OUTBOX_WORKER_MAX_ATTEMPTS", 3),
 		durationFromEnv("OUTBOX_WORKER_RETRY_DELAY_SEC", 60)*time.Second,
 	)
+}
+
+// ConfigureEmbeddedAgentOutboxProcessorFromEnv configures the embedded API
+// processor with the same aggregate-ordering contract as the standalone agent
+// worker before it starts draining the event filter.
+func ConfigureEmbeddedAgentOutboxProcessorFromEnv(processor *events.Processor, workerID string, eventFilter ...string) {
+	if processor == nil {
+		return
+	}
+	processor.WithOrderedEvents(AgentOrderedEvents()...)
+	ConfigureOutboxProcessorFromEnv(processor, workerID, eventFilter...)
+}
+
+// ConfigureOutboxProcessorFromEnvWithConcurrency configures an outbox processor
+// with bounded parallelism, ordering, lease refresh, and batch state writes.
+// orderedEvents specifies event types that require per-aggregate FIFO ordering;
+// events not in this list (e.g. idempotent indexing events) bypass the ordering
+// check for higher concurrency.
+//
+// Per-worker environment variables take precedence over the generic
+// OUTBOX_WORKER_CONCURRENCY / OUTBOX_WORKER_QUEUE_DEPTH. The envPrefix
+// determines the per-worker variable names: "${envPrefix}_CONCURRENCY" and
+// "${envPrefix}_QUEUE_DEPTH". When a per-worker variable is unset, the generic
+// OUTBOX_WORKER variable is tried; when that is also unset, the code default
+// (passed as the concurrency / queueDepth parameters) is used.
+func ConfigureOutboxProcessorFromEnvWithConcurrency(processor *events.Processor, workerID string, envPrefix string, concurrency, queueDepth int, idleInterval, errorBackoff, lease time.Duration, orderedEvents []string, eventFilter ...string) {
+	if processor == nil {
+		return
+	}
+	processor.WithEventFilter(eventFilter...)
+	processor.WithOrderedEvents(orderedEvents...)
+	processor.WithWorker(workerID, lease)
+	batchSize := intFromEnv("OUTBOX_WORKER_BATCH_SIZE", 100)
+	processor.WithBatchSize(batchSize)
+	processor.WithRetry(
+		intFromEnv("OUTBOX_WORKER_MAX_ATTEMPTS", 3),
+		durationFromEnv("OUTBOX_WORKER_RETRY_DELAY_SEC", 60)*time.Second,
+	)
+	// Per-worker env vars override generic OUTBOX_WORKER_* vars, which in turn
+	// override the code defaults passed as parameters.
+	effectiveConcurrency := intFromEnv(envPrefix+"_CONCURRENCY", intFromEnv("OUTBOX_WORKER_CONCURRENCY", concurrency))
+	effectiveQueueDepth := intFromEnv(envPrefix+"_QUEUE_DEPTH", intFromEnv("OUTBOX_WORKER_QUEUE_DEPTH", queueDepth))
+	processor.WithConfig(events.ProcessorConfig{
+		BatchSize:    batchSize,
+		Concurrency:  effectiveConcurrency,
+		QueueDepth:   effectiveQueueDepth,
+		IdleInterval: idleInterval,
+		ErrorBackoff: errorBackoff,
+		Lease:        lease,
+		LeaseRefresh: durationFromEnv(envPrefix+"_LEASE_REFRESH_SEC",
+			intFromEnv("OUTBOX_WORKER_LEASE_REFRESH_SEC", int(lease/time.Second/3))) * time.Second,
+	})
 }

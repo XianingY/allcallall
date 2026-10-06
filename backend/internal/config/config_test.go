@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	gormlogger "gorm.io/gorm/logger"
 )
 
 // These named-field literals make public configuration compatibility a
@@ -545,5 +548,79 @@ func TestDatabaseConfigApplyDefaults(t *testing.T) {
 	cfg.ApplyDefaults()
 	if cfg.MaxOpenConns != 10 || cfg.MaxIdleConns != 3 || cfg.ConnMaxLifetime != time.Hour || cfg.ConnMaxIdleTime != 30*time.Second {
 		t.Fatalf("ApplyDefaults overwrote explicit values: %+v", cfg)
+	}
+}
+
+func TestDatabaseConfigAcceptsDeprecatedLifetimeMinutes(t *testing.T) {
+	var cfg Config
+	err := yaml.Unmarshal([]byte("database:\n  conn_max_lifetime_minutes: 30\n"), &cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Database.ApplyDefaults()
+	if cfg.Database.ConnMaxLifetime != 30*time.Minute {
+		t.Fatalf("lifetime=%s want=30m", cfg.Database.ConnMaxLifetime)
+	}
+}
+
+func TestDatabaseConfigConnMaxLifetimeWinsOverDeprecated(t *testing.T) {
+	var cfg Config
+	err := yaml.Unmarshal([]byte("database:\n  conn_max_lifetime: 45m\n  conn_max_lifetime_minutes: 30\n"), &cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Database.ApplyDefaults()
+	if cfg.Database.ConnMaxLifetime != 45*time.Minute {
+		t.Fatalf("lifetime=%s want=45m", cfg.Database.ConnMaxLifetime)
+	}
+}
+
+func TestDatabaseConfigLogLevelNotSetByApplyDefaults(t *testing.T) {
+	// ApplyDefaults must not set LogLevel — the environment-aware default
+	// is resolved by ParseGORMLogLevel at consumption time, not at config
+	// load time.  This allows production (warn) and development (info) to
+	// diverge correctly.
+	cfg := DatabaseConfig{}
+	cfg.ApplyDefaults()
+	if cfg.LogLevel != "" {
+		t.Fatalf("ApplyDefaults should not set LogLevel, got %q", cfg.LogLevel)
+	}
+}
+
+func TestDatabaseConfigLogLevelExplicitPreserved(t *testing.T) {
+	cfg := DatabaseConfig{LogLevel: "info"}
+	cfg.ApplyDefaults()
+	if cfg.LogLevel != "info" {
+		t.Fatalf("LogLevel=%q want=info", cfg.LogLevel)
+	}
+}
+
+func TestParseGORMLogLevel(t *testing.T) {
+	tests := []struct {
+		raw        string
+		production bool
+		want       gormlogger.LogLevel
+	}{
+		{"silent", false, gormlogger.Silent},
+		{"none", false, gormlogger.Silent},
+		{"off", false, gormlogger.Silent},
+		{"error", false, gormlogger.Error},
+		{"err", false, gormlogger.Error},
+		{"warn", false, gormlogger.Warn},
+		{"warning", false, gormlogger.Warn},
+		{"info", false, gormlogger.Info},
+		{"", false, gormlogger.Info}, // unknown defaults to info in dev
+		{"", true, gormlogger.Warn},  // unknown defaults to warn in production
+		{"unknown", true, gormlogger.Warn},
+		{"unknown", false, gormlogger.Info},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(fmt.Sprintf("%s/prod=%v", tc.raw, tc.production), func(t *testing.T) {
+			got := ParseGORMLogLevel(tc.raw, tc.production)
+			if got != tc.want {
+				t.Fatalf("ParseGORMLogLevel(%q, %v) = %v, want %v", tc.raw, tc.production, got, tc.want)
+			}
+		})
 	}
 }

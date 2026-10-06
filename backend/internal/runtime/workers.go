@@ -17,6 +17,8 @@ import (
 const (
 	EventAgentRunRequested               = "agent.run.requested"
 	EventWorkflowRequested               = agent.EventWorkflowRunRequested
+	EventAgentApprovedWrite              = agent.EventAgentApprovedWrite
+	EventWorkflowApprovedWrite           = agent.EventWorkflowApprovedWrite
 	EventMCPExecutionTerminal            = mcpplatform.EventMCPExecutionTerminal
 	EventAgentRunCompleted               = "agent.run.completed"
 	EventMessageCreated                  = "message.created"

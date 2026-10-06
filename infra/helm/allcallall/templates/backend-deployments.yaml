@@ -25,8 +25,8 @@ spec:
         checksum/config: {{ include (print $root.Template.BasePath "/configmap.yaml") $root | sha256sum }}
         {{- if and $workload.http $root.Values.observability.prometheus.scrape }}
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
-        prometheus.io/path: /api/v1/metrics
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
         {{- end }}
         {{- with $root.Values.global.podAnnotations }}
         {{- toYaml . | nindent 8 }}

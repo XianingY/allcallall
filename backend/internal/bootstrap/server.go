@@ -98,6 +98,9 @@ func RunServer(ctx context.Context, cfg *config.Config, appLogger zerolog.Logger
 		}
 	}()
 
+	// Start Redis pool metrics sampler with the root lifecycle context.
+	cache.StartRedisPoolMetrics(rootCtx, redisClient, 15*time.Second)
+
 	rateLimitSvc := ratelimit.NewService(redisClient)
 	// Coarse global per-client rate limit across all non-health endpoints.
 	engine.Use(server.GlobalRateLimit(rateLimitSvc))
@@ -524,6 +527,8 @@ func RunServer(ctx context.Context, cfg *config.Config, appLogger zerolog.Logger
 		outboxEvents := []string{
 			appruntime.EventAgentRunRequested,
 			appruntime.EventWorkflowRequested,
+			appruntime.EventAgentApprovedWrite,
+			appruntime.EventWorkflowApprovedWrite,
 			appruntime.EventMCPExecutionTerminal,
 			appruntime.EventAgentRunCompleted,
 			appruntime.EventMessageCreated,
@@ -535,7 +540,7 @@ func RunServer(ctx context.Context, cfg *config.Config, appLogger zerolog.Logger
 		if settlementKafkaEnabled {
 			outboxEvents = append(outboxEvents, appruntime.EventSettlementRoomEnd)
 		}
-		appruntime.ConfigureOutboxProcessorFromEnv(outboxProcessor, "api-embedded-outbox", outboxEvents...)
+		appruntime.ConfigureEmbeddedAgentOutboxProcessorFromEnv(outboxProcessor, "api-embedded-outbox", outboxEvents...)
 		appruntime.StartCleanupWorker(rootCtx, appLogger, collaborationSvc, refreshSessionSvc)
 		appruntime.StartAgentRecoveryWorker(rootCtx, appLogger, agentSvc)
 		if mcpRuntime.Enabled {

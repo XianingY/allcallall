@@ -9,7 +9,7 @@ RUNTIME_VENV_PYTHON = $(if $(wildcard $(AGENT_RUNTIME_DIR)/.venv/bin/python),$(A
 AGENT_RUNTIME_PYTHON ?= $(if $(wildcard $(AGENT_RUNTIME_DIR)/services/agent-runtime/.venv/bin/python),$(AGENT_RUNTIME_ABS_DIR)/services/agent-runtime/.venv/bin/python,$(RUNTIME_VENV_PYTHON))
 RAG_RUNTIME_PYTHON ?= $(if $(wildcard $(AGENT_RUNTIME_DIR)/services/rag-runtime/.venv/bin/python),$(AGENT_RUNTIME_ABS_DIR)/services/rag-runtime/.venv/bin/python,$(RUNTIME_VENV_PYTHON))
 
-.PHONY: help setup install-hooks build-android build-android-release build-ios clean clean-android test test-backend run-backend run-api run-agent-runtime run-rag-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed dev-android dev-ios fmt lint verify interview-up interview-smoke interview-chaos interview-status interview-down interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval python-rag-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval ai-agent-jd-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check helm-check
+.PHONY: help setup install-hooks build-android build-android-release build-ios clean clean-android test test-backend run-backend run-api run-agent-runtime run-rag-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed dev-android dev-ios fmt lint verify interview-up interview-smoke interview-chaos interview-status interview-down interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval python-rag-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval ai-agent-jd-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check agent-performance-suite helm-check
 
 # Default target
 help:
@@ -64,6 +64,7 @@ help:
 	@echo "  make web-contract-check - Verify OpenAPI and generated Web types are synchronized"
 	@echo "  make web-performance-check - Build Web and enforce bundle budgets"
 	@echo "  make helm-check        - Lint and render the Kubernetes Helm chart"
+	@echo "  make agent-performance-suite - Run end-to-end agent benchmark suite"
 	@echo ""
 	@echo "Clean:"
 	@echo "  make clean            - Clean all build artifacts"
@@ -188,6 +189,9 @@ helm-check:
 	helm lint infra/helm/allcallall
 	helm template allcallall infra/helm/allcallall --namespace allcallall > /tmp/allcallall-helm.yaml
 	kubeconform -strict -summary -ignore-missing-schemas /tmp/allcallall-helm.yaml
+
+agent-performance-suite:
+	./scripts/load/run-agent-performance-suite.sh
 
 interview-demo:
 	@echo "Starting and verifying the full interview stack..."

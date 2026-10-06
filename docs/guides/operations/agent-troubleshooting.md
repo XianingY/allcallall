@@ -32,7 +32,7 @@ Metrics to inspect:
 - `agent_run_started_total`
 - `outbox_publish_total`
 - `outbox_publish_retry_total`
-- `outbox_publish_failed_total`
+- `outbox_dead_letter_total`
 
 ## Agent Run Fails
 

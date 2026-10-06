@@ -144,6 +144,9 @@ func buildAgentRuntimeRequest(run models.AgentRun, goal string, conversationCtx 
 		AgenticRAG:    workflowRuntimeAgenticRAGFromEnv(),
 	}
 	appendRuntimeConversationContext(&request, conversationCtx)
+	if conversationCtx != nil {
+		request.ContextManifest = &conversationCtx.Manifest
+	}
 	return request
 }
 

@@ -342,3 +342,203 @@ func (s *Store) ReleaseExpiredLeases() (int64, error) {
 
 	return result.RowsAffected, result.Error
 }
+
+// ClaimPendingForEventsOrdered claims pending events with aggregate-ordering
+// protection. Events whose type is in orderedEvents will only be claimed if no
+// earlier pending row exists for the same (aggregate_type, aggregate_id). This
+// prevents cross-replica reordering for ordered event types (agent/workflow,
+// result-write). Events not in orderedEvents bypass the check for higher
+// concurrency (idempotent indexing events).
+func (s *Store) ClaimPendingForEventsOrdered(ctx context.Context, limit int, workerID string, lease time.Duration, events []string, orderedEvents []string) ([]models.EventOutbox, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("outbox store database is nil")
+	}
+	workerID = strings.TrimSpace(workerID)
+	if workerID == "" {
+		return nil, errors.New("outbox worker id is required")
+	}
+	if lease <= 0 {
+		lease = time.Minute
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	events = normalizeEventFilter(events)
+	orderedEvents = normalizeEventFilter(orderedEvents)
+
+	now := time.Now().UTC()
+	lockedUntil := now.Add(lease)
+
+	var claimed []models.EventOutbox
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		selectSQL := "SELECT id FROM event_outbox WHERE status = ? AND (available_at IS NULL OR available_at <= ?) AND (locked_until IS NULL OR locked_until <= ?)"
+		args := []any{models.EventOutboxStatusPending, now, now}
+		if len(events) > 0 {
+			selectSQL += " AND event IN ?"
+			args = append(args, events)
+		}
+		if len(orderedEvents) > 0 {
+			selectSQL += " AND (event NOT IN ? OR NOT EXISTS (SELECT 1 FROM event_outbox earlier WHERE earlier.aggregate_type = event_outbox.aggregate_type AND earlier.aggregate_id = event_outbox.aggregate_id AND earlier.status = ? AND earlier.id < event_outbox.id))"
+			args = append(args, orderedEvents, models.EventOutboxStatusPending)
+		}
+		selectSQL += " ORDER BY id ASC LIMIT ?"
+		args = append(args, limit)
+		if s.db.Name() == "mysql" {
+			selectSQL += " FOR UPDATE SKIP LOCKED"
+		}
+
+		var ids []uint64
+		if err := tx.Raw(selectSQL, args...).Scan(&ids).Error; err != nil {
+			return fmt.Errorf("select outbox candidates: %w", err)
+		}
+		if len(ids) == 0 {
+			claimed = nil
+			return nil
+		}
+
+		if err := tx.Model(&models.EventOutbox{}).
+			Where("id IN ? AND status = ? AND (available_at IS NULL OR available_at <= ?) AND (locked_until IS NULL OR locked_until <= ?)",
+				ids, models.EventOutboxStatusPending, now, now).
+			Updates(map[string]any{
+				"locked_by":    workerID,
+				"locked_until": lockedUntil,
+				"updated_at":   now,
+			}).Error; err != nil {
+			return fmt.Errorf("lock outbox batch: %w", err)
+		}
+
+		return tx.Where("id IN ? AND locked_by = ? AND locked_until = ?", ids, workerID, lockedUntil).
+			Order("id ASC").Find(&claimed).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return claimed, nil
+}
+
+// ExtendLease extends the lease on an outbox row that is still owned by the
+// current worker. Returns false if ownership has been lost (another worker
+// claimed the row or it was already published). The until time must be in
+// the future.
+func (s *Store) ExtendLease(ctx context.Context, id uint64, workerID string, until time.Time) (bool, error) {
+	if s == nil || s.db == nil {
+		return false, errors.New("outbox store database is nil")
+	}
+	if id == 0 {
+		return false, errors.New("outbox id is required")
+	}
+	now := time.Now().UTC()
+	result := s.db.WithContext(ctx).Model(&models.EventOutbox{}).
+		Where("id = ? AND locked_by = ? AND status = ?", id, workerID, models.EventOutboxStatusPending).
+		Updates(map[string]any{
+			"locked_until": until,
+			"updated_at":   now,
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+// MarkPublishedBatch marks multiple events as published in a single update.
+// The update constrains both ID and current worker ownership. Returns the
+// IDs that were not updated (mismatched ownership or already in a different
+// state) so the caller can fall back to per-row updates.
+func (s *Store) MarkPublishedBatch(ctx context.Context, ids []uint64, workerID string) ([]uint64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	now := time.Now().UTC()
+	result := s.db.WithContext(ctx).Model(&models.EventOutbox{}).
+		Where("id IN ? AND locked_by = ?", ids, workerID).
+		Updates(map[string]any{
+			"status":       models.EventOutboxStatusPublished,
+			"published_at": now,
+			"locked_by":    "",
+			"locked_until": nil,
+			"updated_at":   now,
+		})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if int(result.RowsAffected) == len(ids) {
+		return nil, nil
+	}
+	return findMismatchedIDs(ctx, s.db, ids, workerID), nil
+}
+
+// MarkRetryBatch marks multiple events for retry in a single update. All
+// events must share the same availableAt and normalized error message. The
+// update constrains both ID and current worker ownership.
+func (s *Store) MarkRetryBatch(ctx context.Context, ids []uint64, workerID string, cause error, availableAt time.Time) ([]uint64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	message := ""
+	if cause != nil {
+		message = cause.Error()
+	}
+	now := time.Now().UTC()
+	result := s.db.WithContext(ctx).Model(&models.EventOutbox{}).
+		Where("id IN ? AND locked_by = ?", ids, workerID).
+		Updates(map[string]any{
+			"status":       models.EventOutboxStatusPending,
+			"last_error":   message,
+			"attempts":     gorm.Expr("attempts + 1"),
+			"available_at": availableAt,
+			"locked_by":    "",
+			"locked_until": nil,
+			"updated_at":   now,
+		})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if int(result.RowsAffected) == len(ids) {
+		return nil, nil
+	}
+	return findMismatchedIDs(ctx, s.db, ids, workerID), nil
+}
+
+// MarkDeadBatch marks multiple events as dead in a single update. All events
+// must share the same normalized error message. The update constrains both ID
+// and current worker ownership.
+func (s *Store) MarkDeadBatch(ctx context.Context, ids []uint64, workerID string, cause error) ([]uint64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	message := ""
+	if cause != nil {
+		message = cause.Error()
+	}
+	now := time.Now().UTC()
+	result := s.db.WithContext(ctx).Model(&models.EventOutbox{}).
+		Where("id IN ? AND locked_by = ?", ids, workerID).
+		Updates(map[string]any{
+			"status":       models.EventOutboxStatusDead,
+			"last_error":   message,
+			"attempts":     gorm.Expr("attempts + 1"),
+			"locked_by":    "",
+			"locked_until": nil,
+			"updated_at":   now,
+		})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if int(result.RowsAffected) == len(ids) {
+		return nil, nil
+	}
+	return findMismatchedIDs(ctx, s.db, ids, workerID), nil
+}
+
+// findMismatchedIDs identifies which IDs from the batch were not updated by
+// the batch operation. It queries for IDs that are still locked by the worker
+// and still pending (meaning the batch WHERE clause should have matched but
+// didn't, e.g. due to a concurrent state change). IDs not found at all or no
+// longer owned by the worker are considered already handled.
+func findMismatchedIDs(ctx context.Context, db *gorm.DB, ids []uint64, workerID string) []uint64 {
+	var stillLocked []uint64
+	db.WithContext(ctx).Model(&models.EventOutbox{}).
+		Where("id IN ? AND locked_by = ? AND status = ?", ids, workerID, models.EventOutboxStatusPending).
+		Pluck("id", &stillLocked)
+	return stillLocked
+}

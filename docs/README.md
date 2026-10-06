@@ -72,6 +72,7 @@ below. Contributor workflow and project policies live in
 - [Deployment Security](reference/security/deployment-security.md)
 - [Message Privacy and Compliance](reference/security/privacy-and-compliance.md)
 - [Web Authentication Session](reference/security/web-auth-session.md)
+- [Performance Operations](reference/performance.md)
 
 ## Client Documentation
 

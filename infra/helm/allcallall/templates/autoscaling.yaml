@@ -28,7 +28,7 @@ spec:
   maxReplicas: {{ $target.values.autoscaling.maxReplicas }}
   behavior:
     scaleDown:
-      stabilizationWindowSeconds: 300
+      stabilizationWindowSeconds: {{ $target.values.autoscaling.scaleDownStabilizationWindowSeconds | default 300 }}
       policies:
         - type: Percent
           value: 25
@@ -46,5 +46,14 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ $target.values.autoscaling.targetCPUUtilizationPercentage }}
+{{- range $metric := $target.values.autoscaling.externalMetrics }}
+    - type: External
+      external:
+        metric:
+          name: {{ $metric.name | quote }}
+        target:
+          type: AverageValue
+          averageValue: {{ $metric.targetAverageValue | quote }}
+{{- end }}
 {{- end }}
 {{- end }}

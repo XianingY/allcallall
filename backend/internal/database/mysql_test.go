@@ -1,6 +1,9 @@
 package database
 
 import (
+	"context"
+	"database/sql"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -43,5 +46,50 @@ func TestConfig_PoolDefaults(t *testing.T) {
 	}
 	if cfg.ConnMaxLifetime != 10*time.Minute {
 		t.Errorf("Default ConnMaxLifetime = %v, want 10m", cfg.ConnMaxLifetime)
+	}
+}
+
+func TestStartSQLPoolMetricsCancellation(t *testing.T) {
+	db, err := sql.Open("mysql", "root:invalid@tcp(localhost:0)/test")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+
+	var observed atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+
+	StartSQLPoolMetrics(ctx, db, 5*time.Millisecond, func(sql.DBStats) {
+		observed.Add(1)
+	})
+
+	// Wait for at least one observation.
+	deadline := time.After(2 * time.Second)
+	for observed.Load() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("no observation received before deadline")
+		default:
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
+
+	// Cancel the context; the sampler goroutine must exit.
+	cancel()
+
+	// Allow time for the goroutine to observe cancellation.
+	time.Sleep(50 * time.Millisecond)
+
+	// Record the count after the cancellation settling period.
+	countAtCancel := observed.Load()
+
+	// Wait another interval and verify no further observations.
+	time.Sleep(30 * time.Millisecond)
+	countAfterWait := observed.Load()
+
+	// Allow at most 1 straggler observation from a race between
+	// the ticker channel and context cancellation.
+	if countAfterWait > countAtCancel+1 {
+		t.Fatalf("sampler continued after cancellation: at_cancel=%d after_wait=%d", countAtCancel, countAfterWait)
 	}
 }

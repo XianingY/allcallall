@@ -13,8 +13,13 @@ const (
 	// 客户端订阅该事件后即可实时刷新工作流面板，取代轮询 fetchWorkflowRun。
 	EventWorkflowUpdated = "workflow.updated"
 
-	workflowRunMaxAttempts   = 3
-	workflowRunLeaseDuration = 5 * time.Minute
+	workflowRunMaxAttempts = 3
+)
+
+var (
+	// workflowRunLeaseDuration is the execution lease for workflow runs.
+	// Configurable via WORKFLOW_RUN_LEASE_DURATION_SEC (default 300).
+	workflowRunLeaseDuration = time.Duration(intFromEnv("WORKFLOW_RUN_LEASE_DURATION_SEC", 300)) * time.Second
 )
 
 var (

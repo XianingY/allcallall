@@ -413,6 +413,7 @@ func (s *Service) executeApprovalTask(ctx context.Context, run models.WorkflowRu
 }
 
 func (s *Service) executeCommitResultTask(ctx context.Context, run models.WorkflowRun) error {
+	deferredWrites := false
 	err := s.executeWorkflowTask(ctx, run, models.WorkflowTaskCommitResult, map[string]any{
 		"workflow_run_id": run.ID,
 	}, func(task models.WorkflowTask) (map[string]any, error) {
@@ -446,6 +447,14 @@ func (s *Service) executeCommitResultTask(ctx context.Context, run models.Workfl
 					return nil, err
 				}
 			case models.ToolApprovalStatusApproved, models.ToolApprovalStatusExecuting:
+				durableWrites, err := s.hasWorkflowApprovedWriteOutboxEvent(ctx, run.ID, approval.ApprovalCheckpointVersion)
+				if err != nil {
+					return nil, err
+				}
+				if durableWrites {
+					deferredWrites = true
+					continue
+				}
 				if err := s.executeWorkflowApprovalTool(ctx, run, &approval); err != nil {
 					return nil, err
 				}
@@ -460,10 +469,15 @@ func (s *Service) executeCommitResultTask(ctx context.Context, run models.Workfl
 				}
 			}
 		}
-		return map[string]any{"executed_tools": executed, "rejected_tools": rejected}, nil
+		return map[string]any{"executed_tools": executed, "rejected_tools": rejected, "deferred_writes": deferredWrites}, nil
 	})
 	if err != nil {
 		return err
+	}
+	// The commit task is ready, but workflow completion must wait for the
+	// ordered durable write events that were atomically enqueued with approval.
+	if deferredWrites {
+		return nil
 	}
 	merged, err := s.loadMergedWorkflowResult(ctx, run.ID)
 	if err != nil {

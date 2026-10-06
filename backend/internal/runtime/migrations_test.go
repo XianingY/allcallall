@@ -20,8 +20,8 @@ import (
 )
 
 func TestCurrentSchemaVersionIncludesDurableSandboxReceipts(t *testing.T) {
-	if currentSchemaVersion != 20 {
-		t.Fatalf("current schema version=%d want=20", currentSchemaVersion)
+	if currentSchemaVersion != 21 {
+		t.Fatalf("current schema version=%d want=21", currentSchemaVersion)
 	}
 	migrations := map[string]map[string][]string{
 		"000003_workflow_runtime_resume": {
@@ -75,6 +75,10 @@ func TestCurrentSchemaVersionIncludesDurableSandboxReceipts(t *testing.T) {
 		"000020_admin_recent_indexes": {
 			"up":   {"idx_recording_sessions_org_updated_id", "idx_organization_audit_events_org_id", "idx_recording_sessions_organization_id", "idx_organization_audit_events_organization_id"},
 			"down": {"idx_recording_sessions_org_updated_id", "idx_organization_audit_events_org_id", "idx_recording_sessions_organization_id", "idx_organization_audit_events_organization_id"},
+		},
+		"000021_event_outbox_claim_indexes": {
+			"up":   {"idx_event_outbox_claim", "idx_event_outbox_aggregate_order"},
+			"down": {"idx_event_outbox_claim", "idx_event_outbox_aggregate_order"},
 		},
 	}
 	for migration, directions := range migrations {
@@ -144,6 +148,17 @@ func TestAdminRecentOrderIndexesBootstrap(t *testing.T) {
 	}
 	if db.Migrator().HasIndex(&models.OrganizationAuditEvent{}, "idx_organization_audit_events_organization_id") {
 		t.Fatal("the audit-event organization index is redundant once the order index exists")
+	}
+}
+
+func TestEventOutboxClaimIndexesBootstrap(t *testing.T) {
+	db := testutil.OpenSQLite(t, "event_outbox_claim_indexes.db")
+	testutil.AutoMigrateAll(t, db)
+	if !db.Migrator().HasIndex(&models.EventOutbox{}, "idx_event_outbox_claim") {
+		t.Fatal("fresh bootstrap must create idx_event_outbox_claim for the outbox claim query")
+	}
+	if !db.Migrator().HasIndex(&models.EventOutbox{}, "idx_event_outbox_aggregate_order") {
+		t.Fatal("fresh bootstrap must create idx_event_outbox_aggregate_order for the aggregate-order subquery")
 	}
 }
 
@@ -370,7 +385,7 @@ func TestMySQLCallRoomOrderMigrationUpDownUp(t *testing.T) {
 	if !bootstrapped {
 		t.Fatal("expected empty call-room migration database to be bootstrapped")
 	}
-	assertMigrationVersion(t, migration, 19)
+	assertMigrationVersion(t, migration, currentSchemaVersion)
 	assertMySQLIndexPresence(t, sqlDB, databaseName, "call_rooms", "idx_call_rooms_org_updated_id", true)
 	assertMySQLIndexPresence(t, sqlDB, databaseName, "call_rooms", "idx_call_rooms_organization_id", false)
 
@@ -440,7 +455,7 @@ func TestMySQLAdminRecentIndexesMigrationUpDownUp(t *testing.T) {
 	if !bootstrapped {
 		t.Fatal("expected empty admin-recent migration database to be bootstrapped")
 	}
-	assertMigrationVersion(t, migration, 20)
+	assertMigrationVersion(t, migration, currentSchemaVersion)
 	assertMySQLIndexPresence(t, sqlDB, databaseName, "recording_sessions", "idx_recording_sessions_org_updated_id", true)
 	assertMySQLIndexPresence(t, sqlDB, databaseName, "organization_audit_events", "idx_organization_audit_events_org_id", true)
 	assertMySQLIndexPresence(t, sqlDB, databaseName, "recording_sessions", "idx_recording_sessions_organization_id", false)
@@ -931,6 +946,120 @@ func assertWorkflowRuntimeV2DataPreserved(t *testing.T, db *sql.DB) {
 		}
 		if got != check.want {
 			t.Fatalf("preserved value=%q want=%q for %s", got, check.want, check.query)
+		}
+	}
+}
+
+func TestMySQLEventOutboxClaimIndexesMigrationUpDownUp(t *testing.T) {
+	dsn := strings.TrimSpace(os.Getenv("ALLCALLALL_TEST_MYSQL_DSN"))
+	if dsn == "" {
+		t.Skip("ALLCALLALL_TEST_MYSQL_DSN is not configured")
+	}
+
+	databaseName := "allcallall_outbox_claim_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	adminDB, testDSN := createMigrationTestDatabase(t, dsn, databaseName)
+	t.Cleanup(func() {
+		if _, err := adminDB.Exec("DROP DATABASE IF EXISTS `" + databaseName + "`"); err != nil {
+			t.Errorf("drop isolated outbox-claim migration database: %v", err)
+		}
+	})
+
+	gormDB, err := gorm.Open(gormmysql.Open(testDSN), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatalf("open isolated outbox-claim migration database with gorm: %v", err)
+	}
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		t.Fatalf("get isolated outbox-claim migration sql.DB: %v", err)
+	}
+	driver, err := migratemysql.WithInstance(sqlDB, &migratemysql.Config{})
+	if err != nil {
+		t.Fatalf("create outbox-claim migration driver: %v", err)
+	}
+	migrationPath, err := filepath.Abs(filepath.Join("..", "..", "migrations"))
+	if err != nil {
+		t.Fatalf("resolve migration directory: %v", err)
+	}
+	migration, err := migrate.NewWithDatabaseInstance("file://"+filepath.ToSlash(migrationPath), "mysql", driver)
+	if err != nil {
+		t.Fatalf("create outbox-claim migration runner: %v", err)
+	}
+
+	bootstrapped, err := bootstrapMySQLSchema(gormDB, migration)
+	if err != nil {
+		t.Fatalf("bootstrap isolated outbox-claim migration database: %v", err)
+	}
+	if !bootstrapped {
+		t.Fatal("expected empty outbox-claim migration database to be bootstrapped")
+	}
+	assertMigrationVersion(t, migration, currentSchemaVersion)
+
+	// Return to the version just before the new indexes.
+	if err := migration.Migrate(20); err != nil {
+		t.Fatalf("move bootstrapped schema to v20: %v", err)
+	}
+	assertMigrationVersion(t, migration, 20)
+
+	// Before the migration, the new indexes should not exist.
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "event_outbox", "idx_event_outbox_claim", false)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "event_outbox", "idx_event_outbox_aggregate_order", false)
+
+	// Apply the migration.
+	if err := migration.Migrate(21); err != nil {
+		t.Fatalf("apply outbox-claim index migration: %v", err)
+	}
+	assertMigrationVersion(t, migration, 21)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "event_outbox", "idx_event_outbox_claim", true)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "event_outbox", "idx_event_outbox_aggregate_order", true)
+
+	// Verify column order of idx_event_outbox_claim.
+	assertMySQLIndexColumnOrder(t, sqlDB, databaseName, "event_outbox", "idx_event_outbox_claim", []string{"status", "event", "available_at", "locked_until", "id"})
+	assertMySQLIndexColumnOrder(t, sqlDB, databaseName, "event_outbox", "idx_event_outbox_aggregate_order", []string{"aggregate_type", "aggregate_id", "status", "id"})
+
+	// Roll back.
+	if err := migration.Migrate(20); err != nil {
+		t.Fatalf("rollback outbox-claim index migration: %v", err)
+	}
+	assertMigrationVersion(t, migration, 20)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "event_outbox", "idx_event_outbox_claim", false)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "event_outbox", "idx_event_outbox_aggregate_order", false)
+
+	// Re-apply.
+	if err := migration.Migrate(21); err != nil {
+		t.Fatalf("reapply outbox-claim index migration: %v", err)
+	}
+	assertMigrationVersion(t, migration, 21)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "event_outbox", "idx_event_outbox_claim", true)
+	assertMySQLIndexPresence(t, sqlDB, databaseName, "event_outbox", "idx_event_outbox_aggregate_order", true)
+}
+
+func assertMySQLIndexColumnOrder(t *testing.T, db *sql.DB, databaseName, tableName, indexName string, expectedColumns []string) {
+	t.Helper()
+	rows, err := db.Query(
+		"SELECT column_name FROM information_schema.statistics WHERE table_schema = ? AND table_name = ? AND index_name = ? ORDER BY seq_in_index",
+		databaseName, tableName, indexName,
+	)
+	if err != nil {
+		t.Fatalf("query index column order for %s: %v", indexName, err)
+	}
+	defer rows.Close()
+	var columns []string
+	for rows.Next() {
+		var col string
+		if err := rows.Scan(&col); err != nil {
+			t.Fatalf("scan index column: %v", err)
+		}
+		columns = append(columns, col)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate index columns: %v", err)
+	}
+	if len(columns) != len(expectedColumns) {
+		t.Fatalf("index %s has %d columns %v, want %d columns %v", indexName, len(columns), columns, len(expectedColumns), expectedColumns)
+	}
+	for i, col := range columns {
+		if col != expectedColumns[i] {
+			t.Fatalf("index %s column[%d] = %s, want %s (got %v, want %v)", indexName, i, col, expectedColumns[i], columns, expectedColumns)
 		}
 	}
 }
