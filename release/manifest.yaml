@@ -23,10 +23,10 @@ repositories:
     remote: https://github.com/XianingY/AllCallAll
     # Stamped by `make release-stamp` immediately before tagging; the tagged
     # commit's SHA is written here so the manifest is self-referential.
-    sha: ec3710c2bc589e754dc6494db693f98dd286f3e5
+    sha: 3b82954523f6d980d569793836c3bc0f1bbfc271
   allcallall-agent-runtime:
     remote: https://github.com/XianingY/allcallall-agent-runtime
-    sha: 1f32b5e3a82e3f61b0538c053f2ae2e45296ee0d
+    sha: 15b1b77e192927848e860c36e3c12c9d2118d116
     tag: v0.3.0
 
 contracts:
