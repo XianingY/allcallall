@@ -95,7 +95,7 @@ jobs:
         uses: sigstore/cosign-installer@v3
       - name: Sign ${{ matrix.name }}
         env:
-          IMAGE: ghcr.io/xianingy/allcallall/${{ matrix.name }}:${GITHUB_REF_NAME}
+          IMAGE: ghcr.io/xianingy/allcallall/${{ matrix.name }}:${{ github.ref_name }}
         run: |
           set -euo pipefail
           digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE")
@@ -107,7 +107,7 @@ jobs:
           cosign sign --yes "$digest"
       - name: Verify ${{ matrix.name }}
         env:
-          IMAGE: ghcr.io/xianingy/allcallall/${{ matrix.name }}:${GITHUB_REF_NAME}
+          IMAGE: ghcr.io/xianingy/allcallall/${{ matrix.name }}:${{ github.ref_name }}
         run: |
           set -euo pipefail
           digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE")

@@ -20,7 +20,7 @@ ARG VITE_APP_VERSION=production
 ENV VITE_APP_VERSION=${VITE_APP_VERSION}
 RUN npm run build --workspace=web
 
-FROM nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+FROM nginx:1.29-alpine@sha256:3bcf852aed06467cf075c6105892e4d5a6ebbbafa0ce22d35062db9e90ddef4c
 RUN apk upgrade --no-cache
 COPY infra/nginx.tls.conf /etc/nginx/conf.d/default.conf
 COPY infra/web-runtime-config.sh /docker-entrypoint.d/40-allcallall-config.sh
