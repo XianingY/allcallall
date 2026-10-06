@@ -201,6 +201,10 @@ components:
       minReplicas: 2
       maxReplicas: 10
       targetCPUUtilizationPercentage: 70
+      scaleDownStabilizationWindowSeconds: 300
+      # Optional External metrics require a Prometheus custom-metrics adapter.
+      # Keep the CPU metric enabled even when pressure metrics are configured.
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
   agentWorker:
     replicas: 2
@@ -212,6 +216,8 @@ components:
       minReplicas: 2
       maxReplicas: 10
       targetCPUUtilizationPercentage: 70
+      scaleDownStabilizationWindowSeconds: 300
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
   outboxWorker:
     replicas: 2
@@ -223,6 +229,13 @@ components:
       minReplicas: 2
       maxReplicas: 8
       targetCPUUtilizationPercentage: 70
+      scaleDownStabilizationWindowSeconds: 300
+      # Production pressure-scaling example. The adapter must expose this
+      # metric; otherwise leave externalMetrics empty and use the CPU signal.
+      # externalMetrics:
+      #   - name: allcallall_outbox_oldest_pending_seconds
+      #     targetAverageValue: "2"
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
   agentRuntime:
     replicas: 2
@@ -234,6 +247,13 @@ components:
       minReplicas: 2
       maxReplicas: 12
       targetCPUUtilizationPercentage: 65
+      scaleDownStabilizationWindowSeconds: 300
+      # Production pressure-scaling example. The adapter maps this to the
+      # agent_runtime_admission_queued_runs Prometheus gauge.
+      # externalMetrics:
+      #   - name: allcallall_agent_admission_queue_depth
+      #     targetAverageValue: "4"
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
   ragRuntime:
     replicas: 2
@@ -245,6 +265,8 @@ components:
       minReplicas: 2
       maxReplicas: 12
       targetCPUUtilizationPercentage: 65
+      scaleDownStabilizationWindowSeconds: 300
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
   sandboxControlPlane:
     replicas: 2
@@ -257,6 +279,8 @@ components:
       minReplicas: 2
       maxReplicas: 10
       targetCPUUtilizationPercentage: 60
+      scaleDownStabilizationWindowSeconds: 300
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
   sandboxRunner:
     replicas: 2
@@ -270,6 +294,8 @@ components:
       minReplicas: 2
       maxReplicas: 20
       targetCPUUtilizationPercentage: 60
+      scaleDownStabilizationWindowSeconds: 300
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
   sandboxJobs:
     enabled: true
@@ -290,6 +316,8 @@ components:
       minReplicas: 2
       maxReplicas: 6
       targetCPUUtilizationPercentage: 70
+      scaleDownStabilizationWindowSeconds: 300
+      externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
 
 migration:

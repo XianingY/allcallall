@@ -527,6 +527,8 @@ func RunServer(ctx context.Context, cfg *config.Config, appLogger zerolog.Logger
 		outboxEvents := []string{
 			appruntime.EventAgentRunRequested,
 			appruntime.EventWorkflowRequested,
+			appruntime.EventAgentApprovedWrite,
+			appruntime.EventWorkflowApprovedWrite,
 			appruntime.EventMCPExecutionTerminal,
 			appruntime.EventAgentRunCompleted,
 			appruntime.EventMessageCreated,

@@ -20,6 +20,7 @@ const GOVERNANCE_FILES = [
 const IGNORED_DIRECTORIES = new Set([
   ".git",
   ".omo",
+  ".superpowers",
   ".venv",
   ".workbuddy",
   ".worktrees",

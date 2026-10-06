@@ -27,6 +27,67 @@ func TestCanonicalPythonJSONMatchesEnsureASCIIEncoding(t *testing.T) {
 	}
 }
 
+func TestApprovedWriteOutboxKeyBindsExecutionCheckpointAndToolCall(t *testing.T) {
+	first, err := approvedWriteOutboxIdempotencyKey(
+		EventAgentApprovedWrite,
+		"agent:12:resume:3:abcdef0123456789",
+		3,
+		"agent:write-message",
+	)
+	if err != nil {
+		t.Fatalf("build first key: %v", err)
+	}
+	same, err := approvedWriteOutboxIdempotencyKey(
+		EventAgentApprovedWrite,
+		"agent:12:resume:3:abcdef0123456789",
+		3,
+		"agent:write-message",
+	)
+	if err != nil {
+		t.Fatalf("build duplicate key: %v", err)
+	}
+	changedExecution, err := approvedWriteOutboxIdempotencyKey(
+		EventAgentApprovedWrite,
+		"agent:12:resume:4:abcdef0123456789",
+		3,
+		"agent:write-message",
+	)
+	if err != nil {
+		t.Fatalf("build changed execution key: %v", err)
+	}
+	changedCheckpoint, err := approvedWriteOutboxIdempotencyKey(
+		EventAgentApprovedWrite,
+		"agent:12:resume:3:abcdef0123456789",
+		4,
+		"agent:write-message",
+	)
+	if err != nil {
+		t.Fatalf("build changed checkpoint key: %v", err)
+	}
+	changedToolCall, err := approvedWriteOutboxIdempotencyKey(
+		EventAgentApprovedWrite,
+		"agent:12:resume:3:abcdef0123456789",
+		3,
+		"agent:memory",
+	)
+	if err != nil {
+		t.Fatalf("build changed tool-call key: %v", err)
+	}
+
+	if first != same {
+		t.Fatalf("identical inputs must produce the same key: %q != %q", first, same)
+	}
+	if len(first) > 160 {
+		t.Fatalf("approved-write key exceeds outbox limit: %q", first)
+	}
+	if first == changedExecution || first == changedCheckpoint || first == changedToolCall {
+		t.Fatalf("approved-write key must bind execution, checkpoint, and tool call: %q", first)
+	}
+	if _, err := approvedWriteOutboxIdempotencyKey(EventAgentApprovedWrite, " ", 3, "call"); err == nil {
+		t.Fatal("expected empty execution id to be rejected")
+	}
+}
+
 func validPausedRuntimeResponse(t *testing.T) WorkflowRuntimeResponse {
 	t.Helper()
 	arguments := map[string]any{"message": "你好", "priority": 1}
@@ -192,7 +253,6 @@ func TestWorkflowRuntimeRequestContextManifestOptional(t *testing.T) {
 		t.Fatalf("expected truncated=[meeting_transcript_segments], got %v", decoded.ContextManifest.Truncated)
 	}
 }
-
 
 func TestWorkflowRuntimeRequestAttemptOmittedFromJSON(t *testing.T) {
 	request := WorkflowRuntimeRequest{

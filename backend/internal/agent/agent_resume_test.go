@@ -270,6 +270,21 @@ func countAgentSideEffects(t *testing.T, db *gorm.DB, conversationID uint64) (me
 	return messages, memories, followups
 }
 
+func processAgentApprovedWriteEvents(t *testing.T, svc *Service, db *gorm.DB, runID uint64) []models.EventOutbox {
+	t.Helper()
+	var events []models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_id = ?", EventAgentApprovedWrite, runID).
+		Order("id ASC").Find(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if err := svc.ProcessApprovedWriteOutbox(context.Background(), event); err != nil {
+			t.Fatalf("process approved write event %q: %v", event.IdempotencyKey, err)
+		}
+	}
+	return events
+}
+
 func TestAgentApprovalResumeExecutesOnlyApprovedToolsInWorker(t *testing.T) {
 	svc, db, _ := newAgentServiceTestEnv(t)
 	conversation := seedAgentConversation(t, db)
@@ -336,12 +351,17 @@ func TestAgentApprovalResumeExecutesOnlyApprovedToolsInWorker(t *testing.T) {
 		t.Fatalf("HTTP approval produced side effects: messages=%d memories=%d followups=%d", messages, memories, followups)
 	}
 
-	ready, err := svc.ExecuteRun(context.Background(), queued.Run.ID)
+	_, err = svc.ExecuteRun(context.Background(), queued.Run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ready.Run.Status != models.AgentRunStatusReady {
-		t.Fatalf("worker did not complete resumed run: %s", ready.Run.Status)
+	processAgentApprovedWriteEvents(t, svc, db, queued.Run.ID)
+	var readyRun models.AgentRun
+	if err := db.Where("id = ?", queued.Run.ID).Take(&readyRun).Error; err != nil {
+		t.Fatal(err)
+	}
+	if readyRun.Status != models.AgentRunStatusReady {
+		t.Fatalf("worker did not complete resumed run: %s", readyRun.Status)
 	}
 	_, resumes := runtime.requestSnapshot()
 	if len(resumes) != 1 {
@@ -371,6 +391,155 @@ func TestAgentApprovalResumeExecutesOnlyApprovedToolsInWorker(t *testing.T) {
 	}
 	if messages, memories, followups := countAgentSideEffects(t, db, conversation.ID); messages != 1 || memories != 0 || followups != 0 {
 		t.Fatalf("duplicate worker delivery repeated side effects: messages=%d memories=%d followups=%d", messages, memories, followups)
+	}
+}
+
+func TestAgentApprovedWritesUseDurableOutboxAndRemainIdempotent(t *testing.T) {
+	ctx := context.Background()
+	svc, db, _ := newAgentServiceTestEnv(t)
+	conversation := seedAgentConversation(t, db)
+	runtime := &scriptedAgentRuntime{initialResults: []scriptedAgentRuntimeResult{{
+		response: WorkflowRuntimeResponse{
+			Status:            models.AgentRunStatusRequiresAction,
+			Summary:           "Durable approved write summary",
+			ProposedToolCalls: agentApprovalProposals(conversation.ID),
+		},
+	}}}
+	svc.WithWorkflowRuntime(runtime)
+
+	queued, err := svc.RunConversationAssistant(ctx, conversation.OrganizationID, 7, RunInput{
+		ConversationID: conversation.ID,
+		Goal:           "exercise durable approved writes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ExecuteRun(ctx, queued.Run.ID); err != nil {
+		t.Fatal(err)
+	}
+	decisions := map[string]string{
+		"agent:write-message": "approve",
+		"agent:memory":        "approve",
+	}
+	if _, err := svc.SubmitToolOutputs(ctx, conversation.OrganizationID, 7, queued.Run.ID, decisions); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SubmitToolOutputs(ctx, conversation.OrganizationID, 7, queued.Run.ID, decisions); err != nil {
+		t.Fatal(err)
+	}
+
+	var resumeEvents int64
+	if err := db.Model(&models.EventOutbox{}).
+		Where("event = ? AND aggregate_id = ? AND idempotency_key LIKE ?", "agent.run.requested", queued.Run.ID, "%:resume:%").
+		Count(&resumeEvents).Error; err != nil {
+		t.Fatal(err)
+	}
+	if resumeEvents != 1 {
+		t.Fatalf("duplicate approval must retain one durable resume event, got %d", resumeEvents)
+	}
+	var writeEvents []models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_id = ?", EventAgentApprovedWrite, queued.Run.ID).
+		Order("id ASC").Find(&writeEvents).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(writeEvents) != 2 {
+		t.Fatalf("distinct approved proposals must each retain one write event, got %d", len(writeEvents))
+	}
+	if writeEvents[0].IdempotencyKey == writeEvents[1].IdempotencyKey {
+		t.Fatalf("distinct tool calls must retain distinct write keys: %q", writeEvents[0].IdempotencyKey)
+	}
+
+	resumed, err := svc.ExecuteRun(ctx, queued.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Run.Status != models.AgentRunStatusRunning {
+		t.Fatalf("resume must leave the run leased for outbox write execution, got %s", resumed.Run.Status)
+	}
+	if messages, memories, _ := countAgentSideEffects(t, db, conversation.ID); messages != 0 || memories != 0 {
+		t.Fatalf("resume must not directly execute approved writes: messages=%d memories=%d", messages, memories)
+	}
+
+	for _, event := range writeEvents {
+		if err := svc.ProcessApprovedWriteOutbox(ctx, event); err != nil {
+			t.Fatalf("process approved write %q: %v", event.IdempotencyKey, err)
+		}
+		if err := svc.ProcessApprovedWriteOutbox(ctx, event); err != nil {
+			t.Fatalf("duplicate approved write delivery %q: %v", event.IdempotencyKey, err)
+		}
+	}
+	if messages, memories, _ := countAgentSideEffects(t, db, conversation.ID); messages != 1 || memories != 1 {
+		t.Fatalf("approved writes should execute exactly once: messages=%d memories=%d", messages, memories)
+	}
+	var ready models.AgentRun
+	if err := db.Where("id = ?", queued.Run.ID).Take(&ready).Error; err != nil {
+		t.Fatal(err)
+	}
+	if ready.Status != models.AgentRunStatusReady {
+		t.Fatalf("final approved write should complete the agent run, got %s", ready.Status)
+	}
+}
+
+func TestAgentDurableWriteGateBindsApprovalCheckpointVersion(t *testing.T) {
+	ctx := context.Background()
+	svc, db, _ := newAgentServiceTestEnv(t)
+	conversation := seedAgentConversation(t, db)
+	runtime := &scriptedAgentRuntime{initialResults: []scriptedAgentRuntimeResult{{
+		response: WorkflowRuntimeResponse{
+			Status:            models.AgentRunStatusRequiresAction,
+			CheckpointVersion: 2,
+			Summary:           "A stale durable write must not suppress current rejection handling",
+			ProposedToolCalls: agentApprovalProposals(conversation.ID),
+		},
+	}}}
+	svc.WithWorkflowRuntime(runtime)
+
+	queued, err := svc.RunConversationAssistant(ctx, conversation.OrganizationID, 7, RunInput{
+		ConversationID: conversation.ID,
+		Goal:           "bind durable write gate to the current approval checkpoint",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ExecuteRun(ctx, queued.Run.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	staleWrite := models.EventOutbox{
+		AggregateType:  "agent_run",
+		AggregateID:    queued.Run.ID,
+		Event:          EventAgentApprovedWrite,
+		IdempotencyKey: "stale-agent-approved-write",
+		PayloadJSON: mustJSONString(ApprovedWriteOutboxPayload{
+			ExecutionID:       "agent:old:resume",
+			CheckpointVersion: 1,
+			ToolCallID:        "agent:old-write",
+			AgentRunID:        queued.Run.ID,
+			OrganizationID:    conversation.OrganizationID,
+			UserID:            7,
+			ConversationID:    conversation.ID,
+		}),
+		Status: models.EventOutboxStatusPublished,
+	}
+	if err := db.Create(&staleWrite).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.SubmitToolOutputs(ctx, conversation.OrganizationID, 7, queued.Run.ID, map[string]string{
+		"agent:write-message": "reject",
+		"agent:memory":        "reject",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := svc.ExecuteRun(ctx, queued.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Run.Status != models.AgentRunStatusReady {
+		t.Fatalf("all-rejected current approval must complete inline despite a stale durable write, got %s", resumed.Run.Status)
+	}
+	if messages, memories, _ := countAgentSideEffects(t, db, conversation.ID); messages != 0 || memories != 0 {
+		t.Fatalf("rejected tools must not execute: messages=%d memories=%d", messages, memories)
 	}
 }
 
@@ -484,12 +653,17 @@ func TestAgentResumeBusyRetryDoesNotConsumeAttemptOrRepeatSideEffect(t *testing.
 		t.Fatalf("busy resume executed tool before checkpoint ownership: %d", messages)
 	}
 
-	ready, err := svc.ExecuteRun(context.Background(), queued.Run.ID)
+	_, err = svc.ExecuteRun(context.Background(), queued.Run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ready.Run.Status != models.AgentRunStatusReady {
-		t.Fatalf("busy retry did not complete: %s", ready.Run.Status)
+	processAgentApprovedWriteEvents(t, svc, db, queued.Run.ID)
+	var readyRun models.AgentRun
+	if err := db.Where("id = ?", queued.Run.ID).Take(&readyRun).Error; err != nil {
+		t.Fatal(err)
+	}
+	if readyRun.Status != models.AgentRunStatusReady {
+		t.Fatalf("busy retry did not complete: %s", readyRun.Status)
 	}
 	_, resumes := runtime.requestSnapshot()
 	if len(resumes) != 2 || resumes[0].ExecutionID != resumes[1].ExecutionID {
@@ -881,7 +1055,15 @@ func TestAgentApprovalPinsMCPRevisionAcrossResume(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := svc.ExecuteRun(context.Background(), queued.Run.ID); !errors.Is(err, mcpplatform.ErrForbidden) {
+	if _, err := svc.ExecuteRun(context.Background(), queued.Run.ID); err != nil {
+		t.Fatalf("resume with drifted MCP revision failed: %v", err)
+	}
+	var writeEvent models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_id = ?", EventAgentApprovedWrite, queued.Run.ID).
+		Order("id ASC").Take(&writeEvent).Error; err != nil {
+		t.Fatalf("load durable MCP write event: %v", err)
+	}
+	if err := svc.ProcessApprovedWriteOutbox(context.Background(), writeEvent); !errors.Is(err, mcpplatform.ErrForbidden) {
 		t.Fatalf("MCP revision drift should fail closed, got %v", err)
 	}
 	if sandbox.executionCount() != 0 {

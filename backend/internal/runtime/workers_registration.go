@@ -192,6 +192,30 @@ func RegisterAgentOutboxHandlers(processor *events.Processor, agentSvc *agent.Se
 			Msg("outbox workflow run executed")
 		return nil
 	})
+	processor.Register(EventAgentApprovedWrite, func(ctx context.Context, event models.EventOutbox) error {
+		if err := agentSvc.ProcessApprovedWriteOutbox(ctx, event); err != nil {
+			return err
+		}
+		log.Info().
+			Str("request_id", trace.RequestID(ctx)).
+			Uint64("outbox_id", event.ID).
+			Str("event", event.Event).
+			Str("idempotency_key", event.IdempotencyKey).
+			Msg("outbox approved agent write executed")
+		return nil
+	})
+	processor.Register(EventWorkflowApprovedWrite, func(ctx context.Context, event models.EventOutbox) error {
+		if err := agentSvc.ProcessApprovedWriteOutbox(ctx, event); err != nil {
+			return err
+		}
+		log.Info().
+			Str("request_id", trace.RequestID(ctx)).
+			Uint64("outbox_id", event.ID).
+			Str("event", event.Event).
+			Str("idempotency_key", event.IdempotencyKey).
+			Msg("outbox approved workflow write executed")
+		return nil
+	})
 	processor.Register(EventMCPExecutionTerminal, func(ctx context.Context, event models.EventOutbox) error {
 		var payload struct {
 			ExecutionID     string  `json:"execution_id"`

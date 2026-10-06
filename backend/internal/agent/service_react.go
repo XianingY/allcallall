@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/mcpplatform"
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/trace"
@@ -512,28 +511,7 @@ func (s *Service) SubmitToolOutputs(ctx context.Context, orgID, userID, runID ui
 		}
 		run.Status = models.AgentRunStatusPending
 		run.CompletedAt = nil
-		if s.outbox != nil {
-			resumeRound := "legacy:0"
-			if roundRequestID != "" {
-				digest := sha256.Sum256([]byte(roundRequestID))
-				resumeRound = fmt.Sprintf("%x:%d", digest[:8], roundVersion)
-			}
-			_, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
-				AggregateType:  "agent_run",
-				AggregateID:    run.ID,
-				Event:          "agent.run.requested",
-				IdempotencyKey: fmt.Sprintf("agent.run.requested:%d:resume:%s", run.ID, resumeRound),
-				Payload: map[string]any{
-					"organization_id": run.OrganizationID,
-					"agent_run_id":    run.ID,
-					"resumed_by":      userID,
-				},
-			})
-			if err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
-				return err
-			}
-		}
-		return nil
+		return s.enqueueAgentApprovalOutboxTx(ctx, tx, run, roundRequestID, roundVersion, userID)
 	})
 	if err != nil {
 		return nil, err

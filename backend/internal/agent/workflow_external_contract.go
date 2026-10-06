@@ -16,6 +16,58 @@ import (
 	"github.com/allcallall/backend/internal/models"
 )
 
+const (
+	// EventAgentApprovedWrite routes an approved Agent product write through the
+	// durable Go outbox after the checkpoint-owned runtime resume succeeds.
+	EventAgentApprovedWrite = "agent.tool.write.requested"
+	// EventWorkflowApprovedWrite routes an approved Workflow product write
+	// through the durable Go outbox after the runtime resume succeeds.
+	EventWorkflowApprovedWrite = "workflow.tool.write.requested"
+)
+
+// ApprovedWriteOutboxPayload identifies one durable approved write command.
+type ApprovedWriteOutboxPayload struct {
+	ExecutionID       string `json:"execution_id"`
+	CheckpointVersion uint64 `json:"checkpoint_version"`
+	ToolCallID        string `json:"tool_call_id"`
+	AgentRunID        uint64 `json:"agent_run_id,omitempty"`
+	WorkflowRunID     uint64 `json:"workflow_run_id,omitempty"`
+	OrganizationID    uint64 `json:"organization_id"`
+	UserID            uint64 `json:"user_id"`
+	ConversationID    uint64 `json:"conversation_id"`
+}
+
+func approvedWriteOutboxIdempotencyKey(event, executionID string, checkpointVersion uint64, toolCallID string) (string, error) {
+	event = strings.TrimSpace(event)
+	executionID = strings.TrimSpace(executionID)
+	toolCallID = strings.TrimSpace(toolCallID)
+	if event == "" || executionID == "" || toolCallID == "" || checkpointVersion == 0 {
+		return "", fmt.Errorf("approved write idempotency requires event, execution id, checkpoint version, and tool call id")
+	}
+	// The composite is hashed rather than embedded verbatim: execution IDs and
+	// tool-call IDs are each allowed to be 96 characters, which can exceed the
+	// event_outbox 160-character idempotency-key limit when concatenated.
+	digest := sha256.Sum256([]byte(executionID + "\x00" + strconv.FormatUint(checkpointVersion, 10) + "\x00" + toolCallID))
+	key := event + ":" + hex.EncodeToString(digest[:16])
+	if len(key) > 160 {
+		return "", fmt.Errorf("approved write idempotency key exceeds 160 characters")
+	}
+	return key, nil
+}
+
+func runtimeResumeExecutionID(prefix string, runID, checkpointVersion uint64, decisions []WorkflowRuntimeDecision) (string, error) {
+	decisionJSON, err := json.Marshal(decisions)
+	if err != nil {
+		return "", fmt.Errorf("marshal runtime resume decisions: %w", err)
+	}
+	digest := sha256.Sum256(decisionJSON)
+	executionID := fmt.Sprintf("%s:%d:resume:%d:%x", prefix, runID, checkpointVersion, digest[:8])
+	if len(executionID) > 96 {
+		return "", fmt.Errorf("runtime resume execution id exceeds 96 characters")
+	}
+	return executionID, nil
+}
+
 func validateInitialWorkflowRuntimeResponse(run models.WorkflowRun, expectedExecutionID string, response WorkflowRuntimeResponse) error {
 	if response.ExecutionID != expectedExecutionID {
 		return fmt.Errorf("runtime response execution_id %q does not match request %q", response.ExecutionID, expectedExecutionID)

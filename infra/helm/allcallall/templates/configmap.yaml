@@ -24,6 +24,9 @@ data:
   TOOL_PAYLOAD_RETENTION_DAYS: {{ .Values.platform.retention.toolPayloadDays | quote }}
   ORGANIZATION_AUDIT_RETENTION_DAYS: {{ .Values.platform.retention.organizationAuditDays | quote }}
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.observability.otlpEndpoint | quote }}
+  # HPA External metrics are consumed through the Kubernetes custom-metrics API,
+  # not by these worker environment variables. Install and configure a Prometheus
+  # custom-metrics adapter before setting components.*.autoscaling.externalMetrics.
   OUTBOX_WORKER_IDLE_MS: {{ .Values.workers.outbox.idleMs | quote }}
   OUTBOX_WORKER_ERROR_BACKOFF_MS: {{ .Values.workers.outbox.errorBackoffMs | quote }}
   OUTBOX_WORKER_LEASE_SEC: {{ .Values.workers.outbox.leaseSec | quote }}

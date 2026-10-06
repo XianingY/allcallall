@@ -9,6 +9,7 @@ Use these scripts to collect evidence for:
 - Agent run creation pressure and idempotency behavior.
 - Agent run backlog/queue checks through persisted `agent_runs` statuses.
 - Outbox drain behavior after Agent runs enqueue `agent.run.requested`, then produce `agent.run.completed` and `message.created`.
+- Durable approved-write drain behavior after approval submissions enqueue the resume event plus `agent.tool.write.requested` or `workflow.tool.write.requested`.
 - Chat WebSocket connection stability and replay checks for `/api/v1/chat/ws`.
 - Durable realtime replay store behavior through local `chat_events` write/replay checks.
 
@@ -31,7 +32,7 @@ It starts local Docker MySQL/Redis, seeds deterministic interview data, starts t
 Current boundaries:
 
 - Agent execution is asynchronous. `POST /api/v1/agent/runs` returns `202` with a `pending` run; the backend outbox worker consumes `agent.run.requested` and executes the run.
-- Outbox drain is handled by the backend worker. This directory does not include a direct outbox processor runner.
+- Outbox drain is handled by the backend worker. This directory does not include a direct outbox processor runner. Runs containing approved writes remain `running` until their durable write events are processed; a ready run alone is not enough to prove that the outbox is drained.
 - `ws-connections.mjs` opens sockets and counts messages/errors. It does not generate replay events by itself.
 - `realtime-replay-bench.sh` generates local durable replay evidence without requiring a running backend, JWT, MySQL, Redis, or WebSocket clients.
 - `chat-ws-replay-bench.sh` starts an in-process authenticated Gin/WebSocket server with temporary SQLite and validates the real `/api/v1/chat/ws` replay path.
@@ -137,9 +138,16 @@ Suggested flow:
 2. Capture `/api/v1/metrics` and `event_outbox` status counts.
 3. Run `agent-run-smoke.sh`.
 4. Poll `event_outbox` until requested/completed/message rows move from `pending` to published, or until retry/failure status appears.
-5. Capture `outbox_publish_total`, `outbox_publish_retry_total`, and `outbox_publish_failed_total` deltas.
+5. For approval paths, also confirm `agent.tool.write.requested` and `workflow.tool.write.requested` rows move from `pending` to `published` before accepting the end-to-end result.
+6. Capture `outbox_publish_total`, `outbox_publish_retry_total`, and `outbox_publish_failed_total` deltas.
 
-Do not claim retry/failure results unless you forced the handler to fail in a controlled dev setup. The default registered handlers execute `agent.run.requested` and observe `agent.run.completed` / `message.created`.
+Do not claim retry/failure results unless you forced the handler to fail in a controlled dev setup. The default registered handlers execute `agent.run.requested`, the durable approved-write events, and observe `agent.run.completed` / `message.created`.
+
+Approved-write idempotency check:
+
+- Submitting the same approved proposal twice must produce one resume event, one durable write event, and one product write.
+- Distinct proposal IDs must all be retained as distinct write events.
+- A retried write event may retry execution, but its outbox idempotency key and approval state prevent duplicate product writes.
 
 ## Core API QPS Benchmark
 

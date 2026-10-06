@@ -44,6 +44,259 @@ func (s *Service) executeApprovedLocalToolTx(ctx context.Context, tx *gorm.DB, r
 	}
 }
 
+func (s *Service) ProcessApprovedWriteOutbox(ctx context.Context, event models.EventOutbox) error {
+	switch event.Event {
+	case EventAgentApprovedWrite:
+		return s.processAgentApprovedWriteOutbox(ctx, event)
+	case EventWorkflowApprovedWrite:
+		return s.processWorkflowApprovedWriteOutbox(ctx, event)
+	default:
+		return fmt.Errorf("unsupported approved write event %q", event.Event)
+	}
+}
+
+func decodeApprovedWritePayload(event models.EventOutbox) (ApprovedWriteOutboxPayload, error) {
+	var payload ApprovedWriteOutboxPayload
+	if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+		return payload, fmt.Errorf("decode approved write payload: %w", err)
+	}
+	if strings.TrimSpace(payload.ExecutionID) == "" || payload.CheckpointVersion == 0 || strings.TrimSpace(payload.ToolCallID) == "" ||
+		payload.OrganizationID == 0 || payload.UserID == 0 || payload.ConversationID == 0 {
+		return payload, fmt.Errorf("approved write payload is incomplete")
+	}
+	if (payload.AgentRunID == 0) == (payload.WorkflowRunID == 0) {
+		return payload, fmt.Errorf("approved write payload must identify exactly one run")
+	}
+	return payload, nil
+}
+
+func (s *Service) agentApprovedWriteExecutionID(ctx context.Context, run models.AgentRun, call models.AgentToolCall) (string, error) {
+	var calls []models.AgentToolCall
+	if err := s.db.WithContext(ctx).
+		Where("run_id = ? AND approval_request_id = ? AND approval_checkpoint_version = ?", run.ID, call.ApprovalRequestID, call.ApprovalCheckpointVersion).
+		Order("call_id ASC").
+		Find(&calls).Error; err != nil {
+		return "", err
+	}
+	if len(calls) == 0 {
+		return "", fmt.Errorf("agent approved write execution set is empty")
+	}
+	decisions := make([]WorkflowRuntimeDecision, 0, len(calls))
+	for _, item := range calls {
+		decision := strings.ToLower(strings.TrimSpace(item.Decision))
+		if decision != "approve" && decision != "reject" {
+			return "", fmt.Errorf("agent tool call %q has invalid decision %q", item.CallID, item.Decision)
+		}
+		decisions = append(decisions, WorkflowRuntimeDecision{ToolCallID: item.CallID, Decision: decision})
+	}
+	return runtimeResumeExecutionID("agent", run.ID, call.ApprovalCheckpointVersion, decisions)
+}
+
+func (s *Service) processAgentApprovedWriteOutbox(ctx context.Context, event models.EventOutbox) error {
+	payload, err := decodeApprovedWritePayload(event)
+	if err != nil {
+		return err
+	}
+	if payload.AgentRunID == 0 || event.AggregateType != "agent_run" || event.AggregateID != payload.AgentRunID {
+		return fmt.Errorf("approved agent write event aggregate mismatch")
+	}
+	var run models.AgentRun
+	if err := s.db.WithContext(ctx).Where("id = ?", payload.AgentRunID).Take(&run).Error; err != nil {
+		return err
+	}
+	if run.OrganizationID != payload.OrganizationID || run.UserID != payload.UserID || run.ConversationID != payload.ConversationID {
+		return fmt.Errorf("%w: approved agent write run identity mismatch", ErrWorkflowRuntimeConflict)
+	}
+	if run.ApprovalRequestID != "" {
+		return fmt.Errorf("%w: approved agent write arrived before runtime resume", ErrWorkflowRuntimeConflict)
+	}
+	var call models.AgentToolCall
+	if err := s.db.WithContext(ctx).
+		Where("run_id = ? AND call_id = ?", run.ID, payload.ToolCallID).
+		Take(&call).Error; err != nil {
+		return err
+	}
+	if call.ApprovalRequestID == "" || call.ApprovalCheckpointVersion != payload.CheckpointVersion {
+		return fmt.Errorf("%w: approved agent write checkpoint mismatch", ErrCheckpointVersionConflict)
+	}
+	executionID, err := s.agentApprovedWriteExecutionID(ctx, run, call)
+	if err != nil {
+		return err
+	}
+	if executionID != payload.ExecutionID {
+		return fmt.Errorf("%w: approved agent write execution mismatch", ErrWorkflowRuntimeConflict)
+	}
+	if call.Status != models.ToolCallStatusSuccess {
+		if call.Status != models.ToolCallStatusApproved && call.Status != models.ToolCallStatusExecuting {
+			return fmt.Errorf("agent tool %q is not approved for durable execution", call.CallID)
+		}
+		if strings.ToLower(strings.TrimSpace(call.Decision)) != "approve" {
+			return fmt.Errorf("agent tool %q was not approved", call.CallID)
+		}
+		if strings.HasPrefix(call.ToolName, "mcp.") {
+			if err := s.executeApprovedAgentMCPCall(ctx, run, call); err != nil {
+				return err
+			}
+		} else if err := s.executeApprovedAgentLocalCall(ctx, run, call); err != nil {
+			return err
+		}
+	}
+	return s.completeAgentRunAfterApprovedWrites(ctx, run)
+}
+
+func (s *Service) completeAgentRunAfterApprovedWrites(ctx context.Context, run models.AgentRun) error {
+	var calls []models.AgentToolCall
+	if err := s.db.WithContext(ctx).
+		Where("run_id = ? AND decision <> ''", run.ID).
+		Order("id ASC").
+		Find(&calls).Error; err != nil {
+		return err
+	}
+	for _, call := range calls {
+		switch call.Status {
+		case models.ToolCallStatusApproved, models.ToolCallStatusExecuting:
+			return nil
+		case models.ToolCallStatusFailed:
+			return fmt.Errorf("agent tool %q failed: %s", call.CallID, call.ErrorMessage)
+		case models.ToolCallStatusRejected, models.ToolCallStatusSuccess:
+		default:
+			return fmt.Errorf("agent tool %q has invalid durable write status %q", call.CallID, call.Status)
+		}
+	}
+	completedAt := time.Now().UTC()
+	updated := s.db.WithContext(ctx).Model(&models.AgentRun{}).
+		Where("id = ? AND status = ? AND execution_lease_token = ?", run.ID, models.AgentRunStatusRunning, run.ExecutionLeaseToken).
+		Updates(map[string]any{
+			"status":                models.AgentRunStatusReady,
+			"approval_request_id":   "",
+			"completed_at":          completedAt,
+			"lease_until":           nil,
+			"error_message":         "",
+			"execution_lease_token": "",
+			"updated_at":            completedAt,
+		})
+	if updated.Error != nil {
+		return updated.Error
+	}
+	if updated.RowsAffected == 1 {
+		return nil
+	}
+	var stored models.AgentRun
+	if err := s.db.WithContext(ctx).Where("id = ?", run.ID).Take(&stored).Error; err != nil {
+		return err
+	}
+	if stored.Status != models.AgentRunStatusReady {
+		return fmt.Errorf("%w: agent execution lease was lost before durable write completion", ErrWorkflowRuntimeConflict)
+	}
+	return nil
+}
+
+func (s *Service) workflowApprovedWriteExecutionID(ctx context.Context, run models.WorkflowRun, approval models.ToolApproval) (string, error) {
+	var approvals []models.ToolApproval
+	if err := s.db.WithContext(ctx).
+		Where("workflow_run_id = ? AND approval_request_id = ? AND approval_checkpoint_version = ?", run.ID, approval.ApprovalRequestID, approval.ApprovalCheckpointVersion).
+		Order("tool_call_id ASC").
+		Find(&approvals).Error; err != nil {
+		return "", err
+	}
+	if len(approvals) == 0 {
+		return "", fmt.Errorf("workflow approved write execution set is empty")
+	}
+	decisions := make([]WorkflowRuntimeDecision, 0, len(approvals))
+	for _, item := range approvals {
+		decision := strings.ToLower(strings.TrimSpace(item.Decision))
+		switch decision {
+		case models.ToolApprovalStatusApproved:
+			decision = "approve"
+		case models.ToolApprovalStatusRejected:
+			decision = "reject"
+		default:
+			return "", fmt.Errorf("workflow approval %d has invalid decision %q", item.ID, item.Decision)
+		}
+		decisions = append(decisions, WorkflowRuntimeDecision{ToolCallID: item.ToolCallID, Decision: decision})
+	}
+	return runtimeResumeExecutionID("workflow", run.ID, approval.ApprovalCheckpointVersion, decisions)
+}
+
+func (s *Service) processWorkflowApprovedWriteOutbox(ctx context.Context, event models.EventOutbox) error {
+	payload, err := decodeApprovedWritePayload(event)
+	if err != nil {
+		return err
+	}
+	if payload.WorkflowRunID == 0 || event.AggregateType != "workflow_run" || event.AggregateID != payload.WorkflowRunID {
+		return fmt.Errorf("approved workflow write event aggregate mismatch")
+	}
+	var run models.WorkflowRun
+	if err := s.db.WithContext(ctx).Where("id = ?", payload.WorkflowRunID).Take(&run).Error; err != nil {
+		return err
+	}
+	if run.OrganizationID != payload.OrganizationID || run.UserID != payload.UserID || run.ConversationID != payload.ConversationID {
+		return fmt.Errorf("%w: approved workflow write run identity mismatch", ErrWorkflowRuntimeConflict)
+	}
+	if run.ApprovalRequestID != "" {
+		return fmt.Errorf("%w: approved workflow write arrived before runtime resume", ErrWorkflowRuntimeConflict)
+	}
+	var approval models.ToolApproval
+	if err := s.db.WithContext(ctx).
+		Where("workflow_run_id = ? AND tool_call_id = ?", run.ID, payload.ToolCallID).
+		Take(&approval).Error; err != nil {
+		return err
+	}
+	if approval.ApprovalRequestID == "" || approval.ApprovalCheckpointVersion != payload.CheckpointVersion {
+		return fmt.Errorf("%w: approved workflow write checkpoint mismatch", ErrCheckpointVersionConflict)
+	}
+	executionID, err := s.workflowApprovedWriteExecutionID(ctx, run, approval)
+	if err != nil {
+		return err
+	}
+	if executionID != payload.ExecutionID {
+		return fmt.Errorf("%w: approved workflow write execution mismatch", ErrWorkflowRuntimeConflict)
+	}
+	if approval.Status != models.ToolApprovalStatusExecuted {
+		if approval.Status != models.ToolApprovalStatusApproved && approval.Status != models.ToolApprovalStatusExecuting {
+			return fmt.Errorf("workflow tool %q is not approved for durable execution", approval.ToolCallID)
+		}
+		if err := s.executeWorkflowApprovalTool(ctx, run, &approval); err != nil {
+			return err
+		}
+	}
+
+	var pendingWrites int64
+	if err := s.db.WithContext(ctx).Model(&models.ToolApproval{}).
+		Where("workflow_run_id = ? AND status IN ?", run.ID, []string{models.ToolApprovalStatusApproved, models.ToolApprovalStatusExecuting}).
+		Count(&pendingWrites).Error; err != nil {
+		return err
+	}
+	if pendingWrites > 0 {
+		return nil
+	}
+
+	var commitTask models.WorkflowTask
+	if err := s.db.WithContext(ctx).
+		Where("workflow_run_id = ? AND name = ?", run.ID, models.WorkflowTaskCommitResult).
+		Take(&commitTask).Error; err != nil {
+		return err
+	}
+	var approvals []models.ToolApproval
+	if err := s.db.WithContext(ctx).
+		Where("workflow_run_id = ? AND status = ?", run.ID, models.ToolApprovalStatusExecuted).
+		Order("tool_call_id ASC").
+		Find(&approvals).Error; err != nil {
+		return err
+	}
+	for _, item := range approvals {
+		if err := s.createAgentMessage(ctx, run, &commitTask.ID, "committer", "workflow", models.AgentMessageTypeToolResult, map[string]any{
+			"tool_call_id": item.ToolCallID,
+			"tool_name":    item.ToolName,
+			"status":       item.Status,
+			"output_json":  item.OutputJSON,
+		}, item.ToolCallID); err != nil {
+			return err
+		}
+	}
+	return s.executeCommitResultTask(ctx, run)
+}
+
 func (s *Service) writeApprovedConversationMessageTx(ctx context.Context, tx *gorm.DB, run models.AgentRun, input approvedLocalToolInput) (string, error) {
 	message := models.Message{
 		OrganizationID: run.OrganizationID,

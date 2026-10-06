@@ -25,7 +25,13 @@ func StartOutboxWorker(ctx context.Context, log zerolog.Logger, processor *event
 }
 
 func StartAgentWorker(ctx context.Context, log zerolog.Logger, processor *events.Processor, services ...*agent.Service) {
-	agentOrderedEvents := []string{EventAgentRunRequested, EventWorkflowRequested, EventMCPExecutionTerminal}
+	agentOrderedEvents := []string{
+		EventAgentRunRequested,
+		EventWorkflowRequested,
+		EventAgentApprovedWrite,
+		EventWorkflowApprovedWrite,
+		EventMCPExecutionTerminal,
+	}
 	ConfigureOutboxProcessorFromEnvWithConcurrency(
 		processor,
 		workerIDFromEnv("agent-worker"),
@@ -36,7 +42,11 @@ func StartAgentWorker(ctx context.Context, log zerolog.Logger, processor *events
 		time.Duration(intFromEnv("OUTBOX_WORKER_ERROR_BACKOFF_MS", 1000))*time.Millisecond,
 		durationFromEnv("OUTBOX_WORKER_LEASE_SEC", agent.DefaultOutboxLeaseSec)*time.Second,
 		agentOrderedEvents,
-		EventAgentRunRequested, EventWorkflowRequested, EventMCPExecutionTerminal,
+		EventAgentRunRequested,
+		EventWorkflowRequested,
+		EventAgentApprovedWrite,
+		EventWorkflowApprovedWrite,
+		EventMCPExecutionTerminal,
 	)
 	StartOutboxWorker(ctx, log.With().Str("worker", "agent").Logger(), processor)
 	if len(services) > 0 {

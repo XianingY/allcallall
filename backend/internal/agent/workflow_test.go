@@ -120,6 +120,21 @@ func seedReadyMeetingTranscript(t *testing.T, db *gorm.DB, conversation models.C
 	return segment
 }
 
+func processWorkflowApprovedWriteEvents(t *testing.T, svc *Service, db *gorm.DB, runID uint64) []models.EventOutbox {
+	t.Helper()
+	var events []models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_id = ?", EventWorkflowApprovedWrite, runID).
+		Order("id ASC").Find(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if err := svc.ProcessApprovedWriteOutbox(context.Background(), event); err != nil {
+			t.Fatalf("process approved workflow write event %q: %v", event.IdempotencyKey, err)
+		}
+	}
+	return events
+}
+
 type fakeMeetingBriefRuntime struct {
 	calls            int
 	runErr           error
@@ -322,18 +337,23 @@ func TestWorkflowAgentCanUsePythonLangGraphRuntimeForMeetingBrief(t *testing.T) 
 	if strings.Contains(resumeOutbox.IdempotencyKey, "legacy:0") || !strings.Contains(resumeOutbox.IdempotencyKey, ":1") {
 		t.Fatalf("resume outbox key must bind approval request and checkpoint version: %q", resumeOutbox.IdempotencyKey)
 	}
-	ready, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	_, err = svc.ProcessWorkflowRun(ctx, created.Run.ID)
 	if err != nil {
 		t.Fatalf("resume workflow failed: %v", err)
+	}
+	processWorkflowApprovedWriteEvents(t, svc, db, created.Run.ID)
+	var readyRun models.WorkflowRun
+	if err := db.Where("id = ?", created.Run.ID).Take(&readyRun).Error; err != nil {
+		t.Fatal(err)
 	}
 	if runtime.calls != 1 || runtime.resumeCalls != 1 {
 		t.Fatalf("expected one initial and one resume call, got run=%d resume=%d", runtime.calls, runtime.resumeCalls)
 	}
-	if ready.Run.Status != models.WorkflowRunStatusReady {
-		t.Fatalf("expected ready, got %s", ready.Run.Status)
+	if readyRun.Status != models.WorkflowRunStatusReady {
+		t.Fatalf("expected ready, got %s", readyRun.Status)
 	}
-	if ready.Run.ApprovalRequestID != "" || ready.Run.CheckpointVersion != 2 {
-		t.Fatalf("expected cleared approval request and advanced checkpoint, got %+v", ready.Run)
+	if readyRun.ApprovalRequestID != "" || readyRun.CheckpointVersion != 2 {
+		t.Fatalf("expected cleared approval request and advanced checkpoint, got %+v", readyRun)
 	}
 	if !strings.HasPrefix(runtime.lastResume.ExecutionID, fmt.Sprintf("workflow:%d:resume:1:", created.Run.ID)) || len(runtime.lastResume.ExecutionID) > 96 {
 		t.Fatalf("unexpected deterministic resume execution id %q", runtime.lastResume.ExecutionID)
@@ -397,6 +417,189 @@ func TestSubmitWorkflowApprovalIsIdempotentButRejectsOppositeDecision(t *testing
 	}
 }
 
+func TestWorkflowApprovedWritesUseDurableOutboxAndRemainIdempotent(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	runtime := &fakeMeetingBriefRuntime{}
+	svc.WithWorkflowRuntime(runtime)
+	conversation := seedWorkflowConversation(t, db)
+	seedReadyMeetingTranscript(t, db, conversation, 89)
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Preset:         WorkflowPresetMeetingBrief,
+		Goal:           "exercise durable approved workflow writes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paused.Approvals) != 2 {
+		t.Fatalf("expected two distinct workflow proposals, got %d", len(paused.Approvals))
+	}
+	for _, approval := range paused.Approvals {
+		if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "approve"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "approve"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var resumeEvents int64
+	if err := db.Model(&models.EventOutbox{}).
+		Where("event = ? AND aggregate_id = ? AND idempotency_key LIKE ?", EventWorkflowRunRequested, created.Run.ID, "%:resume:%").
+		Count(&resumeEvents).Error; err != nil {
+		t.Fatal(err)
+	}
+	if resumeEvents != 1 {
+		t.Fatalf("duplicate approval must retain one durable resume event, got %d", resumeEvents)
+	}
+	var writeEvents []models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_id = ?", EventWorkflowApprovedWrite, created.Run.ID).
+		Order("id ASC").Find(&writeEvents).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(writeEvents) != 2 {
+		t.Fatalf("distinct approved proposals must each retain one write event, got %d", len(writeEvents))
+	}
+	if writeEvents[0].IdempotencyKey == writeEvents[1].IdempotencyKey {
+		t.Fatalf("distinct tool calls must retain distinct write keys: %q", writeEvents[0].IdempotencyKey)
+	}
+
+	resumed, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Run.Status != models.WorkflowRunStatusRunning {
+		t.Fatalf("resume must leave the workflow leased for outbox write execution, got %s", resumed.Run.Status)
+	}
+	var messages, memories int64
+	if err := db.Model(&models.Message{}).
+		Where("conversation_id = ? AND type = ?", conversation.ID, models.MessageTypeSystem).Count(&messages).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.AgentMemory{}).Where("conversation_id = ?", conversation.ID).Count(&memories).Error; err != nil {
+		t.Fatal(err)
+	}
+	if messages != 0 || memories != 0 {
+		t.Fatalf("resume must not directly execute approved writes: messages=%d memories=%d", messages, memories)
+	}
+
+	for _, event := range writeEvents {
+		if err := svc.ProcessApprovedWriteOutbox(ctx, event); err != nil {
+			t.Fatalf("process approved workflow write %q: %v", event.IdempotencyKey, err)
+		}
+		if err := svc.ProcessApprovedWriteOutbox(ctx, event); err != nil {
+			t.Fatalf("duplicate approved workflow write delivery %q: %v", event.IdempotencyKey, err)
+		}
+	}
+	if err := db.Model(&models.Message{}).
+		Where("conversation_id = ? AND type = ?", conversation.ID, models.MessageTypeSystem).Count(&messages).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.AgentMemory{}).Where("conversation_id = ?", conversation.ID).Count(&memories).Error; err != nil {
+		t.Fatal(err)
+	}
+	if messages != 1 || memories != 1 {
+		t.Fatalf("approved workflow writes should execute exactly once: messages=%d memories=%d", messages, memories)
+	}
+	var ready models.WorkflowRun
+	if err := db.Where("id = ?", created.Run.ID).Take(&ready).Error; err != nil {
+		t.Fatal(err)
+	}
+	if ready.Status != models.WorkflowRunStatusReady {
+		t.Fatalf("final approved write should complete the workflow, got %s", ready.Status)
+	}
+}
+
+func TestWorkflowDurableWriteGateBindsApprovalCheckpointVersion(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	runtime := &fakeMeetingBriefRuntime{}
+	svc.WithWorkflowRuntime(runtime)
+	conversation := seedWorkflowConversation(t, db)
+	seedReadyMeetingTranscript(t, db, conversation, 90)
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Preset:         WorkflowPresetMeetingBrief,
+		Goal:           "bind workflow durable writes to the current approval checkpoint",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Put the current approval set one checkpoint beyond the stale durable event.
+	if err := db.Model(&models.WorkflowRun{}).Where("id = ?", created.Run.ID).
+		Update("checkpoint_version", 2).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.ToolApproval{}).Where("workflow_run_id = ?", created.Run.ID).
+		Update("approval_checkpoint_version", 2).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	staleWrite := models.EventOutbox{
+		AggregateType:  "workflow_run",
+		AggregateID:    created.Run.ID,
+		Event:          EventWorkflowApprovedWrite,
+		IdempotencyKey: "stale-workflow-approved-write",
+		PayloadJSON: mustJSONString(ApprovedWriteOutboxPayload{
+			ExecutionID:       "workflow:old:resume",
+			CheckpointVersion: 1,
+			ToolCallID:        "fake:old-write",
+			WorkflowRunID:     created.Run.ID,
+			OrganizationID:    conversation.OrganizationID,
+			UserID:            7,
+			ConversationID:    conversation.ID,
+		}),
+		Status: models.EventOutboxStatusPublished,
+	}
+	if err := db.Create(&staleWrite).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, approval := range paused.Approvals {
+		if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "approve"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Simulate a current approval round without its write events so only the
+	// stale event remains. The gate must not defer this round.
+	if err := db.Where(
+		"event = ? AND aggregate_id = ? AND idempotency_key <> ?",
+		EventWorkflowApprovedWrite,
+		created.Run.ID,
+		staleWrite.IdempotencyKey,
+	).Delete(&models.EventOutbox{}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	resumed, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Run.Status != models.WorkflowRunStatusReady {
+		t.Fatalf("current approval without a matching durable write must execute inline despite a stale event, got %s", resumed.Run.Status)
+	}
+	var messages, memories int64
+	if err := db.Model(&models.Message{}).
+		Where("conversation_id = ? AND type = ?", conversation.ID, models.MessageTypeSystem).Count(&messages).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.AgentMemory{}).Where("conversation_id = ?", conversation.ID).Count(&memories).Error; err != nil {
+		t.Fatal(err)
+	}
+	if messages != 1 || memories != 1 {
+		t.Fatalf("current approved workflow tools should execute inline: messages=%d memories=%d", messages, memories)
+	}
+}
+
 func TestExternalWorkflowResumeFailurePreventsToolSideEffects(t *testing.T) {
 	t.Setenv("PY_AGENT_RUNTIME_STRICT", "false")
 	ctx := context.Background()
@@ -441,12 +644,17 @@ func TestExternalWorkflowResumeFailurePreventsToolSideEffects(t *testing.T) {
 		t.Fatalf("resume must happen before tool side effects, got messages=%d memories=%d", messages, memories)
 	}
 	runtime.resumeErr = nil
-	retried, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	_, err = svc.ProcessWorkflowRun(ctx, created.Run.ID)
 	if err != nil {
 		t.Fatalf("retry workflow resume failed: %v", err)
 	}
-	if retried.Run.Status != models.WorkflowRunStatusReady || runtime.resumeCalls != 2 {
-		t.Fatalf("expected retry to resume and complete once, run=%+v resume_calls=%d", retried.Run, runtime.resumeCalls)
+	processWorkflowApprovedWriteEvents(t, svc, db, created.Run.ID)
+	var retried models.WorkflowRun
+	if err := db.Where("id = ?", created.Run.ID).Take(&retried).Error; err != nil {
+		t.Fatal(err)
+	}
+	if retried.Status != models.WorkflowRunStatusReady || runtime.resumeCalls != 2 {
+		t.Fatalf("expected retry to resume and complete once, run=%+v resume_calls=%d", retried, runtime.resumeCalls)
 	}
 	if len(runtime.resumeExecutions) != 2 || runtime.resumeExecutions[0] != runtime.resumeExecutions[1] {
 		t.Fatalf("resume retry must reuse execution_id, got %+v", runtime.resumeExecutions)
@@ -823,7 +1031,18 @@ func TestWorkflowLocalSideEffectRollsBackWithApprovalState(t *testing.T) {
 	if err := db.Exec(`CREATE TRIGGER fail_approval_executed BEFORE UPDATE ON tool_approvals WHEN NEW.status = 'executed' BEGIN SELECT RAISE(ABORT, 'approval completion fault'); END`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ProcessWorkflowRun(ctx, created.Run.ID); err == nil {
+	if _, err := svc.ProcessWorkflowRun(ctx, created.Run.ID); err != nil {
+		t.Fatalf("resume with durable writes failed: %v", err)
+	}
+	var writeEvents []models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_id = ?", EventWorkflowApprovedWrite, created.Run.ID).
+		Order("id ASC").Find(&writeEvents).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(writeEvents) == 0 {
+		t.Fatal("expected durable workflow write events")
+	}
+	if err := svc.ProcessApprovedWriteOutbox(ctx, writeEvents[0]); err == nil {
 		t.Fatal("expected injected approval completion failure")
 	}
 	var systemMessages int64
@@ -847,12 +1066,17 @@ func TestWorkflowLocalSideEffectRollsBackWithApprovalState(t *testing.T) {
 	if err := db.Exec(`DROP TRIGGER fail_approval_executed`).Error; err != nil {
 		t.Fatal(err)
 	}
-	ready, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
-	if err != nil {
-		t.Fatalf("retry after transactional rollback failed: %v", err)
+	for _, event := range writeEvents {
+		if err := svc.ProcessApprovedWriteOutbox(ctx, event); err != nil {
+			t.Fatalf("retry after transactional rollback failed: %v", err)
+		}
 	}
-	if ready.Run.Status != models.WorkflowRunStatusReady {
-		t.Fatalf("workflow did not recover: %+v", ready.Run)
+	var ready models.WorkflowRun
+	if err := db.Where("id = ?", created.Run.ID).Take(&ready).Error; err != nil {
+		t.Fatal(err)
+	}
+	if ready.Status != models.WorkflowRunStatusReady {
+		t.Fatalf("workflow did not recover: %+v", ready)
 	}
 	if err := db.Model(&models.Message{}).Where("conversation_id = ? AND type = ?", conversation.ID, models.MessageTypeSystem).Count(&systemMessages).Error; err != nil {
 		t.Fatal(err)
@@ -984,14 +1208,14 @@ func seedWorkflowRunsWithChildren(t *testing.T, db *gorm.DB, n int) []models.Wor
 	runs := make([]models.WorkflowRun, 0, n)
 	for i := 0; i < n; i++ {
 		run := models.WorkflowRun{
-			OrganizationID: orgID,
-			UserID:         userID,
-			ConversationID: conversation.ID,
-			Status:         models.WorkflowRunStatusReady,
-			WorkflowType:   "agent_lab",
+			OrganizationID:  orgID,
+			UserID:          userID,
+			ConversationID:  conversation.ID,
+			Status:          models.WorkflowRunStatusReady,
+			WorkflowType:    "agent_lab",
 			WorkflowVersion: "agent_lab_v1",
-			RuntimeOwner:   "legacy_go",
-			Goal:           fmt.Sprintf("batch-test-run-%d", i),
+			RuntimeOwner:    "legacy_go",
+			Goal:            fmt.Sprintf("batch-test-run-%d", i),
 		}
 		if err := db.Create(&run).Error; err != nil {
 			t.Fatalf("create workflow run %d: %v", i, err)
