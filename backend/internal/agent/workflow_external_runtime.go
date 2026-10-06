@@ -21,15 +21,15 @@ const (
 	WorkflowRuntimeGo              = "go"
 	WorkflowRuntimeLegacyGo        = "legacy_go"
 	WorkflowRuntimePythonLangGraph = "python_langgraph"
-	defaultPythonRuntimeBaseURL           = "http://127.0.0.1:8090"
+	defaultPythonRuntimeBaseURL    = "http://127.0.0.1:8090"
 
 	defaultRuntimeConnectTimeoutSec        = 10
-	defaultRuntimeResponseHeaderTimeoutSec  = 30
-	defaultRuntimeIdleConnTimeoutSec        = 90
-	defaultRuntimeTotalTimeoutSec           = 60
-	defaultRuntimeMaxIdleConns              = 100
-	defaultRuntimeMaxIdleConnsPerHost        = 10
-	defaultRuntimeMaxConnsPerHost            = 20
+	defaultRuntimeResponseHeaderTimeoutSec = 30
+	defaultRuntimeIdleConnTimeoutSec       = 90
+	defaultRuntimeTotalTimeoutSec          = 60
+	defaultRuntimeMaxIdleConns             = 100
+	defaultRuntimeMaxIdleConnsPerHost      = 10
+	defaultRuntimeMaxConnsPerHost          = 20
 
 	defaultRuntimeCancellationGraceSec = 30
 
@@ -161,24 +161,31 @@ type WorkflowRuntimeResponse struct {
 	RetrievalAttempts    []map[string]any                `json:"retrieval_attempts,omitempty"`
 	EvidencePack         map[string]any                  `json:"evidence_pack,omitempty"`
 	ContextSufficiency   map[string]any                  `json:"context_sufficiency,omitempty"`
+	IntentRoute          map[string]any                  `json:"intent_route,omitempty"`
 	Harness              map[string]any                  `json:"harness,omitempty"`
 	LoopTraces           []map[string]any                `json:"loop_traces,omitempty"`
 	RouteDecision        map[string]any                  `json:"route_decision,omitempty"`
 	CriticResult         map[string]any                  `json:"critic_result,omitempty"`
 	Budget               map[string]any                  `json:"budget,omitempty"`
+	GraphExpansion       map[string]any                  `json:"graph_expansion,omitempty"`
+	MemoryReflection     map[string]any                  `json:"memory_reflection,omitempty"`
+	RiskAssessment       map[string]any                  `json:"risk_assessment,omitempty"`
+	OutputDecision       map[string]any                  `json:"output_decision,omitempty"`
+	TerminationSignals   []map[string]any                `json:"termination_signals,omitempty"`
 	StopReason           string                          `json:"stop_reason,omitempty"`
 	Error                string                          `json:"error"`
 }
 
 type WorkflowRuntimeRole struct {
-	Role        string                 `json:"role"`
-	Summary     string                 `json:"summary"`
-	ActionItems []string               `json:"action_items"`
-	NextStep    string                 `json:"next_step"`
-	RiskFlags   []string               `json:"risk_flags"`
-	Citations   []Citation             `json:"citations"`
-	Snippets    []string               `json:"snippets"`
-	ReactTrace  []WorkflowRuntimeTrace `json:"react_trace"`
+	Role              string                 `json:"role"`
+	Summary           string                 `json:"summary"`
+	ActionItems       []string               `json:"action_items"`
+	NextStep          string                 `json:"next_step"`
+	RiskFlags         []string               `json:"risk_flags"`
+	Citations         []Citation             `json:"citations"`
+	Snippets          []string               `json:"snippets"`
+	ReactTrace        []WorkflowRuntimeTrace `json:"react_trace"`
+	TerminationSignal map[string]any         `json:"termination_signal,omitempty"`
 }
 
 type WorkflowRuntimeTrace struct {
@@ -201,6 +208,12 @@ type WorkflowRuntimeToolCall struct {
 	Reason            string         `json:"reason"`
 	IdempotencyKey    string         `json:"idempotency_key"`
 	ApprovalRequired  bool           `json:"approval_required"`
+	ExecutionMode     string         `json:"execution_mode,omitempty"`
+	QueueName         string         `json:"queue_name,omitempty"`
+	Priority          string         `json:"priority,omitempty"`
+	MaxAttempts       int            `json:"max_attempts,omitempty"`
+	RateLimitKey      string         `json:"rate_limit_key,omitempty"`
+	DeadLetterQueue   string         `json:"dead_letter_queue,omitempty"`
 	MCPInstallationID uint64         `json:"mcp_installation_id,omitempty"`
 	MCPRevisionID     uint64         `json:"mcp_revision_id,omitempty"`
 	MCPToolID         uint64         `json:"mcp_tool_id,omitempty"`

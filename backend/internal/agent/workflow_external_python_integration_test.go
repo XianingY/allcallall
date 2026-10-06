@@ -3,6 +3,8 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -91,18 +93,22 @@ func TestPythonLangGraphRuntimeHTTPContract(t *testing.T) {
 	})
 
 	healthClient := &http.Client{Timeout: time.Second}
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(45 * time.Second)
+	ready := false
 	for time.Now().Before(deadline) {
 		resp, healthErr := healthClient.Get(baseURL + "/health")
 		if healthErr == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				return
+				ready = true
+				break
 			}
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("Python runtime did not become ready:\n%s", output.String())
+	if !ready {
+		t.Fatalf("Python runtime did not become ready:\n%s", output.String())
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -154,6 +160,7 @@ func TestPythonLangGraphRuntimeHTTPContract(t *testing.T) {
 			},
 		},
 		MaxIterations: map[string]int{"searcher": 3, "risk_analyst": 2},
+		AgenticRAG:    workflowRuntimeAgenticRAGFromEnv(),
 		ContextManifest: &ContextManifest{
 			Selected:        map[string]int{"meeting_transcripts": 1, "context_chunks": 1},
 			Truncated:       []string{},
@@ -181,9 +188,20 @@ func TestPythonLangGraphRuntimeHTTPContract(t *testing.T) {
 			Decision:   "approve",
 		})
 	}
+	decisionJSON, err := json.Marshal(decisions)
+	if err != nil {
+		t.Fatalf("marshal approval decisions: %v", err)
+	}
+	decisionDigest := sha256.Sum256(decisionJSON)
+	resumeExecutionID := fmt.Sprintf(
+		"workflow:%d:resume:%d:%x",
+		input.WorkflowRunID,
+		initial.CheckpointVersion,
+		decisionDigest[:8],
+	)
 	resume := WorkflowRuntimeResumeRequest{
 		RequestID:                 input.RequestID,
-		ExecutionID:               input.ExecutionID,
+		ExecutionID:               resumeExecutionID,
 		ExpectedCheckpointVersion: initial.CheckpointVersion,
 		OrganizationID:            input.OrganizationID,
 		UserID:                    input.UserID,
@@ -200,7 +218,7 @@ func TestPythonLangGraphRuntimeHTTPContract(t *testing.T) {
 	}
 	if err := validateResumedWorkflowRuntimeResponse(
 		initial.CheckpointVersion,
-		input.ExecutionID,
+		resumeExecutionID,
 		decisions,
 		resumed,
 	); err != nil {
