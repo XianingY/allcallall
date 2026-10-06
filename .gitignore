@@ -20,6 +20,8 @@ Thumbs.db
 .claude/
 .vscode/
 .idea/
+.playwright-mcp/
+.superpowers/
 *.swp
 *.swo
 *~
