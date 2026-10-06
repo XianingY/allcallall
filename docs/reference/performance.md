@@ -96,6 +96,11 @@ A production pressure configuration should start conservatively:
 
 ```yaml
 components:
+  agentWorker:
+    autoscaling:
+      externalMetrics:
+        - name: allcallall_agent_outbox_oldest_pending_seconds
+          targetAverageValue: "2"
   outboxWorker:
     autoscaling:
       externalMetrics:
@@ -108,11 +113,22 @@ components:
           targetAverageValue: "4"
 ```
 
-Map `allcallall_agent_admission_queue_depth` to the
-`agent_runtime_admission_queued_runs` gauge. Derive
-`allcallall_outbox_oldest_pending_seconds` from the oldest pending outbox row,
-for example with a SQL-backed custom-metrics adapter; it is not a native Go
-counter. Verify both adapter resources before enabling them:
+The two oldest-age metrics are adapter-defined and must be event-class
+filtered. Derive `allcallall_agent_outbox_oldest_pending_seconds` from the
+oldest pending row for the agent worker event classes
+(`agent.run.requested`, `workflow.run.requested`,
+`agent.tool.write.requested`, `workflow.tool.write.requested`, and
+`mcp.execution.terminal`). Derive
+`allcallall_outbox_oldest_pending_seconds` from the oldest pending row for the
+outbox worker event classes (`agent.run.completed`, `message.created`,
+`rag.source.ingest_requested`, `rag.chunk.index_requested`, and, when enabled,
+`recording.transcription.requested` plus `settlement.room.ended`). A SQL-backed
+custom-metrics adapter is one way to compute these values; neither is a native
+Go counter. Bind each filtered metric only to the worker that owns those
+events. Do not bind `allcallall_agent_admission_queue_depth` to the Go agent
+worker: it maps to `agent_runtime_admission_queued_runs`, which measures
+Python Runtime admission pressure and belongs on `agentRuntime`. Verify all
+adapter resources before enabling them:
 
 ```bash
 kubectl get --raw /apis/custom.metrics.k8s.io/v1beta1 \
@@ -134,19 +150,27 @@ operational and administrative reserve.
 
 | Component | Formula | Chart default at `maxReplicas` |
 |---|---|---:|
-| Outbox Worker MySQL | `maxReplicas × DB_MAX_OPEN_CONNS` | 8 × 200 = 1600 |
-| Outbox Worker Redis | `maxReplicas × redis.pool_size` | 8 × 500 = 4000 |
+| API MySQL | `maxReplicas × database.max_open_conns` | 10 × 50 = 500 |
+| API Redis | `maxReplicas × redis.pool_size` | 10 × 500 = 5000 |
+| API Agent Runtime HTTP | `maxReplicas × runtime.maxConnsPerHost` | 10 × 20 = 200 |
+| Agent Worker MySQL | `maxReplicas × database.max_open_conns` | 10 × 50 = 500 |
+| Agent Worker Redis | `maxReplicas × redis.pool_size` | 10 × 500 = 5000 |
+| Agent Worker Agent Runtime HTTP | `maxReplicas × runtime.maxConnsPerHost` | 10 × 20 = 200 |
+| Outbox Worker MySQL | `maxReplicas × database.max_open_conns` | 8 × 50 = 400 |
 | Agent Runtime checkpoint MySQL | `maxReplicas × PY_AGENT_CHECKPOINT_MYSQL_POOL_SIZE` | 12 × 4 = 48 |
 | Agent Runtime provider/RAG/Tool Bridge HTTP | `maxReplicas × PY_AGENT_HTTP_MAX_CONNECTIONS` | 12 × 20 = 240 |
 | RAG Runtime Go Bridge/Qdrant HTTP | `maxReplicas × PY_RAG_HTTP_MAX_CONNECTIONS` | 12 × 20 = 240 |
 
-The Agent Runtime HTTP pool is shared by provider, RAG, and Tool Bridge requests;
-240 is the worst case if all connections are simultaneously aimed at one
-provider. The RAG Runtime shares one pool for Go Bridge and Qdrant, so 240 is
-the Qdrant worst case if all traffic is directed there. Validate the actual
-provider rate limits, Qdrant connection limits, MySQL `max_connections`, and
-Redis `maxclients` before enabling External metrics. Lower per-pod pool limits
-when a maximum is outside the measured server budget.
+The outbox worker does not initialize Redis. The Agent Runtime HTTP pool is
+shared by provider, RAG, and Tool Bridge requests; 240 is the worst case if all
+connections are simultaneously aimed at one provider. The RAG Runtime shares
+one pool for Go Bridge and Qdrant, so 240 is the Qdrant worst case if all
+traffic is directed there. At the chart maxima, the three Go backend MySQL
+pools can total 1400 connections and the API plus Agent Worker Redis pools can
+total 10000 connections. Validate the actual provider rate limits, Qdrant
+connection limits, MySQL `max_connections`, and Redis `maxclients` before
+enabling External metrics. Lower per-pod pool limits when a maximum is outside
+the measured server budget.
 
 ## Alert thresholds
 

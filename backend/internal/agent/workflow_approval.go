@@ -177,7 +177,27 @@ func (s *Service) SubmitWorkflowApproval(ctx context.Context, organizationID, us
 }
 
 func (s *Service) enqueueWorkflowApprovalOutboxTx(ctx context.Context, tx *gorm.DB, run models.WorkflowRun, userID uint64) error {
-	if s.outbox == nil || run.ApprovalRequestID == "" || run.CheckpointVersion == 0 {
+	if s.outbox == nil {
+		return nil
+	}
+	if run.ApprovalRequestID == "" || run.CheckpointVersion == 0 {
+		// Legacy approvals have no checkpoint-owned execution identity. Preserve
+		// the pre-durable-write resume event so the worker still executes them
+		// through the synchronous tool path; never enqueue approved writes.
+		_, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
+			AggregateType:  "workflow_run",
+			AggregateID:    run.ID,
+			Event:          EventWorkflowRunRequested,
+			IdempotencyKey: fmt.Sprintf("%s:%d:resume:legacy:0", EventWorkflowRunRequested, run.ID),
+			Payload: map[string]any{
+				"organization_id": run.OrganizationID,
+				"workflow_run_id": run.ID,
+				"resumed_by":      userID,
+			},
+		})
+		if err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
+			return err
+		}
 		return nil
 	}
 	var approvals []models.ToolApproval

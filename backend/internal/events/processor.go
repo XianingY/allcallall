@@ -207,6 +207,14 @@ func (p *Processor) WithOrderedEvents(events ...string) {
 	p.orderedEvents = normalizedEvents(events)
 }
 
+// OrderedEvents returns a copy of the event types requiring aggregate-order
+// processing. It is primarily useful for deployment wiring tests.
+func (p *Processor) OrderedEvents() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return append([]string(nil), p.orderedEvents...)
+}
+
 // WithConfig applies all ProcessorConfig fields to the processor. Zero or
 // negative values are ignored so the caller can set only the fields it cares
 // about. Concurrency is clamped to [1, 64]; QueueDepth is clamped to

@@ -372,6 +372,99 @@ func TestWorkflowAgentCanUsePythonLangGraphRuntimeForMeetingBrief(t *testing.T) 
 	}
 }
 
+func TestWorkflowLegacyApprovalResumeKeepsLegacyOutboxAndSynchronousExecution(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newWorkflowTestService(t)
+	runtime := &fakeMeetingBriefRuntime{}
+	svc.WithOutbox(events.NewStore(db))
+	svc.WithWorkflowRuntime(runtime)
+	conversation := seedWorkflowConversation(t, db)
+	seedReadyMeetingTranscript(t, db, conversation, 89)
+
+	created, err := svc.StartWorkflowAgent(ctx, conversation.OrganizationID, 7, WorkflowInput{
+		ConversationID: conversation.ID,
+		Preset:         WorkflowPresetMeetingBrief,
+		Goal:           "exercise legacy workflow approval",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paused.Run.Status != models.WorkflowRunStatusRequiresAction || len(paused.Approvals) != 2 {
+		t.Fatalf("unexpected paused legacy workflow: run=%+v approvals=%d", paused.Run, len(paused.Approvals))
+	}
+
+	// Simulate approval rows written before checkpoint metadata was persisted.
+	if err := db.Model(&models.WorkflowRun{}).Where("id = ?", created.Run.ID).Updates(map[string]any{
+		"approval_request_id": "",
+		"checkpoint_id":       "",
+		"checkpoint_version":  0,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.ToolApproval{}).Where("workflow_run_id = ?", created.Run.ID).Updates(map[string]any{
+		"approval_request_id":         "",
+		"approval_checkpoint_version": 0,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, approval := range paused.Approvals {
+		if _, err := svc.SubmitWorkflowApproval(ctx, conversation.OrganizationID, 7, approval.ID, "approve"); err != nil {
+			t.Fatalf("approve legacy workflow tool failed: %v", err)
+		}
+	}
+
+	var resumeEvents []models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_id = ?", EventWorkflowRunRequested, created.Run.ID).
+		Order("id ASC").Find(&resumeEvents).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(resumeEvents) != 2 {
+		t.Fatalf("legacy workflow should retain the initial event and enqueue one resume event, got %d", len(resumeEvents))
+	}
+	wantKey := fmt.Sprintf("%s:%d:resume:legacy:0", EventWorkflowRunRequested, created.Run.ID)
+	foundLegacyResume := false
+	for _, event := range resumeEvents {
+		if event.IdempotencyKey == wantKey {
+			foundLegacyResume = true
+			break
+		}
+	}
+	if !foundLegacyResume {
+		t.Fatalf("legacy workflow resume event missing; keys=%v", resumeEvents)
+	}
+	var durableWrites int64
+	if err := db.Model(&models.EventOutbox{}).Where("event = ? AND aggregate_id = ?", EventWorkflowApprovedWrite, created.Run.ID).
+		Count(&durableWrites).Error; err != nil {
+		t.Fatal(err)
+	}
+	if durableWrites != 0 {
+		t.Fatalf("legacy workflow approval must not enqueue approved-write events, got %d", durableWrites)
+	}
+
+	ready, err := svc.ProcessWorkflowRun(ctx, created.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ready.Run.Status != models.WorkflowRunStatusReady {
+		t.Fatalf("legacy worker execution did not complete synchronously: %s", ready.Run.Status)
+	}
+	if runtime.resumeCalls != 0 {
+		t.Fatalf("legacy worker execution must not call checkpoint resume, got %d", runtime.resumeCalls)
+	}
+	var executed int64
+	if err := db.Model(&models.ToolApproval{}).Where("workflow_run_id = ? AND status = ?", created.Run.ID, models.ToolApprovalStatusExecuted).
+		Count(&executed).Error; err != nil {
+		t.Fatal(err)
+	}
+	if executed != 2 {
+		t.Fatalf("legacy worker executed %d tools, want 2", executed)
+	}
+}
+
 func TestPythonLangGraphRuntimeSupportsAgentPresets(t *testing.T) {
 	runtime := &PythonLangGraphRuntime{}
 	for _, preset := range []string{
@@ -553,7 +646,7 @@ func TestWorkflowDurableWriteGateBindsApprovalCheckpointVersion(t *testing.T) {
 		PayloadJSON: mustJSONString(ApprovedWriteOutboxPayload{
 			ExecutionID:       "workflow:old:resume",
 			CheckpointVersion: 1,
-			ToolCallID:        "fake:old-write",
+			ToolCallID:        "fake:write",
 			WorkflowRunID:     created.Run.ID,
 			OrganizationID:    conversation.OrganizationID,
 			UserID:            7,
@@ -586,6 +679,9 @@ func TestWorkflowDurableWriteGateBindsApprovalCheckpointVersion(t *testing.T) {
 	}
 	if resumed.Run.Status != models.WorkflowRunStatusReady {
 		t.Fatalf("current approval without a matching durable write must execute inline despite a stale event, got %s", resumed.Run.Status)
+	}
+	if err := svc.ProcessApprovedWriteOutbox(ctx, staleWrite); !errors.Is(err, ErrCheckpointVersionConflict) {
+		t.Fatalf("stale pending write handler must fail closed, got %v", err)
 	}
 	var messages, memories int64
 	if err := db.Model(&models.Message{}).

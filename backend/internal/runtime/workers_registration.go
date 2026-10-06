@@ -373,6 +373,17 @@ func ConfigureOutboxProcessorFromEnv(processor *events.Processor, workerID strin
 	)
 }
 
+// ConfigureEmbeddedAgentOutboxProcessorFromEnv configures the embedded API
+// processor with the same aggregate-ordering contract as the standalone agent
+// worker before it starts draining the event filter.
+func ConfigureEmbeddedAgentOutboxProcessorFromEnv(processor *events.Processor, workerID string, eventFilter ...string) {
+	if processor == nil {
+		return
+	}
+	processor.WithOrderedEvents(AgentOrderedEvents()...)
+	ConfigureOutboxProcessorFromEnv(processor, workerID, eventFilter...)
+}
+
 // ConfigureOutboxProcessorFromEnvWithConcurrency configures an outbox processor
 // with bounded parallelism, ordering, lease refresh, and batch state writes.
 // orderedEvents specifies event types that require per-aggregate FIFO ordering;

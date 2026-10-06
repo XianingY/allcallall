@@ -394,6 +394,112 @@ func TestAgentApprovalResumeExecutesOnlyApprovedToolsInWorker(t *testing.T) {
 	}
 }
 
+func TestAgentLegacyApprovalResumeKeepsLegacyOutboxAndSynchronousExecution(t *testing.T) {
+	svc, db, _ := newAgentServiceTestEnv(t)
+	conversation := seedAgentConversation(t, db)
+	runtime := &scriptedAgentRuntime{initialResults: []scriptedAgentRuntimeResult{{
+		response: WorkflowRuntimeResponse{
+			Status:            models.AgentRunStatusRequiresAction,
+			Summary:           "Legacy approval summary",
+			ProposedToolCalls: agentApprovalProposals(conversation.ID),
+		},
+	}}}
+	svc.WithWorkflowRuntime(runtime)
+
+	queued, err := svc.RunConversationAssistant(context.Background(), conversation.OrganizationID, 7, RunInput{
+		ConversationID: conversation.ID,
+		Goal:           "exercise legacy approval resume",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := svc.ExecuteRun(context.Background(), queued.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paused.Run.Status != models.AgentRunStatusRequiresAction || len(paused.ToolCalls) != 2 {
+		t.Fatalf("unexpected paused legacy run: status=%s calls=%+v", paused.Run.Status, paused.ToolCalls)
+	}
+
+	// Simulate a pre-checkpoint approval row. The missing metadata must not
+	// strand the run in pending after the user completes the approval.
+	if err := db.Model(&models.AgentRun{}).Where("id = ?", queued.Run.ID).Updates(map[string]any{
+		"approval_request_id": "",
+		"checkpoint_id":       "",
+		"checkpoint_version":  0,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.AgentToolCall{}).Where("run_id = ?", queued.Run.ID).Updates(map[string]any{
+		"approval_request_id":         "",
+		"approval_checkpoint_version": 0,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	partial, err := svc.SubmitToolOutputs(context.Background(), conversation.OrganizationID, 7, queued.Run.ID, map[string]string{
+		"agent:write-message": "approve",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if partial.Run.Status != models.AgentRunStatusRequiresAction {
+		t.Fatalf("partial legacy decision advanced run: %s", partial.Run.Status)
+	}
+	accepted, err := svc.SubmitToolOutputs(context.Background(), conversation.OrganizationID, 7, queued.Run.ID, map[string]string{
+		"agent:memory": "reject",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted.Run.Status != models.AgentRunStatusPending {
+		t.Fatalf("complete legacy decisions did not schedule worker execution: %s", accepted.Run.Status)
+	}
+
+	var resumeEvents []models.EventOutbox
+	if err := db.Where("event = ? AND aggregate_id = ?", "agent.run.requested", queued.Run.ID).
+		Order("id ASC").Find(&resumeEvents).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(resumeEvents) != 2 {
+		t.Fatalf("legacy approval should retain the initial run event and enqueue exactly one resume event, got %d", len(resumeEvents))
+	}
+	wantKey := fmt.Sprintf("agent.run.requested:%d:resume:legacy:0", queued.Run.ID)
+	var legacyResume *models.EventOutbox
+	for i := range resumeEvents {
+		if resumeEvents[i].IdempotencyKey == wantKey {
+			legacyResume = &resumeEvents[i]
+			break
+		}
+	}
+	if legacyResume == nil {
+		t.Fatalf("legacy resume event missing; keys=%v", resumeEvents)
+	}
+	var durableWrites int64
+	if err := db.Model(&models.EventOutbox{}).Where("event = ? AND aggregate_id = ?", EventAgentApprovedWrite, queued.Run.ID).
+		Count(&durableWrites).Error; err != nil {
+		t.Fatal(err)
+	}
+	if durableWrites != 0 {
+		t.Fatalf("legacy approval must not enqueue approved-write events, got %d", durableWrites)
+	}
+
+	ready, err := svc.ExecuteRun(context.Background(), queued.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ready.Run.Status != models.AgentRunStatusReady {
+		t.Fatalf("legacy worker execution did not complete synchronously: %s", ready.Run.Status)
+	}
+	_, resumes := runtime.requestSnapshot()
+	if len(resumes) != 0 {
+		t.Fatalf("legacy worker execution must not call checkpoint resume, got %d", len(resumes))
+	}
+	if messages, memories, followups := countAgentSideEffects(t, db, conversation.ID); messages != 1 || memories != 0 || followups != 0 {
+		t.Fatalf("legacy worker executed wrong side effects: messages=%d memories=%d followups=%d", messages, memories, followups)
+	}
+}
+
 func TestAgentApprovedWritesUseDurableOutboxAndRemainIdempotent(t *testing.T) {
 	ctx := context.Background()
 	svc, db, _ := newAgentServiceTestEnv(t)
@@ -513,7 +619,7 @@ func TestAgentDurableWriteGateBindsApprovalCheckpointVersion(t *testing.T) {
 		PayloadJSON: mustJSONString(ApprovedWriteOutboxPayload{
 			ExecutionID:       "agent:old:resume",
 			CheckpointVersion: 1,
-			ToolCallID:        "agent:old-write",
+			ToolCallID:        "agent:write-message",
 			AgentRunID:        queued.Run.ID,
 			OrganizationID:    conversation.OrganizationID,
 			UserID:            7,
@@ -540,6 +646,12 @@ func TestAgentDurableWriteGateBindsApprovalCheckpointVersion(t *testing.T) {
 	}
 	if messages, memories, _ := countAgentSideEffects(t, db, conversation.ID); messages != 0 || memories != 0 {
 		t.Fatalf("rejected tools must not execute: messages=%d memories=%d", messages, memories)
+	}
+	if err := svc.ProcessApprovedWriteOutbox(ctx, staleWrite); !errors.Is(err, ErrCheckpointVersionConflict) {
+		t.Fatalf("stale pending write handler must fail closed, got %v", err)
+	}
+	if messages, memories, _ := countAgentSideEffects(t, db, conversation.ID); messages != 0 || memories != 0 {
+		t.Fatalf("stale pending write handler produced side effects: messages=%d memories=%d", messages, memories)
 	}
 }
 

@@ -217,6 +217,12 @@ components:
       maxReplicas: 10
       targetCPUUtilizationPercentage: 70
       scaleDownStabilizationWindowSeconds: 300
+      # Production pressure-scaling example. The adapter metric must filter
+      # pending rows to the agent worker event classes; a global oldest-age
+      # value can scale the wrong worker.
+      # externalMetrics:
+      #   - name: allcallall_agent_outbox_oldest_pending_seconds
+      #     targetAverageValue: "2"
       externalMetrics: []
     pdb: {enabled: true, minAvailable: 1}
   outboxWorker:
@@ -230,8 +236,9 @@ components:
       maxReplicas: 8
       targetCPUUtilizationPercentage: 70
       scaleDownStabilizationWindowSeconds: 300
-      # Production pressure-scaling example. The adapter must expose this
-      # metric; otherwise leave externalMetrics empty and use the CPU signal.
+      # Production pressure-scaling example. The adapter metric must filter
+      # pending rows to this worker's event classes; otherwise leave
+      # externalMetrics empty and use the CPU signal.
       # externalMetrics:
       #   - name: allcallall_outbox_oldest_pending_seconds
       #     targetAverageValue: "2"

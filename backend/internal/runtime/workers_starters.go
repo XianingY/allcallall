@@ -25,13 +25,6 @@ func StartOutboxWorker(ctx context.Context, log zerolog.Logger, processor *event
 }
 
 func StartAgentWorker(ctx context.Context, log zerolog.Logger, processor *events.Processor, services ...*agent.Service) {
-	agentOrderedEvents := []string{
-		EventAgentRunRequested,
-		EventWorkflowRequested,
-		EventAgentApprovedWrite,
-		EventWorkflowApprovedWrite,
-		EventMCPExecutionTerminal,
-	}
 	ConfigureOutboxProcessorFromEnvWithConcurrency(
 		processor,
 		workerIDFromEnv("agent-worker"),
@@ -41,7 +34,7 @@ func StartAgentWorker(ctx context.Context, log zerolog.Logger, processor *events
 		time.Duration(intFromEnv("OUTBOX_WORKER_IDLE_MS", 500))*time.Millisecond,
 		time.Duration(intFromEnv("OUTBOX_WORKER_ERROR_BACKOFF_MS", 1000))*time.Millisecond,
 		durationFromEnv("OUTBOX_WORKER_LEASE_SEC", agent.DefaultOutboxLeaseSec)*time.Second,
-		agentOrderedEvents,
+		AgentOrderedEvents(),
 		EventAgentRunRequested,
 		EventWorkflowRequested,
 		EventAgentApprovedWrite,
@@ -51,6 +44,18 @@ func StartAgentWorker(ctx context.Context, log zerolog.Logger, processor *events
 	StartOutboxWorker(ctx, log.With().Str("worker", "agent").Logger(), processor)
 	if len(services) > 0 {
 		StartAgentRecoveryWorker(ctx, log, services[0])
+	}
+}
+
+// AgentOrderedEvents returns the event set that must retain per-aggregate FIFO
+// ordering in both standalone and embedded agent workers.
+func AgentOrderedEvents() []string {
+	return []string{
+		EventAgentRunRequested,
+		EventWorkflowRequested,
+		EventAgentApprovedWrite,
+		EventWorkflowApprovedWrite,
+		EventMCPExecutionTerminal,
 	}
 }
 

@@ -21,8 +21,23 @@ func (s *Service) enqueueAgentApprovalOutboxTx(ctx context.Context, tx *gorm.DB,
 		return nil
 	}
 	if roundRequestID == "" || roundVersion == 0 {
-		// Legacy approvals have no checkpoint-owned execution identity and keep
-		// their synchronous execution path.
+		// Legacy approvals have no checkpoint-owned execution identity. Preserve
+		// the pre-durable-write resume event so the worker still executes them
+		// through the synchronous tool path; never enqueue approved writes.
+		_, err := s.outbox.EnqueueTx(ctx, tx, events.EnqueueInput{
+			AggregateType:  "agent_run",
+			AggregateID:    run.ID,
+			Event:          "agent.run.requested",
+			IdempotencyKey: fmt.Sprintf("agent.run.requested:%d:resume:legacy:0", run.ID),
+			Payload: map[string]any{
+				"organization_id": run.OrganizationID,
+				"agent_run_id":    run.ID,
+				"resumed_by":      userID,
+			},
+		})
+		if err != nil && !errors.Is(err, events.ErrOutboxEventExists) {
+			return err
+		}
 		return nil
 	}
 	var calls []models.AgentToolCall
