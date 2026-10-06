@@ -1,0 +1,56 @@
+name: Nightly Main Sync Check
+
+# Non-blocking signal, not a PR gate: verifies daily that this repo's main
+# still works against the runtime repo's main. A failure here means "re-pin
+# release/manifest.yaml" (see release/README.md), not "block PRs".
+on:
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  main-sync:
+    name: main vs runtime main
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: XianingY/allcallall-agent-runtime
+          path: allcallall-agent-runtime
+          ref: main
+      - name: Report pin freshness
+        run: |
+          pinned=$(awk '/^  allcallall-agent-runtime:/{f=1;next} f&&/^    sha:/{print $2;exit}' release/manifest.yaml)
+          head=$(git -C allcallall-agent-runtime rev-parse HEAD)
+          echo "manifest pins $pinned; runtime main is $head"
+          if [ "$pinned" != "$head" ]; then
+            echo "::warning::runtime main has moved past the pinned SHA; re-pin release/manifest.yaml"
+          fi
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            allcallall-agent-runtime/packages/shared/pyproject.toml
+            allcallall-agent-runtime/services/agent-runtime/pyproject.toml
+            allcallall-agent-runtime/services/rag-runtime/pyproject.toml
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "./allcallall-agent-runtime/packages/shared[dev]"
+          python -m pip install -e "./allcallall-agent-runtime/services/agent-runtime[dev]"
+          python -m pip install -e "./allcallall-agent-runtime/services/rag-runtime[dev]"
+      - name: Contracts check
+        working-directory: allcallall-agent-runtime
+        run: python scripts/generate_contracts.py --check
+      - name: Agent runtime tests
+        working-directory: allcallall-agent-runtime/services/agent-runtime
+        run: python -m pytest -q
+      - name: RAG runtime tests
+        working-directory: allcallall-agent-runtime/services/rag-runtime
+        run: python -m pytest -q

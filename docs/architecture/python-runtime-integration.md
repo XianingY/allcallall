@@ -4,7 +4,7 @@ This page is the interview-facing explanation for the Python Agent Runtime.
 
 ## What Changed
 
-AllCallAll keeps the Go backend as the business source of truth, but makes the external [`allcallall-agent-runtime`](https://github.com/XianingY/allcallall-agent-runtime) project the Beta/demo Agent intelligence layer. The pinned runtime image is `v0.2.0`: Python FastAPI + LangGraph Agent Runtime Harness, bounded role loops, prompt/provider adapters, Agentic RAG, trace, citations, critic checks, and write-tool proposals.
+AllCallAll keeps the Go backend as the business source of truth, but makes the external [`allcallall-agent-runtime`](https://github.com/XianingY/allcallall-agent-runtime) project the Beta/demo Agent intelligence layer. The pinned runtime image is `v0.3.0`: Python FastAPI + LangGraph Agent Runtime Harness, bounded role loops, prompt/provider adapters, Agentic RAG, trace, citations, critic checks, and write-tool proposals.
 
 The Python runtime currently supports:
 

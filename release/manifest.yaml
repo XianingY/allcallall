@@ -1,0 +1,80 @@
+# Release baseline manifest
+# ==========================
+# Single source of truth for what a tagged release contains.
+#
+# Consumers of this file:
+#   - .github/workflows/platform-ci.yml  pins the runtime checkout to
+#     `repositories.allcallall-agent-runtime.sha` instead of `main`.
+#   - .github/workflows/nightly-main-sync.yml  warns when runtime main moves
+#     past the pinned SHA.
+#   - scripts/release-check.sh  verifies every version reference in the repo
+#     (Helm, compose, docs, clients, DB schema, contract hash) agrees with
+#     this file.
+#
+# Update procedure: see release/README.md. Never edit by hand on a release
+# branch; use `make release-stamp`.
+product:
+  version: v0.3.0
+  release_date: "2026-10-06"
+  status: baseline
+
+repositories:
+  allcallall:
+    remote: https://github.com/XianingY/AllCallAll
+    # Stamped by `make release-stamp` immediately before tagging; the tagged
+    # commit's SHA is written here so the manifest is self-referential.
+    sha: null
+  allcallall-agent-runtime:
+    remote: https://github.com/XianingY/allcallall-agent-runtime
+    sha: 88b842bf0638c0afef2c16a964595d670645e46d
+    tag: v0.3.0
+
+contracts:
+  # Authoritative schemas are generated and checked in the runtime repo via
+  # `make contracts-check`. The hash is path-independent: file contents are
+  # concatenated in sorted filename order (with a trailing newline each) and
+  # hashed, as produced by:
+  #   cd contracts/schemas && { for f in $(ls *.json | sort); do cat "$f";
+  #   printf '\n'; done; } | sha256sum
+  source: allcallall-agent-runtime/contracts/schemas
+  sha256: 4b82a7f3ac9386d5beab0fe66f36bd95aeeb23bce3d210d701e5bba33bd8eabd
+
+database:
+  schema_version: "21"
+  migrations_dir: backend/migrations
+
+clients:
+  web: 0.1.0
+  mobile_app: 1.0.0
+  mobile_app_version_code: 1
+  mobile_package: 0.1.0
+  desktop: 0.1.0
+
+images:
+  # Every image is tagged with product.version by release.yml (main repo) and
+  # publish.yml (runtime repo). Digests are filled in after the first publish
+  # of the tag; see release/README.md for the procedure.
+  backend:
+    repository: ghcr.io/xianingy/allcallall/backend
+    digest: null
+  agent-runtime:
+    repository: ghcr.io/xianingy/allcallall-agent-runtime/agent-runtime
+    digest: null
+  rag-runtime:
+    repository: ghcr.io/xianingy/allcallall-agent-runtime/rag-runtime
+    digest: null
+  sandbox-runner:
+    repository: ghcr.io/xianingy/allcallall-agent-runtime/sandbox-runner
+    digest: null
+  sandbox-control-plane:
+    repository: ghcr.io/xianingy/allcallall/sandbox-control-plane
+    digest: null
+  sandbox-supervisor:
+    repository: ghcr.io/xianingy/allcallall/sandbox-supervisor
+    digest: null
+  elasticsearch-ik:
+    repository: ghcr.io/xianingy/allcallall/elasticsearch-ik
+    digest: null
+  web:
+    repository: ghcr.io/xianingy/allcallall/web
+    digest: null

@@ -6,10 +6,13 @@ PYTHON ?= python3
 AGENT_RUNTIME_DIR ?= $(firstword $(wildcard allcallall-agent-runtime ../allcallall-agent-runtime))
 AGENT_RUNTIME_ABS_DIR = $(abspath $(AGENT_RUNTIME_DIR))
 RUNTIME_VENV_PYTHON = $(if $(wildcard $(AGENT_RUNTIME_DIR)/.venv/bin/python),$(AGENT_RUNTIME_ABS_DIR)/.venv/bin/python,$(PYTHON))
-AGENT_RUNTIME_PYTHON ?= $(if $(wildcard $(AGENT_RUNTIME_DIR)/services/agent-runtime/.venv/bin/python),$(AGENT_RUNTIME_ABS_DIR)/services/agent-runtime/.venv/bin/python,$(RUNTIME_VENV_PYTHON))
-RAG_RUNTIME_PYTHON ?= $(if $(wildcard $(AGENT_RUNTIME_DIR)/services/rag-runtime/.venv/bin/python),$(AGENT_RUNTIME_ABS_DIR)/services/rag-runtime/.venv/bin/python,$(RUNTIME_VENV_PYTHON))
+# The runtime repo's `make install-dev` maintains a single root .venv and
+# installs every service into it. Per-service venvs are legacy artifacts that
+# can shadow the root venv with stale dependencies, so prefer the root venv.
+AGENT_RUNTIME_PYTHON ?= $(RUNTIME_VENV_PYTHON)
+RAG_RUNTIME_PYTHON ?= $(RUNTIME_VENV_PYTHON)
 
-.PHONY: help setup install-hooks build-android build-android-release build-ios clean clean-android test test-backend run-backend run-api run-agent-runtime run-rag-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed dev-android dev-ios fmt lint verify interview-up interview-smoke interview-chaos interview-status interview-down interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval python-rag-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval ai-agent-jd-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check agent-performance-suite helm-check
+.PHONY: help setup install-hooks build-android build-android-release build-ios clean clean-android test test-backend run-backend run-api run-agent-runtime run-rag-runtime run-user-service run-agent-worker run-outbox-worker run-data-worker run-search-worker run-cleanup-worker beta-seed dev-android dev-ios fmt lint verify interview-up interview-smoke interview-chaos interview-status interview-down interview-demo interview-demo-live interview-live-suite interview-load-suite interview-bench dashboard-bench interview-microservice-demo agent-runtime-test python-agent-eval python-rag-eval agent-eval rag-eval rerank-eval workflow-eval task-eval agent-demo-report resume-eval ai-portfolio-eval ai-agent-jd-eval mcp-tool-server realtime-replay-bench chat-ws-replay-bench web-contract-check web-performance-check agent-performance-suite helm-check release-check release-stamp
 
 # Default target
 help:
@@ -65,6 +68,8 @@ help:
 	@echo "  make web-performance-check - Build Web and enforce bundle budgets"
 	@echo "  make helm-check        - Lint and render the Kubernetes Helm chart"
 	@echo "  make agent-performance-suite - Run end-to-end agent benchmark suite"
+	@echo "  make release-check     - Full release gate: verify-full + contract + Helm + manifest consistency"
+	@echo "  make release-stamp     - Stamp HEAD SHA into release/manifest.yaml before tagging"
 	@echo ""
 	@echo "Clean:"
 	@echo "  make clean            - Clean all build artifacts"
@@ -188,7 +193,16 @@ test-backend:
 helm-check:
 	helm lint infra/helm/allcallall
 	helm template allcallall infra/helm/allcallall --namespace allcallall > /tmp/allcallall-helm.yaml
-	kubeconform -strict -summary -ignore-missing-schemas /tmp/allcallall-helm.yaml
+	@if command -v kubeconform >/dev/null 2>&1; then \
+		kubeconform -strict -summary -ignore-missing-schemas /tmp/allcallall-helm.yaml; \
+	elif command -v docker >/dev/null 2>&1; then \
+		echo "kubeconform not found; using the CI image ghcr.io/yannh/kubeconform:v0.8.0 via Docker..."; \
+		docker run --rm -v /tmp/allcallall-helm.yaml:/chart.yaml:ro ghcr.io/yannh/kubeconform:v0.8.0 -strict -summary -ignore-missing-schemas /chart.yaml; \
+	else \
+		echo "ERROR: kubeconform is not installed and Docker is unavailable."; \
+		echo "       Install kubeconform or run this in CI."; \
+		exit 1; \
+	fi
 
 agent-performance-suite:
 	./scripts/load/run-agent-performance-suite.sh
@@ -366,9 +380,33 @@ verify-full:
 		echo "       Clone it as a sibling directory (see AGENTS.md)."; \
 		exit 1; \
 	fi
+	@echo "Checking Python runtime dev dependencies (pytest collection dry-run)..."
+	@cd "$(AGENT_RUNTIME_DIR)/services/agent-runtime" && $(AGENT_RUNTIME_PYTHON) -m pytest --collect-only -q >/dev/null 2>&1 || { \
+		echo "ERROR: agent-runtime dev dependencies are missing or broken."; \
+		echo "       Run 'make install-dev' in $(AGENT_RUNTIME_ABS_DIR) and retry."; \
+		exit 1; \
+	}
+	@cd "$(AGENT_RUNTIME_ABS_DIR)/services/rag-runtime" && $(RAG_RUNTIME_PYTHON) -m pytest --collect-only -q >/dev/null 2>&1 || { \
+		echo "ERROR: rag-runtime dev dependencies are missing or broken."; \
+		echo "       Run 'make install-dev' in $(AGENT_RUNTIME_ABS_DIR) and retry."; \
+		exit 1; \
+	}
 	cd "$(AGENT_RUNTIME_DIR)/services/agent-runtime" && $(AGENT_RUNTIME_PYTHON) -m pytest -p no:langsmith
 	cd "$(AGENT_RUNTIME_ABS_DIR)/services/rag-runtime" && $(RAG_RUNTIME_PYTHON) -m pytest -p no:langsmith
 	@echo "verify-full passed."
+
+# release-check is the gate for cutting a tag: everything verify-full covers,
+# plus the docs consistency check, the Web OpenAPI contract, the Helm chart,
+# and the release manifest consistency audit (scripts/release-check.sh).
+release-check: verify-full web-contract-check helm-check
+	@echo "Checking documentation consistency..."
+	npm run test:docs && npm run docs:check
+	@echo "Checking release manifest consistency..."
+	bash scripts/release-check.sh
+	@echo "release-check passed."
+
+release-stamp:
+	bash scripts/release-stamp.sh
 
 # ===========================
 # Development Commands
