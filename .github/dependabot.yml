@@ -49,8 +49,26 @@ updates:
           - "*"
     target-branch: "main"
 
+  # Dependabot's docker ecosystem does not discover Dockerfiles below the
+  # configured directory, so each directory that carries one gets its own
+  # entry. The FROM lines pin base images by digest; these entries keep the
+  # pins moving onto freshly patched base images.
   - package-ecosystem: "docker"
-    directory: "/"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    target-branch: "main"
+
+  - package-ecosystem: "docker"
+    directory: "/infra"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    target-branch: "main"
+
+  - package-ecosystem: "docker"
+    directory: "/infra/elasticsearch"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
