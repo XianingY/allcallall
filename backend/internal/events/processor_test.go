@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
@@ -17,6 +19,187 @@ import (
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/trace"
 )
+
+func findPrometheusSample(metricName string, labels map[string]string) *dto.Metric {
+	families, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		return nil
+	}
+	for _, family := range families {
+		if family.GetName() != metricName {
+			continue
+		}
+		for _, sample := range family.GetMetric() {
+			sampleLabels := make(map[string]string, len(labels))
+			for _, label := range sample.GetLabel() {
+				sampleLabels[label.GetName()] = label.GetValue()
+			}
+			matched := true
+			for name, value := range labels {
+				if sampleLabels[name] != value {
+					matched = false
+					break
+				}
+			}
+			if matched {
+				return sample
+			}
+		}
+	}
+	return nil
+}
+
+func prometheusHistogramCount(t *testing.T, metricName string, labels map[string]string) uint64 {
+	t.Helper()
+	if sample := findPrometheusSample(metricName, labels); sample != nil {
+		return sample.GetHistogram().GetSampleCount()
+	}
+	return 0
+}
+
+func prometheusGaugeValue(t *testing.T, metricName string, labels map[string]string) float64 {
+	t.Helper()
+	sample := findPrometheusSample(metricName, labels)
+	if sample == nil {
+		t.Fatalf("Prometheus metric %s with labels %v not found", metricName, labels)
+	}
+	return sample.GetGauge().GetValue()
+}
+
+func TestProcessorRecordsOutboxPressureMetrics(t *testing.T) {
+	store, _ := newProcessorTestStore(t)
+
+	// The gauge is a process-level Prometheus series. Reset it before the test
+	// so a prior test cannot make the final zero assertion ambiguous.
+	metrics.SetOutboxInflight("agent", 0)
+	queueWaitBefore := prometheusHistogramCount(t, "outbox_queue_wait_seconds", map[string]string{"work_class": "agent"})
+	eventDurationBefore := prometheusHistogramCount(t, "outbox_event_duration_seconds", map[string]string{"work_class": "agent", "outcome": "success"})
+
+	handlerInflight := make(chan float64, 1)
+	processor := NewProcessor(store)
+	processor.Register("agent.run.completed", func(context.Context, models.EventOutbox) error {
+		handlerInflight <- prometheusGaugeValue(t, "outbox_inflight", map[string]string{"work_class": "agent"})
+		return nil
+	})
+	if _, err := store.Enqueue(context.Background(), EnqueueInput{
+		AggregateType:  "agent_run",
+		AggregateID:    1,
+		Event:          "agent.run.completed",
+		IdempotencyKey: "agent.run.completed:metrics",
+		Payload:        map[string]any{"run_id": 1},
+	}); err != nil {
+		t.Fatalf("enqueue failed: %v", err)
+	}
+
+	result, err := processor.ProcessBatch(context.Background())
+	if err != nil {
+		t.Fatalf("process batch failed: %v", err)
+	}
+	if result.Succeeded != 1 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	if got := <-handlerInflight; got != 1 {
+		t.Fatalf("outbox_inflight during handler = %v, want 1", got)
+	}
+	if got := prometheusGaugeValue(t, "outbox_inflight", map[string]string{"work_class": "agent"}); got != 0 {
+		t.Fatalf("outbox_inflight after handler = %v, want 0", got)
+	}
+	if got := prometheusHistogramCount(t, "outbox_queue_wait_seconds", map[string]string{"work_class": "agent"}) - queueWaitBefore; got != 1 {
+		t.Fatalf("outbox_queue_wait_seconds sample delta = %d, want 1", got)
+	}
+	if got := prometheusHistogramCount(t, "outbox_event_duration_seconds", map[string]string{"work_class": "agent", "outcome": "success"}) - eventDurationBefore; got != 1 {
+		t.Fatalf("outbox_event_duration_seconds sample delta = %d, want 1", got)
+	}
+}
+
+func TestProcessorConcurrencyIsProcessorScoped(t *testing.T) {
+	storeA, _ := newProcessorTestStore(t)
+	storeB, _ := newProcessorTestStore(t)
+
+	var maxConcurrency atomic.Int64
+	cleanup := SetConcurrencyObserver(func(delta int64, current int64) {
+		if delta > 0 {
+			for {
+				old := maxConcurrency.Load()
+				if current <= old || maxConcurrency.CompareAndSwap(old, current) {
+					return
+				}
+			}
+		}
+	})
+	defer cleanup()
+
+	processorA := NewProcessor(storeA).WithConfig(ProcessorConfig{Concurrency: 2, QueueDepth: 2})
+	processorB := NewProcessor(storeB).WithConfig(ProcessorConfig{Concurrency: 2, QueueDepth: 2})
+
+	enteredA := make(chan struct{})
+	enteredB := make(chan struct{})
+	release := make(chan struct{})
+	handler := func(entered chan struct{}) Handler {
+		return func(context.Context, models.EventOutbox) error {
+			close(entered)
+			<-release
+			return nil
+		}
+	}
+	processorA.Register("test.event", handler(enteredA))
+	processorB.Register("test.event", handler(enteredB))
+
+	for i, store := range []*Store{storeA, storeB} {
+		if _, err := store.Enqueue(context.Background(), EnqueueInput{
+			AggregateType:  "test",
+			AggregateID:    uint64(i + 1),
+			Event:          "test.event",
+			IdempotencyKey: fmt.Sprintf("processor-scoped-%d", i),
+			Payload:        map[string]any{"i": i},
+		}); err != nil {
+			t.Fatalf("enqueue %d: %v", i, err)
+		}
+	}
+
+	type processResult struct {
+		result ProcessBatchResult
+		err    error
+	}
+	done := make(chan processResult, 2)
+	process := func(processor *Processor) {
+		result, err := processor.ProcessBatch(context.Background())
+		done <- processResult{result: result, err: err}
+	}
+	go process(processorA)
+	go process(processorB)
+
+	select {
+	case <-enteredA:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for processor A handler")
+	}
+	select {
+	case <-enteredB:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for processor B handler")
+	}
+	close(release)
+
+	for i := 0; i < 2; i++ {
+		select {
+		case got := <-done:
+			if got.err != nil {
+				t.Fatalf("process batch failed: %v", got.err)
+			}
+			if got.result.Succeeded != 1 {
+				t.Fatalf("unexpected result: %+v", got.result)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for ProcessBatch")
+		}
+	}
+
+	if got := maxConcurrency.Load(); got != 1 {
+		t.Fatalf("observer max concurrency = %d, want 1 (counters must be Processor-scoped)", got)
+	}
+}
 
 func newProcessorTestStore(t *testing.T) (*Store, *gorm.DB) {
 	t.Helper()
@@ -440,8 +623,6 @@ func TestProcessorBoundedConcurrency(t *testing.T) {
 	}
 }
 
-
-
 func TestProcessorAggregateOrder(t *testing.T) {
 	store, _ := newProcessorTestStore(t)
 	processor := NewProcessor(store)
@@ -729,6 +910,3 @@ func TestProcessorLeaseConflictCancelsHandler(t *testing.T) {
 		t.Fatal("ProcessBatch did not complete after handler cancellation")
 	}
 }
-
-
-

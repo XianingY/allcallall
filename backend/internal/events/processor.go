@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,11 +48,11 @@ type ProcessorConfig struct {
 // claim failures (returned as the batch error) and state-transition database
 // failures (collected in Errors) are considered processor errors.
 type ProcessBatchResult struct {
-	Claimed   int       // events claimed from the store
-	Succeeded int       // events published successfully
-	Retried   int       // events moved to retry (handler failed, under max attempts)
-	Dead      int       // events moved to dead-letter (handler failed, max attempts reached)
-	Errors    []error   // state-transition database failures
+	Claimed   int     // events claimed from the store
+	Succeeded int     // events published successfully
+	Retried   int     // events moved to retry (handler failed, under max attempts)
+	Dead      int     // events moved to dead-letter (handler failed, max attempts reached)
+	Errors    []error // state-transition database failures
 }
 
 type processOutcome int
@@ -62,12 +63,17 @@ const (
 	outcomeDead
 )
 
+type outboxMetricScope struct {
+	workClass string
+	startedAt time.Time
+}
+
 // eventResult captures the outcome of processing a single event.
 type eventResult struct {
-	row         models.EventOutbox
-	outcome     processOutcome
-	handlerErr  error // the handler error (nil for success)
-	persistErr  error // non-nil only for state-transition database failures
+	row        models.EventOutbox
+	outcome    processOutcome
+	handlerErr error // the handler error (nil for success)
+	persistErr error // non-nil only for state-transition database failures
 }
 
 // OrderingKey returns the aggregate ordering key for an outbox row:
@@ -100,26 +106,77 @@ func observeConcurrency(delta int64, current int64) {
 	}
 }
 
+// outboxWorkClass maps an event to one of the fixed worker-oriented label
+// values. The Prometheus collector also bounds the final label, so unknown
+// event names can never create an unbounded label series.
+func outboxWorkClass(row models.EventOutbox) string {
+	event := row.Event
+	switch {
+	case strings.HasPrefix(event, "agent."), strings.HasPrefix(event, "workflow."), strings.HasPrefix(event, "mcp."):
+		return "agent"
+	case strings.HasPrefix(event, "search."), strings.HasPrefix(event, "rag."):
+		return "search"
+	case strings.HasPrefix(event, "recording."), strings.HasPrefix(event, "meeting.transcription."):
+		return "transcription"
+	case strings.HasPrefix(event, "settlement."):
+		return "settlement"
+	case event == "message.created", strings.HasPrefix(event, "chat."), strings.HasPrefix(event, "conversation."), strings.HasPrefix(event, "room."), strings.HasPrefix(event, "weekly_task."):
+		return "collaboration"
+	default:
+		return "other"
+	}
+}
+
+func (p *Processor) beginOutboxMetricScope(row models.EventOutbox) outboxMetricScope {
+	workClass := outboxWorkClass(row)
+	queueWait := time.Since(row.CreatedAt)
+	if queueWait < 0 {
+		queueWait = 0
+	}
+	metrics.ObserveOutboxQueueWait(workClass, queueWait)
+	return outboxMetricScope{workClass: workClass, startedAt: time.Now()}
+}
+
+func (s outboxMetricScope) finish(outcome processOutcome) {
+	metrics.ObserveOutboxEvent(s.workClass, outboxMetricLabel(outcome), time.Since(s.startedAt))
+}
+
+func outboxMetricLabel(outcome processOutcome) string {
+	switch outcome {
+	case outcomePublished:
+		return "success"
+	case outcomeRetried:
+		return "retry"
+	case outcomeDead:
+		return "dead_letter"
+	default:
+		return "other"
+	}
+}
+
 type Processor struct {
-	store                  *Store
-	handlers               map[string]Handler
-	events                 []string
-	orderedEvents          []string
-	metrics                metrics.Recorder
-	logger                 zerolog.Logger
-	alerter                *alerting.Service
-	batchSize              int
-	maxAttempts            int
-	retryDelay             time.Duration
-	workerID               string
-	lease                  time.Duration
-	leaseRefresh           time.Duration
-	idleInterval           time.Duration
-	errorBackoff           time.Duration
-	backlogSampleInterval  time.Duration
-	concurrency            int
-	queueDepth             int
-	mu                     sync.RWMutex
+	store                 *Store
+	handlers              map[string]Handler
+	events                []string
+	orderedEvents         []string
+	metrics               metrics.Recorder
+	logger                zerolog.Logger
+	alerter               *alerting.Service
+	batchSize             int
+	maxAttempts           int
+	retryDelay            time.Duration
+	workerID              string
+	lease                 time.Duration
+	leaseRefresh          time.Duration
+	idleInterval          time.Duration
+	errorBackoff          time.Duration
+	backlogSampleInterval time.Duration
+	concurrency           int
+	queueDepth            int
+	// currentConcurrency is scoped to this Processor so embedded and standalone
+	// workers cannot observe each other's in-flight handler count.
+	currentConcurrency atomic.Int64
+	mu                 sync.RWMutex
 }
 
 func NewProcessor(store *Store, recorders ...metrics.Recorder) *Processor {
@@ -406,6 +463,12 @@ func shardIndex(key string, shardCount int) int {
 // the outcome without persisting the state transition. The caller is
 // responsible for persisting the outcome (either individually or in a batch).
 func (p *Processor) processEventOutcome(ctx context.Context, row models.EventOutbox) eventResult {
+	metricScope := p.beginOutboxMetricScope(row)
+	var result eventResult
+	defer func() {
+		metricScope.finish(result.outcome)
+	}()
+
 	handler := p.lookup(row.Event)
 	handlerErr := ErrOutboxHandlerNotFound
 	if handler != nil {
@@ -418,11 +481,13 @@ func (p *Processor) processEventOutcome(ctx context.Context, row models.EventOut
 		})
 
 		handlerErr = p.runWithLeaseRefresh(handlerCtx, row, func(runCtx context.Context) error {
-			cur := atomic.AddInt64(&currentConcurrency, 1)
+			cur := p.currentConcurrency.Add(1)
 			observeConcurrency(1, cur)
+			metrics.SetOutboxInflight(metricScope.workClass, int(cur))
 			err := handler(runCtx, row)
-			cur = atomic.AddInt64(&currentConcurrency, -1)
+			cur = p.currentConcurrency.Add(-1)
 			observeConcurrency(-1, cur)
+			metrics.SetOutboxInflight(metricScope.workClass, int(cur))
 			return err
 		})
 
@@ -433,7 +498,8 @@ func (p *Processor) processEventOutcome(ctx context.Context, row models.EventOut
 		if p.metrics != nil {
 			p.metrics.Inc("outbox_publish_total")
 		}
-		return eventResult{row: row, outcome: outcomePublished, handlerErr: nil}
+		result = eventResult{row: row, outcome: outcomePublished, handlerErr: nil}
+		return result
 	}
 
 	if row.Attempts+1 >= p.maxAttempts {
@@ -458,18 +524,16 @@ func (p *Processor) processEventOutcome(ctx context.Context, row models.EventOut
 					Msg("failed to emit outbox dead-letter alert")
 			}
 		}
-		return eventResult{row: row, outcome: outcomeDead, handlerErr: handlerErr}
+		result = eventResult{row: row, outcome: outcomeDead, handlerErr: handlerErr}
+		return result
 	}
 
 	if p.metrics != nil {
 		p.metrics.Inc("outbox_publish_retry_total")
 	}
-	return eventResult{row: row, outcome: outcomeRetried, handlerErr: handlerErr}
+	result = eventResult{row: row, outcome: outcomeRetried, handlerErr: handlerErr}
+	return result
 }
-
-// currentConcurrency tracks the number of in-flight handler invocations
-// for the parallel path. The sequential path does not use this counter.
-var currentConcurrency int64
 
 // runWithLeaseRefresh executes fn with optional lease-refresh protection.
 // When leaseRefresh > 0, a background goroutine periodically extends the
@@ -604,7 +668,7 @@ func (p *Processor) persistRetried(ctx context.Context, results []eventResult, b
 	type retryGroup struct {
 		availableAt time.Time
 		errMsg      string
-		ids        []uint64
+		ids         []uint64
 	}
 	groups := make(map[string]*retryGroup)
 	for _, r := range results {
@@ -660,7 +724,7 @@ func (p *Processor) persistDead(ctx context.Context, results []eventResult, batc
 	}
 	type deadGroup struct {
 		errMsg string
-		ids   []uint64
+		ids    []uint64
 	}
 	groups := make(map[string]*deadGroup)
 	for _, r := range results {
@@ -797,7 +861,12 @@ func (p *Processor) recordRunFailure(err error) {
 // that is non-nil only for state-transition database failures. Handler failures
 // that are successfully persisted as retry or dead outcomes return a nil error
 // so the batch can continue processing remaining events.
-func (p *Processor) processEvent(ctx context.Context, row models.EventOutbox) (processOutcome, error) {
+func (p *Processor) processEvent(ctx context.Context, row models.EventOutbox) (outcome processOutcome, err error) {
+	metricScope := p.beginOutboxMetricScope(row)
+	defer func() {
+		metricScope.finish(outcome)
+	}()
+
 	handler := p.lookup(row.Event)
 	handlerErr := ErrOutboxHandlerNotFound
 	if handler != nil {
@@ -808,7 +877,9 @@ func (p *Processor) processEvent(ctx context.Context, row models.EventOutbox) (p
 			"aggregate_id":   strconv.FormatUint(row.AggregateID, 10),
 			"outbox_id":      strconv.FormatUint(row.ID, 10),
 		})
+		metrics.SetOutboxInflight(metricScope.workClass, 1)
 		handlerErr = handler(handlerCtx, row)
+		metrics.SetOutboxInflight(metricScope.workClass, 0)
 		span.End(handlerErr)
 	}
 	if handlerErr == nil {

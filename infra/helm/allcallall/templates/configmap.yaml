@@ -46,6 +46,7 @@ data:
   PY_AGENT_RUNTIME_MAX_IDLE_CONNS: {{ .Values.runtime.maxIdleConns | quote }}
   PY_AGENT_RUNTIME_MAX_IDLE_CONNS_PER_HOST: {{ .Values.runtime.maxIdleConnsPerHost | quote }}
   PY_AGENT_RUNTIME_MAX_CONNS_PER_HOST: {{ .Values.runtime.maxConnsPerHost | quote }}
+  # Also configures the Python runtime's cancellation grace period.
   PY_AGENT_RUNTIME_CANCELLATION_GRACE_SEC: {{ .Values.runtime.cancellationGraceSec | quote }}
   AGENT_RUN_LEASE_DURATION_SEC: {{ .Values.leases.agentRunLeaseSec | quote }}
   WORKFLOW_RUN_LEASE_DURATION_SEC: {{ .Values.leases.workflowRunLeaseSec | quote }}

@@ -25,7 +25,7 @@ Run the suite with `make agent-performance-suite`. Set `PROFILE`, `BASE_URL`,
 The standard Prometheus endpoint is `:9090/metrics`. The business endpoint on
 `:8080/api/v1/metrics` continues to expose compatibility counters such as
 `outbox_backlog`, `outbox_publish_total`,
-`outbox_publish_retry_total`, and `outbox_publish_failed_total`.
+`outbox_publish_retry_total`, and `outbox_dead_letter_total`.
 
 | Metric | Type | Interpretation |
 |---|---|---|

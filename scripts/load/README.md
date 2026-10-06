@@ -121,7 +121,7 @@ Expected counters to inspect:
 - `agent_memory_write_total`
 - `outbox_publish_total`
 - `outbox_publish_retry_total`
-- `outbox_publish_failed_total`
+- `outbox_dead_letter_total`
 
 Idempotency check:
 
@@ -139,7 +139,7 @@ Suggested flow:
 3. Run `agent-run-smoke.sh`.
 4. Poll `event_outbox` until requested/completed/message rows move from `pending` to published, or until retry/failure status appears.
 5. For approval paths, also confirm `agent.tool.write.requested` and `workflow.tool.write.requested` rows move from `pending` to `published` before accepting the end-to-end result.
-6. Capture `outbox_publish_total`, `outbox_publish_retry_total`, and `outbox_publish_failed_total` deltas.
+6. Capture `outbox_publish_total`, `outbox_publish_retry_total`, and `outbox_dead_letter_total` deltas.
 
 Do not claim retry/failure results unless you forced the handler to fail in a controlled dev setup. The default registered handlers execute `agent.run.requested`, the durable approved-write events, and observe `agent.run.completed` / `message.created`.
 
