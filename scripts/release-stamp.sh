@@ -10,7 +10,9 @@ cd "$repo_root"
 manifest="release/manifest.yaml"
 [[ -f "$manifest" ]] || { echo "ERROR: $manifest is missing" >&2; exit 1; }
 
-dirty="$(git status --porcelain | grep -v '^.. release/manifest.yaml' || true)"
+# Untracked files are ignored: they are not part of the tagged commit, so
+# they cannot make the stamp wrong.
+dirty="$(git status --porcelain --untracked-files=no | grep -v '^.. release/manifest.yaml' || true)"
 if [[ -n "$dirty" ]]; then
   echo "ERROR: commit or stash other changes before stamping:" >&2
   echo "$dirty" >&2
