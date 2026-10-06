@@ -385,7 +385,7 @@ func TestMySQLCallRoomOrderMigrationUpDownUp(t *testing.T) {
 	if !bootstrapped {
 		t.Fatal("expected empty call-room migration database to be bootstrapped")
 	}
-	assertMigrationVersion(t, migration, 19)
+	assertMigrationVersion(t, migration, currentSchemaVersion)
 	assertMySQLIndexPresence(t, sqlDB, databaseName, "call_rooms", "idx_call_rooms_org_updated_id", true)
 	assertMySQLIndexPresence(t, sqlDB, databaseName, "call_rooms", "idx_call_rooms_organization_id", false)
 
@@ -455,7 +455,7 @@ func TestMySQLAdminRecentIndexesMigrationUpDownUp(t *testing.T) {
 	if !bootstrapped {
 		t.Fatal("expected empty admin-recent migration database to be bootstrapped")
 	}
-	assertMigrationVersion(t, migration, 20)
+	assertMigrationVersion(t, migration, currentSchemaVersion)
 	assertMySQLIndexPresence(t, sqlDB, databaseName, "recording_sessions", "idx_recording_sessions_org_updated_id", true)
 	assertMySQLIndexPresence(t, sqlDB, databaseName, "organization_audit_events", "idx_organization_audit_events_org_id", true)
 	assertMySQLIndexPresence(t, sqlDB, databaseName, "recording_sessions", "idx_recording_sessions_organization_id", false)
@@ -985,9 +985,18 @@ func TestMySQLEventOutboxClaimIndexesMigrationUpDownUp(t *testing.T) {
 		t.Fatalf("create outbox-claim migration runner: %v", err)
 	}
 
-	// Bootstrap to version 20 (just before the new indexes).
+	bootstrapped, err := bootstrapMySQLSchema(gormDB, migration)
+	if err != nil {
+		t.Fatalf("bootstrap isolated outbox-claim migration database: %v", err)
+	}
+	if !bootstrapped {
+		t.Fatal("expected empty outbox-claim migration database to be bootstrapped")
+	}
+	assertMigrationVersion(t, migration, currentSchemaVersion)
+
+	// Return to the version just before the new indexes.
 	if err := migration.Migrate(20); err != nil {
-		t.Fatalf("bootstrap to schema 20: %v", err)
+		t.Fatalf("move bootstrapped schema to v20: %v", err)
 	}
 	assertMigrationVersion(t, migration, 20)
 

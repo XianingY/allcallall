@@ -1,2 +1,3 @@
-DROP INDEX IF EXISTS idx_event_outbox_claim;
-DROP INDEX IF EXISTS idx_event_outbox_aggregate_order;
+ALTER TABLE event_outbox
+    DROP INDEX idx_event_outbox_claim,
+    DROP INDEX idx_event_outbox_aggregate_order;
