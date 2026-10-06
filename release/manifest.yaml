@@ -56,25 +56,25 @@ images:
   # of the tag; see release/README.md for the procedure.
   backend:
     repository: ghcr.io/xianingy/allcallall/backend
-    digest: null
+    digest: sha256:8cfeff60e44b6d724cd1286a64439d91b8f9912e3b6b8011ddf8579e37f0d4bb
   agent-runtime:
     repository: ghcr.io/xianingy/allcallall-agent-runtime/agent-runtime
-    digest: null
+    digest: sha256:c0f172a3de8760c8f359304df5295b94a155d89929196021daa74877f3ff8b44
   rag-runtime:
     repository: ghcr.io/xianingy/allcallall-agent-runtime/rag-runtime
-    digest: null
+    digest: sha256:8be3995ff845fe596955d8e0ef80f346149523e341937758b68ea9aa5aa0b084
   sandbox-runner:
     repository: ghcr.io/xianingy/allcallall-agent-runtime/sandbox-runner
-    digest: null
+    digest: sha256:42117499418118675c2b2457c4beae9a8ea69db1402c86e587ca467f3da18069
   sandbox-control-plane:
     repository: ghcr.io/xianingy/allcallall/sandbox-control-plane
-    digest: null
+    digest: sha256:f7fd19972c61c7f7cf75d45d81846c2b4145d78d49037b0c2c23f5dfce35b4ca
   sandbox-supervisor:
     repository: ghcr.io/xianingy/allcallall/sandbox-supervisor
-    digest: null
+    digest: sha256:ed281ec60e543ac889510f113ff06ee1120d9e5c4da0be885fe12d6a3614b280
   elasticsearch-ik:
     repository: ghcr.io/xianingy/allcallall/elasticsearch-ik
-    digest: null
+    digest: sha256:77b2331395ca174633ed8d7cb2ac65694cda0fa6cf2b024800a75a4e3960fbeb
   web:
     repository: ghcr.io/xianingy/allcallall/web
-    digest: null
+    digest: sha256:05e8b191ab75992cd16a6b2fb4da7628cc5f8978a2cd514bd1629e2eb1f3887e
