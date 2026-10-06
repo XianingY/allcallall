@@ -31,6 +31,19 @@ module.exports = [
     }
   },
   {
+    // The app entry is an ES module (Metro bundles it), unlike the CommonJS
+    // tooling scripts matched by the block above.
+    files: ["index.js"],
+    ...js.configs.recommended,
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: {
+        console: "readonly"
+      }
+    }
+  },
+  {
     files: ["**/*.mjs"],
     ...js.configs.recommended,
     languageOptions: {
