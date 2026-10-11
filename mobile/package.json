@@ -73,7 +73,7 @@
     "i18next": "^25.8.13",
     "mitt": "^3.0.1",
     "react": "19.2.3",
-    "react-dom": "19.2.3",
+    "react-dom": "19.3.0",
     "react-i18next": "^16.5.4",
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
