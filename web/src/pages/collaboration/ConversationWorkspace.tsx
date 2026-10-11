@@ -40,7 +40,9 @@ interface ConversationWorkspaceProps {
   onBackToList: () => void;
   contextOpen: boolean;
   onToggleContext: () => void;
-  contextButtonRef?: RefObject<HTMLButtonElement>;
+  // React 19 types useRef<T>(null) as RefObject<T | null>, so a prop declared
+  // as RefObject<T> no longer accepts what useRef actually hands it.
+  contextButtonRef?: RefObject<HTMLButtonElement | null>;
 }
 
 export function ConversationWorkspace({
