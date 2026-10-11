@@ -30,7 +30,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -ldflags='-w -s' -o /out/migrate ./cmd/migrate && \
     go build -ldflags='-w -s' -o /out/interview-seed ./cmd/interview-seed
 
-FROM alpine:3.22@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
 RUN apk upgrade --no-cache && \
     apk add --no-cache ca-certificates ffmpeg
