@@ -15,7 +15,7 @@
   "devDependencies": {
     "braces": "file:patches/braces",
     "node-forge": "file:patches/node-forge",
-    "vite": "^8.3.2"
+    "vite": "^8.3.3"
   },
   "overrides": {
     "@grpc/grpc-js": "1.13.6",
