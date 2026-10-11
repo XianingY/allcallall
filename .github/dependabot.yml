@@ -28,66 +28,38 @@ updates:
         update-types: ["major"]
     target-branch: "main"
 
-  # Root manifest: dev tooling shared by every workspace (vite, vitest,
-  # typescript-eslint, jsdom, msw).
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 4
-    groups:
-      npm-root-minor-and-patch:
-        update-types: ["minor", "patch"]
-      npm-root-major:
-        update-types: ["major"]
-    target-branch: "main"
-
-  - package-ecosystem: "npm"
-    directory: "/web"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 4
-    groups:
-      npm-web-minor-and-patch:
-        update-types: ["minor", "patch"]
-      # Radix, lucide, tanstack-table and friends have shipped breaking
-      # changes this year. Keep majors in their own PR so a library migration
-      # is never buried inside a patch bundle.
-      npm-web-major:
-        update-types: ["major"]
-    target-branch: "main"
-
-  # mobile is the noisiest ecosystem: Expo 57 pins the React Native and
-  # react-native-webviews versions it supports, so bumping one without the
-  # others produces a PR that cannot pass CI. Grouping does not fix that -
-  # it just makes the set small enough to read before deciding.
-  - package-ecosystem: "npm"
-    directory: "/mobile"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
-    groups:
-      npm-mobile-minor-and-patch:
-        update-types: ["minor", "patch"]
-      npm-mobile-major:
-        update-types: ["major"]
-        exclude-patterns:
-          # Expo's major bumps drag react-native and every expo-* package with
-          # them; that is one deliberate piece of work, not a weekly PR.
-          - "expo"
-          - "react-native"
-    target-branch: "main"
-
-  - package-ecosystem: "npm"
-    directory: "/desktop"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 2
-    groups:
-      npm-desktop:
-        patterns:
-          - "*"
-    target-branch: "main"
+  # ---------------------------------------------------------------------
+  # npm ecosystems are deliberately absent.
+  #
+  # Dependabot cannot produce a usable npm PR for this repository. On
+  # 2026-10-11 it opened grouped PRs for /web, /mobile and / (electron) and
+  # every one of them changed package.json **without touching
+  # package-lock.json**. `npm ci` then refuses to install, and the failure is
+  # identical across every job that installs: Web, Mobile, Desktop and OpenAPI
+  # Contract Drift all went red together on all three PRs. The commits were
+  # unmergeable by construction - not flaky, just wrong.
+  #
+  # The cause is the same one documented in the repo's memory file: this
+  # lockfile is a monorepo-wide artifact carrying platform-specific optional
+  # dependencies (the rolldown native binding, ajv's draft-04 schema, the
+  # @esbuild/* set). Regenerating it drops entries for other platforms, which is
+  # npm bug cli/4828. Any tool that rewrites the lock from a partial view of
+  # the workspace produces a lock that fails on Linux.
+  #
+  # So npm dependencies are updated deliberately and locally:
+  #
+  #   npm install -w <workspace> <pkg>@<version>
+  #   npm ci --dry-run                 # local sanity check
+  #   # and the check that actually matters - simulate the container:
+  #   mkdir -p /tmp/v/web && cp package.json package-lock.json /tmp/v/ \
+  #     && cp -r patches /tmp/v/ && cp web/package.json /tmp/v/web/ \
+  #     && (cd /tmp/v && npm ci --workspace=web --dry-run)
+  #
+  # and version bumps are verified with `npm run audit:ci --registry=https://registry.npmjs.org`
+  # (the default mirror does not implement the audit API). gomod, docker and
+  # github-actions below still work normally and stay enabled - the two base
+  # image groups and the actions group merged cleanly on 2026-10-11.
+  # ---------------------------------------------------------------------
 
   # Bundle every GitHub Action bump into ONE PR instead of one-per-action
   # (setup-go/setup-node/setup-python/upload-artifact were each opening their
