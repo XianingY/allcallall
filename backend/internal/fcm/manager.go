@@ -112,7 +112,7 @@ func (m *Manager) SendCallNotification(ctx context.Context, fcmToken string, fro
 	}
 
 	message := &messaging.Message{
-		Token: fcmToken,
+		Fid: fcmToken,
 		Notification: &messaging.Notification{
 			Title: "Incoming call",
 			Body:  fmt.Sprintf("%s is calling you", displayName),
@@ -182,7 +182,7 @@ func (m *Manager) SendMissedCallNotification(ctx context.Context, fcmToken strin
 	}
 
 	message := &messaging.Message{
-		Token: fcmToken,
+		Fid: fcmToken,
 		Notification: &messaging.Notification{
 			Title: "Missed call",
 			Body:  fmt.Sprintf("You missed a call from %s", displayName),

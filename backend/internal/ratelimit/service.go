@@ -170,11 +170,15 @@ func (sw *SlidingWindow) RetryAfter(ctx context.Context, key string) int64 {
 	windowStart := now.Add(-sw.window)
 
 	// The oldest still-valid member is the next one to age out of the window.
-	members, err := sw.redis.ZRangeByScore(ctx, key, &redis.ZRangeBy{
-		Min:    fmt.Sprintf("%d", windowStart.UnixNano()),
-		Max:    fmt.Sprintf("%d", now.UnixNano()),
-		Offset: 0,
-		Count:  1,
+	// go-redis deprecated ZRangeByScore in favour of ZRangeArgs with ByScore,
+	// which also lets us pass the scores as int64 instead of formatting them.
+	members, err := sw.redis.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:     key,
+		Start:   windowStart.UnixNano(),
+		Stop:    now.UnixNano(),
+		ByScore: true,
+		Offset:  0,
+		Count:   1,
 	}).Result()
 	if err != nil || len(members) == 0 {
 		return int64(sw.window.Seconds())
