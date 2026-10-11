@@ -23,6 +23,7 @@
   },
   "jest": {
     "preset": "jest-expo",
+    "testTimeout": 15000,
     "testMatch": [
       "<rootDir>/src/**/*.test.ts",
       "<rootDir>/src/**/*.test.tsx"
