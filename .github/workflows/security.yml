@@ -44,6 +44,42 @@ jobs:
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
           GITLEAKS_ENABLE_COMMENTS: "false"
 
+  gitleaks-history:
+    name: gitleaks full history
+    # The job above is the blocking gate for new commits, and it is also the
+    # reason this repository could look clean while 42 credentials sat in
+    # history: gitleaks-action scans the event range, so a secret committed once
+    # months ago is never reported again. Deleting the file does not delete the
+    # blob. On 2026-10-11 a full-history scan found 42 findings (36
+    # generic-api-key, 6 curl-auth-header) across three generations of the same
+    # deployment docs - paths had been reorganised over time, so purging one
+    # generation left the earlier ones behind. History has since been rewritten
+    # until the full scan reported zero.
+    #
+    # This job is what stops that from recurring. It is deliberately
+    # non-blocking (continue-on-error) and weekly: rewriting history is a
+    # disruptive operation that needs a human, so the signal is meant to reach
+    # someone rather than fail a build unattended. When it fires, run
+    # `gitleaks detect --config .gitleaks.toml` locally, rotate whatever the
+    # credential was, and re-scan until clean - one pass is not enough.
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: gitleaks (full history)
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          # Scan every commit, not just the event range. This is the point.
+          GITLEAKS_LOG_OPTS: "--all"
+
   trivy-fs:
     name: Trivy filesystem scan
     # Awareness only — surfaces new CVEs WITHOUT blocking PR merges. Runs on the

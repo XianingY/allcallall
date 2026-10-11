@@ -20,10 +20,14 @@ product:
 
 repositories:
   allcallall:
-    remote: https://github.com/XianingY/AllCallAll
+    remote: https://github.com/XianingY/allcallall
     # Stamped by `make release-stamp` immediately before tagging; the tagged
     # commit's SHA is written here so the manifest is self-referential.
-    sha: 3b82954523f6d980d569793836c3bc0f1bbfc271
+    # Re-stamped on 2026-10-11: the history rewrite that purged leaked
+    # credentials from seven deployment docs (three path generations) gave
+    # every commit a new SHA, so this points at the rewritten v0.3.0 tag
+    # rather than the original commit that no longer exists.
+    sha: deb6f3f747958def968826dde03c8982c805f6df
   allcallall-agent-runtime:
     remote: https://github.com/XianingY/allcallall-agent-runtime
     sha: 15b1b77e192927848e860c36e3c12c9d2118d116
