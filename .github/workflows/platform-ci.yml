@@ -41,7 +41,7 @@ jobs:
           repository: XianingY/allcallall-agent-runtime
           path: allcallall-agent-runtime
           ref: ${{ steps.runtime-pin.outputs.sha }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -98,11 +98,11 @@ jobs:
           repository: XianingY/allcallall-agent-runtime
           path: allcallall-agent-runtime
           ref: ${{ steps.runtime-pin.outputs.sha }}
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26.x"
           cache-dependency-path: backend/go.sum
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -159,7 +159,7 @@ jobs:
           repository: XianingY/allcallall-agent-runtime
           path: allcallall-agent-runtime
           ref: ${{ steps.runtime-pin.outputs.sha }}
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26.x"
           cache-dependency-path: backend/go.sum
@@ -181,7 +181,7 @@ jobs:
           ./internal/sandboxsupervisor
           ./cmd/sandbox-service
           ./cmd/sandbox-supervisor
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -199,7 +199,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
