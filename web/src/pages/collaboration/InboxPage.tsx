@@ -196,10 +196,15 @@ export function InboxPage() {
     hidden:
       (isNarrow && mobileRegion !== region) ||
       (!isNarrow && region === "context" && !contextOpen),
+    // React 19 turned `inert` into a real boolean attribute. Passing "" - which
+    // is how you spell "present" for a string-valued attribute, and what this
+    // used to be - is falsy now, so React dropped the attribute entirely and the
+    // hidden regions stayed interactive. `true` renders inert="", `undefined`
+    // omits it.
     inert:
       (isNarrow && mobileRegion !== region) ||
       (!isNarrow && region === "context" && !contextOpen)
-        ? ""
+        ? true
         : undefined,
   });
 

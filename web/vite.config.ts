@@ -60,6 +60,20 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    // The default forks pool boots a fresh node process per file, and each boot
+    // builds a jsdom environment from scratch. That made 59% of the suite's
+    // wall clock jsdom construction, and under machine load the workers were
+    // so slow to respond that vitest gave up with "Timeout waiting for worker
+    // to respond" - entire files silently never ran (21 of 55 once, 20 of 55
+    // again). vmThreads keeps per-file isolation but reuses threads, so the
+    // pool starts fast enough to finish even on a busy machine.
+    pool: "vmThreads",
+    // Coverage instrumentation plus a loaded machine pushes the heavier render
+    // tests past vitest's 5s default, and a timeout there is indistinguishable
+    // from a real failure: it fails whichever test the machine happened to slow
+    // down. 15s is still far below "hung" (a real hang runs until the suite
+    // timeout) while leaving headroom for the slowest page-level render.
+    testTimeout: 15_000,
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary"],
