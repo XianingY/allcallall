@@ -26,6 +26,7 @@ type Config struct {
 	ContentModeration ContentModerationConfig `yaml:"content_moderation"`
 	Security          SecurityConfig          `yaml:"security"`
 	Metrics           MetricsConfig           `yaml:"metrics"`
+	Pprof             PprofConfig             `yaml:"pprof"`
 }
 
 // MetricsConfig 标准 Prometheus 抓取端点配置。
@@ -41,6 +42,21 @@ type MetricsConfig struct {
 	Enabled bool `yaml:"enabled" env:"METRICS_LISTENER_ENABLED"`
 	// Addr 监听地址，默认 ":9090"。
 	Addr string `yaml:"addr" env:"METRICS_LISTENER_ADDR"`
+}
+
+// PprofConfig 配置 Go runtime 诊断端点（net/http/pprof）。
+//
+// 与 metrics 同一安全模型：独立端口、默认不经过任何 Service/Ingress，
+// 集群内由 NetworkPolicy 显式放行；公网永远不可达。生产排障时可用
+// `go tool pprof http://<pod-ip>:6060/debug/pprof/{profile,heap,goroutine}`
+// 采样，诊断能力注册了却没有端口暴露，等于没有诊断能力。
+// PprofConfig configures the Go runtime diagnostics listener (net/http/pprof).
+type PprofConfig struct {
+	// Enabled 开启后在独立端口暴露 /debug/pprof/*。端口独立于业务 API，
+	// 便于用 NetworkPolicy 限制为仅运维平面可达。
+	Enabled bool `yaml:"enabled" env:"PPROF_LISTENER_ENABLED"`
+	// Addr 监听地址，默认 ":6060"。
+	Addr string `yaml:"addr" env:"PPROF_LISTENER_ADDR"`
 }
 
 // ServerConfig HTTP 服务相关配置
@@ -157,6 +173,42 @@ func (c *Config) applyBaseDefaults() {
 	if strings.TrimSpace(c.Metrics.Addr) == "" {
 		c.Metrics.Addr = ":9090"
 	}
+
+	// pprof 诊断端点同理默认开启：排障时若还要先改配置发布一轮，现场就
+	// 已经消失了。端口独立且默认不被 Service/Ingress/NetworkPolicy 放行，
+	// 不会因此暴露到集群外。
+	if !c.Pprof.Enabled {
+		c.Pprof.Enabled = true
+	}
+	if strings.TrimSpace(c.Pprof.Addr) == "" {
+		c.Pprof.Addr = ":6060"
+	}
+}
+
+// applyListenerOverrides 用环境变量覆盖独立监听端口的开关与地址。
+//
+// Metrics/Pprof 的 yaml 字段来自预置 config.yaml，但独立监听端口属于
+// 部署期开关（例如收紧安全基线时关掉 pprof），必须支持不改文件直接
+// 开关/换端口；env tag 在此兑现。非法布尔值让 Load 失败，而不是静默
+// 保留默认值。
+func (c *Config) applyListenerOverrides() error {
+	if enabled, ok, err := parseBoolEnv("METRICS_LISTENER_ENABLED"); err != nil {
+		return err
+	} else if ok {
+		c.Metrics.Enabled = enabled
+	}
+	if addr := strings.TrimSpace(os.Getenv("METRICS_LISTENER_ADDR")); addr != "" {
+		c.Metrics.Addr = addr
+	}
+	if enabled, ok, err := parseBoolEnv("PPROF_LISTENER_ENABLED"); err != nil {
+		return err
+	} else if ok {
+		c.Pprof.Enabled = enabled
+	}
+	if addr := strings.TrimSpace(os.Getenv("PPROF_LISTENER_ADDR")); addr != "" {
+		c.Pprof.Addr = addr
+	}
+	return nil
 }
 
 func (c *Config) applyInfrastructureDefaults() {

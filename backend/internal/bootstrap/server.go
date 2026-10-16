@@ -21,6 +21,7 @@ import (
 	"github.com/allcallall/backend/internal/commerce"
 	"github.com/allcallall/backend/internal/config"
 	"github.com/allcallall/backend/internal/contact"
+	"github.com/allcallall/backend/internal/diagnostics"
 	"github.com/allcallall/backend/internal/events"
 	"github.com/allcallall/backend/internal/fcm"
 	"github.com/allcallall/backend/internal/handlers"
@@ -566,5 +567,13 @@ func RunServer(ctx context.Context, cfg *config.Config, appLogger zerolog.Logger
 		metricsServer = metrics.Serve(cfg.Metrics.Addr, appLogger)
 	}
 
-	return serveUntilShutdown(rootCtx, httpServer, metricsServer, signalingHub, appLogger)
+	// Go runtime 诊断端点（pprof）跑在第三个独立端口：与 metrics 同样的
+	// 安全模型——不经 Service/Ingress 发布，NetworkPolicy 默认不放行。
+	// 没有它，生产环境只能看到"慢"，看不到"慢在哪"。
+	var pprofServer *http.Server
+	if cfg.Pprof.Enabled {
+		pprofServer = diagnostics.Serve(cfg.Pprof.Addr, appLogger)
+	}
+
+	return serveUntilShutdown(rootCtx, httpServer, metricsServer, pprofServer, signalingHub, appLogger)
 }

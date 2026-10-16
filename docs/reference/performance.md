@@ -18,6 +18,69 @@ Run the suite with `make agent-performance-suite`. Set `PROFILE`, `BASE_URL`,
 `TOKEN`, `ORGANIZATION_ID`, and `CONVERSATION_ID` as described in
 [`scripts/load/README.md`](../../scripts/load/README.md).
 
+Two automated evidence loops complement the manual suite:
+
+- **Nightly regression gate** (`Nightly Performance Gate` workflow): runs the
+  deterministic `cmd/interview-bench` benchmark three times on the runner,
+  folds the samples into a per-metric median, and compares p95 queue latency,
+  p95 run-execution latency, total duration, and throughput against a
+  committed baseline with a 10% regression threshold. It is deliberately a
+  nightly signal, not a PR gate: shared-runner noise is too high to block
+  merges on single runs.
+- **Hot-path micro-benchmarks** (`make bench`): Go benchmarks for the outbox
+  enqueue/claim/publish path, the outbox processor batch pipeline, agent
+  context assembly, token estimation, realtime event creation, reconnect
+  replay, and retention purge. Save and compare evidence with
+  `make bench-save NAME=<label>` / `make bench-compare OLD=<a> NEW=<b>` on
+  the same machine.
+
+Report archiving, trend inspection, and regression comparison are described
+in [`scripts/performance/README.md`](../../scripts/performance/README.md).
+
+## Runtime profiling (pprof)
+
+Prometheus answers *whether* latency or allocation pressure exists; pprof
+answers *where*. The API server exposes Go runtime profiles on a dedicated
+internal listener (default `:6060`, `PPROF_LISTENER_ADDR` to override,
+`PPROF_LISTENER_ENABLED=false` to disable). It follows the same security
+model as the metrics listener:
+
+- Not routed through the public API engine, Service, or Ingress.
+- The Helm chart declares the container port but the NetworkPolicy allows it
+  only when `networkPolicy.diagnostics.enabled=true` is set together with the
+  operators' namespace. Leave it off outside debugging sessions: a heap dump
+  contains in-memory data, including secrets.
+
+When to sample what:
+
+| Signal | Profile | Command |
+|---|---|---|
+| CPU hot spots, p95 latency regressions | CPU | `go tool pprof http://<pod-ip>:6060/debug/pprof/profile?seconds=30` |
+| Allocation pressure, GC pauses | Heap | `go tool pprof http://<pod-ip>:6060/debug/pprof/heap` |
+| Goroutine leaks, deadlocks, scheduler contention | Goroutines | `go tool pprof http://<pod-ip>:6060/debug/pprof/goroutine` |
+| Mutex or block contention | Contention | `go tool pprof http://<pod-ip>:6060/debug/pprof/mutex` (enable with `runtime.SetMutexProfileFraction`) |
+
+In Kubernetes, reach the port through a debug container or a temporary port
+forward, never by adding the port to the Service:
+
+```bash
+kubectl -n allcallall port-forward deploy/allcallall-api 6060:6060
+go tool pprof -http=: http://localhost:6060/debug/pprof/profile?seconds=30
+```
+
+Interpretation tips:
+
+- Compare against a profile taken *before* the suspect change on the same
+  build flags; absolute numbers are environment-dependent.
+- `go tool pprof -http=: <file>` opens the flame graph in a browser; the
+  flame width is inclusive CPU time.
+- The `profile` endpoint holds the request open for the sampling duration
+  (`?seconds=`); the listener's write timeout is 2 minutes, so keep samples
+  under that.
+- A captured heap profile is a snapshot of live objects at dump time; it does
+  not include freed allocations. For allocation *rates*, use
+  `/debug/pprof/allocs`.
+
 ## Pressure metrics
 
 ### Go backend

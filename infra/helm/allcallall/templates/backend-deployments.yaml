@@ -128,6 +128,11 @@ spec:
             - name: metrics
               containerPort: 9090
               protocol: TCP
+            # Go runtime 诊断端点（internal/diagnostics）。默认不经过
+            # Service/Ingress，集群内由 networkPolicy.diagnostics 显式放行。
+            - name: pprof
+              containerPort: 6060
+              protocol: TCP
           startupProbe:
             httpGet: {path: /api/v1/health, port: http}
             failureThreshold: 30

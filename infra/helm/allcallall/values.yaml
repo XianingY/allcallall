@@ -394,6 +394,15 @@ networkPolicy:
     enabled: false
     namespace: monitoring
     podLabels: {}
+  # Go runtime pprof diagnostics endpoint (internal/diagnostics, port 6060).
+  # Off by default for the same reason as the Prometheus rule: enabling it
+  # without a namespace would open heap snapshots — which contain in-memory
+  # secrets — to the whole cluster. Turn it on temporarily while debugging,
+  # pointing at the operators' namespace, then turn it back off.
+  diagnostics:
+    enabled: false
+    namespace: operators
+    podLabels: {}
 
 # Node-level log forwarding to Loki.
 #

@@ -33,6 +33,7 @@ var (
 		ContentModeration: ContentModerationConfig{},
 		Security:          SecurityConfig{},
 		Metrics:           MetricsConfig{},
+		Pprof:             PprofConfig{},
 	}
 	_ = ICEServer{URLs: []string{}, Username: "", Credential: ""}
 	_ = PrivacyConfig{
@@ -622,5 +623,60 @@ func TestParseGORMLogLevel(t *testing.T) {
 				t.Fatalf("ParseGORMLogLevel(%q, %v) = %v, want %v", tc.raw, tc.production, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestListenerDefaults(t *testing.T) {
+	cfg := Config{}
+	cfg.applyBaseDefaults()
+
+	if !cfg.Metrics.Enabled || cfg.Metrics.Addr != ":9090" {
+		t.Fatalf("metrics defaults = %+v, want enabled on :9090", cfg.Metrics)
+	}
+	if !cfg.Pprof.Enabled || cfg.Pprof.Addr != ":6060" {
+		t.Fatalf("pprof defaults = %+v, want enabled on :6060", cfg.Pprof)
+	}
+
+	// Explicit yaml values must survive applyBaseDefaults; the env override
+	// pass is what deployment toggles go through.
+	cfg = Config{
+		Metrics: MetricsConfig{Enabled: true, Addr: ":9191"},
+		Pprof:   PprofConfig{Enabled: true, Addr: ":6161"},
+	}
+	cfg.applyBaseDefaults()
+	if cfg.Metrics.Addr != ":9191" || cfg.Pprof.Addr != ":6161" {
+		t.Fatalf("applyBaseDefaults overwrote explicit listener values: %+v %+v", cfg.Metrics, cfg.Pprof)
+	}
+}
+
+func TestListenerEnvOverrides(t *testing.T) {
+	t.Setenv("METRICS_LISTENER_ENABLED", "false")
+	t.Setenv("METRICS_LISTENER_ADDR", ":9292")
+	t.Setenv("PPROF_LISTENER_ENABLED", "off")
+	t.Setenv("PPROF_LISTENER_ADDR", "127.0.0.1:6262")
+
+	cfg := Config{}
+	if err := cfg.applyListenerOverrides(); err != nil {
+		t.Fatalf("applyListenerOverrides failed: %v", err)
+	}
+	if cfg.Metrics.Enabled {
+		t.Fatalf("METRICS_LISTENER_ENABLED=false should disable metrics listener")
+	}
+	if cfg.Metrics.Addr != ":9292" {
+		t.Fatalf("METRICS_LISTENER_ADDR override = %q, want :9292", cfg.Metrics.Addr)
+	}
+	if cfg.Pprof.Enabled {
+		t.Fatalf("PPROF_LISTENER_ENABLED=off should disable pprof listener")
+	}
+	if cfg.Pprof.Addr != "127.0.0.1:6262" {
+		t.Fatalf("PPROF_LISTENER_ADDR override = %q, want 127.0.0.1:6262", cfg.Pprof.Addr)
+	}
+}
+
+func TestListenerEnvOverrideRejectsInvalidBool(t *testing.T) {
+	t.Setenv("PPROF_LISTENER_ENABLED", "maybe")
+	cfg := Config{}
+	if err := cfg.applyListenerOverrides(); err == nil {
+		t.Fatalf("invalid PPROF_LISTENER_ENABLED must fail Load, got nil error")
 	}
 }

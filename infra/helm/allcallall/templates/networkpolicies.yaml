@@ -113,6 +113,22 @@ spec:
       ports:
         - {protocol: TCP, port: 9090}
     {{- end }}
+    {{- if .Values.networkPolicy.diagnostics.enabled }}
+    # pprof 诊断端点跑在 6060（internal/diagnostics）。默认关闭：与 Prometheus
+    # 同样的理由——不声明来源就放行，等于把堆快照（含内存中的敏感数据）
+    # 对整个集群敞开。排障时临时开启，并在事后关闭。
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.diagnostics.namespace }}
+          {{- with .Values.networkPolicy.diagnostics.podLabels }}
+          podSelector:
+            matchLabels:
+              {{- toYaml . | nindent 12 }}
+          {{- end }}
+      ports:
+        - {protocol: TCP, port: 6060}
+    {{- end }}
   egress:
     - to:
         - podSelector:

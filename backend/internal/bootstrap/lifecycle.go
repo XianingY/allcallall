@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/allcallall/backend/internal/diagnostics"
 	"github.com/allcallall/backend/internal/metrics"
 	appserver "github.com/allcallall/backend/internal/server"
 	"github.com/allcallall/backend/internal/signaling"
@@ -20,6 +21,7 @@ func serveUntilShutdown(
 	ctx context.Context,
 	httpServer *http.Server,
 	metricsServer *http.Server,
+	pprofServer *http.Server,
 	signalingHub *signaling.Hub,
 	log zerolog.Logger,
 ) error {
@@ -41,6 +43,7 @@ func serveUntilShutdown(
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace())
 			defer cancel()
 			metrics.Shutdown(shutdownCtx, metricsServer, log)
+			diagnostics.Shutdown(shutdownCtx, pprofServer, log)
 			return err
 		}
 		return nil
@@ -66,6 +69,7 @@ func serveUntilShutdown(
 		log.Info().Msg("http server gracefully stopped")
 	}
 	metrics.Shutdown(shutdownCtx, metricsServer, log)
+	diagnostics.Shutdown(shutdownCtx, pprofServer, log)
 	return nil
 }
 

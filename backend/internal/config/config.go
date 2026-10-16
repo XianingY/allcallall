@@ -150,6 +150,9 @@ func (c *Config) postProcess() error {
 	c.applyBaseDefaults()
 	c.applyTaskSchedulerDefaults()
 	c.applyInfrastructureDefaults()
+	if err := c.applyListenerOverrides(); err != nil {
+		return err
+	}
 	if err := c.applyTaskSchedulerOverrides(); err != nil {
 		return err
 	}
