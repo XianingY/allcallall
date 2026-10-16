@@ -30,6 +30,7 @@ below. Contributor workflow and project policies live in
 
 ### Development
 
+- [Transcript Editing Design](features/transcript-editing.md) — versioned segment edits, audit, and citation impact.
 - [Web and Desktop Workflow](guides/development/web-desktop-workflow.md)
 - [Web Feature Matrix](guides/development/web-feature-matrix.md)
 - [Web Smoke Testing](guides/development/web-smoke.md)
