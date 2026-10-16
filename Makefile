@@ -68,6 +68,9 @@ help:
 	@echo "  make web-performance-check - Build Web and enforce bundle budgets"
 	@echo "  make helm-check        - Lint and render the Kubernetes Helm chart"
 	@echo "  make agent-performance-suite - Run end-to-end agent benchmark suite"
+	@echo "  make bench             - Run hot-path Go micro-benchmarks (evidence, not a gate)"
+	@echo "  make bench-save NAME=x - Save 5-run benchmark evidence to $(BENCH_DIR)"
+	@echo "  make bench-compare OLD=x NEW=y - Compare two saved evidence files with benchstat"
 	@echo "  make release-check     - Full release gate: verify-full + contract + Helm + manifest consistency"
 	@echo "  make release-stamp     - Stamp HEAD SHA into release/manifest.yaml before tagging"
 	@echo ""
@@ -206,6 +209,42 @@ helm-check:
 
 agent-performance-suite:
 	./scripts/load/run-agent-performance-suite.sh
+
+# ===========================
+# Hot-path Go micro-benchmarks
+# ===========================
+# These benchmarks (outbox claim/publish, processor batch, agent context
+# assembly, realtime replay/purge) are regression *evidence*, not a CI gate:
+# absolute numbers are machine- and SQLite-specific. Compare two saved runs on
+# the same machine with benchstat instead of reading a single run.
+BENCH_PKGS ?= ./internal/events/... ./internal/agent/... ./internal/collaboration/...
+BENCH_DIR ?= /tmp/allcallall-bench
+
+bench:
+	@echo "Running hot-path micro-benchmarks..."
+	cd backend && go test -run '^$$' -bench . -benchmem $(BENCH_PKGS)
+
+bench-save:
+ifndef NAME
+	$(error NAME is required, e.g. make bench-save NAME=before-change)
+endif
+	@mkdir -p $(BENCH_DIR)
+	@echo "Saving 5 benchmark runs to $(BENCH_DIR)/$(NAME).txt..."
+	cd backend && go test -run '^$$' -bench . -benchmem -count 5 $(BENCH_PKGS) | tee $(BENCH_DIR)/$(NAME).txt
+
+bench-compare:
+ifndef OLD
+	$(error OLD is required, e.g. make bench-compare OLD=before-change NEW=after-change)
+endif
+ifndef NEW
+	$(error NEW is required, e.g. make bench-compare OLD=before-change NEW=after-change)
+endif
+	@if command -v benchstat >/dev/null 2>&1; then \
+		benchstat $(BENCH_DIR)/$(OLD).txt $(BENCH_DIR)/$(NEW).txt; \
+	else \
+		echo "benchstat not found; installing via go run (first use downloads it)..."; \
+		cd backend && go run golang.org/x/perf/cmd/benchstat@latest $(BENCH_DIR)/$(OLD).txt $(BENCH_DIR)/$(NEW).txt; \
+	fi
 
 interview-demo:
 	@echo "Starting and verifying the full interview stack..."

@@ -401,5 +401,16 @@ SUMMARY_FILE="$OUTPUT_DIR/summary.md"
 # Print the summary
 cat "$SUMMARY_FILE"
 
+# Optional: accumulate the run in the unified local evidence archive so
+# perf-trend and compare-performance can see it. Off by default; set
+# PERFORMANCE_ARCHIVE=1 (or PERFORMANCE_ARCHIVE_DIR=<dir>) to enable.
+if [[ "${PERFORMANCE_ARCHIVE:-}" == "1" || -n "${PERFORMANCE_ARCHIVE_DIR:-}" ]]; then
+  if [[ -f "$OUTPUT_DIR/report.json" ]]; then
+    "$SCRIPT_DIR/../performance/archive-performance-run.sh" "$OUTPUT_DIR/report.json" "$PROFILE" "${PERFORMANCE_ARCHIVE_DIR:-}" || true
+  else
+    echo "[agent-performance-suite] PERFORMANCE_ARCHIVE requested but baseline profile has no report.json; skipping archive" >&2
+  fi
+fi
+
 echo "" >&2
 echo "[agent-performance-suite] complete. Artifacts in $OUTPUT_DIR" >&2

@@ -19,6 +19,11 @@ const GOVERNANCE_FILES = [
 ];
 const IGNORED_DIRECTORIES = new Set([
   ".git",
+  // Expo's local state directory (mobile/.expo) is gitignored but not a
+  // git submodule boundary: the checker walks the filesystem, so without
+  // this entry a single dev-machine `expo start` breaks local docs:check
+  // even though CI (fresh checkout) stays green.
+  ".expo",
   ".omo",
   ".superpowers",
   ".venv",

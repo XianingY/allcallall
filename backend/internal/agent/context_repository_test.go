@@ -10,14 +10,14 @@ import (
 	"gorm.io/gorm"
 )
 
-func newContextRepositoryTestEnv(t *testing.T) (contextRepository, *gorm.DB) {
+func newContextRepositoryTestEnv(t testing.TB) (contextRepository, *gorm.DB) {
 	t.Helper()
 	db := testutil.OpenSQLite(t, "context_repo.db")
 	testutil.AutoMigrateAll(t, db)
 	return contextRepository{db: db}, db
 }
 
-func seedContextConversation(t *testing.T, db *gorm.DB) (models.Conversation, uint64) {
+func seedContextConversation(t testing.TB, db *gorm.DB) (models.Conversation, uint64) {
 	t.Helper()
 	userID := uint64(7)
 	if err := db.FirstOrCreate(&models.User{}, models.User{
@@ -40,7 +40,7 @@ func seedContextConversation(t *testing.T, db *gorm.DB) (models.Conversation, ui
 	return conv, userID
 }
 
-func seedAllContextTypes(t *testing.T, db *gorm.DB, conv models.Conversation, userID uint64) {
+func seedAllContextTypes(t testing.TB, db *gorm.DB, conv models.Conversation, userID uint64) {
 	t.Helper()
 
 	for i := 0; i < 5; i++ {

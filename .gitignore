@@ -35,6 +35,10 @@ env/
 ENV/
 .env/
 
+# Local performance evidence archive (machine-specific absolute numbers;
+# shared evidence flows through the nightly workflow's uploaded artifacts).
+performance-archive/
+
 # ============================
 # Python
 # ============================

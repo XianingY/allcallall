@@ -1,0 +1,90 @@
+name: Nightly Performance Gate
+
+# Nightly regression evidence for the deterministic in-process hot paths.
+# This is deliberately NOT a PR gate: shared runners make single-run numbers
+# too noisy to block merges on. It answers "did main regress overnight", with
+# median-of-3 sampling and a 10% threshold against a baseline recorded on
+# the same runner class.
+#
+# Baseline lifecycle: while scripts/performance/baselines/nightly-interview-bench.json
+# is absent, the gate step records a baseline candidate artifact and passes.
+# Commit that artifact (from a dispatch run) to activate the gate. Re-record
+# only via a dedicated dispatch run, with the reason in the commit message.
+on:
+  schedule:
+    # 03:15 UTC — off the top of the hour to dodge runner contention spikes.
+    - cron: "15 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-gate:
+    name: Deterministic benchmark gate
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.x"
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Record runner context
+        # Absolute numbers are hardware-specific; keep the context next to
+        # the evidence so a future reader knows what produced them.
+        run: |
+          {
+            echo "date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "runner: ${{ runner.name }} (${{ runner.os }}-${{ runner.arch }})"
+            echo "sha: ${{ github.sha }}"
+            uname -a
+            nproc
+            grep -m1 "model name" /proc/cpuinfo || true
+          } | tee runner-context.txt
+
+      - name: Baseline profile suite (pass/fail)
+        # The agent-performance-suite baseline profile runs the in-process
+        # orchestration and persistence checks with a mock provider. No JSON,
+        # just proof the deterministic path still works end to end.
+        run: PROFILE=baseline scripts/load/run-agent-performance-suite.sh
+
+      - name: Run interview benchmark (3 samples)
+        # cmd/interview-bench is the deterministic in-process benchmark:
+        # seeded SQLite, rules provider, no network. Three samples; the next
+        # step folds them into a per-metric median.
+        run: |
+          for i in 1 2 3; do
+            (cd backend && go run ./cmd/interview-bench -conversations 25 -batch-size 50) > "run-$i.json"
+          done
+
+      - name: Fold samples into median
+        run: node scripts/performance/median-reports.mjs --output median.json run-1.json run-2.json run-3.json
+
+      - name: Gate against committed baseline
+        run: |
+          BASELINE="scripts/performance/baselines/nightly-interview-bench.json"
+          if [ -f "$BASELINE" ]; then
+            node scripts/performance/compare-performance.mjs \
+              --baseline "$BASELINE" \
+              --current median.json \
+              --threshold 0.10
+          else
+            echo "::warning::no committed baseline yet — median.json is the baseline candidate; commit it to activate the gate"
+          fi
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: performance-interview-bench-${{ github.sha }}
+          path: |
+            median.json
+            run-1.json
+            run-2.json
+            run-3.json
+            runner-context.txt
+          retention-days: 90

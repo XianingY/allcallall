@@ -12,7 +12,7 @@ import (
 	"github.com/allcallall/backend/internal/models"
 )
 
-func newRealtimeEventStoreTestDB(t *testing.T) *gorm.DB {
+func newRealtimeEventStoreTestDB(t testing.TB) *gorm.DB {
 	t.Helper()
 
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "realtime-events.db")), &gorm.Config{})
