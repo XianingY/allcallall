@@ -86,11 +86,12 @@ export default defineConfig({
       ],
       // Regression floor. Recalibrated for the Vitest 5 coverage engine,
       // which uses AST-aware remapping and counts implicit branches that the
-      // old v8 provider missed (actuals: 66.49% lines, 52.41% statements,
-      // 45.56% branches, 37.75% functions). Small slack below the measured
-      // value keeps CI stable across minor report variance. Raise these as
-      // more unit tests land.
-      thresholds: { lines: 66, functions: 37, branches: 45, statements: 52 },
+      // old v8 provider missed. Recalibrated again after adding contract
+      // tests for every api/* module (actuals: 72.65% lines, 65.96%
+      // statements, 52.07% branches, 59.05% functions). Small slack below
+      // the measured value keeps CI stable across minor report variance.
+      // Raise these as more unit tests land.
+      thresholds: { lines: 70, functions: 56, branches: 50, statements: 64 },
     },
   },
 });
