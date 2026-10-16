@@ -15,7 +15,7 @@ func AllModels() []any {
 		&MessageRead{}, &ChatEvent{}, &Attachment{}, &MessageReaction{}, &ConversationPin{},
 		&OrganizationAuditEvent{}, &PushDevice{}, &CallRoom{}, &CallRoomMember{}, &CallRoomEvent{},
 		&RecordingSession{}, &RecordingFile{}, &RecordingTranscription{}, &MeetingTranscriptSegment{},
-		&RecordingConsent{}, &RecordingExport{}, &RoomSettlement{}, &Pipeline{}, &PipelineStage{},
+		&TranscriptSegmentRevision{}, &RecordingConsent{}, &RecordingExport{}, &RoomSettlement{}, &Pipeline{}, &PipelineStage{},
 		&Deal{}, &DealContact{}, &DealActivity{}, &AgentRun{}, &AgentStep{}, &AgentToolCall{},
 		&AgentMemory{}, &AgentContextChunk{}, &AgentPromptVersion{}, &ToolSchemaVersion{},
 		&RAGSourceGroup{}, &RAGSourceDuplicate{}, &RAGSource{}, &RAGSourceVersion{}, &RAGChunk{},

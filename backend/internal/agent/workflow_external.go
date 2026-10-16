@@ -203,6 +203,9 @@ func buildWorkflowRuntimeRequest(run models.WorkflowRun, conversationCtx *conver
 			EndMS:              segment.EndMS,
 			Text:               segment.Text,
 			Speaker:            segment.TrackKey,
+			// 手工修订过的转写从未被逐字说过；runtime 用该标记降低 grounding
+			// 置信度，与低 provider confidence 同等处理。
+			Edited: segment.EditedAt != nil,
 		})
 	}
 	for _, chunk := range conversationCtx.ContextChunks {

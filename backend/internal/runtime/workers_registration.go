@@ -358,6 +358,34 @@ func RegisterCollaborationOutboxHandlers(processor *events.Processor, collaborat
 			Msg("outbox recording transcription processed")
 		return nil
 	})
+	processor.Register(EventTranscriptSegmentEdited, func(ctx context.Context, event models.EventOutbox) error {
+		var payload collaboration.TranscriptSegmentEditedPayload
+		if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+			return err
+		}
+		if payload.SegmentID == 0 {
+			return fmt.Errorf("transcript segment id missing in outbox payload")
+		}
+		if err := collaborationSvc.PublishTranscriptSegmentEditedFromOutbox(
+			ctx,
+			payload.OrganizationID,
+			payload.ConversationID,
+			payload.RoomID,
+			payload.RecordingID,
+			payload.SegmentID,
+			payload.RevisionNumber,
+		); err != nil {
+			return err
+		}
+		log.Info().
+			Str("request_id", trace.RequestID(ctx)).
+			Uint64("outbox_id", event.ID).
+			Uint64("segment_id", payload.SegmentID).
+			Uint64("recording_id", payload.RecordingID).
+			Str("event", event.Event).
+			Msg("outbox transcript segment edit realtime delivered")
+		return nil
+	})
 }
 
 func ConfigureOutboxProcessorFromEnv(processor *events.Processor, workerID string, eventFilter ...string) {

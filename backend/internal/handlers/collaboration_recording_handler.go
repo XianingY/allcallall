@@ -184,6 +184,104 @@ func (h *CollaborationHandler) handleRetryRecordingTranscription(c *gin.Context)
 	JSONSuccess(c, http.StatusAccepted, gin.H{"transcription": item})
 }
 
+type editRecordingTranscriptSegmentRequest struct {
+	Text   string `json:"text" binding:"required"`
+	Reason string `json:"reason"`
+}
+
+func (h *CollaborationHandler) handleEditRecordingTranscriptSegment(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	recordingID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid recording id")
+		return
+	}
+	segmentID, err := parseUintParam(c.Param("segmentId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid transcript segment id")
+		return
+	}
+	var req editRecordingTranscriptSegmentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		JSONBindingError(c, err)
+		return
+	}
+	result, err := h.service.EditTranscriptSegment(c.Request.Context(), orgID, claims.UserID, recordingID, segmentID, req.Text, req.Reason)
+	if err != nil {
+		status := http.StatusInternalServerError
+		code := "TRANSCRIPT_SEGMENT_EDIT_FAILED"
+		message := "failed to edit transcript segment"
+		switch {
+		case errors.Is(err, collaboration.ErrTranscriptSegmentNotFound):
+			status = http.StatusNotFound
+			code = "TRANSCRIPT_SEGMENT_NOT_FOUND"
+			message = "transcript segment not found"
+		case errors.Is(err, collaboration.ErrTranscriptEditForbidden):
+			status = http.StatusForbidden
+			code = "TRANSCRIPT_SEGMENT_EDIT_FORBIDDEN"
+			message = "transcript segment edit forbidden"
+		case errors.Is(err, collaboration.ErrTranscriptEditEmptyText),
+			errors.Is(err, collaboration.ErrTranscriptEditTextTooLong),
+			errors.Is(err, collaboration.ErrTranscriptEditReasonLength):
+			status = http.StatusBadRequest
+			code = "TRANSCRIPT_SEGMENT_EDIT_INVALID"
+			message = err.Error()
+		case errors.Is(err, collaboration.ErrTranscriptEditConflict):
+			status = http.StatusConflict
+			code = "TRANSCRIPT_SEGMENT_EDIT_CONFLICT"
+			message = "transcript segment was concurrently edited"
+		case errors.Is(err, collaboration.ErrOrganizationAccessDenied):
+			status = http.StatusBadRequest
+			code = "TRANSCRIPT_SEGMENT_NOT_FOUND"
+			message = "transcript segment not found"
+		}
+		JSONServiceErrorCode(c, err, status, code, message)
+		return
+	}
+	JSONSuccess(c, http.StatusOK, result)
+}
+
+func (h *CollaborationHandler) handleListTranscriptSegmentRevisions(c *gin.Context) {
+	claims, orgID, ok := h.requireCurrentOrganization(c)
+	if !ok {
+		return
+	}
+	recordingID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid recording id")
+		return
+	}
+	segmentID, err := parseUintParam(c.Param("segmentId"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid transcript segment id")
+		return
+	}
+	beforeID, err := parseOptionalTranscriptCursor(c.Query("before_id"))
+	if err != nil {
+		JSONError(c, http.StatusBadRequest, "invalid before_id")
+		return
+	}
+	limit, limitErr := parseTranscriptLimit(c.Query("limit"))
+	if limitErr != nil {
+		JSONError(c, http.StatusBadRequest, "invalid limit")
+		return
+	}
+	page, err := h.service.ListTranscriptSegmentRevisions(c.Request.Context(), orgID, claims.UserID, recordingID, segmentID, beforeID, limit)
+	if err != nil {
+		if errors.Is(err, collaboration.ErrTranscriptSegmentNotFound) || errors.Is(err, collaboration.ErrOrganizationAccessDenied) {
+			JSONErrorWithCode(c, http.StatusNotFound, "TRANSCRIPT_SEGMENT_NOT_FOUND", "transcript segment not found")
+			return
+		}
+		h.logger.Error().Err(err).Str("path", c.Request.URL.Path).Uint64("recording_id", recordingID).Uint64("segment_id", segmentID).Msg("failed to list transcript revisions")
+		JSONErrorWithCode(c, http.StatusInternalServerError, "TRANSCRIPT_REVISIONS_FAILED", "failed to list transcript revisions")
+		return
+	}
+	JSONSuccess(c, http.StatusOK, page)
+}
+
 func parseOptionalTranscriptCursor(raw string) (uint64, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

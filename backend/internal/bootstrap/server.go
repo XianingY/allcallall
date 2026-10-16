@@ -537,6 +537,7 @@ func RunServer(ctx context.Context, cfg *config.Config, appLogger zerolog.Logger
 			appruntime.EventRAGSourceIngest,
 			appruntime.EventRAGChunkIndex,
 			appruntime.EventRecordingTranscriptionRequested,
+			appruntime.EventTranscriptSegmentEdited,
 		}
 		if settlementKafkaEnabled {
 			outboxEvents = append(outboxEvents, appruntime.EventSettlementRoomEnd)

@@ -1,7 +1,7 @@
-# Transcript Editing — Design
+# Transcript Editing
 
-Status: design (not yet implemented). This page records the decisions for the
-next implementation pass so it can start without re-litigating the model.
+Status: implemented. This page records the shipped behavior and the decisions
+the implementation followed.
 
 ## Problem
 
@@ -17,15 +17,16 @@ expansion"; this design is that expansion, kept deliberately minimal.
 - New append-only table `transcript_segment_revisions`:
   `id, organization_id, segment_id (FK meeting_transcript_segments),
   revision_number (1-based, unique per segment), previous_text, next_text,
-  reason (≤512 chars, optional), actor_user_id, created_at`.
+  reason (≤512 chars, optional), superseded, actor_user_id, created_at`.
   Hashes are not enough: the audit trail must reconstruct any prior state.
 - `meeting_transcript_segments` gains `edited_at *time.Time` (null = provider
   text) and `editor_user_id *uint64`. The `text` column stays the "current"
   value; a single UPDATE plus revision INSERT run in one transaction.
-- Transcription re-runs supersede manual edits: a fresh provider ingest
-  writes new segments (or resets provider-owned rows) and appends a
-  revision entry only when it overwrites a manually edited row, so history
-  never disappears.
+- Transcription re-runs replace segments wholesale (delete + recreate with
+  fresh provider rows, new IDs). Before deleting, the ingest appends a
+  `superseded` revision (`previous_text` = the manual text, `next_text` =
+  empty) for every manually edited row, so history never disappears even
+  though the new provider rows have no mapping to the old revision chain.
 
 ## Permissions
 

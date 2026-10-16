@@ -99,7 +99,7 @@ func StartCollaborationOutboxWorker(ctx context.Context, log zerolog.Logger, pro
 		time.Duration(intFromEnv("OUTBOX_WORKER_ERROR_BACKOFF_MS", 1000))*time.Millisecond,
 		durationFromEnv("OUTBOX_WORKER_LEASE_SEC", agent.DefaultOutboxLeaseSec)*time.Second,
 		collabOrderedEvents,
-		EventAgentRunCompleted, EventMessageCreated, EventRecordingTranscriptionRequested,
+		EventAgentRunCompleted, EventMessageCreated, EventRecordingTranscriptionRequested, EventTranscriptSegmentEdited,
 	)
 	StartOutboxWorker(ctx, log.With().Str("worker", "outbox").Logger(), processor)
 }

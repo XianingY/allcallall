@@ -1600,6 +1600,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/recordings/{recordingId}/transcript/segments/{segmentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["editRecordingTranscriptSegment"];
+        trace?: never;
+    };
+    "/recordings/{recordingId}/transcript/segments/{segmentId}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listTranscriptSegmentRevisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/recordings/{recordingId}/transcription/retry": {
         parameters: {
             query?: never;
@@ -2469,7 +2501,42 @@ export interface components {
             end_ms: number;
             confidence: number;
             /** Format: date-time */
+            edited_at?: string | null;
+            /** Format: int64 */
+            editor_user_id?: number | null;
+            /** Format: date-time */
             created_at: string;
+        };
+        TranscriptSegmentRevision: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            organization_id: number;
+            /** Format: int64 */
+            segment_id: number;
+            revision_number: number;
+            previous_text: string;
+            next_text: string;
+            reason?: string;
+            superseded: boolean;
+            /** Format: int64 */
+            actor_user_id: number;
+            /** Format: date-time */
+            created_at: string;
+        };
+        EditTranscriptSegmentRequest: {
+            text: string;
+            reason?: string;
+        };
+        TranscriptSegmentEditResult: {
+            segment: components["schemas"]["MeetingTranscriptSegment"];
+            revision_number: number;
+            edited: boolean;
+        };
+        TranscriptSegmentRevisionPage: {
+            revisions: components["schemas"]["TranscriptSegmentRevision"][];
+            /** Format: int64 */
+            next_before_id?: number | null;
         };
         RecordingTranscriptPage: {
             transcription?: components["schemas"]["RecordingTranscription"] | null;
@@ -6178,6 +6245,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecordingTranscriptPage"];
+                };
+            };
+        };
+    };
+    editRecordingTranscriptSegment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recordingId: number;
+                segmentId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditTranscriptSegmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated segment with its revision number; edited=false means the text was unchanged. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptSegmentEditResult"];
+                };
+            };
+        };
+    };
+    listTranscriptSegmentRevisions: {
+        parameters: {
+            query?: {
+                before_id?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                recordingId: number;
+                segmentId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revision history, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptSegmentRevisionPage"];
                 };
             };
         };

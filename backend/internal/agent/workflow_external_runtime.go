@@ -105,6 +105,7 @@ type WorkflowRuntimeTranscript struct {
 	EndMS              int64  `json:"end_ms"`
 	Text               string `json:"text"`
 	Speaker            string `json:"speaker,omitempty"`
+	Edited             bool   `json:"edited,omitempty"`
 }
 
 type WorkflowRuntimeContextChunk struct {

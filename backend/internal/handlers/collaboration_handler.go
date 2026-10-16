@@ -106,6 +106,8 @@ func (h *CollaborationHandler) RegisterProtectedRoutes(protected *gin.RouterGrou
 	protected.GET("/recordings", h.handleListRecordings)
 	protected.GET("/recordings/:id", h.handleGetRecording)
 	protected.GET("/recordings/:id/transcript", h.handleGetRecordingTranscript)
+	protected.PATCH("/recordings/:id/transcript/segments/:segmentId", h.handleEditRecordingTranscriptSegment)
+	protected.GET("/recordings/:id/transcript/segments/:segmentId/revisions", h.handleListTranscriptSegmentRevisions)
 	protected.POST("/recordings/:id/transcription/retry", h.handleRetryRecordingTranscription)
 	protected.GET("/recordings/:id/files/:fileId", h.handleDownloadRecordingFile)
 

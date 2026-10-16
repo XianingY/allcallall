@@ -23,7 +23,7 @@ This matrix tracks the primary Web app after the migration from Expo Web to `web
 | Localization | `/settings/preferences` | Implemented | Chinese default, English toggle available for shell strings. |
 | Responsive layout | Desktop/tablet/mobile Playwright projects | Implemented | E2E covers core pages across all configured viewports. |
 | Realtime translation | Hidden | Intentionally not primary | Backend code remains, but the Web migration does not expose it as a main path. |
-| Transcript editing | None | Not implemented | Deferred to avoid versioning/audit model expansion. |
+| Transcript editing | `/recordings/:recordingId` transcript timeline | Implemented | Admin/owner or the segment speaker can edit ready transcripts; every edit appends an auditable revision and emits `transcript.segment.edited`. |
 | Multi-node media scale-out | None | Not implemented | Beta target remains single media node and small meetings. |
 
 ## Verification

@@ -185,7 +185,8 @@ oldest pending row for the agent worker event classes
 `allcallall_outbox_oldest_pending_seconds` from the oldest pending row for the
 outbox worker event classes (`agent.run.completed`, `message.created`,
 `rag.source.ingest_requested`, `rag.chunk.index_requested`, and, when enabled,
-`recording.transcription.requested` plus `settlement.room.ended`). A SQL-backed
+`recording.transcription.requested` plus `settlement.room.ended`, and
+`transcript.segment.edited`). A SQL-backed
 custom-metrics adapter is one way to compute these values; neither is a native
 Go counter. Bind each filtered metric only to the worker that owns those
 events. Do not bind `allcallall_agent_admission_queue_depth` to the Go agent

@@ -30,8 +30,34 @@ func (s *Service) loadTranscribableRecordingFiles(ctx context.Context, recording
 func (s *Service) saveRecordingTranscriptSegments(ctx context.Context, session models.RecordingSession, room models.CallRoom, providerName string, segments []models.MeetingTranscriptSegment) error {
 	now := time.Now().UTC()
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 重跑是“删全部旧段 + 写全新段”（新段 ID 与旧段无映射）。删除前必须
+		// 先为手工修订过的段落 supersede 修订，否则人工修正历史会随旧行消失。
+		var editedSegments []models.MeetingTranscriptSegment
+		if err := tx.WithContext(ctx).
+			Where("recording_session_id = ? AND editor_user_id IS NOT NULL", session.ID).
+			Find(&editedSegments).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("recording_session_id = ?", session.ID).Delete(&models.MeetingTranscriptSegment{}).Error; err != nil {
 			return err
+		}
+		for _, segment := range editedSegments {
+			revisionNumber, err := nextTranscriptRevisionNumber(ctx, tx, segment.ID)
+			if err != nil {
+				return err
+			}
+			if err := tx.WithContext(ctx).Create(&models.TranscriptSegmentRevision{
+				OrganizationID: segment.OrganizationID,
+				SegmentID:      segment.ID,
+				RevisionNumber: revisionNumber,
+				PreviousText:   segment.Text,
+				NextText:       "",
+				Reason:         "superseded by transcription re-run",
+				Superseded:     true,
+				ActorUserID:    session.StartedBy,
+			}).Error; err != nil {
+				return err
+			}
 		}
 		if err := tx.CreateInBatches(segments, 100).Error; err != nil {
 			return err

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/allcallall/backend/internal/models"
 	"github.com/allcallall/backend/internal/testutil"
@@ -157,6 +158,50 @@ func TestContextRepositoryLoadBaseReturnsContext(t *testing.T) {
 	}
 	if len(ctx.MeetingTranscriptSegments) == 0 {
 		t.Fatal("expected meeting transcript segments")
+	}
+}
+
+func TestContextRepositoryLoadBaseReportsEditedTranscriptSegments(t *testing.T) {
+	repo, db := newContextRepositoryTestEnv(t)
+	conv, userID := seedContextConversation(t, db)
+	seedAllContextTypes(t, db, conv, userID)
+
+	editedAt := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	var firstSegment models.MeetingTranscriptSegment
+	if err := db.Where("conversation_id = ?", conv.ID).Order("id ASC").First(&firstSegment).Error; err != nil {
+		t.Fatalf("load first segment failed: %v", err)
+	}
+	if err := db.Model(&models.MeetingTranscriptSegment{}).
+		Where("id = ?", firstSegment.ID).
+		Updates(map[string]any{"edited_at": editedAt, "editor_user_id": userID}).Error; err != nil {
+		t.Fatalf("mark segment edited failed: %v", err)
+	}
+
+	ctx, statements, err := repo.LoadBase(context.Background(), conv.OrganizationID, userID, conv.ID, ContextBudgetFromEnv())
+	if err != nil {
+		t.Fatalf("LoadBase: %v", err)
+	}
+	if statements > 5 {
+		t.Fatalf("statement budget exceeded: %d", statements)
+	}
+	edited := 0
+	for _, segment := range ctx.MeetingTranscriptSegments {
+		if segment.EditedAt == nil {
+			continue
+		}
+		edited++
+		if segment.EditorUserID == nil || *segment.EditorUserID != userID {
+			t.Fatalf("edited segment missing editor: %+v", segment)
+		}
+		if !segment.EditedAt.Equal(editedAt) {
+			t.Fatalf("edited_at = %v, want %v", segment.EditedAt, editedAt)
+		}
+	}
+	if edited != 1 {
+		t.Fatalf("expected exactly 1 edited segment, got %d", edited)
+	}
+	if got := ctx.Manifest.Selected["meeting_transcript_segments_edited"]; got != 1 {
+		t.Fatalf("manifest edited count = %d, want 1", got)
 	}
 }
 

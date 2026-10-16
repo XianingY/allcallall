@@ -9,6 +9,9 @@ export type Recording = components["schemas"]["Recording"];
 export type RecordingTranscription = components["schemas"]["RecordingTranscription"];
 export type TranscriptSegment = components["schemas"]["MeetingTranscriptSegment"];
 export type TranscriptPage = components["schemas"]["RecordingTranscriptPage"];
+export type TranscriptSegmentEditResult = components["schemas"]["TranscriptSegmentEditResult"];
+export type TranscriptSegmentRevision = components["schemas"]["TranscriptSegmentRevision"];
+export type TranscriptSegmentRevisionPage = components["schemas"]["TranscriptSegmentRevisionPage"];
 
 export const listRooms = () => apiRequest<{ rooms: Room[] }>("/rooms").then((value) => value.rooms);
 export const createRoom = (input: { title: string; participant_ids?: number[]; conversation_id?: number }) => apiRequest<{ room: Room }>("/rooms", { method: "POST", body: JSON.stringify(input) }).then((value) => value.room);
@@ -25,5 +28,7 @@ export const stopRecording = (id: number) => apiRequest<{ recording: Recording }
 export const listRecordings = (page?: PageRequest) => apiRequest<{ recordings: Recording[]; pagination: Pagination }>(`/recordings${buildQuery({ limit: page?.limit, offset: page?.offset })}`);
 export const getRecording = (id: number) => apiRequest<{ recording: Recording }>(`/recordings/${id}`).then((value) => value.recording);
 export const getTranscript = (id: number, afterId?: number) => apiRequest<TranscriptPage>(`/recordings/${id}/transcript${buildQuery({ limit: 100, after_id: afterId })}`);
+export const editTranscriptSegment = (recordingId: number, segmentId: number, input: { text: string; reason?: string }) => apiRequest<TranscriptSegmentEditResult>(`/recordings/${recordingId}/transcript/segments/${segmentId}`, { method: "PATCH", body: JSON.stringify(input) });
+export const listTranscriptSegmentRevisions = (recordingId: number, segmentId: number, beforeId?: number) => apiRequest<TranscriptSegmentRevisionPage>(`/recordings/${recordingId}/transcript/segments/${segmentId}/revisions${buildQuery({ before_id: beforeId, limit: 50 })}`);
 export const retryTranscription = (id: number) => apiRequest<{ transcription: RecordingTranscription }>(`/recordings/${id}/transcription/retry`, { method: "POST" }).then((value) => value.transcription);
 export const downloadRecording = (recordingId: number, fileId: number) => apiDownload(`/recordings/${recordingId}/files/${fileId}`);

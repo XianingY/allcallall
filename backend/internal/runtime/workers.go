@@ -27,6 +27,7 @@ const (
 	EventRAGChunkIndex                   = knowledge.EventChunkIndexRequested
 	EventSettlementRoomEnd               = "settlement.room.ended"
 	EventRecordingTranscriptionRequested = collaboration.EventRecordingTranscriptionRequested
+	EventTranscriptSegmentEdited         = collaboration.EventTranscriptSegmentEdited
 	EventWeeklyTaskTriggered             = "weekly_task.triggered"
 	EventChatMessageCreated              = events.EventChatMessageCreated
 )

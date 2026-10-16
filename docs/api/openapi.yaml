@@ -1099,6 +1099,31 @@ paths:
         '200':
           description: Transcript page.
           content: { application/json: { schema: { $ref: '#/components/schemas/RecordingTranscriptPage' } } }
+  /recordings/{recordingId}/transcript/segments/{segmentId}:
+    patch:
+      operationId: editRecordingTranscriptSegment
+      parameters:
+        - { name: recordingId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: segmentId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/EditTranscriptSegmentRequest' } } }
+      responses:
+        '200':
+          description: Updated segment with its revision number; edited=false means the text was unchanged.
+          content: { application/json: { schema: { $ref: '#/components/schemas/TranscriptSegmentEditResult' } } }
+  /recordings/{recordingId}/transcript/segments/{segmentId}/revisions:
+    get:
+      operationId: listTranscriptSegmentRevisions
+      parameters:
+        - { name: recordingId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: segmentId, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: before_id, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, default: 50 } }
+      responses:
+        '200':
+          description: Revision history, newest first.
+          content: { application/json: { schema: { $ref: '#/components/schemas/TranscriptSegmentRevisionPage' } } }
   /recordings/{recordingId}/transcription/retry:
     post:
       operationId: retryRecordingTranscription
@@ -1852,7 +1877,42 @@ components:
         start_ms: { type: integer, format: int64 }
         end_ms: { type: integer, format: int64 }
         confidence: { type: number }
+        edited_at: { type: [string, 'null'], format: date-time }
+        editor_user_id: { type: [integer, 'null'], format: int64 }
         created_at: { type: string, format: date-time }
+    TranscriptSegmentRevision:
+      type: object
+      required: [id, organization_id, segment_id, revision_number, previous_text, next_text, superseded, actor_user_id, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        organization_id: { type: integer, format: int64 }
+        segment_id: { type: integer, format: int64 }
+        revision_number: { type: integer }
+        previous_text: { type: string }
+        next_text: { type: string }
+        reason: { type: string }
+        superseded: { type: boolean }
+        actor_user_id: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+    EditTranscriptSegmentRequest:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, maxLength: 4096 }
+        reason: { type: string, maxLength: 512 }
+    TranscriptSegmentEditResult:
+      type: object
+      required: [segment, revision_number, edited]
+      properties:
+        segment: { $ref: '#/components/schemas/MeetingTranscriptSegment' }
+        revision_number: { type: integer }
+        edited: { type: boolean }
+    TranscriptSegmentRevisionPage:
+      type: object
+      required: [revisions]
+      properties:
+        revisions: { type: array, items: { $ref: '#/components/schemas/TranscriptSegmentRevision' } }
+        next_before_id: { type: [integer, 'null'], format: int64 }
     RecordingTranscriptPage:
       type: object
       required: [segments]

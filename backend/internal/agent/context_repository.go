@@ -120,12 +120,19 @@ func (r contextRepository) LoadBase(ctx context.Context, organizationID, userID,
 			SQLStatements: queryCount,
 		},
 	}
+	editedMeetingSegments := 0
+	for _, segment := range meetingTranscriptSegments {
+		if segment.EditedAt != nil {
+			editedMeetingSegments++
+		}
+	}
 	conversationCtx.MeetingContext = buildMeetingContextSummary(
 		conversationCtx.TranscriptSegments,
 		conversationCtx.Followups,
 		conversationCtx.MeetingTranscriptSegments,
 		latestRecordingTranscription,
 	)
+	conversationCtx.Manifest.Selected["meeting_transcript_segments_edited"] = editedMeetingSegments
 	prioritizeMeetingConversationArtifacts(conversationCtx)
 	return conversationCtx, queryCount, nil
 }
@@ -163,6 +170,26 @@ func profileUint64(value sql.NullInt64) uint64 {
 		return 0
 	}
 	return uint64(value.Int64) // #nosec G115 -- guarded non-negative database ID
+}
+
+// parseTranscriptEditedAt 解析 UNION 查询返回的 edited_at。raw scan 在
+// SQLite 下是 TEXT，在 MySQL driver 下可能是 []byte；统一用 NullString
+// 承接，再兼容 RFC3339 与 MySQL DATETIME 两种文本格式。
+func parseTranscriptEditedAt(value sql.NullString) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	raw := strings.TrimSpace(value.String)
+	if raw == "" || strings.HasPrefix(raw, "0000-00-00") {
+		return nil
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05.999999999-07:00", "2006-01-02 15:04:05", "2006-01-02T15:04:05"} {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			utc := parsed.UTC()
+			return &utc
+		}
+	}
+	return nil
 }
 
 // loadConversationWithProfile loads the conversation and its optional contact
@@ -400,11 +427,15 @@ type transcriptArtifactRow struct {
 	RecordingSessionID uint64
 	RecordingFileID    uint64
 	SpeakerUserID      sql.NullInt64
-	TrackKey           string
-	Provider           string
-	Language           string
-	StartMS            int64
-	EndMS              int64
+	// EditedAt 用字符串承接：UNION 的 raw scan 在 SQLite 下返回 TEXT，
+	// 用 NullTime 会直接 Scan 报错；在下方用跨方言解析器转成 time.Time。
+	EditedAt     sql.NullString
+	EditorUserID sql.NullInt64
+	TrackKey     string
+	Provider     string
+	Language     string
+	StartMS      int64
+	EndMS        int64
 	// Recording transcription fields
 	Status       string
 	SegmentCount int
@@ -415,11 +446,11 @@ type transcriptArtifactRow struct {
 // single UNION ALL query. The recording-transcription row (tag 3) provides
 // the status for buildMeetingContextSummary.
 func (r contextRepository) loadTranscriptArtifactsUnion(ctx context.Context, organizationID, conversationID uint64, callIDs []string, budget ContextBudget) ([]models.CallTranscriptSegment, []models.MeetingTranscriptSegment, models.RecordingTranscription, error) {
-	callSubquery := `SELECT * FROM (SELECT 0 AS tag, id, '' AS content, '' AS sort_key, call_id, user_id, peer_user_id, from_email, to_email, original_text, source_lang, target_lang, timestamp_ms, 0 AS organization_id, 0 AS conversation_id, 0 AS room_id, 0 AS recording_session_id, 0 AS recording_file_id, NULL AS speaker_user_id, '' AS track_key, '' AS provider, '' AS language, 0 AS start_ms, 0 AS end_ms, '' AS status, 0 AS segment_count FROM call_transcript_segments WHERE 1=0 LIMIT 0)`
+	callSubquery := `SELECT * FROM (SELECT 0 AS tag, id, '' AS content, '' AS sort_key, call_id, user_id, peer_user_id, from_email, to_email, original_text, source_lang, target_lang, timestamp_ms, 0 AS organization_id, 0 AS conversation_id, 0 AS room_id, 0 AS recording_session_id, 0 AS recording_file_id, NULL AS speaker_user_id, NULL AS edited_at, NULL AS editor_user_id, '' AS track_key, '' AS provider, '' AS language, 0 AS start_ms, 0 AS end_ms, '' AS status, 0 AS segment_count FROM call_transcript_segments WHERE 1=0 LIMIT 0)`
 	callArgs := []any{}
 	if len(callIDs) > 0 {
 		callSubquery = fmt.Sprintf(
-			`SELECT * FROM (SELECT 1 AS tag, id, original_text AS content, '' AS sort_key, call_id, user_id, peer_user_id, from_email, to_email, original_text, source_lang, target_lang, timestamp_ms, 0 AS organization_id, 0 AS conversation_id, 0 AS room_id, 0 AS recording_session_id, 0 AS recording_file_id, NULL AS speaker_user_id, '' AS track_key, '' AS provider, '' AS language, 0 AS start_ms, 0 AS end_ms, '' AS status, 0 AS segment_count FROM call_transcript_segments WHERE call_id IN (?) ORDER BY timestamp_ms DESC, created_at DESC LIMIT %d)`,
+			`SELECT * FROM (SELECT 1 AS tag, id, original_text AS content, '' AS sort_key, call_id, user_id, peer_user_id, from_email, to_email, original_text, source_lang, target_lang, timestamp_ms, 0 AS organization_id, 0 AS conversation_id, 0 AS room_id, 0 AS recording_session_id, 0 AS recording_file_id, NULL AS speaker_user_id, NULL AS edited_at, NULL AS editor_user_id, '' AS track_key, '' AS provider, '' AS language, 0 AS start_ms, 0 AS end_ms, '' AS status, 0 AS segment_count FROM call_transcript_segments WHERE call_id IN (?) ORDER BY timestamp_ms DESC, created_at DESC LIMIT %d)`,
 			budget.CallTranscriptSegments,
 		)
 		callArgs = []any{callIDs}
@@ -428,9 +459,9 @@ func (r contextRepository) loadTranscriptArtifactsUnion(ctx context.Context, org
 	query := fmt.Sprintf(`
 		%s
 		UNION ALL
-		SELECT * FROM (SELECT 2 AS tag, id, text AS content, '' AS sort_key, '' AS call_id, 0 AS user_id, 0 AS peer_user_id, '' AS from_email, '' AS to_email, '' AS original_text, '' AS source_lang, '' AS target_lang, 0 AS timestamp_ms, organization_id, conversation_id, room_id, recording_session_id, recording_file_id, speaker_user_id, track_key, provider, language, start_ms, end_ms, '' AS status, 0 AS segment_count FROM meeting_transcript_segments WHERE organization_id = ? AND conversation_id = ? ORDER BY recording_session_id DESC, start_ms ASC, created_at DESC LIMIT %d)
+		SELECT * FROM (SELECT 2 AS tag, id, text AS content, '' AS sort_key, '' AS call_id, 0 AS user_id, 0 AS peer_user_id, '' AS from_email, '' AS to_email, '' AS original_text, '' AS source_lang, '' AS target_lang, 0 AS timestamp_ms, organization_id, conversation_id, room_id, recording_session_id, recording_file_id, speaker_user_id, edited_at, editor_user_id, track_key, provider, language, start_ms, end_ms, '' AS status, 0 AS segment_count FROM meeting_transcript_segments WHERE organization_id = ? AND conversation_id = ? ORDER BY recording_session_id DESC, start_ms ASC, created_at DESC LIMIT %d)
 		UNION ALL
-		SELECT * FROM (SELECT 3 AS tag, id, '' AS content, '' AS sort_key, '' AS call_id, 0 AS user_id, 0 AS peer_user_id, '' AS from_email, '' AS to_email, '' AS original_text, '' AS source_lang, '' AS target_lang, 0 AS timestamp_ms, organization_id, 0 AS conversation_id, 0 AS room_id, recording_session_id, 0 AS recording_file_id, NULL AS speaker_user_id, '' AS track_key, '' AS provider, '' AS language, 0 AS start_ms, 0 AS end_ms, status, segment_count FROM recording_transcriptions WHERE organization_id = ? AND conversation_id = ? ORDER BY recording_session_id DESC, updated_at DESC LIMIT 1)`,
+		SELECT * FROM (SELECT 3 AS tag, id, '' AS content, '' AS sort_key, '' AS call_id, 0 AS user_id, 0 AS peer_user_id, '' AS from_email, '' AS to_email, '' AS original_text, '' AS source_lang, '' AS target_lang, 0 AS timestamp_ms, organization_id, 0 AS conversation_id, 0 AS room_id, recording_session_id, 0 AS recording_file_id, NULL AS speaker_user_id, NULL AS edited_at, NULL AS editor_user_id, '' AS track_key, '' AS provider, '' AS language, 0 AS start_ms, 0 AS end_ms, status, segment_count FROM recording_transcriptions WHERE organization_id = ? AND conversation_id = ? ORDER BY recording_session_id DESC, updated_at DESC LIMIT 1)`,
 		callSubquery,
 		budget.MeetingTranscriptSegments,
 	)
@@ -469,6 +500,12 @@ func (r contextRepository) loadTranscriptArtifactsUnion(ctx context.Context, org
 			if row.SpeakerUserID.Valid {
 				speakerUserID = profileUint64(row.SpeakerUserID)
 			}
+			editedAt := parseTranscriptEditedAt(row.EditedAt)
+			editorUserID := (*uint64)(nil)
+			if row.EditorUserID.Valid {
+				value := profileUint64(row.EditorUserID)
+				editorUserID = &value
+			}
 			meetingSegments = append(meetingSegments, models.MeetingTranscriptSegment{
 				ID:                 row.ID,
 				OrganizationID:     row.OrganizationID,
@@ -477,6 +514,8 @@ func (r contextRepository) loadTranscriptArtifactsUnion(ctx context.Context, org
 				RecordingSessionID: row.RecordingSessionID,
 				RecordingFileID:    row.RecordingFileID,
 				SpeakerUserID:      &speakerUserID,
+				EditedAt:           editedAt,
+				EditorUserID:       editorUserID,
 				TrackKey:           row.TrackKey,
 				Source:             models.MeetingTranscriptSourceRecording,
 				Provider:           row.Provider,

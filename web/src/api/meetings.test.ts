@@ -82,4 +82,21 @@ describe("meetings api", () => {
     await meetings.downloadRecording(9, 11);
     expect(apiDownloadMock).toHaveBeenCalledWith("/recordings/9/files/11");
   });
+
+  it("edits a transcript segment with an optional reason", async () => {
+    apiRequestMock.mockResolvedValue({ segment: { id: 12 }, revision_number: 2, edited: true });
+    const result = await meetings.editTranscriptSegment(9, 12, { text: "Hello", reason: "fix" });
+    expect(result).toEqual({ segment: { id: 12 }, revision_number: 2, edited: true });
+    expect(apiRequestMock).toHaveBeenCalledWith("/recordings/9/transcript/segments/12", {
+      method: "PATCH",
+      body: JSON.stringify({ text: "Hello", reason: "fix" }),
+    });
+  });
+
+  it("lists transcript revisions with a before cursor", async () => {
+    apiRequestMock.mockResolvedValue({ revisions: [{ id: 3 }], next_before_id: 3 });
+    const result = await meetings.listTranscriptSegmentRevisions(9, 12, 3);
+    expect(result).toEqual({ revisions: [{ id: 3 }], next_before_id: 3 });
+    expect(apiRequestMock).toHaveBeenCalledWith("/recordings/9/transcript/segments/12/revisions?before_id=3&limit=50");
+  });
 });

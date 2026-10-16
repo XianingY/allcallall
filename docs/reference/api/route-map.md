@@ -68,6 +68,8 @@ Talking points:
 - `GET /api/v1/recordings`
 - `GET /api/v1/recordings/:id`
 - `GET /api/v1/recordings/:id/transcript`
+- `PATCH /api/v1/recordings/:id/transcript/segments/:segmentId`
+- `GET /api/v1/recordings/:id/transcript/segments/:segmentId/revisions`
 - `POST /api/v1/recordings/:id/transcription/retry`
 - `GET /api/v1/recordings/:id/files/:fileId`
 

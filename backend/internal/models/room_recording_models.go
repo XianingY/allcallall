@@ -124,26 +124,53 @@ func (RecordingTranscription) TableName() string {
 }
 
 type MeetingTranscriptSegment struct {
-	ID                 uint64    `gorm:"primaryKey;autoIncrement"`
-	OrganizationID     uint64    `gorm:"not null;index"`
-	ConversationID     uint64    `gorm:"not null;index"`
-	RoomID             uint64    `gorm:"not null;index"`
-	RecordingSessionID uint64    `gorm:"not null;index"`
-	RecordingFileID    uint64    `gorm:"not null;index"`
-	SpeakerUserID      *uint64   `gorm:"index"`
-	TrackKey           string    `gorm:"size:160;index"`
-	Source             string    `gorm:"size:32;not null;index"`
-	Provider           string    `gorm:"size:64"`
-	Language           string    `gorm:"size:32"`
-	Text               string    `gorm:"type:text;not null"`
-	StartMS            int64     `gorm:"not null;default:0"`
-	EndMS              int64     `gorm:"not null;default:0"`
-	Confidence         float64   `gorm:"not null;default:0"`
-	CreatedAt          time.Time `gorm:"autoCreateTime;index"`
+	ID                 uint64  `gorm:"primaryKey;autoIncrement"`
+	OrganizationID     uint64  `gorm:"not null;index"`
+	ConversationID     uint64  `gorm:"not null;index"`
+	RoomID             uint64  `gorm:"not null;index"`
+	RecordingSessionID uint64  `gorm:"not null;index"`
+	RecordingFileID    uint64  `gorm:"not null;index"`
+	SpeakerUserID      *uint64 `gorm:"index"`
+	TrackKey           string  `gorm:"size:160;index"`
+	Source             string  `gorm:"size:32;not null;index"`
+	Provider           string  `gorm:"size:64"`
+	Language           string  `gorm:"size:32"`
+	Text               string  `gorm:"type:text;not null"`
+	StartMS            int64   `gorm:"not null;default:0"`
+	EndMS              int64   `gorm:"not null;default:0"`
+	Confidence         float64 `gorm:"not null;default:0"`
+	// EditedAt/EditorUserID 为空表示当前 text 仍是 provider 原始输出；
+	// 手工修订后 text 永远是“当前值”，历史在 transcript_segment_revisions。
+	EditedAt     *time.Time `gorm:"index"`
+	EditorUserID *uint64    `gorm:"index"`
+	CreatedAt    time.Time  `gorm:"autoCreateTime;index"`
 }
 
 func (MeetingTranscriptSegment) TableName() string {
 	return "meeting_transcript_segments"
+}
+
+// TranscriptSegmentRevision 记录会议转写片段的每次手工修订。append-only：
+// previous_text/next_text 全文保留，审计链可重建任意历史状态。
+type TranscriptSegmentRevision struct {
+	ID uint64 `gorm:"primaryKey;autoIncrement"`
+	// OrganizationID 冗余存 organization，用于组织级审计与清理。
+	OrganizationID uint64 `gorm:"not null;index"`
+	SegmentID      uint64 `gorm:"not null;uniqueIndex:idx_transcript_revision_segment_number,priority:1"`
+	RevisionNumber int    `gorm:"not null;uniqueIndex:idx_transcript_revision_segment_number,priority:2"`
+	PreviousText   string `gorm:"type:text;not null"`
+	NextText       string `gorm:"type:text;not null"`
+	Reason         string `gorm:"size:512"`
+	// Superseded 为 true 表示该修订不是一次手工编辑，而是转写重跑删除了
+	// 手工修订段：PreviousText 保留被取代的手工文本，NextText 为空——
+	// provider 新文本写入全新 segment 行，与本修订链没有可映射关系。
+	Superseded  bool      `gorm:"not null;default:false;index"`
+	ActorUserID uint64    `gorm:"not null;index"`
+	CreatedAt   time.Time `gorm:"autoCreateTime;index"`
+}
+
+func (TranscriptSegmentRevision) TableName() string {
+	return "transcript_segment_revisions"
 }
 
 type RecordingConsent struct {

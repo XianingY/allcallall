@@ -308,6 +308,15 @@
 .dialog-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: .4rem; }
 .dialog-header h2 { font-size: 1.1rem; font-weight: 650; }
 .dialog-content > p { margin-bottom: 1rem; color: #65706d; font-size: .78rem; }
+.transcript-diff { margin: .35rem 0; padding: .5rem; border: 1px solid #dfe4e2; border-radius: 6px; background: #f8faf9; font-size: .78rem; line-height: 1.6; word-break: break-word; }
+.transcript-diff del { color: #a14434; background: #fbeae7; text-decoration: line-through; }
+.transcript-diff ins { color: #146c5a; background: #e2f4ef; text-decoration: none; }
+.revision-list { display: flex; flex-direction: column; gap: .65rem; }
+.revision-item { border: 1px solid #dfe4e2; border-radius: 6px; padding: .55rem; }
+.revision-item header { display: flex; align-items: center; gap: .5rem; margin-bottom: .2rem; color: #65706d; font-size: .72rem; }
+.revision-item header strong { color: #46504d; }
+.revision-superseded { padding: .1rem .4rem; border-radius: 4px; background: #fff4e0; color: #8a5a16; font-size: .65rem; }
+.revision-reason { margin: .3rem 0 0; color: #7d8784; font-size: .72rem; }
 .toolbar-panel { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; border: 1px solid #dfe4e2; border-radius: 8px; background: white; padding: .75rem; }
 .search-inline { display: flex; width: min(100%, 32rem); gap: .5rem; }
 .contact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 1rem; }
