@@ -70,7 +70,17 @@ func TestServeSupportsCPUProfileSampling(t *testing.T) {
 		Shutdown(ctx, server, logger)
 	})
 
-	resp, err := http.Get("http://" + addr + "/debug/pprof/profile?seconds=1")
+	// The listener starts asynchronously; on slow CI runners the first
+	// request can race Serve before the socket accepts connections.
+	var resp *http.Response
+	var err error
+	for i := 0; i < 40; i++ {
+		resp, err = http.Get("http://" + addr + "/debug/pprof/profile?seconds=1")
+		if err == nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 	if err != nil {
 		t.Fatalf("GET profile failed: %v", err)
 	}
