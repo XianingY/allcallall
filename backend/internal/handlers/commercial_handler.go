@@ -21,6 +21,8 @@ type CommercialHandler struct {
 	mail       *mail.Service
 	rateLimits *ratelimit.Service
 	metrics    metrics.Recorder
+	// refreshSessions 重置密码后吊销全部会话（见 UserHandler 同名注释）。
+	refreshSessions RefreshSessionRevoker
 }
 
 type entitlementResponse struct {
@@ -105,15 +107,17 @@ func NewCommercialHandler(
 	mailSvc *mail.Service,
 	rateLimits *ratelimit.Service,
 	counters metrics.Recorder,
+	refreshSessions RefreshSessionRevoker,
 ) *CommercialHandler {
 	return &CommercialHandler{
-		logger:     log.With().Str("component", "commercial_handler").Logger(),
-		users:      users,
-		commerce:   commerceSvc,
-		verify:     verify,
-		mail:       mailSvc,
-		rateLimits: rateLimits,
-		metrics:    counters,
+		logger:          log.With().Str("component", "commercial_handler").Logger(),
+		users:           users,
+		commerce:        commerceSvc,
+		verify:          verify,
+		mail:            mailSvc,
+		rateLimits:      rateLimits,
+		metrics:         counters,
+		refreshSessions: refreshSessions,
 	}
 }
 

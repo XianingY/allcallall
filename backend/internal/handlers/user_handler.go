@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -29,12 +30,24 @@ type UserHandler struct {
 	commerce *commerce.Service
 	limits   *ratelimit.Service
 	metrics  metrics.Recorder
+	// refreshSessions 吊销刷新会话。改密码后必须吊销全部会话：否则被盗的
+	// refresh cookie 在密码修改后仍能无限续期，密码轮换失去隔离作用。
+	refreshSessions RefreshSessionRevoker
+}
+
+// RefreshSessionRevoker 是 UserHandler/CommercialHandler 需要的最小吊销
+// 接口，便于测试注入，也避免 handler 直接依赖 auth 包完整服务。
+type RefreshSessionRevoker interface {
+	RevokeAllForUser(ctx context.Context, userID uint64, now time.Time) (int, error)
 }
 
 type UserHandlerOptions struct {
 	Commerce *commerce.Service
 	Limits   *ratelimit.Service
 	Metrics  metrics.Recorder
+	// RefreshSessions 可为 nil（如未启用会话服务的部署）；为 nil 时改密
+	// 码不吊销会话，但登录/刷新端点本来也无法使用该服务。
+	RefreshSessions RefreshSessionRevoker
 }
 
 // NewUserHandler 构造函数
@@ -51,13 +64,14 @@ func NewUserHandler(
 		opt = options[0]
 	}
 	return &UserHandler{
-		logger:   log.With().Str("component", "user_handler").Logger(),
-		users:    users,
-		presence: presence,
-		contacts: contacts,
-		commerce: opt.Commerce,
-		limits:   opt.Limits,
-		metrics:  opt.Metrics,
+		logger:          log.With().Str("component", "user_handler").Logger(),
+		users:           users,
+		presence:        presence,
+		contacts:        contacts,
+		commerce:        opt.Commerce,
+		limits:          opt.Limits,
+		metrics:         opt.Metrics,
+		refreshSessions: opt.RefreshSessions,
 	}
 }
 
@@ -413,7 +427,31 @@ func (h *UserHandler) handleChangePassword(c *gin.Context) {
 		return
 	}
 
+	h.revokeRefreshSessionsAfterPasswordChange(c, claims.UserID)
+
 	JSONSuccess(c, http.StatusOK, gin.H{"message": "password changed successfully"})
+}
+
+// revokeRefreshSessionsAfterPasswordChange 吊销该用户全部刷新会话。
+//
+// 改密码的核心目的之一是把攻击者挡在账户外；如果旧的 refresh cookie
+// 仍然有效，它可以在轮转中无限自我续期，密码轮换对已失窃的会话毫无
+// 隔离作用。吊销后所有设备需要重新登录——这是安全边界，不是缺陷。
+// 吊销失败不回滚密码修改（新密码已生效），只记录错误并让客户端
+// 重试登录时自然失败。
+func (h *UserHandler) revokeRefreshSessionsAfterPasswordChange(c *gin.Context, userID uint64) {
+	if h.refreshSessions == nil {
+		return
+	}
+	revoked, err := h.refreshSessions.RevokeAllForUser(c.Request.Context(), userID, time.Now())
+	if err != nil {
+		h.logger.Error().Err(err).Uint64("user_id", userID).Msg("revoke sessions after password change failed")
+		return
+	}
+	if h.metrics != nil {
+		h.metrics.Inc("password_change_sessions_revoked_total")
+	}
+	h.logger.Info().Uint64("user_id", userID).Int("revoked", revoked).Msg("revoked refresh sessions after password change")
 }
 
 type saveFCMTokenRequest struct {

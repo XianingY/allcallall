@@ -105,6 +105,18 @@ func (h *CommercialHandler) handlePasswordResetConfirm(c *gin.Context) {
 		return
 	}
 
+	// 密码重置通常是账户恢复（用户怀疑凭据被盗）。不吊销会话时，攻击者
+	// 手里的 refresh cookie 仍能无限续期，恢复动作对攻击者零影响。
+	if h.refreshSessions != nil {
+		revoked, revokeErr := h.refreshSessions.RevokeAllForUser(c.Request.Context(), userModel.ID, time.Now())
+		if revokeErr != nil {
+			// 不回滚：新密码已生效，旧会话最多再存活到下一次刷新。
+			h.logger.Error().Err(revokeErr).Uint64("user_id", userModel.ID).Msg("revoke sessions after password reset failed")
+		} else {
+			h.logger.Info().Uint64("user_id", userModel.ID).Int("revoked", revoked).Msg("revoked refresh sessions after password reset")
+		}
+	}
+
 	if err := h.verify.ConsumeVerifiedPurpose(req.Email, mail.PurposePasswordReset); err != nil {
 		h.logger.Warn().Err(err).Msg("consume password reset code failed")
 	}

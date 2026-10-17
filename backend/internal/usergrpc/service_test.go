@@ -15,7 +15,7 @@ import (
 )
 
 func TestClientAuthenticatorValidatesTokenOverGRPC(t *testing.T) {
-	manager, err := auth.NewManager(auth.Config{Secret: "grpc-secret", Issuer: "test"})
+	manager, err := auth.NewManager(auth.Config{Secret: "test-grpc-secret-0123456789abcdef0123", Issuer: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}

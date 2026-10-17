@@ -157,6 +157,9 @@ func SecurityHeadersMiddleware() gin.HandlerFunc {
 		headers.Set("X-Content-Type-Options", "nosniff")
 		headers.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		headers.Set("X-Frame-Options", "DENY")
+		// API 本身不需要摄像头/麦克风，但 Web 端会议在 API 同源页面内
+		// 使用 WebRTC；keep camera/microphone 自域可用，其余能力默认全关。
+		headers.Set("Permissions-Policy", "camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()")
 		if c.Request.TLS != nil || strings.EqualFold(strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")), "https") {
 			headers.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}

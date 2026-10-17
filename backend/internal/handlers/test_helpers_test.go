@@ -66,7 +66,7 @@ func newHandlerTestEnv(t *testing.T) *handlerTestEnv {
 	contactSvc := contact.NewService(contact.NewRepository(gdb), userSvc)
 	presenceClient := redis.NewClient(&redis.Options{Addr: miniRedis.Addr()})
 	presenceMgr := presence.NewManager(presenceClient, zerolog.Nop(), userSvc)
-	jwtMgr, err := auth.NewManager(auth.Config{Secret: "secret", Issuer: "allcallall"})
+	jwtMgr, err := auth.NewManager(auth.Config{Secret: "test-jwt-secret-0123456789abcdef0123", Issuer: "allcallall"})
 	if err != nil {
 		t.Fatalf("create jwt manager failed: %v", err)
 	}

@@ -70,7 +70,7 @@ func TestExtractToken(t *testing.T) {
 func TestMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	mgr, err := NewManager(Config{Secret: "secret", Issuer: "allcallall"})
+	mgr, err := NewManager(Config{Secret: "test-jwt-secret-0123456789abcdef0123", Issuer: "allcallall"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

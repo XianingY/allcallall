@@ -5,9 +5,12 @@ import "time"
 // EmailVerificationCode 邮箱验证码
 // EmailVerificationCode stores email verification codes
 type EmailVerificationCode struct {
-	ID            uint64 `gorm:"primaryKey;autoIncrement"`
-	Email         string `gorm:"size:255;uniqueIndex:idx_email_code;not null;index:idx_email_created"`
-	Code          string `gorm:"size:6;index:idx_email_code;not null"`
+	ID    uint64 `gorm:"primaryKey;autoIncrement"`
+	Email string `gorm:"size:255;uniqueIndex:idx_email_code;not null;index:idx_email_created"`
+	// Code 存 SHA-256 hex（64 字符）。历史上曾存 6 位明文；以长度区分两种
+	// 形态，旧行走兼容比较。验证码（尤其 password_reset）是账户接管凭据，
+	// 明文落库等于把接管能力放进每一次备份/只读泄露面。
+	Code          string `gorm:"size:64;index:idx_email_code;not null"`
 	Purpose       string `gorm:"size:50;not null;default:'register';index:idx_email_purpose"`
 	IsVerified    bool   `gorm:"default:false;index"`
 	VerifiedAt    *time.Time

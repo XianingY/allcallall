@@ -9,8 +9,15 @@ func TestNewManagerValidationAndDefaults(t *testing.T) {
 	if _, err := NewManager(Config{}); err == nil {
 		t.Fatal("expected error for empty secret")
 	}
+	// HS256 的密钥可被离线爆破；短密钥等于把整个认证体系交给字典攻击。
+	if _, err := NewManager(Config{Secret: "short-jwt-secret"}); err == nil {
+		t.Fatal("expected error for secret below minimum length")
+	}
+	if _, err := NewManager(Config{Secret: "test-jwt-secret-0123456789abcdef0123"}); err != nil {
+		t.Fatalf("expected 32-byte secret to be accepted, got %v", err)
+	}
 
-	mgr, err := NewManager(Config{Secret: "secret"})
+	mgr, err := NewManager(Config{Secret: "test-jwt-secret-0123456789abcdef0123"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -22,7 +29,7 @@ func TestNewManagerValidationAndDefaults(t *testing.T) {
 	}
 
 	mgr, err = NewManager(Config{
-		Secret:          "secret",
+		Secret:          "test-jwt-secret-0123456789abcdef0123",
 		Issuer:          "allcallall",
 		AccessTokenTTL:  10 * time.Minute,
 		RefreshTokenTTL: 2 * time.Hour,
@@ -43,7 +50,7 @@ func TestNewManagerValidationAndDefaults(t *testing.T) {
 
 func TestGenerateAndParseAccessToken(t *testing.T) {
 	mgr, err := NewManager(Config{
-		Secret:         "top-secret",
+		Secret:         "test-top-secret-0123456789abcdef0123",
 		Issuer:         "allcallall",
 		AccessTokenTTL: time.Hour,
 	})
@@ -84,7 +91,7 @@ func TestGenerateAndParseAccessToken(t *testing.T) {
 
 func TestGenerateAndParseRefreshToken(t *testing.T) {
 	mgr, err := NewManager(Config{
-		Secret:          "top-secret",
+		Secret:          "test-top-secret-0123456789abcdef0123",
 		Issuer:          "allcallall",
 		RefreshTokenTTL: time.Hour,
 	})
@@ -111,7 +118,7 @@ func TestGenerateAndParseRefreshToken(t *testing.T) {
 
 func TestParseTokenRejectsInvalidIssuerOrSecret(t *testing.T) {
 	mgr, err := NewManager(Config{
-		Secret: "secret-1",
+		Secret: "test-jwt-secret-one-0123456789abcdef0123",
 		Issuer: "issuer-1",
 	})
 	if err != nil {
@@ -123,7 +130,7 @@ func TestParseTokenRejectsInvalidIssuerOrSecret(t *testing.T) {
 	}
 
 	otherIssuerMgr, err := NewManager(Config{
-		Secret: "secret-1",
+		Secret: "test-jwt-secret-one-0123456789abcdef0123",
 		Issuer: "issuer-2",
 	})
 	if err != nil {
@@ -134,7 +141,7 @@ func TestParseTokenRejectsInvalidIssuerOrSecret(t *testing.T) {
 	}
 
 	otherSecretMgr, err := NewManager(Config{
-		Secret: "secret-2",
+		Secret: "test-jwt-secret-two-0123456789abcdef0123",
 		Issuer: "issuer-1",
 	})
 	if err != nil {

@@ -310,12 +310,13 @@ func RunServer(ctx context.Context, cfg *config.Config, appLogger zerolog.Logger
 	presenceManager := presence.NewManager(redisClient, appLogger, userSvc)
 
 	userHandler := handlers.NewUserHandler(appLogger, userSvc, presenceManager, contactSvc, handlers.UserHandlerOptions{
-		Commerce: commerceSvc,
-		Limits:   rateLimitSvc,
-		Metrics:  counterStore,
+		Commerce:        commerceSvc,
+		Limits:          rateLimitSvc,
+		Metrics:         counterStore,
+		RefreshSessions: refreshSessionSvc,
 	})
 	pushHandler := handlers.NewPushHandler(appLogger, userSvc)
-	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, mailSvc, rateLimitSvc, counterStore)
+	commercialHandler := handlers.NewCommercialHandler(appLogger, userSvc, commerceSvc, verificationCodeSvc, mailSvc, rateLimitSvc, counterStore, refreshSessionSvc)
 	// 组织归属从已认证主体派生（复用组织服务的成员关系查询），
 	// 绝不采信客户端传入的 X-Organization-ID。返回 0 表示该用户尚无组织，
 	// 组织级端点（org billing）会以 400 拒绝。

@@ -210,6 +210,9 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 	if rec.Header().Get("Strict-Transport-Security") == "" {
 		t.Fatal("expected HSTS for HTTPS request")
 	}
+	if got := rec.Header().Get("Permissions-Policy"); got != "camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()" {
+		t.Fatalf("unexpected permissions policy: %q", got)
+	}
 }
 
 func TestRequestLoggerPropagatesRequestIDToContextAndHeader(t *testing.T) {

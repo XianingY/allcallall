@@ -16,6 +16,11 @@ useDefault = true
 description = "Template/example files contain only placeholders, never real credentials."
 regexTarget = "match"
 regexes = [
+  # Dummy JWT secrets in Go unit tests. auth.NewManager enforces a 32-byte
+  # minimum, so test literals must be long enough to trip the generic-api-key
+  # entropy heuristic; they are fixed, clearly test-prefixed, and never
+  # credentials. Real secrets pasted into tests will not match this shape.
+  '''test-(jwt|top|grpc)-secret-[a-z0-9-]+''',
   # Kubernetes Secret *key name*, not the credential value. The private key
   # itself remains external to the chart and is injected via secretKeyRef.
   '''mcp-capability-ed25519-private-key''',

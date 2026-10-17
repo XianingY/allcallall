@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -34,6 +35,14 @@ const (
 	// defaultTokenTTL 是刷新令牌的默认有效期（7 天）。
 	// defaultTokenTTL is the default refresh-token lifetime (7 days).
 	defaultTokenTTL = 7 * 24 * time.Hour
+
+	// minSecretLength 是 HS256 签名密钥的最小长度（字节）。
+	// HS256 可被离线爆破：任何人拿到若干签名令牌样本，就能在本地
+	// 用字典/穷举恢复短密钥，随后伪造任意用户的 access 与 refresh 令牌，
+	// 等同于完全的认证绕过。JWT_SECRET 生成方式见
+	// docs/reference/security/deployment-security.md（32+ 字节随机值）。
+	// 在启动时拒绝，而不是在事后审计里发现。
+	minSecretLength = 32
 )
 
 // Config JWT 配置
@@ -50,6 +59,9 @@ type Config struct {
 func NewManager(cfg Config) (*Manager, error) {
 	if cfg.Secret == "" {
 		return nil, errors.New("jwt secret must not be empty")
+	}
+	if len(cfg.Secret) < minSecretLength {
+		return nil, fmt.Errorf("jwt secret must be at least %d bytes (got %d); generate one with `openssl rand -base64 32`", minSecretLength, len(cfg.Secret))
 	}
 	if cfg.AccessTokenTTL <= 0 {
 		cfg.AccessTokenTTL = time.Hour

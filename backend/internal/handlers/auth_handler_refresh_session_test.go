@@ -39,7 +39,7 @@ func TestAuthHandlerRefreshRotatesServerSideSession(t *testing.T) {
 	}
 
 	jwtManager, err := auth.NewManager(auth.Config{
-		Secret:          "secret",
+		Secret:          "test-jwt-secret-0123456789abcdef0123",
 		Issuer:          "allcallall",
 		AccessTokenTTL:  time.Hour,
 		RefreshTokenTTL: time.Hour,
@@ -99,7 +99,7 @@ func TestAuthHandlerLogoutAllRevokesUserSessions(t *testing.T) {
 	}
 
 	jwtManager, err := auth.NewManager(auth.Config{
-		Secret:          "secret",
+		Secret:          "test-jwt-secret-0123456789abcdef0123",
 		Issuer:          "allcallall",
 		AccessTokenTTL:  time.Hour,
 		RefreshTokenTTL: time.Hour,
@@ -164,7 +164,7 @@ func TestAuthHandlerListSessionsReturnsRedactedCurrentSession(t *testing.T) {
 	}
 
 	jwtManager, err := auth.NewManager(auth.Config{
-		Secret:          "secret",
+		Secret:          "test-jwt-secret-0123456789abcdef0123",
 		Issuer:          "allcallall",
 		AccessTokenTTL:  time.Hour,
 		RefreshTokenTTL: time.Hour,
@@ -242,7 +242,7 @@ func TestAuthHandlerRevokeSessionRejectsCurrentAndRevokesOther(t *testing.T) {
 	}
 
 	jwtManager, err := auth.NewManager(auth.Config{
-		Secret:          "secret",
+		Secret:          "test-jwt-secret-0123456789abcdef0123",
 		Issuer:          "allcallall",
 		AccessTokenTTL:  time.Hour,
 		RefreshTokenTTL: time.Hour,

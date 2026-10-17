@@ -2,6 +2,9 @@ package mail
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -33,11 +36,17 @@ const (
 // VerificationCodeService handles email verification code operations
 type VerificationCodeService struct {
 	db            *gorm.DB
-	mailService   *Service
+	mailService   verificationCodeSender
 	codeLength    int
 	validityTime  time.Duration
 	maxRetries    int
 	blockDuration time.Duration
+}
+
+// verificationCodeSender 是验证码发送的最小接口。生产实现是 *Service；
+// 同包测试注入捕获明文的 stub，验证 DB 中只落哈希。
+type verificationCodeSender interface {
+	SendVerificationCode(email, code string) error
 }
 
 // NewVerificationCodeService 创建验证码服务
@@ -88,11 +97,11 @@ func (s *VerificationCodeService) GenerateAndSendForPurpose(email string, purpos
 		return fmt.Errorf("delete old codes: %w", err)
 	}
 
-	// 4. 创建新验证码记录
+	// 4. 创建新验证码记录（DB 只落 SHA-256，明文只进邮件正文）
 	now := time.Now()
 	verification := &models.EmailVerificationCode{
 		Email:        email,
-		Code:         code,
+		Code:         verificationCodeDigest(code),
 		Purpose:      purpose,
 		ExpiresAt:    now.Add(s.validityTime),
 		MaxAttempts:  s.maxRetries,
@@ -149,8 +158,8 @@ func (s *VerificationCodeService) VerifyForPurpose(email, inputCode string, purp
 		}
 	}
 
-	// 验证码匹配
-	if verification.Code != inputCode {
+	// 验证码匹配：恒时比较，泄露前缀进度的短路比较不可接受。
+	if !verificationCodeMatches(verification.Code, inputCode) {
 		verification.AttemptCount++
 		now := time.Now()
 		verification.LastAttemptAt = &now
@@ -238,13 +247,38 @@ func (s *VerificationCodeService) ConsumeVerifiedPurpose(email string, purpose s
 func (s *VerificationCodeService) generateRandomCode(length int) (string, error) {
 	const digits = "0123456789"
 	b := make([]byte, length)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
 	for i := 0; i < length; i++ {
-		b[i] = digits[int(b[i])%len(digits)]
+		// 256 % 10 = 6：直接取模会让 0-5 比 6-9 更常出现。拒绝采样
+		// 消除分布偏置——验证码是安全凭据，随机性不应有可预测偏差。
+		for {
+			if _, err := rand.Read(b[i : i+1]); err != nil {
+				return "", err
+			}
+			if int(b[i]) < 250 {
+				b[i] = digits[int(b[i])%len(digits)]
+				break
+			}
+		}
 	}
 	return string(b), nil
+}
+
+// verificationCodeDigest 返回验证码的 SHA-256 hex。
+func verificationCodeDigest(code string) string {
+	sum := sha256.Sum256([]byte(code))
+	return hex.EncodeToString(sum[:])
+}
+
+// verificationCodeMatches 恒时比较输入验证码与存储值。
+//
+// 存储值有两种形态：64 字符 hex（新写入）与 6 位明文（历史行，
+// AutoMigrate 扩列后仍留在表里）。旧行做兼容明文比较，避免部署窗口
+// 内已发出的验证码被升级作废；长度是唯一区分依据。
+func verificationCodeMatches(stored, input string) bool {
+	if len(stored) == sha256.Size*2 {
+		return subtle.ConstantTimeCompare([]byte(stored), []byte(verificationCodeDigest(input))) == 1
+	}
+	return subtle.ConstantTimeCompare([]byte(stored), []byte(input)) == 1
 }
 
 // 检查邮箱是否被封禁

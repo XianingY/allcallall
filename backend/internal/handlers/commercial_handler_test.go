@@ -19,7 +19,7 @@ import (
 
 func TestCommercialHandlerReportValidation(t *testing.T) {
 	env := newHandlerTestEnv(t)
-	handler := NewCommercialHandler(env.logger, env.userSvc, commerce.NewService(env.db), env.verifySvc, nil, nil, nil)
+	handler := NewCommercialHandler(env.logger, env.userSvc, commerce.NewService(env.db), env.verifySvc, nil, nil, nil, nil)
 	router := newRouterWithClaims(&auth.Claims{UserID: 7, Email: "reporter@example.com"}, handler.RegisterProtectedRoutes)
 
 	rec := performRequest(t, router, "POST", "/api/v1/users/reports", []byte(`{"reported_user_id":11,"category":"not_valid","details":"bad actor"}`))
@@ -39,7 +39,7 @@ func TestCommercialHandlerReportValidation(t *testing.T) {
 func TestCommercialHandlerRevenueCatWebhookAuth(t *testing.T) {
 	t.Run("missing webhook token configuration", func(t *testing.T) {
 		env := newHandlerTestEnv(t)
-		handler := NewCommercialHandler(env.logger, env.userSvc, nil, env.verifySvc, nil, nil, nil)
+		handler := NewCommercialHandler(env.logger, env.userSvc, nil, env.verifySvc, nil, nil, nil, nil)
 		router := newRouterWithClaims(nil, handler.RegisterPublicRoutes)
 		t.Setenv("REVENUECAT_WEBHOOK_AUTH_TOKEN", "")
 
@@ -55,7 +55,7 @@ func TestCommercialHandlerRevenueCatWebhookAuth(t *testing.T) {
 
 	t.Run("wrong bearer token", func(t *testing.T) {
 		env := newHandlerTestEnv(t)
-		handler := NewCommercialHandler(env.logger, env.userSvc, nil, env.verifySvc, nil, nil, nil)
+		handler := NewCommercialHandler(env.logger, env.userSvc, nil, env.verifySvc, nil, nil, nil, nil)
 		router := newRouterWithClaims(nil, handler.RegisterPublicRoutes)
 		t.Setenv("REVENUECAT_WEBHOOK_AUTH_TOKEN", "expected-secret")
 
@@ -73,7 +73,7 @@ func TestCommercialHandlerRevenueCatWebhookAuth(t *testing.T) {
 func TestCommercialHandlerSupportTokenGuard(t *testing.T) {
 	t.Run("support token missing", func(t *testing.T) {
 		env := newHandlerTestEnv(t)
-		handler := NewCommercialHandler(env.logger, env.userSvc, nil, env.verifySvc, nil, nil, nil)
+		handler := NewCommercialHandler(env.logger, env.userSvc, nil, env.verifySvc, nil, nil, nil, nil)
 		router := newRouterWithClaims(nil, handler.RegisterInternalRoutes)
 		t.Setenv("SUPPORT_API_TOKEN", "")
 		// Opt out of the internal-network restriction so the token guard (not the
@@ -92,7 +92,7 @@ func TestCommercialHandlerSupportTokenGuard(t *testing.T) {
 
 	t.Run("support token invalid", func(t *testing.T) {
 		env := newHandlerTestEnv(t)
-		handler := NewCommercialHandler(env.logger, env.userSvc, nil, env.verifySvc, nil, nil, nil)
+		handler := NewCommercialHandler(env.logger, env.userSvc, nil, env.verifySvc, nil, nil, nil, nil)
 		router := newRouterWithClaims(nil, handler.RegisterInternalRoutes)
 		t.Setenv("SUPPORT_API_TOKEN", "support-secret")
 		t.Setenv("SUPPORT_INTERNAL_ONLY", "false")
@@ -128,7 +128,7 @@ func TestCommercialHandlerSupportRevokesRefreshSessions(t *testing.T) {
 
 	t.Setenv("SUPPORT_API_TOKEN", "support-secret")
 	t.Setenv("SUPPORT_INTERNAL_ONLY", "false")
-	handler := NewCommercialHandler(zerolog.Nop(), nil, commerce.NewService(db), nil, nil, nil, nil)
+	handler := NewCommercialHandler(zerolog.Nop(), nil, commerce.NewService(db), nil, nil, nil, nil, nil)
 	router := newRouterWithClaims(nil, func(group *gin.RouterGroup) {
 		handler.RegisterInternalRoutes(group)
 	})
@@ -176,7 +176,7 @@ func TestCommercialHandlerSupportRevokesRefreshSessions(t *testing.T) {
 func TestSupportNetworkGuard(t *testing.T) {
 	supportRouter := func() *gin.Engine {
 		env := newHandlerTestEnv(t)
-		handler := NewCommercialHandler(env.logger, env.userSvc, nil, env.verifySvc, nil, nil, nil)
+		handler := NewCommercialHandler(env.logger, env.userSvc, nil, env.verifySvc, nil, nil, nil, nil)
 		router := gin.New()
 		handler.RegisterInternalRoutes(router.Group("/api/v1"))
 		return router

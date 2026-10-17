@@ -18,6 +18,29 @@ type Service struct {
 	pushDevicesEnabled bool
 }
 
+// bcryptCompareHashAndPassword 是可替换的 bcrypt 比较函数；测试用它验证
+// 未知邮箱路径确实执行了同等强度的密码学工作。
+var bcryptCompareHashAndPassword = bcrypt.CompareHashAndPassword
+
+// dummyPasswordHash 在包初始化时生成一次，用于登录时序等化。
+var dummyPasswordHash = func() []byte {
+	// 内容无关紧要，只要是一个合法、成本正常的 bcrypt 哈希。
+	hash, err := bcrypt.GenerateFromPassword([]byte("timing-equalization-dummy-password"), bcrypt.DefaultCost)
+	if err != nil {
+		panic("user: generate dummy password hash: " + err.Error())
+	}
+	return hash
+}()
+
+// burnLoginPasswordWorkload 对未知邮箱执行与真实路径相同的 bcrypt 比较。
+//
+// Authenticate 在邮箱不存在时原本直接返回，跳过了 bcrypt（几十毫秒），
+// 而存在真实账号时必须执行——远程攻击者可通过响应时间差异批量枚举
+// 已注册邮箱。无论查询结果如何都做一次 bcrypt，把侧信道关掉。
+func burnLoginPasswordWorkload(password string) {
+	_ = bcryptCompareHashAndPassword(dummyPasswordHash, []byte(password))
+}
+
 type ServiceOption func(*Service)
 
 func WithPushDeviceSupport() ServiceOption {
@@ -99,6 +122,7 @@ func (s *Service) Authenticate(ctx context.Context, in LoginInput) (*models.User
 	user, err := s.repo.FindByEmail(ctx, strings.TrimSpace(strings.ToLower(in.Email)))
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
+			burnLoginPasswordWorkload(in.Password)
 			return nil, ErrInvalidCredentials
 		}
 		return nil, err

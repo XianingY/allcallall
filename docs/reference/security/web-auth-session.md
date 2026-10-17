@@ -47,6 +47,20 @@ Expired sessions are cleaned by the backend worker:
 - `REFRESH_SESSION_CLEANUP_INTERVAL_MIN`: cleanup interval in minutes. Default: `1440`.
 - `REFRESH_SESSION_REVOKED_RETENTION_DAYS`: how long revoked sessions are retained for support/debugging before deletion. Default: `7`.
 
+## Password changes revoke sessions
+
+Changing the password (authenticated) and completing a code-based password reset
+both revoke every active refresh session for the user, including the current
+device. A password rotation must fence out an attacker who already holds a
+refresh cookie; otherwise account recovery has no effect on the intruder. The
+next request on any revoked cookie fails and clears it, forcing a fresh login
+with the new password.
+
+Verification codes (register / password reset / account deletion) are stored in
+the database as SHA-256 hashes and compared in constant time; the plaintext code
+exists only in the email body. Rows written before this change keep working via
+a legacy plaintext comparison until they are consumed or expire.
+
 Remaining production hardening items:
 
 - Add external suspicious-session alert delivery.
