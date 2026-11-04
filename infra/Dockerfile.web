@@ -1,4 +1,4 @@
-FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS build
+FROM node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS build
 
 WORKDIR /src
 COPY package.json package-lock.json ./
@@ -20,7 +20,7 @@ ARG VITE_APP_VERSION=production
 ENV VITE_APP_VERSION=${VITE_APP_VERSION}
 RUN npm run build --workspace=web
 
-FROM nginx:1.31-alpine@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2
+FROM nginx:1.31-alpine@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606
 RUN apk upgrade --no-cache
 COPY infra/nginx.tls.conf /etc/nginx/conf.d/default.conf
 COPY infra/web-runtime-config.sh /docker-entrypoint.d/40-allcallall-config.sh
