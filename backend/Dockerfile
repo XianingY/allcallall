@@ -1,4 +1,4 @@
-FROM golang:1.27-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS build
+FROM golang:1.27-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS build
 
 ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=${GOPROXY}
@@ -30,7 +30,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -ldflags='-w -s' -o /out/migrate ./cmd/migrate && \
     go build -ldflags='-w -s' -o /out/interview-seed ./cmd/interview-seed
 
-FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
 RUN apk upgrade --no-cache && \
     apk add --no-cache ca-certificates ffmpeg
